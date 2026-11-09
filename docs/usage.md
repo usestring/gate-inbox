@@ -587,6 +587,12 @@ In triage `→` on a finished session opens the next item; every other prompt-ed
 
 ## Key hints
 
+The board footer distinguishes `tab` (next session needing you), `ctrl+↑` / `ctrl+↓`
+(previous or next pane in list order), and `i` (triage or back to groups). On a
+narrow terminal, use `?` to see hints that don't fit. The hints follow your bindings.
+Inside a pane, the focus border names the session receiving input, even if the sidebar or
+footer is hidden. When `ctrl+q` advances the queue, the hint says “skip to next.”
+
 The legend under the list is reference material, and once you know the keys it is room the list could have had. By default it follows the terminal: the legend drops to one row on a short window and off a very short one. Settings (`s`) has a `key hints` row to take that decision off the terminal — `always` keeps the full legend at any height, while `never` drops it at any height. `?` shows the available keys while held and closes on release. Terminals without key-release reporting use a timeout: 500 ms after a tap, or 140 ms after the last repeat while held. `h` opens the whole key map and keeps it open for searching and rebinding, as does Settings' `keys` row.
 
 ## Stats

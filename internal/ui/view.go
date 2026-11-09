@@ -533,6 +533,8 @@ func padToHeight(s string, height int) string {
 	return s
 }
 
+const leaveAdvanceLabel = "skip to next"
+
 // viewFooter is the app's legend: the row tier, then the snippets tier,
 // then the peek key. A transient mode (hotkey menu, rename, resize) owns the legend
 // alone while it is up.
@@ -603,16 +605,12 @@ func (m *Model) viewFooter() string {
 		// the one exit a user does not have to be told about. Help names it.
 		exits := [][2]string{{m.capJoinFull(keymap.ContextFocus, " / ", keymap.Leave, keymap.LeaveHard), "back to manager"}}
 		if m.advancesOnLeave() {
-			// It is also the only place the walk is named at all for
-			// somebody driving it from the setting rather than from a
-			// queue they armed: an advance nothing announces reads as the
-			// manager losing the operator's place. See leaveadvance.go.
 			out := "back to manager"
 			if m.triage {
 				out = "stop triage"
 			}
 			exits = [][2]string{
-				{m.capJoinFull(keymap.ContextFocus, " / ", keymap.Leave, keymap.HandOver), m.leaveAdvanceHint()},
+				{m.capJoinFull(keymap.ContextFocus, " / ", keymap.Leave, keymap.HandOver), leaveAdvanceLabel},
 				{m.fullCap(keymap.ContextFocus, keymap.LeaveHard), out},
 			}
 		}
@@ -647,7 +645,17 @@ func (m *Model) viewFooter() string {
 			// uses on purpose and somebody eventually hits by accident.
 			[2]string{m.fullCap(keymap.ContextFocus, keymap.Archive), "kill"},
 		)
-		return m.transientFooter(legendSection{title: "Focused", pairs: pairs})
+		if hint := m.paneNavigationHint(false); hint[0] != "" {
+			pairs = append(pairs, hint)
+		}
+		if rows := m.legendRows(); rows > 0 {
+			// The extra navigation hint can be clipped; focusing a pane must
+			// not make the footer taller than the board it replaced.
+			height := lipgloss.Height(m.listFooter())
+			section := legendSection{title: "Focused", pairs: pairs}
+			return padToHeight(legendBar([]legendSection{section}, m.width, min(rows, height)), height)
+		}
+		return ""
 	}
 	return m.listFooter()
 }
@@ -702,6 +710,7 @@ func (m *Model) defaultRowLegend() legendSection {
 			action = "unfold"
 		}
 		pairs := [][2]string{{openKey, action}}
+		pairs = append(pairs, m.boardNavigationHints(false)...)
 		if m.applies(keymap.ContextList, keymap.Archive, row) {
 			if key := m.capJoin(keymap.ContextList, "/", keymap.Archive, keymap.ArchiveAll); key != "" {
 				text := "kill"
@@ -714,13 +723,17 @@ func (m *Model) defaultRowLegend() legendSection {
 		return legendSection{title: "Group", pairs: pairs}
 	}
 
-	attachKey := m.tightCap(keymap.ContextList, keymap.Attach)
+	otherKey := m.tightCap(keymap.ContextList, keymap.Attach)
+	enterFocuses := m.enterFocuses()
 	enterHint, attachHint := "focus", "attach"
-	if !m.enterFocuses() {
+	if !enterFocuses {
 		enterHint, attachHint = "attach", "focus"
-		attachKey = openKey
 	}
 	if row.sess.Archived {
+		attachKey := otherKey
+		if !enterFocuses {
+			attachKey = openKey
+		}
 		return legendSection{title: "Session", pairs: [][2]string{
 			{attachKey, "attach"},
 			{m.tightCap(keymap.ContextList, keymap.Restore), "restore to focus"},
@@ -728,20 +741,17 @@ func (m *Model) defaultRowLegend() legendSection {
 	}
 
 	title := "Session"
-	// Priority leads the toolbar: it is the one key that reorders the
-	// queue, and the footer names what the next press sets.
-	var pairs [][2]string
-	if key := m.tightCap(keymap.ContextList, keymap.Priority); key != "" {
-		pairs = append(pairs, [2]string{key, priorityLegend(row.sess.Priority)})
+	pairs := [][2]string{{openKey, enterHint}}
+	if otherKey != "" {
+		pairs = append(pairs, [2]string{otherKey, attachHint})
 	}
-	pairs = append(pairs,
-		[2]string{openKey, enterHint}, [2]string{m.tightCap(keymap.ContextList, keymap.Attach), attachHint})
-	// Last pane rides the core row rather than the cut-first tail: it is
-	// the way back to the session just left, and a key nobody sees is a
-	// key nobody presses.
 	if key := m.tightCap(keymap.ContextList, keymap.LastPane); key != "" {
 		pairs = append(pairs, [2]string{key, "last pane"})
 	}
+	// The row clips from the end. Keep ways into and between panes before
+	// row actions, and keep skip ahead of priority when a session needs you.
+	pairs = append(pairs, m.boardNavigationHints(false)...)
+
 	if m.applies(keymap.ContextList, keymap.QuickInput, row) {
 		if key := m.tightCap(keymap.ContextList, keymap.QuickInput); key != "" {
 			pairs = append(pairs, [2]string{key, "hotkeys"})
@@ -753,6 +763,9 @@ func (m *Model) defaultRowLegend() legendSection {
 		if key := m.tightCap(keymap.ContextList, keymap.Dismiss); key != "" {
 			pairs = append(pairs, [2]string{key, "skip"})
 		}
+	}
+	if key := m.tightCap(keymap.ContextList, keymap.Priority); key != "" {
+		pairs = append(pairs, [2]string{key, priorityLegend(row.sess.Priority)})
 	}
 	if m.applies(keymap.ContextList, keymap.Rescind, row) {
 		if key := m.tightCap(keymap.ContextList, keymap.Rescind); key != "" {
@@ -766,9 +779,7 @@ func (m *Model) defaultRowLegend() legendSection {
 		pairs = append(pairs, [2]string{key, "kill"})
 	}
 	// The rest of the daily loop rides the same row: starting, finding,
-	// and the palette that runs everything without a key. The row holds
-	// one terminal line, so a narrow window cuts from this end first and
-	// the pairs above always survive.
+	// and the palette that runs everything without a key.
 	for _, extra := range []struct {
 		action keymap.Action
 		text   string
@@ -784,6 +795,72 @@ func (m *Model) defaultRowLegend() legendSection {
 		}
 	}
 	return legendSection{title: title, pairs: pairs}
+}
+
+// boardNavigationHints uses short labels on the one-line footer and spells
+// them out in the peek legend.
+func (m *Model) boardNavigationHints(detailed bool) [][2]string {
+	if m.showArchived {
+		return nil
+	}
+	list := keymap.ContextList
+	var hints [][2]string
+	if key := m.tightCap(list, keymap.JumpAttention); key != "" {
+		label := "needs you"
+		if detailed {
+			label = "next needing you"
+		}
+		hints = append(hints, [2]string{key, label})
+	}
+	if key := m.tightCap(list, keymap.Triage); key != "" {
+		label := "triage"
+		if m.triage {
+			label = "groups"
+			if detailed {
+				label = "back to groups"
+				if m.triageScope != "" {
+					label += " (triage: " + baseName(m.triageScope) + ")"
+				}
+			}
+		} else if detailed {
+			label = "start triage"
+		}
+		hints = append(hints, [2]string{key, label})
+	}
+	if hint := m.paneNavigationHint(!detailed); hint[0] != "" {
+		hints = append(hints, hint)
+	}
+	return hints
+}
+
+// Pane stepping uses the global list bindings even while the pane is focused.
+func (m *Model) paneNavigationHint(compact bool) [2]string {
+	list := keymap.ContextList
+	prev, next := m.fullCap(list, keymap.PreviousPane), m.fullCap(list, keymap.NextPane)
+	key, label := "", ""
+	switch {
+	case prev != "" && next != "":
+		label = "prev/next pane"
+		if compact {
+			label = "panes"
+		}
+		// Abbreviate arrow pairs; keep arbitrary rebound chords distinct.
+		if strings.HasSuffix(prev, "↑") && strings.HasSuffix(next, "↓") {
+			key = keymap.DisplayPair(prev, next)
+		} else if compact {
+			return [2]string{keymap.Compact(prev) + "/" + keymap.Compact(next), label}
+		} else {
+			key = prev + "/" + next
+		}
+	case prev != "":
+		key, label = prev, "prev pane"
+	case next != "":
+		key, label = next, "next pane"
+	}
+	if compact {
+		key = keymap.Compact(key)
+	}
+	return [2]string{key, label}
 }
 
 func (m *Model) peekLegendSections() []legendSection {
@@ -899,6 +976,7 @@ func (m *Model) viewLegend() legendSection {
 	row := m.currentLegendRow()
 	list := keymap.ContextList
 	pairs := [][2]string{{m.navCap(list), "navigate"}}
+	pairs = append(pairs, m.boardNavigationHints(true)...)
 	for _, candidate := range []struct {
 		action keymap.Action
 		text   string
@@ -907,7 +985,7 @@ func (m *Model) viewLegend() legendSection {
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
 		{keymap.ArchivedView, "archived"}, {keymap.RestoreAll, "restore all"}, {keymap.UnmuteAll, "unmute all"},
-		{keymap.StatusFilter, "attention"}, {keymap.ToolFilter, "CLI"}, {keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"}, {keymap.RecentSort, "recent first"},
+		{keymap.StatusFilter, "attention"}, {keymap.ToolFilter, "CLI"}, {keymap.EmptyGroups, "hide empty"}, {keymap.RecentSort, "recent first"},
 		{keymap.Help, "full key map"}, {keymap.Quit, "quit"},
 		{keymap.FoldAll, "fold all"}, {keymap.Resize, "resize"}, {keymap.Settings, "settings"},
 	} {
@@ -933,13 +1011,6 @@ func (m *Model) viewLegend() legendSection {
 		case keymap.ToolFilter:
 			if m.toolFilterActive() {
 				text = "show all"
-			}
-		case keymap.Triage:
-			if m.triage {
-				text = "back to groups"
-				if m.triageScope != "" {
-					text = "triage: " + baseName(m.triageScope)
-				}
 			}
 		case keymap.EmptyGroups:
 			if m.hideEmptyGroups {

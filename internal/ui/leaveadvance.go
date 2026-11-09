@@ -49,9 +49,3 @@ func normalizeLeaveMode(chosen string) string {
 func (m *Model) advancesOnLeave() bool {
 	return m.triage || m.leaveMode == leaveToNext
 }
-
-// leaveAdvanceHint is what the focused footer calls ctrl+q when it does not
-// merely return.
-func (m *Model) leaveAdvanceHint() string {
-	return "skip"
-}

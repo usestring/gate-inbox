@@ -1676,33 +1676,44 @@ func (m *Model) contentLines(width, height int) []contentLine {
 // notice card is not. corner closes it on the ring's right upright, which is
 // only drawn once there is a pane box for the uprights to run down.
 func (m *Model) focusRuleTail(width int, corner bool) string {
-	focus := keymap.ContextFocus
-	title := " focused · "
-	if key := m.fullCap(focus, keymap.Leave); key != "" {
-		title += key + " back · "
-	}
-	// A page scrolls with its own keys, which the footer names.
-	if key := m.pairCap(focus, keymap.PreviewUp, keymap.PreviewDown); key != "" && m.mode != modeHeadPane {
-		title += key + " scroll "
-	}
-	if m.scrolledBack() && m.mode != modeHeadPane {
-		catchUp := "type"
-		if key := m.fullCap(focus, keymap.PreviewDown); key != "" {
-			catchUp = key + " or type"
-		}
-		title = fmt.Sprintf(" focused · %d lines back · %s to catch up ", m.focusScroll, catchUp)
-	}
 	edge := 0
 	if corner {
 		edge = 1
 	}
-	rest := width - edge - lipgloss.Width(title)
-	if rest < 0 {
-		// Narrower than the words: the ring still has to close, or its right
-		// upright runs down from nothing, so the rule drops the title rather
-		// than truncating the corner off the end of it.
-		title, rest = "", width-edge
+	const focused = " focused"
+	const separator = " · "
+	room := max(0, width-edge-1) // leave a space after the title
+	titleRoom := room
+	primary, secondary := m.focusRuleHints()
+	// Reserve the essential hint before shortening the session name.
+	if cells := textfmt.Width(separator + primary); primary != "" && room-cells >= len(focused) {
+		titleRoom -= cells
+	} else {
+		primary = ""
 	}
+
+	title := focused
+	if sess, ok := m.selected(); m.mode == modeFocus && ok {
+		name := textfmt.OneLine(cleanText(m.displayName(sess)))
+		if name != "" {
+			prefix := focused + ": "
+			if titleRoom-len(prefix) < min(8, textfmt.Width(name)) {
+				prefix = " "
+			}
+			title = prefix + name
+		}
+	}
+	title = textfmt.TruncateWidth(title, titleRoom, "…")
+	if primary != "" {
+		title += separator + primary
+	}
+	if secondary != "" && textfmt.Width(title+separator+secondary) <= room {
+		title += separator + secondary
+	}
+	if title != "" {
+		title += " "
+	}
+	rest := width - edge - textfmt.Width(title)
 	rule := annotationStyle.Render(title)
 	if rest > 0 {
 		rule += focusEdgeStyle.Render(strings.Repeat("─", rest))
@@ -1711,6 +1722,38 @@ func (m *Model) focusRuleTail(width int, corner bool) string {
 		rule += focusEdgeStyle.Render("╮")
 	}
 	return rule
+}
+
+func (m *Model) focusRuleHints() (primary, secondary string) {
+	focus := keymap.ContextFocus
+	if m.scrolledBack() && m.mode != modeHeadPane {
+		catchUp := "type"
+		if key := m.fullCap(focus, keymap.PreviewDown); key != "" {
+			catchUp = key + " or type"
+		}
+		return fmt.Sprintf("%d lines back", m.focusScroll), catchUp + " to catch up"
+	}
+
+	leave, label := m.fullCap(focus, keymap.Leave), "back"
+	if m.mode == modeFocus && m.advancesOnLeave() {
+		label = leaveAdvanceLabel
+		if leave == "" {
+			leave = m.fullCap(focus, keymap.HandOver)
+		}
+	}
+	if leave == "" {
+		leave, label = m.fullCap(focus, keymap.LeaveHard), "back"
+	}
+	if leave != "" {
+		primary = leave + " " + label
+	}
+	// An extension page scrolls with its own keys.
+	if m.mode != modeHeadPane {
+		if key := m.pairCap(focus, keymap.PreviewUp, keymap.PreviewDown); key != "" {
+			secondary = key + " scroll"
+		}
+	}
+	return primary, secondary
 }
 
 var startupFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}

@@ -155,3 +155,20 @@ func (t scopedTracer) scope(attrs []slog.Attr) []slog.Attr {
 // "session" namespace, so an extension that does the same joins them. Empty
 // stays empty.
 func KeyedID(namespace, value string) string { return tracing.KeyedID(namespace, value) }
+
+// HashPath is a path as the board's spans send it: "pa:" for an absolute path
+// or "pr:" for a relative one, then each segment as the first 8 hex
+// characters of HMAC-SHA256 of the path up to it, under the install key,
+// joined with "/". Paths that share a prefix share their leading hashes, so
+// they still group, and nothing else about them can be read. Empty stays
+// empty.
+func HashPath(path string) string { return tracing.HashPath(path) }
+
+// HidePaths is text as the board's spans send it: HashPath of it when it is
+// a path and nothing else, otherwise the text with each path found inside it
+// -- absolute, home-relative, ./ or ../, a drive letter, a UNC share, a
+// file:// URL, or this machine's home, working directory or repository --
+// replaced in place by its hash. An extension that sends anything elsewhere
+// passes its strings through this, so nothing it sends names a place on the
+// disk and its paths join the board's.
+func HidePaths(text string) string { return tracing.HidePaths(text) }

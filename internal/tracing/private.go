@@ -15,8 +15,9 @@ import (
 // A span leaves the machine, and a trace dataset is shared. So what a span
 // says about where it ran is filtered here, on the exporter's goroutine,
 // rather than trusted to every call site: a session id, an account, a tmux
-// socket go out as keyed ids, a directory not at all, and an error's text
-// with its URLs, addresses and paths blanked.
+// socket go out as keyed ids, a directory not at all, an error's text with
+// its URLs and addresses blanked, and every path anywhere hashed segment by
+// segment (paths.go).
 //
 // A keyed id is the first 16 hex characters of HMAC-SHA256 under this
 // install's key, which is kept beside the config with mode 0600 and never
@@ -48,10 +49,15 @@ var dropped = map[string]bool{"dir": true, "host.name": true}
 // socketPrefix is an attribute family keyed by socket name.
 const socketPrefix = "capture.failed."
 
-// privatize is attrs as they may leave the machine.
+// privatize is attrs as they may leave the machine: keyed, dropped, and with
+// every path in a value hashed (paths.go). A key holding a path is dropped
+// with its value: there is no telling what it was meant to say.
 func privatize(attrs []Attr) []Attr {
 	out := make([]Attr, 0, len(attrs))
 	for _, a := range attrs {
+		if hashPathsIn(a.Key) != a.Key {
+			continue
+		}
 		switch {
 		case dropped[a.Key]:
 			continue
@@ -62,6 +68,7 @@ func privatize(attrs []Attr) []Attr {
 		case strings.HasPrefix(a.Key, socketPrefix):
 			a.Key = socketPrefix + KeyedID("tmux_socket", strings.TrimPrefix(a.Key, socketPrefix))
 		}
+		a.Value = privateValue(a.Value)
 		out = append(out, a)
 	}
 	return out
@@ -70,15 +77,14 @@ func privatize(attrs []Attr) []Attr {
 var (
 	urlPattern   = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^\s"'<>]+`)
 	emailPattern = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
-	pathPattern  = regexp.MustCompile(`(^|[\s"'=(:,])(~?/[^\s"'),]+|[A-Za-z]:\\[^\s"'),]+)`)
 )
 
 // scrubMessage is an error's text with what would name a machine, a person
 // or a place blanked; what failed and why stays readable.
 func scrubMessage(msg string) string {
+	msg = hashPathsIn(msg)
 	msg = urlPattern.ReplaceAllString(msg, "<url>")
 	msg = emailPattern.ReplaceAllString(msg, "<email>")
-	msg = pathPattern.ReplaceAllString(msg, "$1<path>")
 	if host := machineName(); host != "" {
 		msg = strings.ReplaceAll(msg, host, "<host>")
 	}

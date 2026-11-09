@@ -82,7 +82,7 @@ func modelsFor(name string, spec config.Tool, filter string) string {
 	source := ""
 	switch {
 	case spec.ModelsCommand != "":
-		out, err := runModelsCommand(spec.ModelsCommand)
+		out, err := runModelsCommand(name, spec.ModelsCommand)
 		if err != nil {
 			return fmt.Sprintf("%s: %q failed: %v\n", name, spec.ModelsCommand, err)
 		}
@@ -128,13 +128,12 @@ func matching(names []string, filter string) []string {
 	return kept
 }
 
-func runModelsCommand(command string) (names string, err error) {
+func runModelsCommand(tool, command string) (names string, err error) {
 	// A shell, and for some CLIs a network call behind it, with a caller
-	// blocked on the answer before it can spawn anything. The command comes
-	// from the config rather than from anyone's keyboard, so naming it on the
-	// span is safe and is the only way to tell one tool's listing from
-	// another's.
-	defer start("sessioncmd.models", tracing.Attr{Key: "command", Value: command}).done(&err)
+	// blocked on the answer before it can spawn anything. The span names the
+	// tool rather than the command: a command is often a path to a binary,
+	// and the tool is what tells one listing from another.
+	defer start("sessioncmd.models", tracing.Attr{Key: "tool", Value: tool}).done(&err)
 	ctx, cancel := context.WithTimeout(context.Background(), modelsTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "sh", "-c", command).Output()

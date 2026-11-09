@@ -58,7 +58,7 @@ func TestSpansAndTheResourceCarryNothingPrivate(t *testing.T) {
 	if !strings.Contains(out, KeyedID("session", session)) || !strings.Contains(out, `"status"`) {
 		t.Errorf("the keyed session id or a harmless attribute went missing: %s", out)
 	}
-	if !strings.Contains(out, "denied by <url>") || !strings.Contains(out, "open <path>") {
+	if !strings.Contains(out, "denied by <url>") || !strings.Contains(out, "open "+HashPath(dir+"/x")) {
 		t.Errorf("the error lost what failed and why: %s", out)
 	}
 }

@@ -1465,12 +1465,8 @@ func (p *poller) startCaptureIfIdle(sessions []store.Session, panes map[string]i
 }
 
 // captureAgentSessionIDs binds each not-yet-captured id-minting session to
-// the conversation its CLI wrote, returning how many it bound. Sessions are
-// processed in launch order so the earliest one claims
-// the earliest unclaimed conversation in its directory; a later session
-// started in the same directory then skips that one via claimed and captures
-// its own. Launch times carry nanosecond precision, so sessions launched a
-// moment apart in the same directory still order deterministically.
+// the conversation its CLI wrote, returning how many it bound. Codex requires
+// prompt or pane evidence; tools using time-based capture run in launch order.
 func (p *poller) captureAgentSessionIDs(sessions []store.Session, panes map[string]int) (int, error) {
 	claimed := make(map[string]bool, len(sessions))
 	for _, sess := range sessions {

@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -76,6 +77,13 @@ type Span struct {
 	traceID  string
 	spanID   string
 	parentID string
+	links    []Link
+}
+
+// Link points a span at a span of another trace that it follows from.
+type Link struct {
+	TraceID string
+	SpanID  string
 }
 
 // Trace is a root span and the children collected under it, emitted
@@ -136,6 +144,85 @@ func Record(name string, start, end time.Time, err error, attrs ...Attr) {
 	identify(spans)
 	spans[0].Attrs = append(spans[0].Attrs, why...)
 	tracer.enqueue(spans)
+}
+
+// Placed is a span whose caller chose where it goes: its trace, its own id,
+// its parent and its links, any of which may be left blank.
+type Placed struct {
+	Span
+	TraceID  string
+	SpanID   string
+	ParentID string
+	Links    []Link
+}
+
+// alwaysKept is why placed spans are sent: they come a few a minute from a
+// whole board, so sampling them would save nothing and lose the run somebody
+// is looking for.
+var alwaysKept = []Attr{{Key: "sample.reason", Value: "always"}, {Key: "sample.rate", Value: 1}}
+
+// RecordPlaced emits spans that were measured elsewhere and arrive already
+// finished, such as calls an extension read from a transcript. They are not
+// sampled: they are few, and one trace can arrive in several units over time,
+// which a coin tossed per unit would tear apart. A blank TraceID takes the
+// first span's, and a blank SpanID is minted; an id that is not well-formed
+// is treated as blank rather than sent, since a backend would drop the span
+// or file it under a trace nobody can find. It returns whether the spans were
+// sent, and their ids in order.
+func RecordPlaced(placed []Placed) (bool, []Placed) {
+	out := slices.Clone(placed)
+	tracer := live.Load()
+	if tracer == nil || len(out) == 0 {
+		return false, out
+	}
+	trace := out[0].TraceID
+	if !validID(trace, 32) {
+		trace = newTraceID()
+	}
+	spans := make([]Span, len(out))
+	for i := range out {
+		p := &out[i]
+		if !validID(p.TraceID, 32) {
+			p.TraceID = trace
+		}
+		if !validID(p.SpanID, 16) {
+			p.SpanID = newSpanID()
+		}
+		if !validID(p.ParentID, 16) {
+			p.ParentID = ""
+		}
+		var links []Link
+		for _, l := range p.Links {
+			if validID(l.TraceID, 32) && validID(l.SpanID, 16) {
+				links = append(links, l)
+			}
+		}
+		p.Links = links
+		spans[i] = p.Span
+		spans[i].traceID, spans[i].spanID, spans[i].parentID, spans[i].links = p.TraceID, p.SpanID, p.ParentID, links
+	}
+	spans[0].Attrs = append(slices.Clone(spans[0].Attrs), alwaysKept...)
+	tracer.enqueue(spans)
+	return true, out
+}
+
+// validID is a lowercase hex id of n characters that is not all zeros,
+// which OTLP reserves for "no id".
+func validID(id string, n int) bool {
+	if len(id) != n {
+		return false
+	}
+	zero := true
+	for _, r := range id {
+		switch {
+		case r == '0':
+		case r >= '1' && r <= '9', r >= 'a' && r <= 'f':
+			zero = false
+		default:
+			return false
+		}
+	}
+	return !zero
 }
 
 // identify hands out ids, after the sampler has decided the spans are worth

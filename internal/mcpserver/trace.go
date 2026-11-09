@@ -28,7 +28,8 @@ import (
 // what this adds is the boundary -- what the agent asked for, and how long it
 // waited for an answer.
 //
-// The tool's name goes on the span; its arguments never do. They are the
+// The tool goes on the span as a keyed id (the exporter keys tool.id), so
+// which tools an install uses stays its own; its arguments never go. They are the
 // prompts, messages and commands agents send each other, and this leaves the
 // machine.
 func traceTools(next mcp.MethodHandler) mcp.MethodHandler {
@@ -48,7 +49,7 @@ func traceTools(next mcp.MethodHandler) mcp.MethodHandler {
 		// having never failed at anything.
 		called, _ := result.(*mcp.CallToolResult)
 		tracing.Record("mcp.tool", started, time.Now(), err,
-			tracing.Attr{Key: "tool", Value: params.Name},
+			tracing.Attr{Key: "tool.id", Value: params.Name},
 			tracing.Attr{Key: "session", Value: callerOf(ctx)},
 			tracing.Attr{Key: "failed", Value: err != nil || (called != nil && called.IsError)})
 		return result, err

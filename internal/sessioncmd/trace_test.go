@@ -6,6 +6,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/tracetest"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 // A spawn is the most expensive thing an agent can ask this package for, and
@@ -24,13 +25,13 @@ func TestASpawnIsRecordedWithItsToolAndItsResult(t *testing.T) {
 	recorded := spans()
 
 	span := tracetest.One(t, recorded, "sessioncmd.create")
-	if span.Attr("session") != h.caller.ID {
+	if span.Attr("session") != tracing.KeyedID("session", h.caller.ID) {
 		t.Errorf("session = %v, want the calling session %s", span.Attr("session"), h.caller.ID)
 	}
 	if span.Attr("tool") != "echoer" {
 		t.Errorf("tool = %v, want echoer", span.Attr("tool"))
 	}
-	if span.Attr("created") != created.ID {
+	if span.Attr("created") != tracing.KeyedID("session", created.ID) {
 		t.Errorf("created = %v, want the new session %s", span.Attr("created"), created.ID)
 	}
 	if span.Failed {
@@ -93,7 +94,7 @@ func TestASendReportsTheSizeAndNotTheMessage(t *testing.T) {
 	recorded := spans()
 
 	span := tracetest.One(t, recorded, "sessioncmd.send")
-	if span.Attr("session") != target.ID {
+	if span.Attr("session") != tracing.KeyedID("session", target.ID) {
 		t.Errorf("session = %v, want the target %s", span.Attr("session"), target.ID)
 	}
 	if span.Attr("message.bytes") != int64(len(message)) {
@@ -120,7 +121,7 @@ func TestAKillIsRecordedAgainstTheSessionItEnded(t *testing.T) {
 	recorded := spans()
 
 	span := tracetest.One(t, recorded, "sessioncmd.kill")
-	if span.Attr("session") != target.ID {
+	if span.Attr("session") != tracing.KeyedID("session", target.ID) {
 		t.Errorf("session = %v, want the killed session %s", span.Attr("session"), target.ID)
 	}
 	if span.Failed {

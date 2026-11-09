@@ -108,3 +108,13 @@ func TestSampleOneKeepsEverything(t *testing.T) {
 		}
 	}
 }
+
+// A pass that was quick overall keeps the one slow call inside it, and the
+// pass comes along with it.
+func TestASlowChildKeepsItsTrace(t *testing.T) {
+	t.Setenv(SampleEnv, "1000000")
+	kept, why := keep([]Span{span(time.Millisecond, nil), span(slowEnough, nil)})
+	if !kept || reason(why) != "slow" {
+		t.Fatalf("kept=%v reason=%q", kept, reason(why))
+	}
+}

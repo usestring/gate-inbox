@@ -7,6 +7,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/tracetest"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 // This server runs in its own process, one per agent session, so nothing the
@@ -22,10 +23,10 @@ func TestEveryToolCallIsRecordedAgainstItsSession(t *testing.T) {
 	recorded := spans()
 
 	span := tracetest.One(t, recorded, "mcp.tool")
-	if span.Attr("tool") != "list_sessions" {
-		t.Errorf("tool = %v, want list_sessions", span.Attr("tool"))
+	if span.Attr("tool.id") != tracing.KeyedID("tool", "list_sessions") {
+		t.Errorf("tool.id = %v, want list_sessions as a keyed id", span.Attr("tool.id"))
 	}
-	if span.Attr("session") != "abc123" {
+	if span.Attr("session") != tracing.KeyedID("session", "abc123") {
 		t.Errorf("session = %v, want the session this server was started as", span.Attr("session"))
 	}
 	if span.Attr("failed") != false {
@@ -95,7 +96,7 @@ func TestOnlyToolCallsAreRecorded(t *testing.T) {
 	// listing: the listing is a protocol message, not something an agent
 	// waited on a session command for.
 	span := tracetest.One(t, recorded, "mcp.tool")
-	if span.Attr("tool") != "list_sessions" {
-		t.Errorf("the recorded call is %v, want the only tool call made", span.Attr("tool"))
+	if span.Attr("tool.id") != tracing.KeyedID("tool", "list_sessions") {
+		t.Errorf("the recorded call is %v, want the only tool call made", span.Attr("tool.id"))
 	}
 }

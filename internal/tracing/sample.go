@@ -24,11 +24,12 @@ const (
 	// soak wants and what a shared board should never be left on.
 	SampleEnv = "GATE_INBOX_TRACE_SAMPLE"
 
-	// baselineRate is that N. Fifty keeps the rate and percentile questions
-	// answerable -- a pass happens about twice a second, so this is still a
-	// sample every half minute from every board -- while dropping 98% of the
-	// spans that would only have confirmed things were fine.
-	baselineRate = 50
+	// baselineRate is that N. A pass happens about twice a second, so ten
+	// keeps one ordinary pass about every five seconds from every board:
+	// enough that rates and percentiles hold up for a single board over a
+	// short window, while still dropping 90% of the spans that would only
+	// have confirmed things were fine.
+	baselineRate = 10
 
 	// slowEnough is the line above which a span is kept whatever the sampler
 	// says. A quarter of a second is about where a person stops experiencing
@@ -38,10 +39,14 @@ const (
 
 // keep decides whether these spans are worth the wire, and says why.
 //
-// The reason travels with them: a dataset that has dropped 98% of its ordinary
+// The reason travels with them: a dataset that has dropped 90% of its ordinary
 // traffic will otherwise be counted as if it were all of it, and every rate
-// read off it will be wrong by a factor of fifty. Summing sample.rate rather
+// read off it will be wrong by a factor of ten. Summing sample.rate rather
 // than counting rows is what makes the arithmetic come out.
+//
+// Every span is looked at, not only the root: a pass that was quick overall
+// can hold the one slow tmux call somebody is looking for, and keeping the
+// whole trace brings its context along.
 func keep(spans []Span) (bool, []Attr) {
 	if len(spans) > 0 && strings.HasPrefix(spans[0].Name, "account.") {
 		return true, []Attr{{Key: "sample.reason", Value: "accounting"}, {Key: "sample.rate", Value: 1}}
@@ -51,8 +56,10 @@ func keep(spans []Span) (bool, []Attr) {
 			return true, []Attr{{Key: "sample.reason", Value: "error"}, {Key: "sample.rate", Value: 1}}
 		}
 	}
-	if len(spans) > 0 && spans[0].End.Sub(spans[0].Start) >= slowEnough {
-		return true, []Attr{{Key: "sample.reason", Value: "slow"}, {Key: "sample.rate", Value: 1}}
+	for _, span := range spans {
+		if span.End.Sub(span.Start) >= slowEnough {
+			return true, []Attr{{Key: "sample.reason", Value: "slow"}, {Key: "sample.rate", Value: 1}}
+		}
 	}
 	rate := baselineSample()
 	if rate <= 1 {

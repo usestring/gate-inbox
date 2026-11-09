@@ -174,25 +174,24 @@ func preToolUseCommand() string {
 // block, so the matcher names the two that do.
 const blockingNotifications = "permission_prompt|elicitation_dialog"
 
-// limitStopFailure is the StopFailure error type that means the account
-// hit a usage or rate limit. The pane also classifies those as errored;
-// the hook write covers the turn before the banner is visible.
-const limitStopFailure = "rate_limit"
+// These names distinguish Claude authentication failures in the existing
+// status log, without copying the API error text into it.
+const (
+	ClaudeSignInRequired       = "ClaudeSignInRequired"
+	ClaudeAuthenticationFailed = "ClaudeAuthenticationFailed"
+)
 
-// stopFailureCommand reports how a turn that died on an API error ended.
-//
-// Every error type ends the turn, and Stop does not fire for any of them, so
-// a hook that only listened for the limit left every other failure -- an
-// overloaded API, a server error, a request the API refused -- reading
-// working from the last tool call until something else happened, which
-// nothing would. A limit is errored, because recovering from it is the
-// board's job; any other failure is a turn that ended and needs a person,
-// which is what finished says. One command reads the type off the payload,
-// for the reason preToolUseCommand does: two matchers on one event run in
-// parallel, and their lines would land in either order.
+// Stop does not fire on API errors. Write one outcome for every StopFailure;
+// overlapping hook matchers would run in parallel and race to report it.
 func stopFailureCommand() string {
-	return statusFileVar + `[ -z "$f" ] || { if grep -q '"` + limitStopFailure + `"'; then ` +
-		appendEvent(status.Errored, "StopFailure") + `; else ` + appendEvent(status.Finished, "StopFailure") + `; fi; }`
+	return statusFileVar + `[ -z "$f" ] || { input=$(cat); ` +
+		`if printf '%s\n' "$input" | grep -Eq '"error"[[:space:]]*:[[:space:]]*"authentication_failed"'; then ` +
+		`if printf '%s\n' "$input" | grep -Eq '"last_assistant_message"[[:space:]]*:[[:space:]]*"(Not logged in|Login expired)[^"]* /login"'; then ` +
+		appendEvent(status.Errored, ClaudeSignInRequired) + `; else ` +
+		appendEvent(status.Errored, ClaudeAuthenticationFailed) + `; fi; ` +
+		`elif printf '%s\n' "$input" | grep -Eq '"error"[[:space:]]*:[[:space:]]*"rate_limit"'; then ` +
+		appendEvent(status.Errored, "StopFailure") + `; else ` +
+		appendEvent(status.Finished, "StopFailure") + `; fi; }`
 }
 
 // sessionEndCommand clears the status file and prunes the repository's
@@ -556,15 +555,20 @@ func parseEvent(line string) (Event, bool) {
 // of slack rather than a guess at one.
 const statusTailBytes = 256
 
-// Read returns the hook-reported status for a session: the newest event in
-// its log.
+// Read returns the hook-reported status for a session.
+func (m *Manager) Read(id string) (string, bool) {
+	ev, ok := m.ReadEvent(id)
+	return ev.State, ok
+}
+
+// ReadEvent returns the newest event in a session's hook log.
 //
 // Only the tail is read. The log grows by a line per tool call for as long as
 // the session runs, and this runs on every poll for every session.
-func (m *Manager) Read(id string) (string, bool) {
+func (m *Manager) ReadEvent(id string) (Event, bool) {
 	raw, start, ok := readLog(id, m.StatusFile(id), func(size int64) int64 { return size - statusTailBytes })
 	if !ok {
-		return "", false
+		return Event{}, false
 	}
 	if start > 0 {
 		// The first line is cut short; drop it.
@@ -577,16 +581,10 @@ func (m *Manager) Read(id string) (string, bool) {
 		if strings.TrimSpace(lines[i]) == "" {
 			continue
 		}
-		ev, ok := parseEvent(lines[i])
-		if !ok {
-			// The newest line decides. An unreadable one is a write this
-			// package does not recognise, and reaching past it would report
-			// an event that is no longer the newest.
-			return "", false
-		}
-		return ev.State, true
+		// An unreadable newest event still supersedes every older event.
+		return parseEvent(lines[i])
 	}
-	return "", false
+	return Event{}, false
 }
 
 // Events returns the events a session's hooks have logged since offset, and

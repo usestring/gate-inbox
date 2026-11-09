@@ -36,3 +36,13 @@ condition = "AND"
 targetRules = ["generic-api-key"]
 commits = ["9aec9032e69089d20e2008a83dfaa0b7c302fb2c"]
 paths = ['''^internal/ui/jevkey_test\.go$''']
+
+# The caller-identity test first spelled its made-up token as random-looking
+# hex. A later commit renamed it to a plain fake value; this entry covers the
+# one commit that still carries the old spelling.
+[[allowlists]]
+description = "internal/mcpserver caller test: fake caller token value"
+condition = "AND"
+targetRules = ["generic-api-key"]
+commits = ["4ee48bfb42744ee28663a5ec413a2c2d4ed02c03"]
+paths = ['''^internal/mcpserver/caller_test\.go$''']

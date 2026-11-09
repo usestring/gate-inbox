@@ -496,7 +496,7 @@ type HogRule struct {
 }
 
 // ClaudeCode configures what the board keeps in the operator's own Claude Code
-// config, as opposed to the per-session config a launch passes.
+// config, and which MCP server the per-session config a launch passes names.
 type ClaudeCode struct {
 	// Setup keeps Gate Inbox's hooks and MCP relay registered in the Claude
 	// Code user config, which is what gives a claude started outside the
@@ -504,10 +504,20 @@ type ClaudeCode struct {
 	// means on: nobody has to find a command to get it. false takes the
 	// entries back out.
 	Setup *bool `toml:"setup"`
+	// SharedMCP points every claude the board launches at one shared Gate
+	// Inbox MCP server (`gate-inbox mcp-serve`) instead of starting a
+	// server process per session, which on a large board is the bulk of
+	// the helpers' memory. Absent means off for now: an extension built
+	// against an older Gate Inbox reads its session from its registration,
+	// which in the shared server names none.
+	SharedMCP *bool `toml:"shared_mcp"`
 }
 
 // SetupOn reports whether the board keeps its Claude Code entries registered.
 func (c ClaudeCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
+// SharedMCPOn reports whether launched claudes use the shared MCP server.
+func (c ClaudeCode) SharedMCPOn() bool { return c.SharedMCP != nil && *c.SharedMCP }
 
 // Codex configures what the board keeps in the operator's own Codex config.
 type Codex struct {
@@ -1307,6 +1317,11 @@ const defaultConfig = `poll_interval = "2s"
 # and so does switching "claude code setup" off in Settings.
 # [claude_code]
 # setup = true
+#
+# true has every claude the board launches reach the board's tools through
+# one shared server, gate-inbox mcp-serve, which the board starts, instead
+# of a server process of its own.
+# shared_mcp = false
 
 # Your own Codex config. While the board runs, on a machine with codex
 # installed, it keeps two hook entries (UserPromptSubmit and Stop) in

@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mcpshared"
 )
 
 // process is a worker that is a `gate-inbox mcp` child.
@@ -100,18 +100,18 @@ func Serve(in io.Reader, out io.Writer, configDir, bin, version string) error {
 	if !launched {
 		manager.Announce(os.Getenv("TMUX"), os.Getenv("TMUX_PANE"), os.Getppid())
 	}
-	stamp := binaryStamp(bin)
+	stamp := mcpshared.BinaryStamp(bin)
 	relay := Relay{
 		In:      in,
 		Out:     out,
 		Version: version,
 		Caller:  claudeCaller(manager, launched),
 		Start: func(id string) (Worker, error) {
-			stamp = binaryStamp(bin)
+			stamp = mcpshared.BinaryStamp(bin)
 			return StartProcess(bin, configDir, id)
 		},
 		Upgraded: func() bool {
-			now := binaryStamp(bin)
+			now := mcpshared.BinaryStamp(bin)
 			return now != "" && now != stamp
 		},
 	}
@@ -131,13 +131,4 @@ func claudeCaller(manager *hooks.Manager, launched bool) func() (string, bool) {
 			return adopt.Ancestors(int32(os.Getpid()))
 		})
 	}
-}
-
-// binaryStamp changes when the installed binary is replaced.
-func binaryStamp(bin string) string {
-	info, err := os.Stat(bin)
-	if err != nil {
-		return ""
-	}
-	return info.ModTime().String() + "/" + strconv.FormatInt(info.Size(), 10)
 }

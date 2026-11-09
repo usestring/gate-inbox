@@ -75,16 +75,18 @@ func Resolve(toolName, explicit string) (string, error) {
 // asked to run on, for the tool whose generated config is the only place it
 // can be named; every other style leaves it to the command line.
 func Apply(style, exe, hooksDir, command string, env map[string]string, model string) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, "", false, true)
+	return apply(style, exe, hooksDir, command, env, model, "", "", false, true)
 }
 
 // ApplyProfile is Apply registering a server that serves only profile's
 // tools; "" is every tool, as Apply. skip turns the session's permission
 // prompts off through the config the style generates, which only the opencode
 // style has; any other style refuses it rather than launch with the prompts
-// the operator turned off.
-func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, model, profile string, skip bool) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, profile, skip, true)
+// the operator turned off. sharedConfig, when set, is the config a launch
+// wrote pointing a claude session at the shared server (mcpshared) instead
+// of a server of its own.
+func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedConfig string, skip bool) (string, error) {
+	return apply(style, exe, hooksDir, command, env, model, profile, sharedConfig, skip, true)
 }
 
 // Preview is Apply without the side effects: the same command and the same
@@ -96,15 +98,15 @@ func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, m
 // avoid doing -- and it fails on a machine where those paths are not writable,
 // which is exactly when somebody is reading a dry run.
 func Preview(style, exe, hooksDir, command string, env map[string]string, model string) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, "", false, false)
+	return apply(style, exe, hooksDir, command, env, model, "", "", false, false)
 }
 
 // PreviewProfile is Preview for ApplyProfile.
-func PreviewProfile(style, exe, hooksDir, command string, env map[string]string, model, profile string, skip bool) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, profile, skip, false)
+func PreviewProfile(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedConfig string, skip bool) (string, error) {
+	return apply(style, exe, hooksDir, command, env, model, profile, sharedConfig, skip, false)
 }
 
-func apply(style, exe, hooksDir, command string, env map[string]string, model, profile string, skip, write bool) (string, error) {
+func apply(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedConfig string, skip, write bool) (string, error) {
 	config := func(name string, content []byte) (string, error) {
 		if !write {
 			return filepath.Join(hooksDir, hooks.GeneratedName(name, content)), nil
@@ -119,9 +121,12 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model, p
 		// The server stays out of the Gate Inbox plugin: a plugin's server
 		// tools are named mcp__plugin_gate-inbox_<server>__*, which no rule
 		// naming mcp__gate-inbox__* matches.
-		path, err := config(generatedPrefix+"mcp-claude.json", claudeConfig(exe, profile))
-		if err != nil {
-			return "", err
+		path := sharedConfig
+		if path == "" {
+			var err error
+			if path, err = config(generatedPrefix+"mcp-claude.json", claudeConfig(exe, profile)); err != nil {
+				return "", err
+			}
 		}
 		steering, err := config(claudeSteeringFile, []byte(claudeSteering))
 		if err != nil {

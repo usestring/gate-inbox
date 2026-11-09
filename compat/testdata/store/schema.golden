@@ -68,6 +68,8 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
    4 note                         TEXT     notnull=1 default='' pk=0
    5 acquired_at                  INTEGER  notnull=1 default=0 pk=0
    6 expires_at                   INTEGER  notnull=1 default=0 pk=0
+   7 resolved_path                TEXT     notnull=1 default='' pk=0
+   8 match_glob                   TEXT     notnull=1 default='' pk=0
   index file_reservations_holder unique=1 origin=c partial=0 (session_id, pattern)
   index file_reservations_live unique=0 origin=c partial=0 (expires_at)
   index sqlite_autoindex_file_reservations_1 unique=1 origin=pk partial=0 (id)

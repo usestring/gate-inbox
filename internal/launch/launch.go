@@ -20,7 +20,9 @@ import (
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
@@ -620,6 +622,50 @@ func Compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	return compose(manager, toolName, tool, baseCommand, id, model, account, skip, contributed, "", false)
 }
 
+// sharedServer is the config a launch points its claude session at to reach
+// the shared MCP server (mcpshared), or "" for a server of the session's own.
+// Only claude takes one, and only with the operator's shared_mcp on. A
+// server that does not answer in time, or a config that cannot be written,
+// is no reason to fail or hold up the launch: the session gets its own
+// server, as it always did. A plan composed without side effects starts and
+// writes nothing, and names the config a launch would.
+func sharedServer(configDir, style, profile, id string, write bool) string {
+	if style != "claude" {
+		return ""
+	}
+	cfg, err := config.LoadDir(configDir)
+	if err != nil || !cfg.ClaudeCode.SharedMCPOn() {
+		return ""
+	}
+	if !write {
+		if mcpshared.URL(configDir) == "" {
+			return ""
+		}
+		return mcpshared.ClaudeConfigPath(configDir, id)
+	}
+	url, err := ensureShared(configDir)
+	path := ""
+	if err == nil {
+		path, err = mcpshared.WriteClaudeConfig(configDir, url, profile, id)
+	}
+	if err != nil {
+		logging.Warn("shared MCP server unavailable; the session gets its own", logging.Err(err))
+		return ""
+	}
+	return path
+}
+
+// sharedWait is how long a launch waits for the shared server. The board
+// starts it when it starts, so a launch normally finds it answering at once;
+// one that does not gets a server of its own rather than a slow start.
+const sharedWait = time.Second
+
+// ensureShared starts the shared server for configDir, or finds it running;
+// tests replace it so no launch of theirs starts one.
+var ensureShared = func(configDir string) (string, error) {
+	return mcpshared.Ensure(configDir, Executable(), sharedWait)
+}
+
 // resolveAccount reads an account's token, replaced in tests so a launch
 // plan never reaches a real secret store.
 var resolveAccount = accounts.Resolve
@@ -671,6 +717,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		// it would otherwise pass on.
 		env[tool.AccountEnv] = ""
 	}
+	sharedConfig := sharedServer(manager.ConfigDir(), style, profile, id, write)
 	register := mcpreg.PreviewProfile
 	if write {
 		register = mcpreg.ApplyProfile
@@ -680,7 +727,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 			return "", nil, err
 		}
 	}
-	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model), profile, skip && SkipPermissionsRidesConfig(toolName, tool))
+	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model), profile, sharedConfig, skip && SkipPermissionsRidesConfig(toolName, tool))
 	if err != nil {
 		return "", nil, err
 	}

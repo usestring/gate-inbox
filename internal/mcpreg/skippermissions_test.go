@@ -17,7 +17,7 @@ import (
 func TestApplyOpencodeSkipLoadsTheAllowPlugin(t *testing.T) {
 	dir := t.TempDir()
 	env := map[string]string{hooks.EnvSessionID: "abcd1234"}
-	command, err := ApplyProfile("opencode", "/opt/bin/gate-inbox", dir, "opencode", env, "", "", true)
+	command, err := ApplyProfile("opencode", "/opt/bin/gate-inbox", dir, "opencode", env, "", "", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestApplyOpencodeSkipLoadsTheAllowPlugin(t *testing.T) {
 		t.Fatalf("plugin does not allow through the evaluate hook:\n%s", index)
 	}
 	// A second launch finds the plugin already written and leaves it be.
-	if _, err := ApplyProfile("opencode", "/opt/bin/gate-inbox", dir, "opencode", map[string]string{hooks.EnvSessionID: "ef567890"}, "", "", true); err != nil {
+	if _, err := ApplyProfile("opencode", "/opt/bin/gate-inbox", dir, "opencode", map[string]string{hooks.EnvSessionID: "ef567890"}, "", "", "", true); err != nil {
 		t.Fatalf("second launch: %v", err)
 	}
 }
@@ -64,7 +64,7 @@ func TestApplyOpencodeSkipLoadsTheAllowPlugin(t *testing.T) {
 func TestApplyOpencodeWithoutSkipLoadsNoPlugin(t *testing.T) {
 	dir := t.TempDir()
 	env := map[string]string{hooks.EnvSessionID: "abcd1234"}
-	if _, err := ApplyProfile("opencode", "/opt/bin/gate-inbox", dir, "opencode", env, "", "", false); err != nil {
+	if _, err := ApplyProfile("opencode", "/opt/bin/gate-inbox", dir, "opencode", env, "", "", "", false); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(env["OPENCODE_CONFIG"])
@@ -82,7 +82,7 @@ func TestApplyOpencodeWithoutSkipLoadsNoPlugin(t *testing.T) {
 func TestPreviewOpencodeSkipWritesNothing(t *testing.T) {
 	dir := t.TempDir()
 	env := map[string]string{hooks.EnvSessionID: "abcd1234"}
-	if _, err := PreviewProfile("opencode", "/opt/bin/gate-inbox", dir, "opencode", env, "", "", true); err != nil {
+	if _, err := PreviewProfile("opencode", "/opt/bin/gate-inbox", dir, "opencode", env, "", "", "", true); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env["OPENCODE_CONFIG"], "gate-inbox-mcp-opencode-abcd1234-") {
@@ -97,7 +97,7 @@ func TestPreviewOpencodeSkipWritesNothing(t *testing.T) {
 // other style refuses rather than launch with the prompts still on.
 func TestApplySkipIsRefusedForAStyleWithoutTheConfig(t *testing.T) {
 	for _, style := range []string{"claude", "codex", StyleNone} {
-		_, err := ApplyProfile(style, "/opt/bin/gate-inbox", t.TempDir(), style, map[string]string{hooks.EnvSessionID: "abcd1234"}, "", "", true)
+		_, err := ApplyProfile(style, "/opt/bin/gate-inbox", t.TempDir(), style, map[string]string{hooks.EnvSessionID: "abcd1234"}, "", "", "", true)
 		if err == nil || !strings.Contains(err.Error(), "permission prompts") {
 			t.Errorf("%s: err = %v, want a refusal", style, err)
 		}

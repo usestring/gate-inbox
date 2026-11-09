@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/shirou/gopsutil/v4/process"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
@@ -218,7 +219,7 @@ func (r *runtime) stopCaller(id string) (store.Session, error) {
 	if err != nil {
 		return store.Session{}, err
 	}
-	sharedOpencode, err := sharedOpencodeAncestor()
+	sharedOpencode, err := r.sharedOpencodeAncestor()
 	if err != nil {
 		return store.Session{}, err
 	}
@@ -329,11 +330,14 @@ func sharedCodexAncestor() (bool, error) {
 	return false, nil
 }
 
-// sharedOpencodeAncestor reports whether the caller runs under OpenCode's
-// shared background service. That service owns every plain opencode session
-// on the box, so a shell it runs for one is no descendant of the client in
-// the pane and paneAncestor cannot name the row.
-func sharedOpencodeAncestor() (bool, error) {
+// sharedOpencodeAncestor reports whether the caller runs under a shared
+// opencode server: OpenCode's own background service, which owns every plain
+// opencode session on the box, or the board's shared server, which owns every
+// session the board launched onto it. Either way a shell it runs for a
+// session is no descendant of the client in the pane, so paneAncestor cannot
+// name the row.
+func (r *runtime) sharedOpencodeAncestor() (bool, error) {
+	board := opencode.SharedServerPID(r.configDir)
 	ancestors, err := callerAncestors()
 	if err != nil {
 		return false, err
@@ -350,7 +354,7 @@ func sharedOpencodeAncestor() (bool, error) {
 		if len(argv) < 2 || filepath.Base(argv[0]) != "opencode" || argv[1] != "serve" {
 			continue
 		}
-		if slices.Contains(argv[2:], "--service") {
+		if slices.Contains(argv[2:], "--service") || board > 0 && pid == board {
 			return true, nil
 		}
 	}

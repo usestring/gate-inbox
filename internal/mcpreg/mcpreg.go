@@ -149,42 +149,69 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model, p
 		}
 		return command, nil
 	case "opencode":
-		plugin := ""
-		if skip {
-			var err error
-			if plugin, err = skipPermissionsPlugin(hooksDir, write); err != nil {
-				return "", err
-			}
-		}
-		name, content := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, "", profile, "")
-		if model != "" || skip {
-			// v2's TUI has no model flag; the config's model key is where a
-			// chosen model goes, and its plugins list is where the session's
-			// skip permissions go, so a session on either gets a config of
-			// its own.
-			name, content = generatedPrefix+"mcp-opencode-"+env[hooks.EnvSessionID]+".json", opencodeConfig(exe, model, profile, plugin)
-		}
-		path, err := config(name, content)
-		if err != nil {
-			return "", err
-		}
-		env["OPENCODE_CONFIG"] = path
-		// v2 runs every session against one background service per user,
-		// started by whichever opencode ran first and living on from there.
-		// That service reads its own environment, not the client's: the
-		// config this launch points at is ignored, and the MCP server it
-		// spawns resolves {env:GATE_INBOX_SESSION_ID} to the id of the
-		// session that happened to start it, so every session's rename lands
-		// on that one row. A private server per session is what makes the
-		// generated config, and this session's identity, reach the agent.
-		command += " --standalone"
-		opencodeMemoryEnv(env)
-		return command, nil
+		return opencodeCommand(exe, hooksDir, command, env, model, profile, skip, write, config)
 	case StyleNone:
 		return command, nil
 	default:
 		return applyDriver(style, exe, hooksDir, command, env, model, write)
 	}
+}
+
+// opencodeCommand is apply for the opencode style; config writes (or, in a
+// preview, only names) a generated file.
+func opencodeCommand(exe, hooksDir, command string, env map[string]string, model, profile string, skip, write bool, config func(name string, content []byte) (string, error)) (string, error) {
+	plugin := ""
+	if skip {
+		var err error
+		if plugin, err = skipPermissionsPlugin(hooksDir, write); err != nil {
+			return "", err
+		}
+	}
+	shared, sharedContent := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, "", profile, "")
+	name, content := shared, sharedContent
+	if model != "" || skip {
+		// v2's TUI has no model flag; the config's model key is where a
+		// chosen model goes, and its plugins list is where the session's
+		// skip permissions go, so a session on either gets a config of
+		// its own.
+		name, content = generatedPrefix+"mcp-opencode-"+env[hooks.EnvSessionID]+".json", opencodeConfig(exe, model, profile, plugin)
+	}
+	path, err := config(name, content)
+	if err != nil {
+		return "", err
+	}
+	env["OPENCODE_CONFIG"] = path
+	// v2 runs every session against one background service per user,
+	// started by whichever opencode ran first and living on from there.
+	// That service reads its own environment, not the client's: the
+	// config this launch points at is ignored, and the MCP server it
+	// spawns resolves {env:GATE_INBOX_SESSION_ID} to the id of the
+	// session that happened to start it, so every session's rename lands
+	// on that one row. A private server per session is what makes the
+	// generated config, and this session's identity, reach the agent.
+	//
+	// A private server costs a session about 300 MB, so the pane runs
+	// the opencode-attach verb first, which attaches it to the board's
+	// one shared server instead when [opencode] server allows, and falls
+	// back to --standalone itself otherwise. The shared server serves
+	// every tool, so a session restricted to a profile keeps a private
+	// one: no --server-config is what tells the verb so.
+	opencodeMemoryEnv(env)
+	attach := tmux.ShellQuote(exe) + " " + OpencodeAttachVerb
+	if model != "" {
+		attach += " --model " + tmux.ShellQuote(model)
+	}
+	if skip {
+		attach += " --auto"
+	}
+	if profile == "" {
+		sharedPath, err := config(shared, sharedContent)
+		if err != nil {
+			return "", err
+		}
+		attach += " --server-config " + tmux.ShellQuote(sharedPath)
+	}
+	return attach + " -- " + command, nil
 }
 
 // applyDriver hands the launch to the extension driver answering style. A
@@ -328,6 +355,10 @@ This session is managed by Gate Inbox, which lists it under a short name. After 
 // writeConfig writes content under a name stamped with it (see
 // hooks.GeneratedName), so a launcher running another build never rewrites
 // the file this build's sessions read.
+// OpencodeAttachVerb is the gate-inbox verb a launched opencode pane runs
+// to reach its server; see the opencode style in apply.
+const OpencodeAttachVerb = "opencode-attach"
+
 func writeConfig(dir, name string, content []byte) (string, error) {
 	return hooks.WriteGenerated(dir, name, content)
 }

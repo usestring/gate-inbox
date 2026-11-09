@@ -3,13 +3,17 @@ package sessioncmd
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/opencode"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -247,6 +251,75 @@ func TestOpencodeMarkerTargetRefusesWithoutAUsableMarker(t *testing.T) {
 		writeStopMarker(t, h, "bound001", "echoer", stopConversation)
 		if _, err := runtime.opencodeMarkerTarget(); !errors.Is(err, ErrUnmanagedCaller) {
 			t.Fatalf("foreign marker: %v", err)
+		}
+	})
+}
+
+// A session the board launched onto its shared opencode server has no
+// adoption marker; the binding its launch wrote stands in for one, but only
+// for the row the shell's environment names, for that row's own
+// conversation, in that row's own pane.
+func TestOpencodeMarkerTargetTakesALaunchedSessionsBinding(t *testing.T) {
+	bind := func(t *testing.T, h *sessionHarness, conversation, row string) {
+		t.Helper()
+		if err := parentseal.BindAgentSession(h.sessions.configDir, conversation, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("bound row in its own pane", func(t *testing.T) {
+		h, runtime := newOpencodeStopRuntime(t)
+		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, stopPane, "working", false)
+		bind(t, h, stopConversation, "0c0de001")
+		t.Setenv(hooks.EnvSessionID, "0c0de001")
+		target, err := runtime.opencodeMarkerTarget()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if target.ID != "0c0de001" {
+			t.Fatalf("target = %+v", target)
+		}
+	})
+	// A binding file binds only with the row's caller token, which takes the
+	// board's key to mint: one written by anything else names no row.
+	t.Run("binding without the row's token", func(t *testing.T) {
+		h, runtime := newOpencodeStopRuntime(t)
+		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, stopPane, "working", false)
+		dir := opencode.BindingsDir(h.sessions.configDir)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, stopConversation), []byte("0c0de001 forged\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(hooks.EnvSessionID, "0c0de001")
+		if _, err := runtime.opencodeMarkerTarget(); !errors.Is(err, ErrUnmanagedCaller) {
+			t.Fatalf("forged binding: %v", err)
+		}
+	})
+	t.Run("binding names another row", func(t *testing.T) {
+		h, runtime := newOpencodeStopRuntime(t)
+		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, stopPane, "working", false)
+		bind(t, h, stopConversation, "other001")
+		t.Setenv(hooks.EnvSessionID, "0c0de001")
+		if _, err := runtime.opencodeMarkerTarget(); !errors.Is(err, ErrUnmanagedCaller) {
+			t.Fatalf("mismatched binding: %v", err)
+		}
+	})
+	t.Run("row in another pane", func(t *testing.T) {
+		h, runtime := newOpencodeStopRuntime(t)
+		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, "%9", "working", false)
+		bind(t, h, stopConversation, "0c0de001")
+		t.Setenv(hooks.EnvSessionID, "0c0de001")
+		if _, err := runtime.opencodeMarkerTarget(); err == nil {
+			t.Fatal("a row bound to another pane was stopped")
+		}
+	})
+	t.Run("no binding", func(t *testing.T) {
+		h, runtime := newOpencodeStopRuntime(t)
+		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, stopPane, "working", false)
+		t.Setenv(hooks.EnvSessionID, "0c0de001")
+		if _, err := runtime.opencodeMarkerTarget(); !errors.Is(err, ErrUnmanagedCaller) {
+			t.Fatalf("unbound launched row: %v", err)
 		}
 	})
 }

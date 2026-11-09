@@ -539,10 +539,29 @@ type OpenCode struct {
 	// its row, steering and conversation binding once it is adopted. Absent
 	// means on; false takes the plugin back out.
 	Setup *bool `toml:"setup"`
+	// Server is how a launched session gets its opencode server: "shared"
+	// (the default) attaches every session to one server per board, which
+	// costs each one its TUI alone; "standalone" gives each session a
+	// private server of its own, which costs it about 300 MB more. A shared
+	// server needs the plugin above to tell the board's tools which session
+	// called them, so with setup off every session runs standalone.
+	Server string `toml:"server"`
 }
+
+// OpenCode server modes, as [opencode] server names them.
+const (
+	OpenCodeServerShared     = "shared"
+	OpenCodeServerStandalone = "standalone"
+)
 
 // SetupOn reports whether the board keeps its OpenCode plugin registered.
 func (c OpenCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
+// SharedServer reports whether launched sessions attach to the board's one
+// shared opencode server.
+func (c OpenCode) SharedServer() bool {
+	return c.SetupOn() && c.Server != OpenCodeServerStandalone
+}
 
 // Naming configures how sessions get their names.
 type Naming struct {
@@ -998,6 +1017,7 @@ func mergeTool(name string, user, def Tool) Tool {
 		user.Rules = withAskUserQuestionRules(user.Rules, def.Rules)
 	} else if name == "opencode" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, opencodeDialogSamples)
+		user.Rules = withRuleInState(opencodeLostServerSample, user.Rules, def.Rules, "errored")
 	} else if name == "codex" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, codexDialogSamples)
 		for i, rule := range user.Rules {
@@ -1125,9 +1145,21 @@ func withDialogRules(user, def []Rule, samples []string) []Rule {
 	return user
 }
 
+// opencodeLostServerSample is the overlay an opencode TUI shows while it
+// has lost its server, which a config written before the shared server
+// existed reads as working off the spinner behind it.
+const opencodeLostServerSample = "Reconnecting to the server automatically."
+
 func withRuleFor(sample string, user, def []Rule) []Rule {
+	return withRuleInState(sample, user, def, "waiting")
+}
+
+// withRuleInState adds the built-in rule in state that recognizes sample to
+// user's rules when none of theirs in that state does, right after the
+// waiting rules that lead the list.
+func withRuleInState(sample string, user, def []Rule, state string) []Rule {
 	for _, r := range user {
-		if r.State != "waiting" {
+		if r.State != state {
 			continue
 		}
 		re, err := regexp.Compile(r.Pattern)
@@ -1136,7 +1168,7 @@ func withRuleFor(sample string, user, def []Rule) []Rule {
 		}
 	}
 	for _, d := range def {
-		if d.State != "waiting" {
+		if d.State != state {
 			continue
 		}
 		re, err := regexp.Compile(d.Pattern)
@@ -1307,8 +1339,14 @@ const defaultConfig = `poll_interval = "2s"
 # outside the board speaks as its row and gets the board's steering once the
 # board adopts it. It does nothing in any session the board has not adopted.
 # false removes it.
+#
+# server is how a launched opencode session gets its server: "shared"
+# attaches every session to one server per board, so each costs only its
+# TUI; "standalone" gives each a private server, about 300 MB more apiece.
+# The shared server needs the plugin, so setup = false means standalone.
 # [opencode]
 # setup = true
+# server = "shared"
 
 # The diagnostic log. It is a file log only -- this program owns the
 # terminal, so nothing is ever printed to the screen. "gate-inbox
@@ -1647,6 +1685,11 @@ rules = [
   { state = "waiting", pattern = "(?m)^[ \\x{A0}]*\\x{2503}[ \\x{A0}]+Questions[ \\x{A0}]*$" },
   { state = "errored", pattern = "(?i)requires more credits" },
   { state = "errored", pattern = "(?im)^\\s*error\\b" },
+  # A TUI that lost its server says so in an overlay and keeps retrying
+  # behind it with the turn's spinner still drawn. On the board's shared
+  # server the supervisor brings the server back within seconds; past that
+  # the session is stuck, not working.
+  { state = "errored", pattern = "Reconnecting to the server automatically" },
   # opencode draws no agent row mid-turn; its only spinner is the footer
   # "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt" under the composer, which this rule reads because
   # the match scope takes in a footer that trips a working rule

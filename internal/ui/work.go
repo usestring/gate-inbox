@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/cifeedback"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/keymap"
@@ -51,6 +52,21 @@ func newWorkTracker(cfg config.Config, st *store.Store) *worktracker.Tracker {
 	tracker.SettleAfter = cfg.Work.SettleAfter.Duration
 	if st != nil {
 		tracker.WithSeen(st)
+		if cfg.Work.CIFeedback {
+			var agentTools []string
+			for name, tool := range cfg.Tools {
+				if !tool.Shell {
+					agentTools = append(agentTools, name)
+				}
+			}
+			tracker.OnPRRefresh = func(prs map[string]forge.PR) {
+				if err := cifeedback.Observe(st, prs, agentTools); err != nil {
+					logging.Warn("could not queue CI feedback", logging.Err(err))
+				}
+			}
+		} else if err := st.CancelCIFeedback(time.Now()); err != nil {
+			logging.Warn("could not retire disabled CI feedback", logging.Err(err))
+		}
 	}
 	return tracker
 }

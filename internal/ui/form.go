@@ -427,6 +427,10 @@ func (m *Model) formToolSelection() ([]string, int) {
 }
 
 func (m *Model) openForm() {
+	m.openFormFor(m.contextGroup(), "")
+}
+
+func (m *Model) openFormFor(group, tool string) {
 	tools, toolIndex := m.formToolSelection()
 	if len(m.installedOnly(tools)) == 0 {
 		m.errBar.text = m.noCLIText()
@@ -456,8 +460,11 @@ func (m *Model) openForm() {
 		extra:      extraFields(sessionhooks.FormFields()),
 	}
 	m.errBar.text = ""
+	if tool != "" {
+		m.selectTool(tool)
+	}
 	m.syncFormFieldWidths()
-	m.rebuildGroupOptions(m.contextGroup())
+	m.rebuildGroupOptions(group)
 	m.form.dir.SetValue(m.groupDefaultDir(m.selectedGroupPath()))
 	m.pathSugg.reset()
 	m.mode = modeForm

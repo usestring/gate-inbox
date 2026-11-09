@@ -29,13 +29,16 @@ import (
 const keyFile = "trace.key"
 
 // hashed are the attributes whose value names something on this machine, and
-// the namespace each is keyed under. "created" is the session a command made.
+// the namespace each is keyed under. "created" is the session a command made;
+// "tool.id" is the tool an agent called, since which tools an install uses is
+// its own business.
 var hashed = map[string]string{
 	"session":        "session",
 	"created":        "session",
 	"account.name":   "account",
 	"account.lender": "account",
 	"socket":         "tmux_socket",
+	"tool.id":        "tool",
 }
 
 // dropped are attributes that cannot be made anonymous and are not needed:

@@ -23,8 +23,8 @@ func TestEveryToolCallIsRecordedAgainstItsSession(t *testing.T) {
 	recorded := spans()
 
 	span := tracetest.One(t, recorded, "mcp.tool")
-	if span.Attr("tool") != "list_sessions" {
-		t.Errorf("tool = %v, want list_sessions", span.Attr("tool"))
+	if span.Attr("tool.id") != tracing.KeyedID("tool", "list_sessions") {
+		t.Errorf("tool.id = %v, want list_sessions as a keyed id", span.Attr("tool.id"))
 	}
 	if span.Attr("session") != tracing.KeyedID("session", "abc123") {
 		t.Errorf("session = %v, want the session this server was started as", span.Attr("session"))

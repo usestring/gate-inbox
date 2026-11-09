@@ -20,6 +20,7 @@ func TestSpansAndTheResourceCarryNothingPrivate(t *testing.T) {
 		session = "4b1a94f5-1111-2222-3333-444455556666"
 		account = "SOMEONE"
 		socket  = "someone-private-socket"
+		tool    = "someone_private_tool"
 	)
 	// Built from parts, so the fixture reads as no real path or address.
 	dir := "/" + strings.Join([]string{"home", "someone", "repos", "private-project"}, "/")
@@ -34,7 +35,7 @@ func TestSpansAndTheResourceCarryNothingPrivate(t *testing.T) {
 		Attrs: []Attr{
 			{Key: "session", Value: session}, {Key: "created", Value: session}, {Key: "dir", Value: dir},
 			{Key: "socket", Value: socket}, {Key: "account.name", Value: account}, {Key: "account.lender", Value: account},
-			{Key: socketPrefix + socket, Value: 1}, {Key: "git.subcommand", Value: "status"},
+			{Key: socketPrefix + socket, Value: 1}, {Key: "git.subcommand", Value: "status"}, {Key: "tool.id", Value: tool},
 		},
 		traceID: newTraceID(), spanID: newSpanID(),
 	}}
@@ -43,7 +44,7 @@ func TestSpansAndTheResourceCarryNothingPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := strings.NewReplacer(`\u003c`, "<", `\u003e`, ">").Replace(string(body))
-	for _, private := range []string{session, account, "someone", dir, socket, "metrics.example.invalid", "host.name"} {
+	for _, private := range []string{session, account, "someone", dir, socket, tool, "metrics.example.invalid", "host.name"} {
 		if strings.Contains(out, private) {
 			t.Errorf("%q left the machine: %s", private, out)
 		}

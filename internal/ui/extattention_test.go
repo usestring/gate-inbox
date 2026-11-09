@@ -126,9 +126,13 @@ func TestAParentIsLiftedToItsFlaggedChildsTier(t *testing.T) {
 				childSess("e1", "broken", "research", "", status.Errored, 3*time.Hour),
 			}
 			m.answerableWait = map[string]bool{"c1": tc.answerable}
+			m.triageLiveness = triageLivenessFromScan(time.Now(), m.sessions, map[string]int{"p1": 1})
 			m.triage = true
 			m.rebuildRows()
 			before := joined(rowIDs(m))
+			if tc.answerable && strings.Contains(before, "c1") {
+				t.Fatalf("triage rows = %s, want the parent-owned child folded before the claim", before)
+			}
 
 			bridge.Attention("batch", "c1", Attention{NeedsPerson: true, Rank: AttentionBlocked})
 			m.Update(extensionBadgesMsg{})

@@ -88,13 +88,9 @@ func TestAFocusKeyReportsTheTmuxCallsItBlockedOn(t *testing.T) {
 	}
 }
 
-// One tmux listing for one rebuild.
-//
-// buildTree said so in a comment and did not do it: a rebuild builds the tree
-// twice to settle the cursor, sortTriageWithChildren asks again inside each
-// build, and each ask forked its own tmux list-panes -- a call measured on
-// the operator's board at a second or worse forty-eight times an hour.
-func TestARebuildTakesOneTmuxListing(t *testing.T) {
+// Even one listing in a triage rebuild can hold the event loop while an
+// unrelated tmux server is stalled.
+func TestATriageRebuildDoesNotListPanes(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
 	createSession(t, m, "parent", dir, "")
@@ -116,11 +112,8 @@ func TestARebuildTakesOneTmuxListing(t *testing.T) {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
 	loadStoredRows(t, m)
-	// Triage is the only view that asks which panes are up, and it asks from
-	// two places inside every build.
 	m.triage = true
-	// A cursor the first build moves is what provokes the second one, which
-	// is the case this is about.
+	// Exercise both builds: the first one moves the cursor.
 	m.railCursorSess = "nothing-under-the-cursor"
 
 	read := tracetest.Capture(t)
@@ -134,9 +127,9 @@ func TestARebuildTakesOneTmuxListing(t *testing.T) {
 	})
 	spans := read()
 
-	listings := tracetest.Named(spans, "ui.livePanes")
-	if len(listings) != 1 {
-		t.Fatalf("one rebuild forked %d tmux listings, want 1", len(listings))
+	listings := tracetest.Named(spans, "tmux.list-panes")
+	if len(listings) != 0 {
+		t.Fatalf("triage rebuild forked %d tmux listings", len(listings))
 	}
 }
 

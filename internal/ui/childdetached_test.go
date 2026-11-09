@@ -57,18 +57,17 @@ func TestADetachedSpawnRelaysNothingToItsCreator(t *testing.T) {
 // A detached session's question stays in front of the operator: nobody is
 // on it to fold it away for.
 func TestADetachedSpawnsQuestionIsNotFoldedForItsCreator(t *testing.T) {
-	live := map[string]bool{"parent01": true}
 	detached := stoppedChild(time.Minute)
 	detached.ParentID, detached.SpawnedBy = "", "parent01"
 	m := ownedBoard(t, liveParent(), detached)
-	if m.parentOwns(m.sessions[1], time.Now(), live) {
+	if m.parentOwns(m.sessions[1], time.Now()) {
 		t.Error("a detached session's question was folded away as its creator's to answer")
 	}
 
 	nested := stoppedChild(time.Minute)
 	nested.SpawnedBy = "parent01"
 	m = ownedBoard(t, liveParent(), nested)
-	if !m.parentOwns(m.sessions[1], time.Now(), live) {
+	if !m.parentOwns(m.sessions[1], time.Now()) {
 		t.Error("a nested child's question is no longer its creator's to answer")
 	}
 }

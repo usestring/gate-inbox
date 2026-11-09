@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
@@ -24,6 +26,7 @@ func ownedBoard(t *testing.T, parent, child store.Session) *Model {
 	t.Cleanup(func() { st.Close() })
 	m := &Model{store: st, poller: &poller{store: st}}
 	m.sessions = []store.Session{parent, child}
+	m.triageLiveness = triageLivenessFromScan(time.Now(), m.sessions, map[string]int{parent.ID: 1})
 	// The shape the rule is about is a child on a dialog its parent can
 	// answer; the pass marks that, and a board built without it is the
 	// unanswerable case each test names for itself.
@@ -45,7 +48,7 @@ func stoppedChild(waitingFor time.Duration) store.Session {
 
 func TestParentOwnsAChildItsLiveParentCanAnswer(t *testing.T) {
 	m := ownedBoard(t, liveParent(), stoppedChild(time.Minute))
-	if !m.parentOwns(m.sessions[1], time.Now(), map[string]bool{"parent01": true}) {
+	if !m.parentOwns(m.sessions[1], time.Now()) {
 		t.Error("a live parent's child reads as unowned, so triage would queue it for a person")
 	}
 }
@@ -87,26 +90,61 @@ func TestParentOwnsNothingWhenNobodyIsComing(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := ownedBoard(t, tc.parent, tc.child)
-			if m.parentOwns(tc.child, time.Now(), map[string]bool{"parent01": true}) {
+			if m.parentOwns(tc.child, time.Now()) {
 				t.Error("read as owned, so triage would hide a question nobody is going to answer")
 			}
 		})
 	}
 }
 
-// The queue's lift exists so a child blocked on a person is not buried under
-// its working parent. A child blocked on its parent is not blocked on a
-// person, so it must not drag the parent up the queue either.
-// The row keeps the status of its last poll, so a parent whose CLI has
-// exited reads as idle until something notices. An idle row with no process
-// behind it answers nothing, and its children are the operator's.
-func TestParentOwnsNothingOnceItsPaneIsGone(t *testing.T) {
+// A parent's last status can still look live after its pane is gone.
+func TestParentOwnershipRequiresCurrentPaneEvidence(t *testing.T) {
 	m := ownedBoard(t, liveParent(), stoppedChild(time.Minute))
-	if m.parentOwns(m.sessions[1], time.Now(), map[string]bool{}) {
-		t.Error("a parent with no live pane reads as owning its child's question")
+	now := m.triageLiveness.at
+	for _, tc := range []struct {
+		name   string
+		change func(*Model)
+	}{
+		{"missing", func(m *Model) { m.triageLiveness = triageLiveness{at: now} }},
+		{"expired", func(m *Model) { m.triageLiveness.at = now.Add(-tmux.ScanTimeout) }},
+		{"rebound", func(m *Model) {
+			m.sessions[0].TmuxSocket, m.sessions[0].TmuxPaneID = "borrowed", "%7"
+		}},
+		{"relaunched", func(m *Model) { m.sessions[0].AgentLaunchedAt = now }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := *m
+			model.sessions = append([]store.Session(nil), m.sessions...)
+			tc.change(&model)
+			if model.parentOwns(model.sessions[1], now) {
+				t.Fatal("triage hid the child's question without current evidence of a live parent")
+			}
+		})
 	}
 }
 
+func TestTriageShowsTheChildWhenThePaneScanFails(t *testing.T) {
+	m := childModel(t)
+	now := time.Now()
+	m.sessions[2].LastStatusAt = now.Add(-time.Minute)
+	m.answerableWait = map[string]bool{"c2": true}
+	m.triageLiveness = triageLivenessFromScan(now, m.sessions, map[string]int{"p1": 1})
+	m.triage = true
+	m.rebuildRows()
+	if slices.Contains(rowIDs(m), "c2") {
+		t.Fatal("child with a live parent is already on the rail")
+	}
+	m.Update(errMsg{pollScanError{error: tmux.ErrTimeout, at: now.Add(-time.Second)}})
+	if slices.Contains(rowIDs(m), "c2") {
+		t.Fatal("an older scan failure displaced newer pane evidence")
+	}
+	m.Update(errMsg{pollScanError{error: tmux.ErrTimeout, at: now.Add(time.Millisecond)}})
+	if !slices.Contains(rowIDs(m), "c2") {
+		t.Fatal("triage kept the child hidden after losing evidence that its parent was live")
+	}
+}
+
+// A child blocked on its parent must not lift the parent up the queue.
 func TestTriageDoesNotLiftAParentForAQuestionItOwns(t *testing.T) {
 	parent := liveParent()
 	owned := stoppedChild(time.Minute)
@@ -142,7 +180,7 @@ func TestTriageStillLiftsAParentForAQuestionNobodyOwns(t *testing.T) {
 func TestParentOwnsNothingItCannotAnswer(t *testing.T) {
 	m := ownedBoard(t, liveParent(), stoppedChild(time.Minute))
 	m.answerableWait = map[string]bool{}
-	if m.parentOwns(m.sessions[1], time.Now(), map[string]bool{"parent01": true}) {
+	if m.parentOwns(m.sessions[1], time.Now()) {
 		t.Error("a permission-blocked child reads as its parent's, so triage would hide it from the operator")
 	}
 }

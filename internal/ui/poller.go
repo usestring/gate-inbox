@@ -701,6 +701,15 @@ func logPass(started time.Time, msg tea.Msg, stat passStat) {
 // stale rows and belongs in the log at info whether or not it errored.
 const slowPass = time.Second
 
+// Keep the scan's timestamp so triage can discard its liveness evidence
+// without treating a failed scan as an empty board.
+type pollScanError struct {
+	error
+	at time.Time
+}
+
+func (e pollScanError) Unwrap() error { return e.error }
+
 func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	mark := time.Now()
 	var phases passPhases
@@ -776,10 +785,12 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	p.setHistoryTargets(p.historyTargets(sessions))
 	phases.list = lap(&mark)
 
+	scannedAt := time.Now()
 	scan, err := p.tmux.ScanPanes()
 	if err != nil {
-		return errMsg{err}
+		return errMsg{pollScanError{error: err, at: scannedAt}}
 	}
+	triagePanes := triageLivenessFromScan(scannedAt, sessions, scan.PIDs)
 	restored, err := p.restoreLiveArchived(archivedIDs, scan.PIDs)
 	if err != nil {
 		return errMsg{err}
@@ -1284,6 +1295,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		archivedChildren: archivedKids,
 		searchText:       searchText,
 		answerableWait:   answerableWait,
+		triageLiveness:   triagePanes,
 		askQuestions:     askQuestions,
 		authFailures:     authFailures,
 		hookless:         p.hooklessRows(),

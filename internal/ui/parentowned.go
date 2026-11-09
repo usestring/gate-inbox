@@ -8,6 +8,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 // Whose question is it?
@@ -57,9 +58,42 @@ import (
 // on a blocked child for an afternoon.
 const ownedGrace = 15 * time.Minute
 
+// triageLiveness is evidence from one background scan. It only answers
+// whether triage may leave a question to its parent.
+type triageLiveness struct {
+	at   time.Time
+	live map[string]triagePaneBinding
+}
+
+type triagePaneBinding struct {
+	socket, pane string
+	launchTime   time.Time
+}
+
+func triageLivenessFromScan(at time.Time, sessions []store.Session, pids map[string]int) triageLiveness {
+	live := make(map[string]triagePaneBinding, len(pids))
+	for _, sess := range sessions {
+		if pids[sess.ID] > 0 {
+			live[sess.ID] = triagePaneBinding{sess.TmuxSocket, sess.TmuxPaneID, sess.LaunchTime()}
+		}
+	}
+	return triageLiveness{at: at, live: live}
+}
+
+func (m *Model) triageParentLive(parent store.Session, now time.Time) bool {
+	snapshot := m.triageLiveness
+	// Allow a normal poll to be late without trusting an old scan forever.
+	if now.Sub(snapshot.at) >= max(tmux.ScanTimeout, 2*m.cfg.PollInterval.Duration) {
+		return false
+	}
+	binding, ok := snapshot.live[parent.ID]
+	return ok && binding.socket == parent.TmuxSocket && binding.pane == parent.TmuxPaneID &&
+		binding.launchTime.Equal(parent.LaunchTime())
+}
+
 // parentOwns reports whether child's question is its parent's to answer right
 // now, which is what lets triage leave it out.
-func (m *Model) parentOwns(child store.Session, now time.Time, live map[string]bool) bool {
+func (m *Model) parentOwns(child store.Session, now time.Time) bool {
 	// Whose question it is, is whose spawn it was. Reading it off the tree
 	// folded a grandchild's question away because a root was live, when the
 	// session that could actually answer it was somebody else entirely.
@@ -77,10 +111,8 @@ func (m *Model) parentOwns(child store.Session, now time.Time, live map[string]b
 	if !ok || parent.Archived || parent.Status == status.Dead {
 		return false
 	}
-	// A listing that could not be taken says nothing: absent from a scan that
-	// never happened is not evidence a pane is gone, and the cost of being
-	// wrong here is a hidden question.
-	if live != nil && !live[parent.ID] {
+	// Only fresh evidence for this binding can justify hiding a question.
+	if !m.triageParentLive(parent, now) {
 		return false
 	}
 	// A parent blocked on its own question answers nothing until somebody

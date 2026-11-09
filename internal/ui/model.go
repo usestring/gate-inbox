@@ -278,13 +278,6 @@ type Model struct {
 	// filled by traceStep and taken by the dispatch that ends, so it only
 	// ever holds one message's worth. Nil unless tracing is on.
 	handlerSteps []handlerStep
-	// livePaneMemo is the tmux listing the rebuild in progress reads, held
-	// for the length of that rebuild. livePaneHeld says a rebuild is running
-	// and livePaneFilled whether the listing has been taken yet -- a rebuild
-	// that never asks must not fork one. See holdLivePanes.
-	livePaneMemo   map[string]bool
-	livePaneHeld   bool
-	livePaneFilled bool
 	// childSweeping is set while a child sweep is out on a command goroutine,
 	// so the poll clock cannot stack a second set of tmux forks behind the
 	// set already waiting. See childsweep.go.
@@ -360,6 +353,7 @@ type Model struct {
 	// empty for a session whose pane could not be captured, which leaves the
 	// row with the operator where a missing reading belongs.
 	answerableWait map[string]bool
+	triageLiveness triageLiveness
 	// askQuestions mirrors refreshMsg.askQuestions, and questionCard is the
 	// preview's card drawn from it. See previewquestions.go.
 	askQuestions map[string][]convo.AskQuestion
@@ -1088,6 +1082,7 @@ type refreshMsg struct {
 	archivedChildren map[string]int
 	searchText       map[string]string
 	answerableWait   map[string]bool
+	triageLiveness   triageLiveness
 	// askQuestions is each Claude session's pending AskUserQuestion call,
 	// for a pane standing on a several-question dialog.
 	askQuestions map[string][]convo.AskQuestion
@@ -2519,6 +2514,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait
+		// A late refresh must not undo a newer scan failure.
+		if msg.triageLiveness.at.After(m.triageLiveness.at) {
+			m.triageLiveness = msg.triageLiveness
+		}
 		m.askQuestions = msg.askQuestions
 		m.authFailures = msg.authFailures
 		m.hookless = msg.hookless
@@ -2867,6 +2866,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.errBar.text = msg.err.Error()
+		if failed, ok := msg.err.(pollScanError); ok && failed.at.After(m.triageLiveness.at) {
+			hadLivePanes := len(m.triageLiveness.live) > 0
+			m.triageLiveness = triageLiveness{at: failed.at}
+			if m.triage && hadLivePanes {
+				m.rebuildRows()
+			}
+		}
 		return m, nil
 
 	case priorityFlashEndMsg:
@@ -3249,10 +3255,6 @@ func rowKey(entry treeRow) string {
 // left the cursor on, and a tree built for the session already under the
 // cursor cannot move it again.
 func (m *Model) rebuildRows() {
-	// One tmux listing for the whole rebuild, which is what buildTree already
-	// believed it was taking. Both builds and the triage sort inside each of
-	// them ask, and every ask was its own fork. See holdLivePanes.
-	defer m.releaseLivePanes(m.holdLivePanes())
 	m.pruneMutes(m.sessions)
 	m.buildTree()
 	if m.cursorSessionID() != m.railCursorSess {
@@ -3439,13 +3441,6 @@ func (m *Model) buildTree() {
 		paths = pathsWithSessions(paths, sessionsByGroup)
 	}
 	children := childIndex(paths, m.groups)
-	// One tmux listing for the whole rebuild, and only where it is read:
-	// triage asks whether a child's parent is still up, and nothing else
-	// here does.
-	var livePanes map[string]bool
-	if m.triage && m.tmux != nil {
-		livePanes = m.livePanes()
-	}
 
 	// Folds are a browsing convenience for the active tree; the archived,
 	// search, and status-filter views already prune to matching groups, so
@@ -3505,7 +3500,7 @@ func (m *Model) buildTree() {
 			// rail reading "muted" whoever owns its question, so it can be
 			// unmuted from here, and the drain walks past it; see
 			// persistentmute.go and triageHandable.
-			if m.triage && !child.Muted && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
+			if m.triage && !child.Muted && m.foldsAway(child) && m.parentOwns(child, m.now()) {
 				continue
 			}
 			if drawn[child.ID] {

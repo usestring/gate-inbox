@@ -205,6 +205,7 @@ func TestMutedChildStaysVisibleInTriageWhileItsParentOwnsItsQuestion(t *testing.
 			}
 		}
 		m.answerableWait = map[string]bool{"c2": true}
+		m.triageLiveness = triageLivenessFromScan(time.Now(), m.sessions, map[string]int{"p1": 1})
 		m.triage = true
 		m.rebuildRows()
 	}

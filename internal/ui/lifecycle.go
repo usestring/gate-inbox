@@ -846,65 +846,18 @@ func (m *Model) forgetKilled(sess store.Session) error {
 // A listing that fails answers nothing and comes back nil, which paneIsLive
 // reads as "ask per session": absent from a scan that never happened is not
 // evidence a pane is gone, and this decides what gets killed.
-//
-// A rebuild holds one listing for all of it -- see holdLivePanes. It asks
-// from more places than it looks: rebuildRows builds the tree twice to settle
-// the cursor, sortTriageWithChildren asks again inside each build, and a
-// refresh can rebuild twice over, which is eight forked listings for one
-// keystroke's worth of rows. Within one rebuild their answers are read as
-// interchangeable anyway.
 func (m *Model) livePanes() map[string]bool {
-	if m.livePaneHeld && m.livePaneFilled {
-		return m.livePaneMemo
-	}
 	started := time.Now()
 	scan, err := m.tmux.ScanPanes()
 	m.traceStep("ui.livePanes", started)
-	var live map[string]bool
-	if err == nil {
-		live = make(map[string]bool, len(scan.PIDs))
-		for id := range scan.PIDs {
-			live[id] = true
-		}
+	if err != nil {
+		return nil
 	}
-	if m.livePaneHeld {
-		// A failed listing is memoised as the nil it answered with. Asking
-		// again inside the same rebuild would fork at a server that has just
-		// refused to answer, and a tree built half from a listing and half
-		// from per-session questions is a tree built from two different
-		// moments.
-		m.livePaneMemo, m.livePaneFilled = live, true
+	live := make(map[string]bool, len(scan.PIDs))
+	for id := range scan.PIDs {
+		live[id] = true
 	}
 	return live
-}
-
-// holdLivePanes pins the listing a rebuild reads for the length of that
-// rebuild, and hands back what was pinned before it so the caller can put it
-// back. Release by defer.
-//
-// Nothing is listed up front: a rebuild that never asks -- which is every
-// rebuild outside triage -- must not start forking one because this exists.
-// The first ask fills the memo and every ask after it reads that.
-//
-// It saves and restores rather than simply clearing so that a rebuild reached
-// from inside another one cannot, on its way out, drop the hold its caller is
-// still relying on. Nothing nests today; the cost of making that true by
-// construction is three fields.
-func (m *Model) holdLivePanes() livePaneHold {
-	held := livePaneHold{on: m.livePaneHeld, memo: m.livePaneMemo, filled: m.livePaneFilled}
-	m.livePaneHeld, m.livePaneMemo, m.livePaneFilled = true, nil, false
-	return held
-}
-
-// livePaneHold is what holdLivePanes displaced.
-type livePaneHold struct {
-	on     bool
-	memo   map[string]bool
-	filled bool
-}
-
-func (m *Model) releaseLivePanes(held livePaneHold) {
-	m.livePaneHeld, m.livePaneMemo, m.livePaneFilled = held.on, held.memo, held.filled
 }
 
 // paneIsLive reads one session out of a livePanes listing, falling back to

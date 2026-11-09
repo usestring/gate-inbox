@@ -352,10 +352,6 @@ func (m *Model) sortTriage(sessions []store.Session) {
 // after its parent.
 func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string][]store.Session) {
 	now := m.now()
-	var live map[string]bool
-	if len(kids) > 0 && m.tmux != nil {
-		live = m.livePanes()
-	}
 	keys := make(map[string]triageKey, len(sessions))
 	// A lifted parent is standing in for a child, so it queues on that
 	// child's wait: ordering it by its own LastStatusAt would rank the
@@ -377,7 +373,7 @@ func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string
 			// person is not buried under its working parent, and a child
 			// blocked on its parent is not blocked on a person. See
 			// parentOwns.
-			if m.parentOwns(kid, now, live) {
+			if m.parentOwns(kid, now) {
 				continue
 			}
 			// A muted child rides under its parent but never lifts it: the mute

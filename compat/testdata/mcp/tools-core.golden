@@ -646,10 +646,6 @@
         "description": "optional named account from list_accounts; omit to follow the board's launch-account setting (the CLI's own login unless the build's extension chooses); a child does not inherit its parent's account; a named account requires a CLI that accepts a token",
         "type": "string"
       },
-      "caller_session_id": {
-        "description": "this session's own id from $GATE_INBOX_SESSION_ID in its shell; pass it when that differs from the session this MCP server started as (opencode multiplexes same-cwd conversations through one server)",
-        "type": "string"
-      },
       "directory": {
         "description": "existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set; a group that pins its directory (list_groups pinned) starts the session there and hands it this one to change into, unless directory_reason is given",
         "type": "string"
@@ -2226,10 +2222,6 @@
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
-      "caller_session_id": {
-        "description": "this session's own id from $GATE_INBOX_SESSION_ID in its shell; pass it when that differs from the session this MCP server started as",
-        "type": "string"
-      },
       "release": {
         "description": "true takes one of your own children, or a child of a parent that is gone, back out to the top level; omit to adopt",
         "type": "boolean"

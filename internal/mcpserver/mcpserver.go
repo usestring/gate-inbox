@@ -24,23 +24,6 @@ import (
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
-// effectiveCaller resolves which session a mutating MCP call acts as. The
-// server's startup session id is correct for per-conversation servers
-// (Claude/Codex) but stale for opencode's shared serve daemon, where every
-// same-cwd conversation reuses the first conversation's server process. An
-// explicit caller_session_id from the agent's own shell env wins; it is
-// validated downstream by runtime.caller exactly like the startup value.
-func effectiveCaller(serverSessionID, override string) string {
-	if id := strings.TrimSpace(override); id != "" {
-		if id != serverSessionID {
-			logging.Info("mcp caller override",
-				"serverSession", serverSessionID, "effectiveCaller", id)
-		}
-		return id
-	}
-	return serverSessionID
-}
-
 type renameArgs struct {
 	Name string `json:"name" jsonschema:"short 2-4 word kebab-case name for the broad feature of this whole session, not one subtask"`
 }
@@ -123,13 +106,6 @@ type createSessionArgs struct {
 	SkipPermissions *bool                  `json:"skip_permissions,omitempty" jsonschema:"omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox, opencode through its generated config) and is refused unless the user allowed that for this session's children; false keeps its prompts on"`
 	Tasks           []sessioncmd.SpawnTask `json:"tasks,omitempty" jsonschema:"tasks to assign to the new session before it starts, each either an existing pending task by id or a new one by title (with body and depends_on); only the new session can claim them, and its prompt gets a short list of their ids and titles telling it to claim and finish them with the task tool"`
 	Keep            bool                   `json:"keep,omitempty" jsonschema:"keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished"`
-	// CallerSessionID carries the caller's own session id when the MCP
-	// server's startup value cannot be trusted: opencode multiplexes
-	// same-cwd conversations through one shared MCP server (serve daemon),
-	// so the process env holds the first conversation's id for every later
-	// one. A pane's own $GATE_INBOX_SESSION_ID is always correct, so an
-	// agent whose shell value differs from this session must pass it here.
-	CallerSessionID string `json:"caller_session_id,omitempty" jsonschema:"this session's own id from $GATE_INBOX_SESSION_ID in its shell; pass it when that differs from the session this MCP server started as (opencode multiplexes same-cwd conversations through one server)"`
 }
 
 type sessionTargetArgs struct {
@@ -271,11 +247,6 @@ type sendChildrenArgs struct {
 type placeSessionArgs struct {
 	SessionID string `json:"session_id" jsonschema:"session to file under this one, or to release from it"`
 	Release   bool   `json:"release,omitempty" jsonschema:"true takes one of your own children, or a child of a parent that is gone, back out to the top level; omit to adopt"`
-	// CallerSessionID is the per-call override for a multiplexed MCP
-	// server; see createSessionArgs. An opencode agent whose shell holds a
-	// different $GATE_INBOX_SESSION_ID than this server started as must
-	// pass its own value here, or the row is filed under the wrong parent.
-	CallerSessionID string `json:"caller_session_id,omitempty" jsonschema:"this session's own id from $GATE_INBOX_SESSION_ID in its shell; pass it when that differs from the session this MCP server started as"`
 }
 
 type answerSessionArgs struct {
@@ -540,7 +511,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		&mcp.Implementation{Name: mcpreg.ServerName, Version: version},
 		&mcp.ServerOptions{Instructions: instructions},
 	)
-	server.AddReceivingMiddleware(traceTools(sessionID), aliasArgs)
+	server.AddReceivingMiddleware(callers{configDir: configDir, own: sessionID}.middleware, traceTools, aliasArgs)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "rename",
@@ -549,7 +520,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"If the session already has a real name, leave it unless the user asks to rename. " +
 			"Prefer a broad feature name over a single subtask.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args renameArgs) (*mcp.CallToolResult, any, error) {
-		return textResult(sessioncmd.Rename(configDir, sessionID, args.Name))
+		return textResult(sessioncmd.Rename(configDir, callerOf(ctx), args.Name))
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -559,7 +530,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Tiers are urgent (+3), high (+2), medium (+1), and low (-1); none or 0 clears it. Numeric levels from -1 to 3 are also accepted. " +
 			"It orders this session within the queue it is already in, so it never puts a session that needs nobody ahead of one waiting on an answer, and the user can always override it.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args priorityArgs) (*mcp.CallToolResult, any, error) {
-		return textResult(sessioncmd.Priority(configDir, sessionID, args.Tier))
+		return textResult(sessioncmd.Priority(configDir, callerOf(ctx), args.Tier))
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -569,7 +540,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"The pull request must have an open review ask on the board, and the line must be part of its diff.",
 		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reviewCommentArgs) (*mcp.CallToolResult, any, error) {
-		return textResult(sessioncmd.ReviewComment(configDir, sessionID, sessioncmd.ReviewCommentInput{
+		return textResult(sessioncmd.ReviewComment(configDir, callerOf(ctx), sessioncmd.ReviewCommentInput{
 			Repo: args.Repo, Number: args.Number, Path: args.Path, Line: args.Line, Side: args.Side,
 			Body: args.Body, Kind: args.Kind, Context: args.Context,
 		}, time.Now()))
@@ -599,7 +570,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listSessionsArgs) (*mcp.CallToolResult, sessioncmd.SessionList, error) {
-		list, err := sessions.List(sessionID, sessioncmd.ListOptions{
+		list, err := sessions.List(callerOf(ctx), sessioncmd.ListOptions{
 			Parent:          args.Parent,
 			Status:          args.Status,
 			IncludeArchived: args.IncludeArchived,
@@ -648,7 +619,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"This restarts a live agent on the user's machine, so use it on a session that is blocked by a limit or at rest between turns, not one mid-way through work; it cannot be this session itself.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args switchAccountArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		switched, err := sessions.SwitchAccount(sessionID, args.SessionID, args.Account)
+		switched, err := sessions.SwitchAccount(callerOf(ctx), args.SessionID, args.Account)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
@@ -669,7 +640,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		// Through the installed manager when this server is too old to file
 		// the row under its caller; see createSession.
-		callerID := effectiveCaller(sessionID, args.CallerSessionID)
+		callerID := callerOf(ctx)
 		prompt, err := mcptool.TextArg(args.Prompt, args.PromptFile, "prompt", "prompt_file")
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
@@ -718,7 +689,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		if err != nil {
 			return nil, sessioncmd.ChildSend{}, err
 		}
-		sent, err := sessions.SendChildrenAbout(sessionID, message, args.Subject)
+		sent, err := sessions.SendChildrenAbout(callerOf(ctx), message, args.Subject)
 		if err != nil {
 			return nil, sessioncmd.ChildSend{}, err
 		}
@@ -737,7 +708,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		if args.Release {
 			place = sessions.ReleaseSession
 		}
-		placed, err := place(effectiveCaller(sessionID, args.CallerSessionID), args.SessionID)
+		placed, err := place(callerOf(ctx), args.SessionID)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
@@ -772,14 +743,14 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		case given > 1:
 			err = errors.New("give one of answer, answers, ticks or keys")
 		case len(args.Answers) > 0:
-			answered, err = sessions.AnswerAll(sessionID, args.SessionID, args.Answers, args.Submit == nil || *args.Submit, args.Relay)
+			answered, err = sessions.AnswerAll(callerOf(ctx), args.SessionID, args.Answers, args.Submit == nil || *args.Submit, args.Relay)
 		case len(args.Ticks) > 0:
-			answered, err = sessions.AnswerAll(sessionID, args.SessionID,
+			answered, err = sessions.AnswerAll(callerOf(ctx), args.SessionID,
 				[]sessioncmd.QuestionAnswer{{Ticks: args.Ticks}}, args.Submit == nil || *args.Submit, args.Relay)
 		case len(args.Keys) > 0:
-			answered, err = sessions.AnswerKeys(sessionID, args.SessionID, args.Keys, args.Relay)
+			answered, err = sessions.AnswerKeys(callerOf(ctx), args.SessionID, args.Keys, args.Relay)
 		default:
-			answered, err = sessions.Answer(sessionID, args.SessionID, args.Answer, args.Relay)
+			answered, err = sessions.Answer(callerOf(ctx), args.SessionID, args.Answer, args.Relay)
 		}
 		if err != nil {
 			return nil, sessioncmd.AnsweredQuestion{}, err
@@ -800,7 +771,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: pass message with the instruction the grant is for, and it is queued for the child carrying your user's Grant as an attestation.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args grantPermissionArgs) (*mcp.CallToolResult, sessioncmd.GrantResult, error) {
-		result, err := sessions.GrantAndSend(sessionID, args.SessionID, sessioncmd.GrantRequest{
+		result, err := sessions.GrantAndSend(callerOf(ctx), args.SessionID, sessioncmd.GrantRequest{
 			Kind: args.Kind, Value: args.Value, Values: args.Values, Revoke: args.Revoke, Restart: args.Restart,
 			ExpiresIn: time.Duration(args.ExpiresInMinutes) * time.Minute,
 		}, args.Message)
@@ -820,7 +791,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"A session whose transcript cannot be read returns its pane anyway, with degraded saying why.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args readSessionArgs) (*mcp.CallToolResult, sessioncmd.SessionScreen, error) {
-		screen, err := sessions.Read(sessionID, args.SessionID, args.Since)
+		screen, err := sessions.Read(callerOf(ctx), args.SessionID, args.Since)
 		if err != nil {
 			return nil, sessioncmd.SessionScreen{}, err
 		}
@@ -850,11 +821,11 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		}
 		send := sessions.Send
 		if args.RelayQuestion != "" {
-			send = func(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error) {
-				return sessions.SendAttested(sessionID, targetID, message, subject, interrupt, args.RelayQuestion)
+			send = func(caller, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error) {
+				return sessions.SendAttested(caller, targetID, message, subject, interrupt, args.RelayQuestion)
 			}
 		}
-		result, err := send(sessionID, args.SessionID, message, args.Subject, args.Interrupt)
+		result, err := send(callerOf(ctx), args.SessionID, message, args.Subject, args.Interrupt)
 		if err != nil {
 			return nil, sessioncmd.SendResult{}, err
 		}
@@ -871,7 +842,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Dropped means it never reached the prompt and will not be retried, so send it again.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args messageStatusArgs) (*mcp.CallToolResult, sessioncmd.MessageState, error) {
-		state, err := sessions.MessageStatus(sessionID, args.MessageID)
+		state, err := sessions.MessageStatus(callerOf(ctx), args.MessageID)
 		if err != nil {
 			return nil, sessioncmd.MessageState{}, err
 		}
@@ -893,7 +864,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		if strings.TrimSpace(args.SessionID) != "" {
 			ids = append([]string{args.SessionID}, ids...)
 		}
-		result, err := sessions.Wait(ctx, sessionID, sessioncmd.WaitOptions{
+		result, err := sessions.Wait(ctx, callerOf(ctx), sessioncmd.WaitOptions{
 			SessionIDs: ids,
 			Children:   args.Children,
 			Until:      args.Until,
@@ -914,7 +885,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sessionTargetArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		// Through the installed manager when this server is stale, so the
 		// pane comes back on today's hook settings; see reviveSession.
-		revived, err := reviveSession(configDir, sessionID, args.SessionID, sessions.Revive)
+		revived, err := reviveSession(configDir, callerOf(ctx), args.SessionID, sessions.Revive)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
@@ -928,7 +899,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"The source is left as it is, so archive it once the new session has taken over; only claude, codex and opencode sessions with a transcript can be moved.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args migrateSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		created, err := migrateSession(configDir, sessionID, args.SessionID,
+		created, err := migrateSession(configDir, callerOf(ctx), args.SessionID,
 			sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name, SkipPermissions: args.SkipPermissions, ChildrenSkipPermissions: args.ChildrenSkipPermissions}, sessions.Migrate)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
@@ -944,7 +915,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Killing interrupts work in progress on the user's machine, so ask first unless the user asked for it.",
 		Annotations: mcptool.Annotations(false, true, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sessionTargetArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		killed, err := sessions.Kill(sessionID, args.SessionID, extension.KillByMCP)
+		killed, err := sessions.Kill(callerOf(ctx), args.SessionID, extension.KillByMCP)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
@@ -962,7 +933,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		if args.Archived != nil {
 			archived = *args.Archived
 		}
-		updated, err := sessions.Archive(sessionID, args.SessionID, archived)
+		updated, err := sessions.Archive(callerOf(ctx), args.SessionID, archived)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
@@ -981,7 +952,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		if args.Muted != nil {
 			muted = *args.Muted
 		}
-		updated, err := sessions.Mute(sessionID, args.SessionID, muted)
+		updated, err := sessions.Mute(callerOf(ctx), args.SessionID, muted)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
@@ -1003,7 +974,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"You rarely need it for a finished child: Gate Inbox archives one on its own once you have read or been told of its finish and left it alone for the grace period.",
 		Annotations: mcptool.Annotations(false, true, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args cleanupChildrenArgs) (*mcp.CallToolResult, sessioncmd.ChildCleanup, error) {
-		cleaned, err := sessions.CleanupChildren(sessionID, sessioncmd.CleanupOptions{
+		cleaned, err := sessions.CleanupChildren(callerOf(ctx), sessioncmd.CleanupOptions{
 			Statuses: args.Statuses,
 			All:      args.All,
 			DryRun:   args.DryRun,
@@ -1029,7 +1000,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args taskArgs) (*mcp.CallToolResult, taskOutput, error) {
 		switch args.Action {
 		case "list":
-			listed, err := sessions.Tasks(sessionID, sessioncmd.TaskListOptions{
+			listed, err := sessions.Tasks(callerOf(ctx), sessioncmd.TaskListOptions{
 				State:       args.State,
 				IncludeDone: args.IncludeDone,
 				Mine:        args.Mine,
@@ -1052,37 +1023,37 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
-			created, err := sessions.CreateTask(sessionID, sessioncmd.TaskSpec{Title: args.Title, Body: body, DependsOn: args.DependsOn, Assignee: args.Assignee})
+			created, err := sessions.CreateTask(callerOf(ctx), sessioncmd.TaskSpec{Title: args.Title, Body: body, DependsOn: args.DependsOn, Assignee: args.Assignee})
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
 			return mcptool.Text("created " + sessioncmd.FormatTask(created)), taskOutput{Task: &created}, nil
 		case "claim":
-			claimed, err := sessions.ClaimTask(sessionID, args.TaskID, sessioncmd.ClaimOptions{Any: args.Any})
+			claimed, err := sessions.ClaimTask(callerOf(ctx), args.TaskID, sessioncmd.ClaimOptions{Any: args.Any})
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
 			return mcptool.Text("claimed " + sessioncmd.FormatTask(claimed)), taskOutput{Task: &claimed}, nil
 		case "assign":
-			assigned, err := sessions.AssignTask(sessionID, args.TaskID, args.Assignee)
+			assigned, err := sessions.AssignTask(callerOf(ctx), args.TaskID, args.Assignee)
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
 			return mcptool.Text("assigned " + sessioncmd.FormatTask(assigned)), taskOutput{Task: &assigned}, nil
 		case "finish":
-			finished, err := sessions.FinishTask(sessionID, args.TaskID)
+			finished, err := sessions.FinishTask(callerOf(ctx), args.TaskID)
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
 			return mcptool.Text("finished " + sessioncmd.FormatTask(finished)), taskOutput{Task: &finished}, nil
 		case "release":
-			released, err := sessions.ReleaseTask(sessionID, args.TaskID)
+			released, err := sessions.ReleaseTask(callerOf(ctx), args.TaskID)
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
 			return mcptool.Text("released " + sessioncmd.FormatTask(released)), taskOutput{Task: &released}, nil
 		case "delete":
-			if err := sessions.DeleteTask(sessionID, args.TaskID); err != nil {
+			if err := sessions.DeleteTask(callerOf(ctx), args.TaskID); err != nil {
 				return nil, taskOutput{}, err
 			}
 			return mcptool.Text("deleted task " + args.TaskID), taskOutput{}, nil
@@ -1099,7 +1070,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"It lapses on its own, so an agent that dies never holds the repo. Call release_files when you are done.",
 		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reserveFilesArgs) (*mcp.CallToolResult, sessioncmd.ReserveResult, error) {
-		result, err := sessions.Reserve(sessionID, args.Paths, args.Mode, args.Note, time.Duration(args.TTLM)*time.Minute)
+		result, err := sessions.Reserve(callerOf(ctx), args.Paths, args.Mode, args.Note, time.Duration(args.TTLM)*time.Minute)
 		if err != nil {
 			return nil, sessioncmd.ReserveResult{}, err
 		}
@@ -1112,7 +1083,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Omit paths to release everything this session holds.",
 		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args releaseFilesArgs) (*mcp.CallToolResult, releaseFilesOutput, error) {
-		released, err := sessions.ReleaseFiles(sessionID, args.Paths)
+		released, err := sessions.ReleaseFiles(callerOf(ctx), args.Paths)
 		if err != nil {
 			return nil, releaseFilesOutput{}, err
 		}
@@ -1125,7 +1096,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Call it before editing shared code, or when planning who takes which part of a change.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listReservationsArgs) (*mcp.CallToolResult, listReservationsOutput, error) {
-		listed, err := sessions.Reservations(sessionID)
+		listed, err := sessions.Reservations(callerOf(ctx))
 		if err != nil {
 			return nil, listReservationsOutput{}, err
 		}
@@ -1138,7 +1109,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Call before passing a group to create_session or create_terminal, since a group must already exist.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listGroupsArgs) (*mcp.CallToolResult, listGroupsOutput, error) {
-		listed, err := sessions.Groups(sessionID)
+		listed, err := sessions.Groups(callerOf(ctx))
 		if err != nil {
 			return nil, listGroupsOutput{}, err
 		}
@@ -1152,7 +1123,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Nest with a slash path such as work/payments, whose parent must already exist.",
 		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createGroupArgs) (*mcp.CallToolResult, sessioncmd.Group, error) {
-		created, err := sessions.CreateGroup(sessionID, args.Path, args.Directory, args.Pin)
+		created, err := sessions.CreateGroup(callerOf(ctx), args.Path, args.Directory, args.Pin)
 		if err != nil {
 			return nil, sessioncmd.Group{}, err
 		}
@@ -1166,7 +1137,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"so this never ends an agent: kill_session or archive_session those first if that is what you mean.",
 		Annotations: mcptool.Annotations(false, true, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args deleteGroupArgs) (*mcp.CallToolResult, sessioncmd.GroupRemoval, error) {
-		removal, err := sessions.DeleteGroup(sessionID, args.Path)
+		removal, err := sessions.DeleteGroup(callerOf(ctx), args.Path)
 		if err != nil {
 			return nil, sessioncmd.GroupRemoval{}, err
 		}
@@ -1180,7 +1151,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Reuse a relevant running terminal when possible; otherwise call create_terminal. Use the returned id with send_terminal and read_terminal.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listTerminalsArgs) (*mcp.CallToolResult, listTerminalsOutput, error) {
-		listed, err := terminals.List(sessionID)
+		listed, err := terminals.List(callerOf(ctx))
 		if err != nil {
 			return nil, listTerminalsOutput{}, err
 		}
@@ -1195,7 +1166,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Then call send_terminal with the returned id; use create_session instead for another agent CLI. Call close_terminal when the job is finished and the terminal is not being left for the user.",
 		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createTerminalArgs) (*mcp.CallToolResult, sessioncmd.Terminal, error) {
-		created, err := terminals.Create(sessionID, sessioncmd.CreateTerminalOptions{
+		created, err := terminals.Create(callerOf(ctx), sessioncmd.CreateTerminalOptions{
 			Name:      args.Name,
 			Group:     args.Group,
 			Directory: args.Directory,
@@ -1214,7 +1185,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Keys sends exact tmux key names for interactive control, such as [\"C-c\"] or [\"Up\", \"Enter\"]. Call read_terminal after sending to inspect the result.",
 		Annotations: mcptool.Annotations(false, true, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sendTerminalArgs) (*mcp.CallToolResult, sessioncmd.TerminalInput, error) {
-		sent, err := terminals.Send(sessionID, args.TerminalID, args.Command, args.Keys)
+		sent, err := terminals.Send(callerOf(ctx), args.TerminalID, args.Command, args.Keys)
 		if err != nil {
 			return nil, sessioncmd.TerminalInput{}, err
 		}
@@ -1227,7 +1198,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Returns the plain-text content currently visible in the managed terminal pane. This is the current screen, not the pane's full scrollback history.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args readTerminalArgs) (*mcp.CallToolResult, sessioncmd.TerminalScreen, error) {
-		screen, err := terminals.Read(sessionID, args.TerminalID)
+		screen, err := terminals.Read(callerOf(ctx), args.TerminalID)
 		if err != nil {
 			return nil, sessioncmd.TerminalScreen{}, err
 		}
@@ -1241,7 +1212,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Refuses agent sessions, un-nested terminals, and terminals under another session.",
 		Annotations: mcptool.Annotations(false, true, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args closeTerminalArgs) (*mcp.CallToolResult, any, error) {
-		if err := terminals.Close(sessionID, args.TerminalID); err != nil {
+		if err := terminals.Close(callerOf(ctx), args.TerminalID); err != nil {
 			return nil, nil, err
 		}
 		return mcptool.Text("closed terminal " + args.TerminalID), nil, nil

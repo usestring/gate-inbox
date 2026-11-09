@@ -31,29 +31,27 @@ import (
 // The tool's name goes on the span; its arguments never do. They are the
 // prompts, messages and commands agents send each other, and this leaves the
 // machine.
-func traceTools(sessionID string) mcp.Middleware {
-	return func(next mcp.MethodHandler) mcp.MethodHandler {
-		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			if !tracing.Enabled() {
-				return next(ctx, method, req)
-			}
-			params, isCall := req.GetParams().(*mcp.CallToolParamsRaw)
-			if !isCall {
-				return next(ctx, method, req)
-			}
-			started := time.Now()
-			result, err := next(ctx, method, req)
-			// A refused tool call comes back as a result carrying IsError
-			// rather than as an error: textResult turns every failure into
-			// one, so a span reading only err would report this server as
-			// having never failed at anything.
-			called, _ := result.(*mcp.CallToolResult)
-			tracing.Record("mcp.tool", started, time.Now(), err,
-				tracing.Attr{Key: "tool", Value: params.Name},
-				tracing.Attr{Key: "session", Value: sessionID},
-				tracing.Attr{Key: "failed", Value: err != nil || (called != nil && called.IsError)})
-			return result, err
+func traceTools(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		if !tracing.Enabled() {
+			return next(ctx, method, req)
 		}
+		params, isCall := req.GetParams().(*mcp.CallToolParamsRaw)
+		if !isCall {
+			return next(ctx, method, req)
+		}
+		started := time.Now()
+		result, err := next(ctx, method, req)
+		// A refused tool call comes back as a result carrying IsError
+		// rather than as an error: textResult turns every failure into
+		// one, so a span reading only err would report this server as
+		// having never failed at anything.
+		called, _ := result.(*mcp.CallToolResult)
+		tracing.Record("mcp.tool", started, time.Now(), err,
+			tracing.Attr{Key: "tool", Value: params.Name},
+			tracing.Attr{Key: "session", Value: callerOf(ctx)},
+			tracing.Attr{Key: "failed", Value: err != nil || (called != nil && called.IsError)})
+		return result, err
 	}
 }
 

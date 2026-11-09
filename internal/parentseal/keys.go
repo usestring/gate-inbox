@@ -39,39 +39,11 @@ func keyPath(configDir, session string) (string, error) {
 
 // Key is session's sealing key, minted on first use.
 func Key(configDir, session string) ([]byte, error) {
-	if key, err := ExistingKey(configDir, session); err != nil || key != nil {
-		return key, err
-	}
 	path, err := keyPath(configDir, session)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	fresh := make([]byte, 32)
-	if _, err := rand.Read(fresh); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, fs.ErrExist) {
-		return ExistingKey(configDir, session)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if _, err := file.Write(fresh); err != nil {
-		file.Close()
-		os.Remove(path)
-		return nil, err
-	}
-	if err := file.Close(); err != nil {
-		return nil, err
-	}
-	return fresh, nil
+	return mintKey(path)
 }
 
 // ExistingKey is session's sealing key, or nil when none was ever minted:
@@ -81,6 +53,51 @@ func ExistingKey(configDir, session string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return readKey(path)
+}
+
+// mintKey is the 32-byte key at path, written with fresh random bytes the
+// first time it is asked for. The key is written whole under a name of its
+// own and then linked into place, so a reader never sees a key half written,
+// and two processes minting at once agree: the link that loses reads the
+// winner's key.
+func mintKey(path string) ([]byte, error) {
+	if key, err := readKey(path); err != nil || key != nil {
+		return key, err
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, err
+	}
+	fresh := make([]byte, 32)
+	if _, err := rand.Read(fresh); err != nil {
+		return nil, err
+	}
+	file, err := os.CreateTemp(dir, ".minting-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(file.Name())
+	if _, err := file.Write(fresh); err != nil {
+		file.Close()
+		return nil, err
+	}
+	if err := file.Close(); err != nil {
+		return nil, err
+	}
+	if err := os.Link(file.Name(), path); errors.Is(err, fs.ErrExist) {
+		return readKey(path)
+	} else if err != nil {
+		return nil, err
+	}
+	return fresh, nil
+}
+
+// readKey is the 32-byte key at path, or nil when it was never minted.
+func readKey(path string) ([]byte, error) {
 	key, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -89,7 +106,7 @@ func ExistingKey(configDir, session string) ([]byte, error) {
 		return nil, err
 	}
 	if len(key) != 32 {
-		return nil, fmt.Errorf("sealing key for %s is %d bytes, want 32", session, len(key))
+		return nil, fmt.Errorf("key %s is %d bytes, want 32", filepath.Base(path), len(key))
 	}
 	return key, nil
 }

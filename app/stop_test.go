@@ -26,20 +26,24 @@ default_status = "idle"
 `
 
 func TestStopFromInsidePaneCompletesLifecycleOutsideIt(t *testing.T) {
-	testSelfStop(t, true, false)
+	testSelfStop(t, true, false, false)
 }
 
 // The last session's death empties the server, and tmux SIGTERMs a
 // run-shell -b job on the way out, so the worker must outlive that.
 func TestStopOfTheServersLastSessionCompletesLifecycle(t *testing.T) {
-	testSelfStop(t, false, false)
+	testSelfStop(t, false, false, false)
 }
 
 func TestStopDiscoversAdoptedCallerWithoutLaunchEnvironment(t *testing.T) {
-	testSelfStop(t, true, true)
+	testSelfStop(t, true, true, false)
 }
 
-func testSelfStop(t *testing.T, withSentinel, adopted bool) {
+func TestStopIgnoresAStaleCodexThreadBoundToAnotherPane(t *testing.T) {
+	testSelfStop(t, true, false, true)
+}
+
+func testSelfStop(t *testing.T, withSentinel, adopted, staleThread bool) {
 	bin := buildFixture(t)
 	socket := tmuxtest.Socket(t, "selfstop")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+promptTool)
@@ -89,6 +93,15 @@ func testSelfStop(t *testing.T, withSentinel, adopted bool) {
 	if err := st.SetAgentSessionID(target, row.AgentSessionID); err != nil {
 		t.Fatal(err)
 	}
+	const staleCodexThread = "0190a000-0000-7000-8000-00000000000b"
+	if staleThread {
+		if err := st.SetAgentSessionID(sentinel, staleCodexThread); err != nil {
+			t.Fatal(err)
+		}
+		if err := hooks.NewManager(home).SyncCodex([]hooks.CodexRow{{ID: sentinel, Thread: staleCodexThread}}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	dry := filepath.Join(home, "dry.json")
 	pane := tmuxCommand("display-message", "-p", "-t", "gi_"+target, "#{pane_id}")
 	command := tmux.ShellQuote(bin) + " stop --dry-run --json > " + tmux.ShellQuote(dry) + "; " + tmux.ShellQuote(bin) + " stop --json"
@@ -107,6 +120,9 @@ func testSelfStop(t *testing.T, withSentinel, adopted bool) {
 	launchEnv := "env GATE_INBOX_HOME=" + tmux.ShellQuote(home) + " GATE_INBOX_SESSION_ID=" + tmux.ShellQuote(target)
 	if adopted {
 		launchEnv = "env -u GATE_INBOX_SESSION_ID GATE_INBOX_HOME=" + tmux.ShellQuote(home)
+	}
+	if staleThread {
+		launchEnv += " CODEX_THREAD_ID=" + staleCodexThread
 	}
 	tmuxCommand("respawn-pane", "-k", "-t", pane, launchEnv+" sh -c "+tmux.ShellQuote(command))
 	deadline := time.Now().Add(15 * time.Second)

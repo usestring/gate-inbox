@@ -190,6 +190,7 @@ func (m *Model) openSettings() {
 		autoProceed:      m.autoProceed,
 		smartTriage:      m.smartTriage,
 		idleSwitch:       m.idleSwitch,
+		confirmLaunches:  m.store.ConfirmLaunches(),
 		reopenSessions:   m.reopenSessionsMode(),
 		outsidePanes:     m.outsidePanesMode(),
 		claudeSetup:      m.claudeSetupSwitch(),
@@ -375,6 +376,13 @@ func (m *Model) persistSettings() tea.Cmd {
 		idleSwitch = "on"
 	}
 	if err := m.store.SetSetting(idleSwitchSetting, idleSwitch); err != nil {
+		m.errBar.text = err.Error()
+	}
+	confirmLaunches := "off"
+	if m.settings.confirmLaunches {
+		confirmLaunches = "on"
+	}
+	if err := m.store.SetSetting(store.ConfirmLaunchesKey, confirmLaunches); err != nil {
 		m.errBar.text = err.Error()
 	}
 	if err := m.store.SetSetting(reopenSessionsSetting, normalizeReopenSessions(m.settings.reopenSessions)); err != nil {
@@ -675,6 +683,8 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.smartTriage = !m.settings.smartTriage
 	case settingsFieldIdleSwitch:
 		m.settings.idleSwitch = !m.settings.idleSwitch
+	case settingsFieldConfirmLaunches:
+		m.settings.confirmLaunches = !m.settings.confirmLaunches
 	case settingsFieldReopenSessions:
 		m.settings.reopenSessions = cycleMode(reopenSessionsModes, normalizeReopenSessions(m.settings.reopenSessions), step)
 	case settingsFieldOutsidePanes:

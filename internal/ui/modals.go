@@ -467,6 +467,10 @@ func (m *Model) viewSettings() string {
 	if m.settings.idleSwitch {
 		idleSwitch = "on"
 	}
+	confirmLaunches := "off"
+	if m.settings.confirmLaunches {
+		confirmLaunches = "on"
+	}
 	toolValue := ""
 	if len(m.settings.toolNames) > 0 {
 		toolValue = m.settings.toolNames[m.settings.toolIndex]
@@ -522,6 +526,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
 		row(settingsFieldSmartTriage, "smart triage", smartTriage) + "\n" +
 		row(settingsFieldIdleSwitch, "switch when idle", idleSwitch) + "\n" +
+		row(settingsFieldConfirmLaunches, "confirm launches", confirmLaunches) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
 		row(settingsFieldClaudeSetup, "claude code setup", claudeSetupLabel(m.cfg.ClaudeCode.SetupOn(), m.settings.claudeSetup)) + "\n" +

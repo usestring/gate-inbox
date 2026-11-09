@@ -990,6 +990,7 @@ type settingsState struct {
 	autoProceed      bool
 	smartTriage      bool
 	idleSwitch       bool
+	confirmLaunches  bool
 	reopenSessions   string
 	outsidePanes     string
 	// claudeSetup is the Settings switch for the board's entries in the
@@ -1040,6 +1041,7 @@ const (
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
 	settingsFieldIdleSwitch
+	settingsFieldConfirmLaunches
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
 	settingsFieldClaudeSetup

@@ -31,6 +31,11 @@ import (
 // LaunchOption. Either is spent once, on one launch that starts. A turn the operator
 // typed launches as it always has. Children are not gated: their parent was,
 // and steering a fan-out is what a child's spawn is for.
+//
+// The board's "confirm launches" setting (store.ConfirmLaunchesKey) turns the
+// gate off for nested launches, for an operator who wants their agents to
+// delegate without asking. A detached launch (nest false) is the operator's
+// own standalone session, so it stays gated either way.
 
 // LaunchOption is the option that approves one launch.
 const LaunchOption = "Launch new session"
@@ -101,6 +106,9 @@ func (r *runtime) gatesLaunch(caller store.Session) bool {
 func (s *Sessions) confirmLaunch(runtime *runtime, caller store.Session, opts CreateSessionOptions, now time.Time) (func(), error) {
 	none := func() {}
 	if !s.gateLaunches || !runtime.gatesLaunch(caller) {
+		return none, nil
+	}
+	if nested := opts.Nest == nil || *opts.Nest; nested && !runtime.store.ConfirmLaunches() {
 		return none, nil
 	}
 	voiced := s.voicedLaunch

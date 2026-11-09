@@ -1171,6 +1171,10 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 		}
 	}
 	from := sender{callerID: caller.ID, id: caller.ID, name: caller.Name}
+	// Refuse retired recipients before a send can wake or restore them.
+	if _, err := runtime.addressee(from, targetID, interrupt); err != nil {
+		return SendResult{}, err
+	}
 	// A helper an extension launched to speak for the operator -- one
 	// holding a question for them, say -- writing to the session it was
 	// filed under. What it sends is the operator's answer, not its own
@@ -1341,6 +1345,9 @@ func (r *runtime) addressee(from sender, targetID string, interrupt bool) (store
 	target, err := r.agent(targetID)
 	if err != nil {
 		return store.Session{}, err
+	}
+	if target.ReplacedBy != "" {
+		return store.Session{}, fmt.Errorf("session %s was replaced by %s; send to its successor", target.ID, target.ReplacedBy)
 	}
 	if from.callerID != "" && target.ID == from.callerID {
 		return store.Session{}, errors.New("a session cannot message itself")

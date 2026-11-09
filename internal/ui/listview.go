@@ -1649,10 +1649,13 @@ func (m *Model) contentLines(width, height int) []contentLine {
 			if page, ok := m.headPaneLines(width, rest, gutter); ok {
 				m.previewBodyOffset = len(body)
 				body = append(body, page...)
-			} else if _, ok := m.selected(); !ok {
+			} else if sess, ok := m.selected(); !ok {
 				body = append(body, ours(splitLines(mutedStyle.Render("Select a session to inspect it.")))...)
 			} else {
 				header := m.stoppedConversationHeader(inner)
+				if label, hint := m.claudeAuthNotice(sess); hint != "" {
+					header = splitLines(ansi.Wrap(statusTint(status.Errored, label)+": "+hint, max(inner, 1), ""))
+				}
 				header = header[:min(len(header), max(0, rest-2))]
 				body = append(body, ours(header)...)
 				m.previewBodyOffset = len(body)

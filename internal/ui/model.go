@@ -363,6 +363,7 @@ type Model struct {
 	// askQuestions mirrors refreshMsg.askQuestions, and questionCard is the
 	// preview's card drawn from it. See previewquestions.go.
 	askQuestions map[string][]convo.AskQuestion
+	authFailures map[string]string
 	questionCard questionCard
 	screenCard   screenCard
 	// hookless mirrors refreshMsg.hookless: the rows whose status is
@@ -663,6 +664,10 @@ type Model struct {
 	// key that answers a focused session in a drain also hands it over. Off
 	// by default; see autoproceed.go.
 	autoProceed bool
+	// idleSwitch mirrors the persisted idle switch: with it on, an operator
+	// left idle in a working session is moved to one needing a person. See
+	// handOverOnIdle.
+	idleSwitch bool
 	// muted is the sessions this drain has already been shown, keyed by id.
 	// It is what stops the queue handing back work the operator has just
 	// done; see mute.go for why it is memory of the pass rather than state
@@ -984,6 +989,7 @@ type settingsState struct {
 	newSessionAgent  string
 	autoProceed      bool
 	smartTriage      bool
+	idleSwitch       bool
 	reopenSessions   string
 	outsidePanes     string
 	// claudeSetup is the Settings switch for the board's entries in the
@@ -1033,6 +1039,7 @@ const (
 	settingsFieldFocusKey
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
+	settingsFieldIdleSwitch
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
 	settingsFieldClaudeSetup
@@ -1084,6 +1091,7 @@ type refreshMsg struct {
 	// askQuestions is each Claude session's pending AskUserQuestion call,
 	// for a pane standing on a several-question dialog.
 	askQuestions map[string][]convo.AskQuestion
+	authFailures map[string]string
 	// hookless is every session whose agent no longer carries the hook
 	// settings flag, so its status is coming off the pane rather than out of
 	// its status file. Replaced whole each pass like queuedMessages, which is
@@ -1385,6 +1393,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
 		smartTriage:     storedSmartTriage(st),
+		idleSwitch:      storedIdleSwitch(st),
 		mode:            modeList,
 		version:         version,
 		// Assume the operator is looking until something says otherwise. A
@@ -2511,6 +2520,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait
 		m.askQuestions = msg.askQuestions
+		m.authFailures = msg.authFailures
 		m.hookless = msg.hookless
 		m.stale = msg.stale
 		m.hogBadges = msg.hogBadges

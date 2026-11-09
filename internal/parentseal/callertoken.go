@@ -128,3 +128,21 @@ func agentSessionPath(configDir, agentSession string) (string, error) {
 	}
 	return filepath.Join(KeyDir(configDir), agentSessionDir, agentSession), nil
 }
+
+// serverDomain is what a shared server's proof signs besides the client's
+// nonce; distinct from callerDomain, so a proof is never a caller token.
+const serverDomain = "gate-inbox shared server v1\n"
+
+// ServerProof is the proof, for nonce, that a server holds configDir's
+// caller key: what a launch checks before handing a session's token to
+// whatever answers at the recorded address. Another user's process can take
+// a loopback port; it cannot read the key.
+func ServerProof(configDir, nonce string) (string, error) {
+	key, err := mintKey(filepath.Join(KeyDir(configDir), callerKeyFile))
+	if err != nil {
+		return "", err
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(serverDomain + nonce))
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}

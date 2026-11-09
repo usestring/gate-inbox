@@ -45,6 +45,11 @@ poll_interval = "2s"
 # and so does switching "claude code setup" off in Settings.
 # [claude_code]
 # setup = true
+#
+# true has every claude the board launches reach the board's tools through
+# one shared server, gate-inbox mcp-serve, which the board starts, instead
+# of a server process of its own.
+# shared_mcp = false
 
 # Your own Codex config. While the board runs, on a machine with codex
 # installed, it keeps two hook entries (UserPromptSubmit and Stop) in

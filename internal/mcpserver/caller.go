@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 )
 
@@ -24,8 +25,8 @@ import (
 const (
 	// CallerHeader and CallerTokenHeader name a request's caller to a
 	// shared HTTP server.
-	CallerHeader      = "X-Gate-Inbox-Session"
-	CallerTokenHeader = "X-Gate-Inbox-Token"
+	CallerHeader      = mcpshared.CallerHeader
+	CallerTokenHeader = mcpshared.CallerTokenHeader
 	// CallerArg and CallerTokenArg name a call's caller in the call itself,
 	// for a client that can add arguments to a call but not headers. No
 	// client does so today: opencode strips any argument a tool does not

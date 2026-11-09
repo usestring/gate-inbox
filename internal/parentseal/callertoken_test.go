@@ -122,3 +122,21 @@ func TestAgentSessionBindingVerifies(t *testing.T) {
 		t.Fatal("a path was taken for an agent session id")
 	}
 }
+
+// A server's proof depends on the key and the nonce, and is never a token.
+func TestServerProofIsKeyedAndFresh(t *testing.T) {
+	dir := t.TempDir()
+	one, err := ServerProof(dir, "nonce1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := ServerProof(dir, "nonce1"); again != one {
+		t.Fatal("the same nonce gave two proofs")
+	}
+	if other, _ := ServerProof(dir, "nonce2"); other == one {
+		t.Fatal("two nonces gave one proof")
+	}
+	if elsewhere, _ := ServerProof(t.TempDir(), "nonce1"); elsewhere == one {
+		t.Fatal("another key gave the same proof")
+	}
+}

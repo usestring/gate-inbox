@@ -95,6 +95,19 @@ func TestFeedbackSurvivesReopenAndBoundsRoundsAcrossCommits(t *testing.T) {
 	if got := len(inbox(t, st)); got != 3 {
 		t.Fatalf("repair loop continued after escalation: %d messages", got)
 	}
+	for i, state := range []string{"incomplete", "pending"} {
+		unknown := failedPR(at.Add(4*time.Minute+time.Duration(i+1)*time.Second), "head-d", "run-d")
+		if state == "incomplete" {
+			unknown.CI.Complete = false
+		} else {
+			unknown.CI.Checks[0].Status, unknown.CI.Checks[0].Conclusion = "IN_PROGRESS", ""
+		}
+		observe(t, st, unknown)
+		pause, ok, err := st.HeadMessage("owner")
+		if err != nil || !ok || pause.ID != msg.ID {
+			t.Fatalf("%s evidence lost the episode pause notice: %+v, %v, %v", state, pause, ok, err)
+		}
+	}
 	green := failedPR(at.Add(5*time.Minute), "head-d", "run-d")
 	green.Checks, green.CI.Checks[0].Conclusion = forge.ChecksPassing, "SUCCESS"
 	observe(t, st, green)

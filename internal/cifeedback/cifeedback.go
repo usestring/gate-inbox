@@ -30,7 +30,7 @@ func Observe(st *store.Store, prs map[string]forge.PR, agentTools []string) erro
 
 func observation(pr forge.PR) store.CIObservation {
 	ci := pr.CI
-	obs := store.CIObservation{URL: pr.URL, HeadSHA: ci.HeadSHA, At: pr.FetchedAt, Open: pr.State == forge.PROpen}
+	obs := store.CIObservation{FeedbackObservation: store.FeedbackObservation{URL: pr.URL, HeadSHA: ci.HeadSHA, At: pr.FetchedAt, Open: pr.State == forge.PROpen}}
 	if !ci.Complete || len(ci.Checks) == 0 {
 		return obs
 	}

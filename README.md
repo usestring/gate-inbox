@@ -106,9 +106,8 @@ read from the pane itself. The preview beside the list shows the conversation as
 **Assistant** messages. While a session is working, a bounded **Live output** section also shows
 its latest terminal activity, including text the CLI has not saved yet. Older message groups shorten
 to four lines; the newest stays full, hovering expands an older group, and F3 toggles the preview's
-detail. Focus mode uses the terminal by default. Enable **Settings → Experimental → Compressed focus
-view** to keep the conversation in focus mode too; there, F3 switches between conversation and
-terminal and remembers the choice. Shell sessions always show the terminal. `w` filters the list
+detail. Focus mode uses the terminal by default; F3 switches between conversation and terminal and
+remembers the choice. Shell sessions always show the terminal. `w` filters the list
 to what needs attention, and `/` searches names, titles, groups, statuses and what the sessions have said.
 
 **Triage.** `i` flattens the groups into one queue ordered by what needs a person: waiting first,
@@ -122,10 +121,12 @@ and `alt+,` hides the key hints.
 <p align="center"><em>Triage with the list put away. Answer one session and the next that needs you comes up on its own.</em></p>
 
 **Switch subscriptions or agents.** Select a session and press `alt+a` to switch its subscription,
-or `ctrl+t` to move its conversation to another CLI. When the selected session hits a usage limit,
-the board offers to continue on Codex (or another configured CLI), switch its subscription, or leave
-it for later. Each move opens its review card before starting anything. Dismissing the offer keeps
-it closed for that limit; the shortcuts remain available. On macOS, `alt` is Option.
+or `ctrl+t` to move its conversation to another CLI. When a session hits a usage limit and a
+build extension routes its accounts, that extension moves it to another subscription in the
+background, whichever session is selected. Otherwise the selected session's card offers another
+subscription of the same CLI, or leaving it for later; `[board] offer_cli_on_limit = true` adds
+the other configured CLIs as further choices. Each move opens its review card before starting
+anything. Dismissing the offer keeps it closed for that limit; the shortcuts remain available. On macOS, `alt` is Option.
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
@@ -209,6 +210,12 @@ enabled = false
 enabled = false
 ```
 
+Pages a session publishes hang under it too, below its pull requests and tickets. The board reads
+Claude artifacts from Claude Code's own `Artifact` tool itself, and only those the session's own
+publish call returned: a page it merely linked does not count. Pages hosted elsewhere arrive from
+an extension, which attaches them when its tool publishes one (see **Extensions**). Either way the
+page is kept in the state database, so it survives a restart. Opening the row opens the page.
+
 **Remote inbox.** `gate-inbox inbox serve` takes a text message over HTTP, such as dictation from
 a phone's Shortcut, and starts a router session on the board for it. It binds loopback, and is meant
 to be reached only over a private network such as Tailscale serve, with one token per client.
@@ -223,6 +230,12 @@ extension alone, and a section no extension in the build owns is ignored; the bo
 each session's MCP instructions say which and why. A disabled extension that has a say in
 which sessions spawn fails closed: every spawn it would have been asked about is refused, with the
 reason, until its section is fixed.
+
+An extension whose tool publishes something can put it among the calling session's work rows with
+`extension.AttachWork(ctx, session.Host, extension.WorkItem{Kind: extension.WorkArtifact, ID: id,
+Title: title, URL: url})`. Attaching the same `ID` again replaces that row's title and address, so
+a republish does not add a second one. A Host that cannot attach work, such as a test fake, returns
+`extension.ErrWorkUnsupported`.
 
 ### Skill priority hook
 
@@ -300,13 +313,24 @@ third-party licences.
 picked back up next time.
 
 **Stop every agent.** `gate-inbox park` ends every live agent the board started and records the
-set. It runs from any shell, and `--dry-run` prints the plan first. `gate-inbox unpark` brings
-the same sessions back on their conversations. A single one: `gate-inbox kill <id>`, with the id
+set. It runs from any shell, and `--dry-run` prints the plan first. Park reads every session's
+state before it stops any of them: a session that was mid-turn, starting, or waiting on a
+background shell, and every session tracking one of those up to its root, has work in flight. The
+rest (idle, finished, asking you something, stopped on a limit) is dormant. With `hibernate_after`
+set, a session that hibernation would already take is hibernated instead of parked: it stays on the
+board and wakes on its next message rather than coming back with the rest. `gate-inbox unpark`
+brings every parked session back on its conversation, parents before their children: the work in
+flight first, telling only the ones stopped mid-turn to continue, then the dormant ones with nothing
+sent, so they cost no tokens. Each relaunch waits its turn in the shared relaunch queue (see
+`[relaunch]` in [configuration](docs/configuration.md)), so a reboot's worth of agents comes back
+one at a time rather than at once. A board that starts on a host rebooted since the park runs the
+unpark by itself after about 20 seconds. Sending to a session still waiting its turn brings it back
+straight away and types your message in once it is at its prompt. A single one: `gate-inbox kill <id>`, with the id
 from `gate-inbox sessions`. From inside a managed agent session, `gate-inbox stop` ends that
 session and preserves its row and conversation for an explicit revive. It records an intentional
 stop, so startup recovery does not offer it as a lost session. `gate-inbox stop --archive` also
 files the ended row out of the active list, where `archive --restore` can bring it back for 7 days.
-`gate-inbox stop --dry-run` verifies the current pane without ending it. Adopted callers with verified pane process ancestry can also stop themselves. A shared Codex host instead receives a fresh `caller_proof_line` first in JSON output, so the caller's ordinary visible tool output supplies the proof automatically. If the client collapses that line, relay `Gate Inbox stop proof: <caller_proof>` in the calling conversation. An outside worker verifies the fresh proof in the pinned pane before completing the requested action. A proof response means verification is pending; a missing proof times out without stopping or archiving anything. Never type or send the proof into a target pane through another channel.
+`gate-inbox stop --dry-run` verifies the current pane without ending it. Adopted callers with verified pane process ancestry can also stop themselves. A shared Codex host instead receives a fresh `caller_proof_line` first in JSON output, so the caller's ordinary visible tool output supplies the proof automatically. A shared OpenCode host does the same, resolving the row from the calling pane's adoption marker. If the client collapses that line, relay `Gate Inbox stop proof: <caller_proof>` in the calling conversation. An outside worker verifies the fresh proof in the pinned pane before completing the requested action. A proof response means verification is pending; a missing proof times out without stopping or archiving anything. Never type or send the proof into a target pane through another channel.
 Shared-daemon callers whose pane cannot be verified refuse shutdown. Other adopted panes can be stopped by id from
 another session or the board.
 

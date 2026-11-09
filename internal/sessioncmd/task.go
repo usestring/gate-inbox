@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,16 +15,20 @@ import (
 )
 
 type Task struct {
-	ID        string   `json:"id" jsonschema:"task id to claim, finish or release"`
-	Title     string   `json:"title" jsonschema:"one-line summary of the work"`
-	Body      string   `json:"body,omitempty" jsonschema:"full instruction for whoever claims it"`
-	State     string   `json:"state" jsonschema:"pending, in_progress or done"`
-	Owner     string   `json:"owner,omitempty" jsonschema:"session id holding the claim"`
-	OwnerName string   `json:"owner_name,omitempty" jsonschema:"name of the session holding the claim"`
-	DependsOn []string `json:"depends_on,omitempty" jsonschema:"task ids that must be done before this one can be claimed"`
-	BlockedBy []string `json:"blocked_by,omitempty" jsonschema:"the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way"`
-	Blocked   bool     `json:"blocked" jsonschema:"whether unfinished dependencies currently stop this task being claimed"`
-	Mine      bool     `json:"mine" jsonschema:"whether the calling session holds the claim"`
+	ID           string   `json:"id" jsonschema:"task id to claim, finish or release"`
+	Title        string   `json:"title" jsonschema:"one-line summary of the work"`
+	Body         string   `json:"body,omitempty" jsonschema:"full instruction for whoever claims it"`
+	State        string   `json:"state" jsonschema:"pending, in_progress or done"`
+	Owner        string   `json:"owner,omitempty" jsonschema:"session id holding the claim"`
+	OwnerName    string   `json:"owner_name,omitempty" jsonschema:"name of the session holding the claim"`
+	CreatedBy    string   `json:"created_by,omitempty" jsonschema:"session id that created the task; empty on tasks from before creators were recorded"`
+	CreatorName  string   `json:"created_by_name,omitempty" jsonschema:"name of the session that created the task; empty once its row is gone, when created_by alone names it"`
+	Assignee     string   `json:"assignee,omitempty" jsonschema:"session id the task is assigned to; only it may claim the task while it is pending"`
+	AssigneeName string   `json:"assignee_name,omitempty" jsonschema:"name of the session the task is assigned to"`
+	DependsOn    []string `json:"depends_on,omitempty" jsonschema:"task ids that must be done before this one can be claimed"`
+	BlockedBy    []string `json:"blocked_by,omitempty" jsonschema:"the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way"`
+	Blocked      bool     `json:"blocked" jsonschema:"whether unfinished dependencies currently stop this task being claimed"`
+	Mine         bool     `json:"mine" jsonschema:"whether the calling session holds the claim"`
 }
 
 // A list that has run for a while is mostly finished work, and every row
@@ -47,6 +52,11 @@ type TaskListOptions struct {
 	IncludeDone bool
 	// Mine keeps only tasks the caller holds or finished.
 	Mine bool
+	// CreatedBy keeps only tasks this session created: "me" for the
+	// caller, or a session id.
+	CreatedBy string
+	// Fleet keeps only tasks the caller's fleet created; see fleetOf.
+	Fleet bool
 	// IncludeBody carries each task's full instruction. A claim returns the
 	// body anyway, so a caller choosing what to claim reads titles.
 	IncludeBody bool
@@ -67,7 +77,7 @@ type TaskList struct {
 	Truncated bool `json:"truncated" jsonschema:"true when limit left matching tasks out; narrow state or mine, or raise limit"`
 }
 
-func (o TaskListOptions) query(callerID string) (store.TaskQuery, error) {
+func (o TaskListOptions) query(callerID string, fleet func() ([]string, error)) (store.TaskQuery, error) {
 	query := store.TaskQuery{SkipBody: !o.IncludeBody}
 	seen := map[string]bool{}
 	for _, raw := range o.State {
@@ -90,6 +100,27 @@ func (o TaskListOptions) query(callerID string) (store.TaskQuery, error) {
 	}
 	if o.Mine {
 		query.Owner = callerID
+	}
+	creator := strings.TrimSpace(o.CreatedBy)
+	if strings.EqualFold(creator, "me") {
+		creator = callerID
+	}
+	if o.Fleet {
+		members, err := fleet()
+		if err != nil {
+			return store.TaskQuery{}, err
+		}
+		query.CreatedBy = members
+		// Both filters keep the intersection: a creator outside the fleet
+		// matches nothing rather than widening the read.
+		if creator != "" {
+			query.CreatedBy = []string{}
+			if slices.Contains(members, creator) {
+				query.CreatedBy = []string{creator}
+			}
+		}
+	} else if creator != "" {
+		query.CreatedBy = []string{creator}
 	}
 	switch {
 	case o.Limit == 0:
@@ -114,7 +145,7 @@ func (s *Sessions) Tasks(sessionID string, opts TaskListOptions) (TaskList, erro
 	if err != nil {
 		return TaskList{}, err
 	}
-	query, err := opts.query(caller.ID)
+	query, err := opts.query(caller.ID, func() ([]string, error) { return runtime.fleetOf(caller) })
 	if err != nil {
 		return TaskList{}, err
 	}
@@ -142,19 +173,51 @@ func (r *runtime) taskRows(sessionID string, stored []store.Task) ([]Task, error
 	tasks := make([]Task, 0, len(stored))
 	for _, task := range stored {
 		tasks = append(tasks, Task{
-			ID:        task.ID,
-			Title:     task.Title,
-			Body:      task.Body,
-			State:     task.State,
-			Owner:     task.Owner,
-			OwnerName: names[task.Owner],
-			DependsOn: task.DependsOn,
-			BlockedBy: task.Blocking,
-			Blocked:   task.State == store.TaskPending && len(task.Blocking) > 0,
-			Mine:      task.Owner == sessionID,
+			ID:           task.ID,
+			Title:        task.Title,
+			Body:         task.Body,
+			State:        task.State,
+			Owner:        task.Owner,
+			OwnerName:    names[task.Owner],
+			CreatedBy:    task.CreatedBy,
+			CreatorName:  names[task.CreatedBy],
+			Assignee:     task.Assignee,
+			AssigneeName: names[task.Assignee],
+			DependsOn:    task.DependsOn,
+			BlockedBy:    task.Blocking,
+			Blocked:      task.State == store.TaskPending && len(task.Blocking) > 0,
+			Mine:         task.Owner == sessionID,
 		})
 	}
 	return tasks, nil
+}
+
+// fleetOf is the sessions whose tasks count as the caller's own work: the
+// caller, the session that spawned it and the parent it is drawn under
+// (one and the same unless it was re-filed), and every session it spawned
+// or has drawn under it, archived ones included until their rows are
+// deleted. Siblings are left out on purpose: a worker takes from the plan
+// its lead put up, not from what another worker split off for itself, and
+// the lead, whose children they all are, still sees both.
+func (r *runtime) fleetOf(caller store.Session) ([]string, error) {
+	members := []string{caller.ID}
+	add := func(id string) {
+		if id != "" && !slices.Contains(members, id) {
+			members = append(members, id)
+		}
+	}
+	add(caller.SpawnedBy)
+	add(caller.ParentID)
+	sessions, err := r.store.ListSessions(true)
+	if err != nil {
+		return nil, err
+	}
+	for _, sess := range sessions {
+		if sess.ID != caller.ID && (store.SpawnerOf(sess) == caller.ID || sess.ParentID == caller.ID) {
+			add(sess.ID)
+		}
+	}
+	return members, nil
 }
 
 func (r *runtime) sessionNames() (map[string]string, error) {
@@ -184,9 +247,45 @@ func (r *runtime) task(sessionID, id string) (Task, error) {
 	return tasks[0], nil
 }
 
-func (s *Sessions) CreateTask(sessionID, title, body string, dependsOn []string) (Task, error) {
-	title = strings.TrimSpace(title)
+// TaskSpec is a task to put on the list.
+type TaskSpec struct {
+	Title     string
+	Body      string
+	DependsOn []string
+	// Assignee is the only session that may claim it: "me" for the caller,
+	// or a session id. Empty leaves it to anyone.
+	Assignee string
+}
+
+// newTask shapes spec into a row creator puts on the list, refusing what
+// could never be a task.
+func newTask(spec TaskSpec, creator string, now time.Time) (store.Task, error) {
+	title := strings.TrimSpace(spec.Title)
 	if title == "" {
+		return store.Task{}, errors.New("title is empty")
+	}
+	return store.Task{
+		ID:        uuid.NewString()[:8],
+		Title:     title,
+		Body:      strings.TrimSpace(spec.Body),
+		State:     store.TaskPending,
+		CreatedBy: creator,
+		DependsOn: spec.DependsOn,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}, nil
+}
+
+func (r *runtime) missingDependency(err error) error {
+	var missing *store.MissingDependencyError
+	if errors.As(err, &missing) {
+		return fmt.Errorf("dependency %s does not exist; create it first, or call %s for current ids", missing.ID, r.words.ListTasks)
+	}
+	return err
+}
+
+func (s *Sessions) CreateTask(sessionID string, spec TaskSpec) (Task, error) {
+	if strings.TrimSpace(spec.Title) == "" {
 		return Task{}, errors.New("title is empty")
 	}
 	runtime, err := s.open()
@@ -194,37 +293,125 @@ func (s *Sessions) CreateTask(sessionID, title, body string, dependsOn []string)
 		return Task{}, err
 	}
 	defer runtime.store.Close()
-	if _, err := runtime.caller(sessionID); err != nil {
+	caller, err := runtime.caller(sessionID)
+	if err != nil {
 		return Task{}, err
 	}
-	for _, dep := range dependsOn {
-		if _, err := runtime.store.Task(dep); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return Task{}, fmt.Errorf("dependency %s does not exist; create it first, or call %s for current ids", dep, runtime.words.ListTasks)
-			}
-			return Task{}, err
-		}
+	task, err := newTask(spec, caller.ID, time.Now())
+	if err != nil {
+		return Task{}, err
 	}
-	now := time.Now()
-	task := store.Task{
-		ID:        uuid.NewString()[:8],
-		Title:     title,
-		Body:      strings.TrimSpace(body),
-		State:     store.TaskPending,
-		DependsOn: dependsOn,
-		CreatedAt: now,
-		UpdatedAt: now,
+	if task.Assignee, err = runtime.assignee(caller, spec.Assignee); err != nil {
+		return Task{}, err
 	}
 	if err := runtime.store.CreateTask(task); err != nil {
-		return Task{}, err
+		return Task{}, runtime.missingDependency(err)
 	}
 	return runtime.task(sessionID, task.ID)
 }
 
-// ClaimTask takes a named task, or the oldest unblocked one when no id is
-// given. A task another session already holds is refused rather than
-// stolen: the loser of the race finds out instead of duplicating work.
-func (s *Sessions) ClaimTask(sessionID, taskID string) (Task, error) {
+// assignee resolves who a task is being assigned to: "me" is the caller,
+// and anything else must be an agent session that is still on the board,
+// since a task assigned to an archived row or a terminal would wait on a
+// claim nobody is going to make. Empty is nobody.
+func (r *runtime) assignee(caller store.Session, raw string) (string, error) {
+	id := strings.TrimSpace(raw)
+	if id == "" {
+		return "", nil
+	}
+	if strings.EqualFold(id, "me") {
+		return caller.ID, nil
+	}
+	sess, err := r.store.Get(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("assignee %s is not a session; call %s for current ids", id, r.words.ListSessions)
+	}
+	if err != nil {
+		return "", err
+	}
+	if sess.Archived {
+		return "", fmt.Errorf("assignee %s is archived, so it would never claim the task", id)
+	}
+	if r.cfg.Tools[sess.Tool].Shell {
+		return "", fmt.Errorf("assignee %s is a terminal, not an agent", id)
+	}
+	return sess.ID, nil
+}
+
+// AssignTask points a pending task at one session, the only one that may
+// then claim it, or at nobody when assignee is empty. Its creator or its
+// current assignee may move it; a task with neither is anyone's to assign.
+func (s *Sessions) AssignTask(sessionID, taskID, assignee string) (Task, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return Task{}, fmt.Errorf("task_id is empty; call %s to get one", s.words.ListTasks)
+	}
+	runtime, err := s.open()
+	if err != nil {
+		return Task{}, err
+	}
+	defer runtime.store.Close()
+	caller, err := runtime.caller(sessionID)
+	if err != nil {
+		return Task{}, err
+	}
+	target, err := runtime.assignee(caller, assignee)
+	if err != nil {
+		return Task{}, err
+	}
+	changed, err := runtime.store.AssignTask(taskID, target, caller.ID, time.Now())
+	if err != nil {
+		return Task{}, err
+	}
+	if !changed {
+		return Task{}, runtime.refusedAssignment(caller.ID, taskID)
+	}
+	return runtime.task(caller.ID, taskID)
+}
+
+// refusedAssignment reads the task back to say why it could not be moved.
+func (r *runtime) refusedAssignment(sessionID, taskID string) error {
+	task, err := r.task(sessionID, taskID)
+	if err != nil {
+		return err
+	}
+	if task.State != store.TaskPending {
+		return fmt.Errorf("task %s is %s; only a pending task can be assigned", taskID, task.State)
+	}
+	if task.Assignee == "" && task.CreatedBy == "" {
+		return fmt.Errorf("task %s could not be assigned", taskID)
+	}
+	who := []string{}
+	if task.CreatedBy != "" {
+		who = append(who, "its creator "+nameOr(task.CreatorName, task.CreatedBy))
+	}
+	if task.Assignee != "" {
+		who = append(who, "its assignee "+nameOr(task.AssigneeName, task.Assignee))
+	}
+	return fmt.Errorf("task %s is not yours to assign; only %s can move it", taskID, strings.Join(who, " or "))
+}
+
+func nameOr(name, id string) string {
+	if name != "" {
+		return name
+	}
+	return id
+}
+
+// ClaimOptions changes what a claim with no task id may take.
+type ClaimOptions struct {
+	// Any takes the oldest ready task on the whole list instead of only
+	// the caller's fleet's.
+	Any bool
+}
+
+// ClaimTask takes a named task, or with no id the oldest unblocked one
+// assigned to the caller, then the oldest unassigned one its fleet
+// created. A task another session already holds
+// is refused rather than stolen: the loser of the race finds out instead
+// of duplicating work. The fleet scope is what keeps a worker from picking
+// up a stale task some unrelated workstream left on the list months ago.
+func (s *Sessions) ClaimTask(sessionID, taskID string, opts ClaimOptions) (Task, error) {
 	runtime, err := s.open()
 	if err != nil {
 		return Task{}, err
@@ -237,12 +424,18 @@ func (s *Sessions) ClaimTask(sessionID, taskID string) (Task, error) {
 	now := time.Now()
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
-		claimed, ok, err := runtime.store.ClaimNextTask(caller.ID, now)
+		var creators []string
+		if !opts.Any {
+			if creators, err = runtime.fleetOf(caller); err != nil {
+				return Task{}, err
+			}
+		}
+		claimed, ok, err := runtime.store.ClaimNextTask(caller.ID, creators, now)
 		if err != nil {
 			return Task{}, err
 		}
 		if !ok {
-			return Task{}, errors.New("no task is ready to claim; every pending task is blocked, or the list is empty")
+			return Task{}, runtime.nothingReady(caller.ID, opts.Any)
 		}
 		return runtime.task(caller.ID, claimed.ID)
 	}
@@ -256,11 +449,34 @@ func (s *Sessions) ClaimTask(sessionID, taskID string) (Task, error) {
 	return runtime.task(caller.ID, taskID)
 }
 
-func holderOf(task Task) string {
-	if task.OwnerName != "" {
-		return task.OwnerName
+// nothingReady says why a bare claim came back empty. A fleet-scoped one
+// says how much ready work sits outside the fleet, since "nothing to do"
+// and "nothing of yours to do" call for different next moves.
+func (r *runtime) nothingReady(callerID string, anyCreator bool) error {
+	empty := errors.New("no task is ready to claim; every pending task is blocked, or the list is empty")
+	if anyCreator {
+		return empty
 	}
-	return task.Owner
+	outside, err := r.store.ReadyTaskCount(callerID)
+	if err != nil {
+		return err
+	}
+	if outside == 0 {
+		return empty
+	}
+	return fmt.Errorf("no task your fleet created is ready to claim; %d ready %s outside it, created by unrelated sessions or before creators were recorded; call %s to take the oldest of those, or claim one by id",
+		outside, plural(outside, "task is", "tasks are"), r.words.ClaimAny)
+}
+
+func plural(count int, one, many string) string {
+	if count == 1 {
+		return one
+	}
+	return many
+}
+
+func holderOf(task Task) string {
+	return nameOr(task.OwnerName, task.Owner)
 }
 
 // refusedClaim reads the task back to say why the claim did not take,
@@ -276,6 +492,8 @@ func (r *runtime) refusedClaim(sessionID, taskID string) error {
 		return fmt.Errorf("task %s is already claimed by %s", taskID, holderOf(task))
 	case task.State == store.TaskDone:
 		return fmt.Errorf("task %s is already done", taskID)
+	case task.Assignee != "" && task.Assignee != sessionID:
+		return fmt.Errorf("task %s is assigned to %s; only that session can claim it, and its creator or assignee can reassign it", taskID, nameOr(task.AssigneeName, task.Assignee))
 	case task.Blocked:
 		return fmt.Errorf("task %s is blocked on %s", taskID, strings.Join(task.BlockedBy, ", "))
 	}

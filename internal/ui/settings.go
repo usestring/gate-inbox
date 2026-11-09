@@ -183,11 +183,13 @@ func (m *Model) openSettings() {
 		deleteConfirm:    normalizeConfirmAsk(m.deleteConfirm),
 		restartConfirm:   normalizeConfirmAsk(m.restartConfirm),
 		listSort:         normalizeListSort(m.listSort),
+		listConsistency:  normalizeListConsistency(m.listConsistency),
 		chrome:           normalizeChrome(m.chrome),
 		leaveMode:        normalizeLeaveMode(m.leaveMode),
 		newSessionAgent:  normalizeNewSessionAgent(m.newSessionAgent),
 		autoProceed:      m.autoProceed,
 		smartTriage:      m.smartTriage,
+		idleSwitch:       m.idleSwitch,
 		reopenSessions:   m.reopenSessionsMode(),
 		outsidePanes:     m.outsidePanesMode(),
 		claudeSetup:      m.claudeSetupSwitch(),
@@ -195,7 +197,6 @@ func (m *Model) openSettings() {
 		jevFinishCheck:   m.jevFinishCheck,
 		jevCopyOn:        m.jevCopyOn,
 		promptSuggest:    m.promptSuggest,
-		compressedFocus:  m.compressedFocus,
 		reviewQueue:      m.reviewQueue,
 		arrowsStay:       m.arrowsStay,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
@@ -343,6 +344,9 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(listSortSetting, normalizeListSort(m.settings.listSort)); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(listConsistencySetting, normalizeListConsistency(m.settings.listConsistency)); err != nil {
+		m.errBar.text = err.Error()
+	}
 	if err := m.store.SetSetting(chromeSetting, normalizeChrome(m.settings.chrome)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -364,6 +368,13 @@ func (m *Model) persistSettings() tea.Cmd {
 		smartTriage = "on"
 	}
 	if err := m.store.SetSetting(smartTriageSetting, smartTriage); err != nil {
+		m.errBar.text = err.Error()
+	}
+	idleSwitch := "off"
+	if m.settings.idleSwitch {
+		idleSwitch = "on"
+	}
+	if err := m.store.SetSetting(idleSwitchSetting, idleSwitch); err != nil {
 		m.errBar.text = err.Error()
 	}
 	if err := m.store.SetSetting(reopenSessionsSetting, normalizeReopenSessions(m.settings.reopenSessions)); err != nil {
@@ -399,8 +410,8 @@ func (m *Model) persistSettings() tea.Cmd {
 	}
 	m.autoProceed = m.settings.autoProceed
 	m.smartTriage = m.settings.smartTriage
+	m.idleSwitch = m.settings.idleSwitch
 	m.focusOnEnter = m.settings.enterFocuses
-	m.compressedFocus = storedCompressedFocus(m.store)
 	m.arrowsStay = storedArrowsStay(m.store)
 	m.focusView = storedFocusView(m.store)
 	m.comfortableRows = m.settings.comfortableRows
@@ -413,6 +424,10 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.deleteConfirm = normalizeConfirmAsk(m.settings.deleteConfirm)
 	m.restartConfirm = normalizeConfirmAsk(m.settings.restartConfirm)
 	m.listSort = normalizeListSort(m.settings.listSort)
+	if m.listConsistency != normalizeListConsistency(m.settings.listConsistency) {
+		m.listPositions = nil
+	}
+	m.listConsistency = normalizeListConsistency(m.settings.listConsistency)
 	m.chrome = normalizeChrome(m.settings.chrome)
 	m.leaveMode = normalizeLeaveMode(m.settings.leaveMode)
 	m.newSessionAgent = normalizeNewSessionAgent(m.settings.newSessionAgent)
@@ -619,6 +634,8 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 			}
 		}
 		m.settings.listSort = listSortModes[(index+step+len(listSortModes))%len(listSortModes)]
+	case settingsFieldListConsistency:
+		m.settings.listConsistency = cycleMode([]string{listConsistencyConditional, listConsistencyPositional}, normalizeListConsistency(m.settings.listConsistency), step)
 	case settingsFieldChrome:
 		index := 0
 		for i, mode := range chromeModes {
@@ -656,6 +673,8 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.autoProceed = !m.settings.autoProceed
 	case settingsFieldSmartTriage:
 		m.settings.smartTriage = !m.settings.smartTriage
+	case settingsFieldIdleSwitch:
+		m.settings.idleSwitch = !m.settings.idleSwitch
 	case settingsFieldReopenSessions:
 		m.settings.reopenSessions = cycleMode(reopenSessionsModes, normalizeReopenSessions(m.settings.reopenSessions), step)
 	case settingsFieldOutsidePanes:

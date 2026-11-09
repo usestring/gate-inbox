@@ -1,4 +1,4 @@
-34 tools
+35 tools
   answer_session
   archive_session
   cleanup_children
@@ -25,6 +25,7 @@
   rename
   report_status
   reserve_files
+  review_comment
   revive_session
   send_children
   send_session
@@ -300,7 +301,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "File a finished session out of the active list, or restore an archived one with archived false. Use it to keep the user's list readable once a session's work is done; cleanup_children files all of your finished children at once. This ENDS a running agent, and every session it spawned goes with it: the rows and their last screens are kept and revive_session brings one back, but work in progress stops, so read_session first if you are not sure it has finished.",
+  "description": "File a finished session out of the active list, or restore an archived one with archived false. Use it to keep the user's list readable once a session's work is done; cleanup_children files all of your finished children at once. This ENDS a running agent, and every session it spawned goes with it: the rows and their last screens are kept and revive_session brings one back, but work in progress stops, so read_session first if you are not sure it has finished. Every task those sessions held in progress goes back to pending for any session to claim, and the result says how many; restoring does not take them back.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -379,6 +380,10 @@
           "array"
         ]
       },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
+      },
       "running": {
         "description": "whether the session currently has a live tmux pane",
         "type": "boolean"
@@ -428,7 +433,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "Archive the sessions this one spawned that are done, in one call, instead of archive_session on each. By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, delegating, background, spawned with keep, or still has working children of its own, saying why. Pass statuses to choose the states, all true to archive every child whatever it is doing, and dry_run true to see the plan first. A terminal you opened is taken only once its shell has exited; a running one is left for close_terminal. It reaches only your own fan-out. Archiving ends a running agent: its last screen is kept, the row stays in the archived view for 7 days, and revive_session brings it back. You rarely need it for a finished child: Gate Inbox archives one on its own once you have read or been told of its finish and left it alone for the grace period.",
+  "description": "Archive the sessions this one spawned that are done, in one call, instead of archive_session on each. By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, delegating, background, spawned with keep, or still has working children of its own, saying why. Pass statuses to choose the states, all true to archive every child whatever it is doing, and dry_run true to see the plan first. A terminal you opened is taken only once its shell has exited; a running one is left for close_terminal. It reaches only your own fan-out. Archiving ends a running agent: its last screen is kept, the row stays in the archived view for 7 days, and revive_session brings it back. Tasks the archived sessions held in progress go back to pending, counted in released_tasks. You rarely need it for a finished child: Gate Inbox archives one on its own once you have read or been told of its finish and left it alone for the grace period.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -484,6 +489,10 @@
               "description": "that session's name",
               "type": "string"
             },
+            "released_tasks": {
+              "description": "how many tasks this child and its descendants held in progress, handed back to pending by the archive",
+              "type": "integer"
+            },
             "session_id": {
               "description": "child session id",
               "type": "string"
@@ -513,6 +522,10 @@
       "dry_run": {
         "description": "true when nothing was archived and the result is only the plan",
         "type": "boolean"
+      },
+      "released_tasks": {
+        "description": "how many in-progress task claims the archives handed back to pending, across every child and descendant filed; any agent can now claim them",
+        "type": "integer"
       },
       "skipped": {
         "description": "how many were left alone, with a reason on each",
@@ -625,7 +638,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Start another agent CLI in its own Gate Inbox session and hand it a task. Call it only when your user explicitly asked for a new session or another agent; otherwise ask them first, and meanwhile do the work yourself or send_session it to a session already on the board, with interrupt true when that session's current turn is wrong. When it is called for, use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's subagent); keep the built-in tool for a quick read-only lookup. Pass a descriptive name and a prompt stating the whole task, since the new agent cannot see this conversation; put a long brief in prompt_file. For repo work beside other agents, pass a directory that is its own checkout. Omit account to follow the board's launch-account setting; a child does not inherit its parent's account. The new session is your child: its questions, rests and finishes are relayed here. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session the user owns, with nothing relayed here. Follow it with read_session and send_session; use create_terminal for a plain shell.",
+  "description": "Start another agent CLI in its own Gate Inbox session and hand it a task. Delegate within the user's task or an explicitly invoked skill without asking for separate permission to open a session. Respect explicit limits on delegation and ask before expanding the task's scope. Delegation does not grant tool permissions or replace required approvals. Call list_sessions first and reuse the session that owns the workstream, idle or working; use send_session with interrupt true when its current turn is wrong. Create a session only for a distinct workstream with no suitable owner. When it is called for, use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's subagent); keep the built-in tool for a quick read-only lookup. Pass a descriptive name and a prompt stating the whole task, since the new agent cannot see this conversation; put a long brief in prompt_file. For repo work beside other agents, pass a directory that is its own checkout. Omit account to follow the board's launch-account setting; a child does not inherit its parent's account. The new session is your child: its questions, rests and finishes are relayed here. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session the user owns, with nothing relayed here. Pass tasks to hand it work from the shared task list: existing ids, or new tasks to create, all assigned to it alone. Follow it with read_session and send_session; use create_terminal for a plain shell.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -684,6 +697,41 @@
         "type": [
           "null",
           "boolean"
+        ]
+      },
+      "tasks": {
+        "description": "tasks to assign to the new session before it starts, each either an existing pending task by id or a new one by title (with body and depends_on); only the new session can claim them, and its prompt gets a short list of their ids and titles telling it to claim and finish them with the task tool",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "description": "the new task's full instruction",
+              "type": "string"
+            },
+            "depends_on": {
+              "description": "ids of tasks the new task waits on",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "id": {
+              "description": "an existing pending task to assign to the new session; you must be its creator or assignee; omit to create a new task instead",
+              "type": "string"
+            },
+            "title": {
+              "description": "a new task to create and assign to the new session: one-line summary of the work",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
         ]
       },
       "tool": {
@@ -750,6 +798,10 @@
           "null",
           "array"
         ]
+      },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -1199,6 +1251,10 @@
               "array"
             ]
           },
+          "released_tasks": {
+            "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+            "type": "integer"
+          },
           "running": {
             "description": "whether the session currently has a live tmux pane",
             "type": "boolean"
@@ -1259,7 +1315,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Stop another agent's process, ending whatever it is doing. The row stays with its last screen and can be brought back with revive_session. Reserve it for a session whose work is finished or has gone wrong, and prefer send_session to redirect an agent that is still useful. Killing interrupts work in progress on the user's machine, so ask first unless the user asked for it.",
+  "description": "Stop another agent's process, ending whatever it is doing. The row stays with its last screen and can be brought back with revive_session. Every task it held in progress goes back to pending for any session to claim, and the result says how many. Reserve it for a session whose work is finished or has gone wrong, and prefer send_session to redirect an agent that is still useful. Killing interrupts work in progress on the user's machine, so ask first unless the user asked for it.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -1330,6 +1386,10 @@
           "null",
           "array"
         ]
+      },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -1563,7 +1623,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
   },
-  "description": "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, background, finished, idle, errored, dead; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it; background is a session whose turn ended with a shell, monitor or task still running, which wakes it into another turn) and which row is this session. Send to the session that already owns the work, idle or working, instead of creating another; call create_session only when your user explicitly asked for a new session. Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
+  "description": "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, background, finished, idle, errored, dead; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it; background is a session whose turn ended with a shell, monitor or task still running, which wakes it into another turn) and which row is this session. Send to the session that already owns the work, idle or working, instead of creating another; use create_session for a distinct workstream with no suitable owner, within the user's task or an explicitly invoked skill. Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -1668,6 +1728,10 @@
                 "null",
                 "array"
               ]
+            },
+            "released_tasks": {
+              "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+              "type": "integer"
             },
             "running": {
               "description": "whether the session currently has a live tmux pane",
@@ -1973,6 +2037,10 @@
           "array"
         ]
       },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
+      },
       "running": {
         "description": "whether the session currently has a live tmux pane",
         "type": "boolean"
@@ -2100,6 +2168,10 @@
           "null",
           "array"
         ]
+      },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -2229,6 +2301,10 @@
           "null",
           "array"
         ]
+      },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -2545,6 +2621,10 @@
               "null",
               "array"
             ]
+          },
+          "released_tasks": {
+            "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+            "type": "integer"
           },
           "running": {
             "description": "whether the session currently has a live tmux pane",
@@ -2915,6 +2995,63 @@
   }
 }
 
+=== review_comment
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "Draft one inline comment on a pull request you were asked to review, for the operator to keep, edit or drop before they submit the review. Call it once per finding or question instead of posting with gh; nothing reaches GitHub until the operator submits. The pull request must have an open review ask on the board, and the line must be part of its diff.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "body": {
+        "description": "the comment as the author will read it",
+        "type": "string"
+      },
+      "context": {
+        "description": "for the operator only: why it matters, and what the pull request's description claims that this checks",
+        "type": "string"
+      },
+      "kind": {
+        "description": "finding (default) for a problem, question for something the operator should ask the author",
+        "type": "string"
+      },
+      "line": {
+        "description": "the line the comment is on: the new file's line on RIGHT, the old file's on LEFT; it must be part of the diff",
+        "type": "integer"
+      },
+      "number": {
+        "description": "the pull request's number",
+        "type": "integer"
+      },
+      "path": {
+        "description": "the file the comment is on, as the diff names it",
+        "type": "string"
+      },
+      "repo": {
+        "description": "the pull request's repository as owner/name",
+        "type": "string"
+      },
+      "side": {
+        "description": "RIGHT (default) for an added or unchanged line, LEFT for a removed one",
+        "type": "string"
+      }
+    },
+    "required": [
+      "repo",
+      "number",
+      "path",
+      "line",
+      "body"
+    ],
+    "type": "object"
+  },
+  "name": "review_comment"
+}
+
 === revive_session
 {
   "annotations": {
@@ -2923,7 +3060,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Bring a dead session back on its old row, resuming the conversation it held where its CLI supports that. Call when list_sessions or send_session reports a session is not running and its work should continue.",
+  "description": "Bring a dead session back on its old row, resuming the conversation it held where its CLI supports that. Call when list_sessions or send_session reports a session is not running and its work should continue. Task claims a kill or archive handed back stay released: the revived agent claims again with task what it still means to do, and is refused if another session took it meanwhile.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -2994,6 +3131,10 @@
           "null",
           "array"
         ]
+      },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -3397,6 +3538,10 @@
           "array"
         ]
       },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
+      },
       "running": {
         "description": "whether the session currently has a live tmux pane",
         "type": "boolean"
@@ -3446,12 +3591,20 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, state or include_done for finished work, include_body for the full instructions. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task, which is how a worker finds its next job, and a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. release hands a claimed task back for another session. delete removes work that turned out not to be needed.",
+  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. assign points a pending task at one session, the only one that may then claim it, or omitting assignee unassigns it; its creator or current assignee can do it, and create takes assignee too. A claim without task_id takes the tasks assigned to you first; create_session's tasks argument assigns work to a child as it starts, and an archived or killed session's assigned tasks go back to anyone. release hands a claimed task back for another session. delete removes work that turned out not to be needed. A session that is archived or killed gives its in-progress claims back to pending, and its assignments back to anyone, on its own, so no task waits behind an agent that is gone.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "action": {
-        "description": "list, create, claim, finish, release or delete",
+        "description": "list, create, claim, assign, finish, release or delete",
+        "type": "string"
+      },
+      "any": {
+        "description": "claim: without task_id, take the oldest ready task on the whole list instead of only your fleet's; tasks created by unrelated sessions or before creators were recorded are often stale",
+        "type": "boolean"
+      },
+      "assignee": {
+        "description": "create, assign: the one session that may claim the task: me, or a session id; on assign, omit it to unassign",
         "type": "string"
       },
       "body": {
@@ -3460,6 +3613,10 @@
       },
       "body_file": {
         "description": "create: absolute path of a file holding the instruction, used instead of body",
+        "type": "string"
+      },
+      "created_by": {
+        "description": "list: keep only tasks this session created: me, or a session id",
         "type": "string"
       },
       "depends_on": {
@@ -3471,6 +3628,10 @@
           "null",
           "array"
         ]
+      },
+      "fleet": {
+        "description": "list: keep only tasks your fleet created: you, the session that spawned you or the parent you sit under, and every session you spawned or have under you; the same set a claim without task_id takes from",
+        "type": "boolean"
       },
       "include_body": {
         "description": "list: carry each task's full instruction; claim returns the body anyway, so choosing what to claim needs only the titles",
@@ -3499,7 +3660,7 @@
         ]
       },
       "task_id": {
-        "description": "task to act on; omit on claim to take the oldest pending task nothing is blocking",
+        "description": "task to act on; omit on claim to take the oldest pending task nothing is blocking that your fleet created",
         "type": "string"
       },
       "title": {
@@ -3528,6 +3689,14 @@
         "additionalProperties": false,
         "description": "the task acted on",
         "properties": {
+          "assignee": {
+            "description": "session id the task is assigned to; only it may claim the task while it is pending",
+            "type": "string"
+          },
+          "assignee_name": {
+            "description": "name of the session the task is assigned to",
+            "type": "string"
+          },
           "blocked": {
             "description": "whether unfinished dependencies currently stop this task being claimed",
             "type": "boolean"
@@ -3544,6 +3713,14 @@
           },
           "body": {
             "description": "full instruction for whoever claims it",
+            "type": "string"
+          },
+          "created_by": {
+            "description": "session id that created the task; empty on tasks from before creators were recorded",
+            "type": "string"
+          },
+          "created_by_name": {
+            "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
             "type": "string"
           },
           "depends_on": {
@@ -3598,6 +3775,14 @@
         "items": {
           "additionalProperties": false,
           "properties": {
+            "assignee": {
+              "description": "session id the task is assigned to; only it may claim the task while it is pending",
+              "type": "string"
+            },
+            "assignee_name": {
+              "description": "name of the session the task is assigned to",
+              "type": "string"
+            },
             "blocked": {
               "description": "whether unfinished dependencies currently stop this task being claimed",
               "type": "boolean"
@@ -3614,6 +3799,14 @@
             },
             "body": {
               "description": "full instruction for whoever claims it",
+              "type": "string"
+            },
+            "created_by": {
+              "description": "session id that created the task; empty on tasks from before creators were recorded",
+              "type": "string"
+            },
+            "created_by_name": {
+              "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
               "type": "string"
             },
             "depends_on": {
@@ -3795,6 +3988,10 @@
               "array"
             ]
           },
+          "released_tasks": {
+            "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+            "type": "integer"
+          },
           "running": {
             "description": "whether the session currently has a live tmux pane",
             "type": "boolean"
@@ -3900,6 +4097,10 @@
                     "null",
                     "array"
                   ]
+                },
+                "released_tasks": {
+                  "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+                  "type": "integer"
                 },
                 "running": {
                   "description": "whether the session currently has a live tmux pane",

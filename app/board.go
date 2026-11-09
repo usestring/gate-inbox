@@ -9,10 +9,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/shirou/gopsutil/v4/host"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/config"
@@ -121,7 +123,10 @@ func runBoard(version string, registry *extension.Registry) error {
 	// Bubble Tea turns SIGINT and SIGTERM into a quit that reaches those
 	// defers; a hangup -- the terminal or the tmux pane the manager runs in
 	// closing -- kills the process outright, and nothing else catches it.
-	defer restoreOnHangup(driver)()
+	// Set once the dumper exists, so a board hung up on -- which is how a
+	// stuck board usually ends -- leaves a dump behind. See dump.go.
+	var beforeHangupExit atomic.Pointer[func()]
+	defer restoreOnHangup(driver, &beforeHangupExit)()
 
 	engine, err := status.NewEngine(cfg)
 	if err != nil {
@@ -232,6 +237,18 @@ func runBoard(version string, registry *extension.Registry) error {
 		return err
 	}
 	model.StartPoller(program.Send)
+	// `gate-inbox dump` (SIGUSR1), a hangup, a run of refused opens and a
+	// wedged event loop each write the input journal and goroutine stacks
+	// next to the log; see dump.go.
+	dumpDir := filepath.Join(dir, logging.DirName)
+	if path := logger.Path(); path != "" {
+		dumpDir = filepath.Dir(path)
+	}
+	dumps, stopDumps := startDumper(dumpDir, program.Send)
+	defer stopDumps()
+	model.SetAutoDump(dumps.Trigger)
+	onHangup := dumps.OnHangup
+	beforeHangupExit.Store(&onHangup)
 	_, runErr := program.Run()
 	stopExtensions()
 	ui.ResetTerminalBackground()
@@ -257,6 +274,7 @@ func startExtensions(dir string, registry *extension.Registry, model *ui.Model, 
 	if aborted > 0 {
 		logging.Info("aborted replacements an earlier board held", "count", aborted)
 	}
+	model.UseQuestionTyper(cmds.BoardType)
 	board := extensionhost.NewBoard(dir, cmds)
 	events := extensionhost.NewEvents(board, func(owner string, err error) {
 		logging.Warn("extension board subscriber", "extension", owner, logging.Err(err))
@@ -267,6 +285,7 @@ func startExtensions(dir string, registry *extension.Registry, model *ui.Model, 
 	ctx, cancel := context.WithCancel(context.Background())
 	go expireGrants(ctx, cmds, grantSweep)
 	go restartStaleSandboxes(ctx, cmds, staleSandboxSweep)
+	go unparkInFlight(ctx, cmds, hostBootedAt, unparkOnStartDelay)
 	if err := startUI(ctx, registry, model, send); err != nil {
 		cancel()
 		return nil, err
@@ -345,6 +364,72 @@ func restartStaleSandboxes(ctx context.Context, cmds *sessioncmd.Sessions, every
 	}
 }
 
+// unparkOnStartDelay is how long a starting board waits before bringing back
+// what park left in flight: long enough for a machine that has just booted
+// to finish starting its own services, and for the board's first poll and
+// adoption to settle, so the first relaunch lands on a quiet host.
+const unparkOnStartDelay = 20 * time.Second
+
+// unparkSource is what unparkInFlight reads and calls, narrowed so a test
+// can stand in for the store and the relaunches.
+type unparkSource interface {
+	ParkedAt() (time.Time, error)
+	Unpark(sessionID string) (sessioncmd.UnparkResult, error)
+}
+
+// unparkInFlight brings back, once, every parked session when a board starts
+// on a host that has booted since the park: the ones with work in flight and
+// the sessions tracking them first, then the rest with nothing sent. Park is
+// run before a reboot, so a board starting after one is the reboot done, and
+// the fan-outs that were mid-flight carry on without anyone typing unpark. A
+// board restarted before the reboot leaves them parked: bringing them back
+// then only hands them to the reboot, with the set already cleared of them.
+//
+// Every relaunch takes its turn in the shared queue, so this can run for the
+// best part of an hour on a large set; it holds nothing the board waits on.
+func unparkInFlight(ctx context.Context, src unparkSource, bootedAt func() (time.Time, error), delay time.Duration) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(delay):
+	}
+	parkedAt, err := src.ParkedAt()
+	if err != nil || parkedAt.IsZero() {
+		return
+	}
+	booted, err := bootedAt()
+	if err != nil {
+		logging.Warn("left parked sessions parked: the host boot time is unreadable", logging.Err(err))
+		return
+	}
+	if !booted.After(parkedAt) {
+		logging.Info("left parked sessions parked: the host has not rebooted since the park", "parkedAt", parkedAt, "bootedAt", booted)
+		return
+	}
+	result, err := src.Unpark("")
+	if err != nil {
+		logging.Warn("could not bring back the parked sessions", logging.Err(err))
+		return
+	}
+	if len(result.Revived) > 0 || len(result.Errors) > 0 {
+		logging.Info("brought back parked sessions",
+			"revived", len(result.Revived), "nudged", len(result.Nudged),
+			"failed", len(result.Errors), "owed", result.Owed)
+	}
+	for _, failure := range result.Errors {
+		logging.Warn("parked session not brought back", "detail", failure)
+	}
+}
+
+// hostBootedAt is when the host last booted.
+func hostBootedAt() (time.Time, error) {
+	secs, err := host.BootTime()
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(int64(secs), 0), nil
+}
+
 // exitHangup is the conventional status for a process ending on SIGHUP,
 // which is what this one is standing in for.
 const exitHangup = 128 + int(syscall.SIGHUP)
@@ -360,7 +445,9 @@ const exitHangup = 128 + int(syscall.SIGHUP)
 //
 // SIGKILL is out of reach from in here by construction. A manager killed with
 // it leaves its pins behind, and the next run does not know they were its.
-func restoreOnHangup(driver *tmux.Driver) func() {
+//
+// beforeExit, when set, runs first: it is how a dump is left behind.
+func restoreOnHangup(driver *tmux.Driver, beforeExit *atomic.Pointer[func()]) func() {
 	hangup := make(chan os.Signal, 1)
 	signal.Notify(hangup, syscall.SIGHUP)
 	done := make(chan struct{})
@@ -368,7 +455,14 @@ func restoreOnHangup(driver *tmux.Driver) func() {
 		select {
 		case <-done:
 		case <-hangup:
+			// Logged, and the log closed, because the exit below skips
+			// every defer: until this line a hung-up board left no trace.
+			logging.Info("hung up; exiting")
+			if run := beforeExit.Load(); run != nil {
+				(*run)()
+			}
 			driver.RestorePinnedWindows()
+			_ = logging.Default().Close()
 			os.Exit(exitHangup)
 		}
 	}()

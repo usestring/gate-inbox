@@ -103,6 +103,8 @@ func Help(extra ...HelpSection) string {
 	help.WriteString("  -h, --help     Show this help text\n")
 	help.WriteString("  -v, --version  Print the installed version\n")
 	help.WriteString("  --log-path     Print where the diagnostic log is written (alias: logs)\n")
+	help.WriteString("  dump           Ask the running board for its recent inputs and goroutine stacks,\n")
+	help.WriteString("                 written next to the log (run before restarting a stuck board)\n")
 	return help.String()
 }
 

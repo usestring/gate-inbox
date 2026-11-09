@@ -214,6 +214,12 @@ func heldIndex(raw string, held dialog.Dialog) (int, []dialog.Question) {
 // answerHeld answers the question held is, on pane, and reads back what the
 // child took.
 func answerHeld(pane dialogPane, raw string, held dialog.Dialog, reply string) (AnsweredQuestion, error) {
+	return answerHeldAs(pane, raw, held, reply, false)
+}
+
+// answerHeldAs is answerHeld, with typed putting reply in the question's
+// free-text row whatever option it might name.
+func answerHeldAs(pane dialogPane, raw string, held dialog.Dialog, reply string, typed bool) (AnsweredQuestion, error) {
 	answered := AnsweredQuestion{Question: held.Question(), Answer: reply}
 	switch {
 	case held.Kind == dialog.KindAsk && held.Steps > 0:
@@ -222,13 +228,13 @@ func answerHeld(pane dialogPane, raw string, held dialog.Dialog, reply string) (
 		if on < 0 {
 			return answered, errors.New("cannot tell which of the dialog's questions is on the screen, so nothing was keyed")
 		}
-		filled, err := fillDialog(pane, questions, []QuestionAnswer{{Question: strconv.Itoa(on + 1), Answer: reply}}, true)
+		filled, err := fillDialog(pane, questions, []QuestionAnswer{{Question: strconv.Itoa(on + 1), Answer: reply, typed: typed}}, true)
 		filled.Question = answered.Question
 		return filled, err
 	case held.Kind == dialog.KindAsk:
 		before := len(dialog.ParseAnswered(ansi.Strip(raw)))
 		question := dialog.Question{Index: 1, Question: strings.Join(strings.Fields(held.Prompt), " ")}
-		filled, err := answerOnScreen(pane, raw, question, reply, false)
+		filled, err := answerOnScreen(pane, raw, question, reply, false, typed)
 		answered.Selected = filled.Selected
 		if err != nil {
 			return answered, err

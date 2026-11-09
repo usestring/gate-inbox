@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/cmdline"
@@ -20,7 +22,7 @@ import (
 
 const (
 	usageSessions      = "sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]"
-	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--arg <cli-arg>]... [--json]"
+	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--task <id,id>] [--new-task <title>]... [--tasks-json <json>] [--arg <cli-arg>]... [--json]"
 	usageSend          = `send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--relay_question <question>] [--json]`
 	usageRead          = "read <session-id> [--since <cursor>] [--json]"
 	usageSendChildren  = "send-children \"<message>\" [--json]"
@@ -39,6 +41,7 @@ const (
 	usageCleanup       = "cleanup-children [--status <state>] [--all] [--dry-run] [--json]"
 	usagePark          = "park [--dry-run] [--json]"
 	usageUnpark        = "unpark [--json]"
+	usageHibernate     = "hibernate [<session-id>] [--idle <duration>] [--dry-run] [--json]"
 	usageGroups        = "groups [--json]"
 	usageCreateGroup   = "create-group <path> [--directory <path>] [--pin] [--json]"
 	usagePinGroup      = "pin-group <path> [--off] [--json]"
@@ -69,6 +72,8 @@ type sessionCommands interface {
 	Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error)
 	Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error)
 	Unpark(sessionID string) (sessioncmd.UnparkResult, error)
+	Hibernate(sessionID, targetID string, dryRun bool) (sessioncmd.HibernateResult, error)
+	HibernateIdle(after time.Duration, dryRun bool) (sessioncmd.HibernateResult, error)
 	Groups(sessionID string) ([]sessioncmd.Group, error)
 	CreateGroup(sessionID, path, directory string, pin bool) (sessioncmd.Group, error)
 	PinGroup(sessionID, path string, pinned bool) (sessioncmd.Group, error)
@@ -102,7 +107,8 @@ func sessionSection() section {
 			{name: "mute", usage: usageMute, about: "keep a session out of triage until it is unmuted: the row stays on the list and reads muted, and --off puts it back", run: bind(newSessions, runMute)},
 			{name: "cleanup-children", usage: usageCleanup, about: "archive the sessions you spawned that are done, each with whatever it spawned: finished, idle and dead by default, --status to choose, --all for every one; a finished child you have read is archived on its own after a grace period anyway", run: bind(newSessions, runCleanupChildren)},
 			{name: "park", usage: usagePark, about: "stop every live agent session the manager started and record the set, so the machine can reboot; --dry-run only prints the plan; runs from any shell", run: bind(newSessions, runPark)},
-			{name: "unpark", usage: usageUnpark, about: "bring back every session park stopped, resuming the conversation each held; runs from any shell", run: bind(newSessions, runUnpark)},
+			{name: "unpark", usage: usageUnpark, about: "bring back every session park stopped, each on the conversation it held: work in flight first, only the ones interrupted told to continue, paced one at a time; runs from any shell", run: bind(newSessions, runUnpark)},
+			{name: "hibernate", usage: usageHibernate, about: "stop an idle agent to give its memory back while keeping its row, mail and claims; the next message for it, from anyone, wakes it on its conversation; --idle <duration> hibernates every session at rest that long; runs from any shell", run: bind(newSessions, runHibernate)},
 			{name: "groups", usage: usageGroups, about: "list the groups sessions and terminals are filed under", run: bind(newSessions, runGroups)},
 			{name: "create-group", usage: usageCreateGroup, about: "create a group so a fleet you spawn stays together in the user's list", run: bind(newSessions, runCreateGroup)},
 			{name: "pin-group", usage: usagePinGroup, about: "make a group's directory where every session spawned into it starts, so that repository's settings and MCP servers load; --off unpins it", run: bind(newSessions, runPinGroup)},
@@ -148,6 +154,11 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 		"From your own shell, outside any session, --nest=false is required and launches it as your own top-level session")
 	skipPermissions := set.Bool("skip-permissions", false, "launch it with its CLI's permission prompts off; omit to follow the setting for this session's children, and refused unless the user allowed it there")
 	keep := set.Bool("keep", false, "keep it on the list after it finishes, where Gate Inbox would otherwise archive it once you have read its finish and the grace period has passed")
+	var taskIDs stringList
+	set.Var(&taskIDs, "task", "existing pending task to assign to it, repeatable or comma separated; you must be its creator or assignee")
+	var newTasks argList
+	set.Var(&newTasks, "new-task", "title of a new task to create and assign to it; repeat for several")
+	tasksJSON := set.String("tasks-json", "", `tasks to assign to it as JSON, the create_session tasks shape: [{"id": "..."}, {"title": "...", "body": "...", "depends_on": ["..."]}]`)
 	var cliArgs argList
 	set.Var(&cliArgs, "arg", "one more argument for the CLI's command line, such as --chrome; repeat for several; only from your own shell or a terminal")
 	asJSON := cmdline.JSONFlag(set)
@@ -164,6 +175,19 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 		Model:           *model,
 		Account:         *account,
 		Keep:            *keep,
+	}
+	for _, id := range taskIDs {
+		opts.Tasks = append(opts.Tasks, sessioncmd.SpawnTask{ID: id})
+	}
+	for _, title := range newTasks {
+		opts.Tasks = append(opts.Tasks, sessioncmd.SpawnTask{Title: title})
+	}
+	if strings.TrimSpace(*tasksJSON) != "" {
+		var described []sessioncmd.SpawnTask
+		if err := json.Unmarshal([]byte(*tasksJSON), &described); err != nil {
+			return fmt.Errorf("--tasks-json is not a JSON list of tasks: %w", err)
+		}
+		opts.Tasks = append(opts.Tasks, described...)
 	}
 	// An omitted group inherits this session's and an omitted nest the
 	// engine's own, so only a flag the caller actually typed is passed on.
@@ -392,7 +416,7 @@ func runKill(out io.Writer, sessions sessionCommands, args []string, sessionID s
 	if err != nil {
 		return err
 	}
-	return cmdline.Emit(out, *asJSON, killed, "killed "+sessioncmd.FormatSession(killed))
+	return cmdline.Emit(out, *asJSON, killed, sessioncmd.FormatKilled(killed))
 }
 
 func runRevive(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
@@ -475,6 +499,9 @@ func runArchive(out io.Writer, sessions sessionCommands, args []string, sessionI
 		return err
 	}
 	updated, err := sessions.Archive(sessionID, operands[0], !*restore)
+	// Archiving a running session kills it, and the kill leaves its SIGKILL
+	// pass running; this process must outlive it, as kill's does.
+	tmux.AwaitReaps()
 	if err != nil {
 		return err
 	}
@@ -518,6 +545,7 @@ func runCleanupChildren(out io.Writer, sessions sessionCommands, args []string, 
 		All:      *all,
 		DryRun:   *dryRun,
 	})
+	tmux.AwaitReaps()
 	if err != nil {
 		return err
 	}
@@ -532,10 +560,38 @@ func runPark(out io.Writer, sessions sessionCommands, args []string, sessionID s
 		return err
 	}
 	result, err := sessions.Park(sessionID, *dryRun)
+	tmux.AwaitReaps()
 	if err != nil {
 		return err
 	}
 	return cmdline.Emit(out, *asJSON, result, sessioncmd.FormatParkResult(result))
+}
+
+// runHibernate stops one named session, or with --idle every session that
+// has rested that long, keeping each row to wake on its next message.
+func runHibernate(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
+	set := cmdline.NewFlagSet(usageHibernate)
+	idle := set.Duration("idle", 0, "hibernate every session idle or finished for at least this long, instead of one named session")
+	dryRun := set.Bool("dry-run", false, "print what would be hibernated without stopping anything")
+	asJSON := cmdline.JSONFlag(set)
+	operands, err := parseCommand(out, set, args, 0, 1)
+	if err != nil {
+		return err
+	}
+	var result sessioncmd.HibernateResult
+	switch {
+	case len(operands) == 1 && *idle == 0:
+		result, err = sessions.Hibernate(sessionID, operands[0], *dryRun)
+	case len(operands) == 0 && *idle > 0:
+		result, err = sessions.HibernateIdle(*idle, *dryRun)
+	default:
+		return fmt.Errorf("usage: gate-inbox %s: name one session or pass --idle, not both", usageHibernate)
+	}
+	tmux.AwaitReaps()
+	if err != nil {
+		return err
+	}
+	return cmdline.Emit(out, *asJSON, result, sessioncmd.FormatHibernateResult(result))
 }
 
 func runUnpark(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {

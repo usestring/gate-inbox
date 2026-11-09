@@ -82,6 +82,8 @@ func buildModelWithStorePath(t testing.TB) (*Model, string) {
 				ScrolledLine:   `Jump to bottom \(ctrl\+End\)`,
 				Rules: []config.Rule{
 					{State: status.Waiting, Pattern: "Enter to confirm"},
+					// The AskUserQuestion legend, as the shipped config reads it.
+					{State: status.Waiting, Pattern: `(?m)^[ \x{A0}]*Enter to select \x{B7} (?:[^\x{B7}\n]+\x{B7} )*Esc to cancel[ \x{A0}]*$`},
 					{State: status.Errored, Pattern: `(?im)^\s*error:`},
 				},
 			},

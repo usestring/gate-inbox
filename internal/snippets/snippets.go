@@ -295,6 +295,9 @@ const progressText = "summarise all current progress in bullet points, " +
 	"including every PR link and its status, and what the next steps are " +
 	"— or, if all the work here is finished, say so"
 
+// While a dialog is held the menu reads a through c as its choices 1 through
+// 3, so continue sits on t rather than losing its key to them.
+//
 // Defaults are written on first run and are then the user's to edit. They are
 // the answers the v1 inbox offered as one-tap shortcuts, plus the handful an
 // operator sends most -- yes, continue, explain again -- because
@@ -311,11 +314,12 @@ func Defaults() []Snippet {
 	}
 	return []Snippet{
 		submit("y", "yes", "yes"),
-		submit("c", "continue", "continue"),
+		submit("t", "continue", "continue"),
 		submit("e", "eli5", "I'm confused, explain like I'm 5"),
 		submit("w", "wake up", "Auto wake-up: the previous turn died on a transient API error. "+
 			"Continue where you left off."),
 		submit("n", "needs?", "what do you need from me?"),
+		submit("f", "fix it", "fix it"),
 		submit("j", "judgment", "Use your judgment"),
 		submit("p", "progress", progressText),
 	}

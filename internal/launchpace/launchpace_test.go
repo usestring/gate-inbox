@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -165,6 +167,45 @@ func TestWaitStopsWithItsContext(t *testing.T) {
 	cancel()
 	if _, err := p.Wait(ctx, "b"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Wait on a cancelled context = %v", err)
+	}
+}
+
+func TestMemoryPressureRefusesBeforeTheQueueAndRecovers(t *testing.T) {
+	p, h := newPaced(t, Limits{})
+	pressure := true
+	p.underMemoryPressure = func() bool { return pressure }
+	for _, wait := range []bool{false, true} {
+		var err error
+		if wait {
+			_, err = p.Wait(context.Background(), "worker")
+		} else {
+			_, _, err = p.Try("worker")
+		}
+		if !errors.Is(err, ErrMemoryPressure) {
+			t.Fatalf("wait=%v: got %v, want ErrMemoryPressure", wait, err)
+		}
+	}
+	if h.slept != 0 {
+		t.Fatalf("memory pressure waited for %v without a deadline", h.slept)
+	}
+	if _, err := os.Stat(p.path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused launch touched the queue: %v", err)
+	}
+	pressure = false
+	if _, _, err := p.Try("worker"); err != nil {
+		t.Fatalf("launch after pressure clears: %v", err)
+	}
+}
+
+func TestMemoryPressureCannotFailOpenWithAnUnreadableQueue(t *testing.T) {
+	p, _ := newPaced(t, Limits{})
+	p.path = filepath.Join(p.path, "queue")
+	if err := os.WriteFile(filepath.Dir(p.path), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p.underMemoryPressure = func() bool { return true }
+	if _, _, err := p.Try("worker"); !errors.Is(err, ErrMemoryPressure) {
+		t.Fatalf("unreadable queue bypassed memory pressure: %v", err)
 	}
 }
 

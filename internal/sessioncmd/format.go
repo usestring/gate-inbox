@@ -98,9 +98,27 @@ func FormatSessionList(list SessionList) string {
 // neither front says "archived" about a row that came back active.
 func FormatArchiveState(session Session) string {
 	if session.Archived {
-		return "archived " + FormatSession(session)
+		return "archived " + FormatSession(session) + releasedNote(session.ReleasedTasks)
 	}
 	return "restored " + FormatSession(session)
+}
+
+// FormatKilled is kill_session's line, and the CLI kill's.
+func FormatKilled(session Session) string {
+	return "killed " + FormatSession(session) + releasedNote(session.ReleasedTasks)
+}
+
+// releasedNote says how many task claims an end handed back, so the caller
+// that ended a worker knows its tasks are up for claiming again. Nothing at
+// all when there were none, which is most ends.
+func releasedNote(n int) string {
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return "\nreleased 1 in-progress task back to pending"
+	}
+	return fmt.Sprintf("\nreleased %d in-progress tasks back to pending", n)
 }
 
 // FormatSessionScreen leads with the digest, because the questions a reader
@@ -234,8 +252,19 @@ func FormatTask(task Task) string {
 	if task.OwnerName != "" {
 		line += " held by " + task.OwnerName
 	}
+	if task.Assignee != "" {
+		line += " assigned to " + nameOr(task.AssigneeName, task.Assignee)
+	}
 	if task.Blocked {
 		line += " blocked on " + strings.Join(task.BlockedBy, ", ")
+	}
+	// The id goes with the name, since it is what created_by filters on
+	// and it still names a creator whose row is gone.
+	switch {
+	case task.CreatorName != "":
+		line += fmt.Sprintf(" created by %s (%s)", task.CreatorName, task.CreatedBy)
+	case task.CreatedBy != "":
+		line += " created by " + task.CreatedBy
 	}
 	return line
 }
@@ -341,9 +370,24 @@ func FormatParkResult(result ParkResult) string {
 	if result.DryRun {
 		verb = "dry run: would park"
 	}
-	lines := []string{fmt.Sprintf("%s %d session(s); unpark will revive %d", verb, len(result.Parked), result.Owed)}
+	head := fmt.Sprintf("%s %d session(s); unpark will revive %d", verb, len(result.Parked), result.Owed)
+	if n := result.OwedDormant; n > 0 {
+		head = fmt.Sprintf("%s %d session(s); unpark will revive all %d: the %d with work in flight first, told to continue where interrupted, then the %d at rest with nothing sent",
+			verb, len(result.Parked), result.Owed, result.Owed-n, n)
+	}
+	lines := []string{head}
 	for _, session := range result.Parked {
 		lines = append(lines, "- "+FormatSession(session))
+	}
+	if n := len(result.Hibernated); n > 0 {
+		hibernated := "hibernated"
+		if result.DryRun {
+			hibernated = "would hibernate"
+		}
+		lines = append(lines, fmt.Sprintf("%s %d session(s) idle at least %s instead of parking them: they stay on the board and wake on their next message", hibernated, n, result.HibernateAfter))
+		for _, session := range result.Hibernated {
+			lines = append(lines, "- "+FormatSession(session))
+		}
 	}
 	if result.Promoted > 0 {
 		lines = append(lines, fmt.Sprintf("%d of those were adopted panes, now owned rows: unpark restarts them as gi_ sessions, not in the windows they borrowed", result.Promoted))
@@ -362,7 +406,7 @@ func FormatParkResult(result ParkResult) string {
 		lines = append(lines, "left this session running")
 	}
 	if len(result.Working) > 0 {
-		lines = append(lines, fmt.Sprintf("%d stopped mid-turn; unpark tells them to continue: %s", len(result.Working), strings.Join(result.Working, ", ")))
+		lines = append(lines, fmt.Sprintf("%d stopped mid-turn or on a background shell; unpark tells them to continue: %s", len(result.Working), strings.Join(result.Working, ", ")))
 	}
 	for _, warning := range result.Warnings {
 		lines = append(lines, "warning: "+warning)
@@ -457,4 +501,27 @@ func (a AnsweredQuestion) readSource() string {
 		return a.readFrom
 	}
 	return "its screen"
+}
+
+// FormatHibernateResult is hibernate's report: what it stopped, and for a
+// sweep what it left running and why.
+func FormatHibernateResult(result HibernateResult) string {
+	verb := "hibernated"
+	if result.DryRun {
+		verb = "dry run: would hibernate"
+	}
+	lines := []string{fmt.Sprintf("%s %d session(s); each wakes on its conversation when a message arrives for it", verb, len(result.Hibernated))}
+	for _, session := range result.Hibernated {
+		lines = append(lines, "- "+FormatSession(session))
+	}
+	if len(result.Held) > 0 {
+		lines = append(lines, fmt.Sprintf("left running (%d):", len(result.Held)))
+		for _, held := range result.Held {
+			lines = append(lines, "- "+held)
+		}
+	}
+	for _, failure := range result.Errors {
+		lines = append(lines, "error: "+failure)
+	}
+	return strings.Join(lines, "\n")
 }

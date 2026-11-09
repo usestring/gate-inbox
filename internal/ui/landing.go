@@ -479,6 +479,7 @@ func (m *Model) keepLandingHere() {
 		pending.handOver = false
 	}
 	clear(m.unseenAnswers)
+	clear(m.questionHandOvers)
 }
 
 // applyLandingCheck acts on one look.

@@ -4,6 +4,7 @@
 #   default  not in config.toml; filled from the built-in default
 #   ignored  written in config.toml, but no setting reads it
 default  adopt_sockets = []
+default  board.offer_cli_on_limit = false
 default  board.sidebar = "right"
 default  children.auto_archive_after = "30m0s"
 default  children.finished_grace = "10m0s"
@@ -12,6 +13,7 @@ default  claude_code.setup = <unset>
 default  codex.setup = <unset>
 default  editor = ""
 default  extensions = {}
+default  hibernate_after = "0s"
 default  hogs.cooldown = "30m0s"
 default  hogs.cpu.notice[0].available_below = 0
 default  hogs.cpu.notice[0].for = "10m0s"
@@ -130,7 +132,7 @@ default  tools.claude.add_dir_flag = "--add-dir"
 default  tools.claude.arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b|\\x{2190}/\\x{2192} to adjust\\b"
 default  tools.claude.blocked_line = "Interrupted ·"
 default  tools.claude.busy_line = "^[✻✳✶✽✢·✦✧+*] (?:Waiting for \\d+ (?:background agents?|dynamic workflows?)|\\S+ for \\d.*· \\d+ [^·]*still running)"
-default  tools.claude.chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$"
+default  tools.claude.chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$|^\\s*\\d+% until auto-compact\\b.*$"
 default  tools.claude.clear_input_keys = ["C-l"]
 file     tools.claude.command = "claude --verbose"
 default  tools.claude.compact_downgrade_delay = "10m0s"
@@ -269,7 +271,7 @@ default  tools.opencode.fork_command = ""
 default  tools.opencode.fork_dialog_keys = []
 default  tools.opencode.fork_dialog_option = ""
 default  tools.opencode.input_line = "^[ \\x{A0}]*┃"
-default  tools.opencode.interrupt_keys = []
+default  tools.opencode.interrupt_keys = ["Escape", "Escape"]
 default  tools.opencode.jump_to_bottom_key = ""
 default  tools.opencode.launch_in_place = false
 default  tools.opencode.limit_line = "(?i)requires more credits|(?:Usage|Free|Go) limit reached"

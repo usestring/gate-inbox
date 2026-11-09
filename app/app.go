@@ -413,6 +413,16 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 		}
 		return mcprelay.Serve(os.Stdin, os.Stdout, dir, bin, version)
 	}
+	// dump asks the running board for its input journal and goroutine
+	// stacks: the thing to run before restarting a board that stopped
+	// answering keys. See dump.go.
+	table["dump"] = withConfigDir(func(_ []string, _, configDir string) error {
+		opts, err := logOptions()
+		if err != nil {
+			return err
+		}
+		return runDump(os.Stdout, configDir, filepath.Dir(opts.Path))
+	})
 	table["claude-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
 		return runClaudeHooks(os.Stdout, args, configDir)
 	})

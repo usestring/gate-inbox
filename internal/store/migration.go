@@ -115,6 +115,12 @@ func (s *Store) CompleteMigration(fromID, toID string) error {
 		 SELECT ?, url, first_seen FROM session_prs WHERE session_id = ?`, toID, fromID); err != nil {
 		return err
 	}
+	if err := copySessionWork(tx, fromID, toID); err != nil {
+		return err
+	}
+	if err := moveTaskClaims(tx, fromID, toID, time.Now()); err != nil {
+		return err
+	}
 	res, err := tx.Exec(`UPDATE sessions SET archived = 1, archived_at = ? WHERE id = ?`, encodeTime(time.Now()), fromID)
 	if err != nil {
 		return err

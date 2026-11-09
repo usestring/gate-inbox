@@ -156,13 +156,14 @@ func TestHelpSearchOnASectionTitleKeepsItsRows(t *testing.T) {
 
 // The built-in review screen is gone, so no key in the map may still offer
 // it and nothing may still bind ctrl+r. The review queue is GitHub's pull
-// request reviews, not that screen, so its own section is let through.
+// request reviews, not that screen, so its own sections are let through.
 func TestHelpNeverAdvertisesReview(t *testing.T) {
 	review := regexp.MustCompile(`(?i)\breview`)
 	queue := "advanced: the review queue"
-	exempt := []string{queue}
+	var exempt []string
 	for _, section := range helpSectionsOf() {
-		if section.title == queue {
+		if strings.HasPrefix(section.title, queue) {
+			exempt = append(exempt, section.title)
 			for _, row := range section.rows {
 				exempt = append(exempt, row.text)
 			}

@@ -68,7 +68,7 @@ func TestTriageRailOrdersByUrgencyThenOldest(t *testing.T) {
 		t.Fatal("i did not turn triage on")
 	}
 
-	want := []string{"old-block", "new-block", "reviewme", "napping", "crashed", "grinder", "booting", "gone"}
+	want := []string{"old-block", "new-block", "reviewme", "napping", "grinder", "booting", "gone", "crashed"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -220,7 +220,7 @@ func TestTriageStartupEntersTheHeadOfTheQueue(t *testing.T) {
 	m.triageStartupEnter = true
 	m.rebuildRows()
 
-	updated, _ := m.Update(refreshMsg{sessions: m.sessions})
+	updated, _ := m.Update(refreshMsg{sessions: m.sessions, listedAt: time.Now()})
 	m = updated.(*Model)
 	if m.mode != modeFocus {
 		t.Fatalf("a board restored in triage opened in mode %v: %s", m.mode, m.errBar.text)
@@ -263,7 +263,7 @@ func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 	})
 	m.triage = true
 	m.rebuildRows()
-	if got, want := sessionNames(m), []string{"ask", "done", "broke", "busy"}; !slices.Equal(got, want) {
+	if got, want := sessionNames(m), []string{"ask", "done", "busy", "broke"}; !slices.Equal(got, want) {
 		t.Fatalf("queue = %v want %v", got, want)
 	}
 

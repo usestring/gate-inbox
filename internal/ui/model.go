@@ -137,6 +137,10 @@ type Model struct {
 	// snipErr is why there are none, when the file would not be read.
 	snips   snippets.Set
 	snipErr string
+	// typeQuestion types a snippet into the free-text row of the question a
+	// session's dialog is showing; nil leaves every dialog holding a snippet
+	// back. See UseQuestionTyper.
+	typeQuestion QuestionTyper
 	// restartFlags are the operator's canned restart flag sets, read once
 	// at startup; restartFlagErr is why there are none, when the file
 	// would not be read.
@@ -195,12 +199,16 @@ type Model struct {
 
 	// reviews are the open asks for the operator's review, listed on the
 	// rail's Reviews tab; reviewsTab is whether that tab is up,
-	// reviewsCursor the ask under its cursor, and reviewsFetching marks an
-	// ingest in flight. See reviews.go.
-	reviews         []store.ReviewRequest
-	reviewsTab      bool
-	reviewsCursor   int
-	reviewsFetching bool
+	// reviewsCursor the ask under its cursor, reviewsPage the pull request's
+	// page opened from it, and reviewsFetching marks an ingest in flight.
+	// reviewsSubmitting holds the pull requests with a review on its way to
+	// GitHub. See reviews.go and reviewpage.go.
+	reviews           []store.ReviewRequest
+	reviewsTab        bool
+	reviewsCursor     int
+	reviewsPage       *reviewsView
+	reviewsFetching   bool
+	reviewsSubmitting map[string]bool
 	// reviewsSeen is the newest ask a triage drain has handed the operator
 	// the Reviews tab for, and triageLineage each queued session's key as
 	// the last triage sort lifted it. See reviewtriage.go.
@@ -281,6 +289,11 @@ type Model struct {
 	// so the poll clock cannot stack a second set of tmux forks behind the
 	// set already waiting. See childsweep.go.
 	childSweeping bool
+	// hibernating is set while a settleHibernated pass is out, and
+	// hibernateSweptAt is when the last one swept for idle sessions. See
+	// hibernate.go.
+	hibernating      bool
+	hibernateSweptAt time.Time
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -350,6 +363,7 @@ type Model struct {
 	// askQuestions mirrors refreshMsg.askQuestions, and questionCard is the
 	// preview's card drawn from it. See previewquestions.go.
 	askQuestions map[string][]convo.AskQuestion
+	authFailures map[string]string
 	questionCard questionCard
 	screenCard   screenCard
 	// hookless mirrors refreshMsg.hookless: the rows whose status is
@@ -532,8 +546,7 @@ type Model struct {
 	// focusView mirrors the persisted focused-view setting: the live
 	// terminal, or the conversation transcript. The content column reads it
 	// every frame, so it lives here instead of the store. See focusview.go.
-	focusView       string
-	compressedFocus bool
+	focusView string
 	// arrowsStay keeps the prompt-edge arrows with a focused session rather
 	// than leaving for the list. See experimental.go.
 	arrowsStay bool
@@ -566,6 +579,9 @@ type Model struct {
 	// listSortBeforeRecent is the order the recent toggle returns to. It is
 	// not persisted: a manager that opens on recent toggles back to manual.
 	listSortBeforeRecent string
+	listConsistency      string
+	listPositions        map[string]map[string]int
+	listPositionSort     string
 	// chrome is the persisted override for the legend under the list. See
 	// layout.go.
 	chrome string
@@ -648,6 +664,10 @@ type Model struct {
 	// key that answers a focused session in a drain also hands it over. Off
 	// by default; see autoproceed.go.
 	autoProceed bool
+	// idleSwitch mirrors the persisted idle switch: with it on, an operator
+	// left idle in a working session is moved to one needing a person. See
+	// handOverOnIdle.
+	idleSwitch bool
 	// muted is the sessions this drain has already been shown, keyed by id.
 	// It is what stops the queue handing back work the operator has just
 	// done; see mute.go for why it is memory of the pass rather than state
@@ -707,8 +727,14 @@ type Model struct {
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
-	unseenAnswers  map[string]bool
-	landingLocator *search.Locator
+	unseenAnswers map[string]bool
+	// questionHandOvers are the sessions whose snippet answer to a question
+	// is still being read back and would move the drain on once it is.
+	questionHandOvers map[string]bool
+	// questionsAnswering are the sessions with a snippet answer still being
+	// typed and read back; a second answer waits until it is.
+	questionsAnswering map[string]bool
+	landingLocator     *search.Locator
 	// handoverTrace is the Enter handover whose next frame is still to be
 	// timed; see handOverOnEnter.
 	handoverTrace handoverTrace
@@ -766,7 +792,11 @@ type Model struct {
 	// over from a previous manager run to the preview panel's width.
 	sessionsSized bool
 	errBar        errBar
-	split         splitState
+	// inputs is the input journal a dump reads; see inputjournal.go.
+	inputs inputJournal
+	// autoDump asks for a dump the board decided on itself; see SetAutoDump.
+	autoDump func(reason string)
+	split    splitState
 	// previewGen increments on every cursor move. In-flight captures and
 	// settle timers with an older gen are dropped so key-repeat cannot
 	// queue a second of tmux work after the user stops.
@@ -953,11 +983,13 @@ type settingsState struct {
 	deleteConfirm    string
 	restartConfirm   string
 	listSort         string
+	listConsistency  string
 	chrome           string
 	leaveMode        string
 	newSessionAgent  string
 	autoProceed      bool
 	smartTriage      bool
+	idleSwitch       bool
 	reopenSessions   string
 	outsidePanes     string
 	// claudeSetup is the Settings switch for the board's entries in the
@@ -973,7 +1005,6 @@ type settingsState struct {
 	jevFinishCheck     bool
 	jevCopyOn          bool
 	promptSuggest      bool
-	compressedFocus    bool
 	reviewQueue        bool
 	arrowsStay         bool
 	// backdropSync is the backdrop mode as the picker holds it: true
@@ -1001,12 +1032,14 @@ const (
 	settingsFieldDeleteConfirm
 	settingsFieldRestartConfirm
 	settingsFieldListSort
+	settingsFieldListConsistency
 	settingsFieldChrome
 	settingsFieldLeave
 	settingsFieldQuickClose
 	settingsFieldFocusKey
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
+	settingsFieldIdleSwitch
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
 	settingsFieldClaudeSetup
@@ -1058,6 +1091,7 @@ type refreshMsg struct {
 	// askQuestions is each Claude session's pending AskUserQuestion call,
 	// for a pane standing on a several-question dialog.
 	askQuestions map[string][]convo.AskQuestion
+	authFailures map[string]string
 	// hookless is every session whose agent no longer carries the hook
 	// settings flag, so its status is coming off the pane rather than out of
 	// its status file. Replaced whole each pass like queuedMessages, which is
@@ -1336,7 +1370,6 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
-		compressedFocus: storedCompressedFocus(st),
 		arrowsStay:      storedArrowsStay(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		jevFinishCheck:  storedJevFinishCheck(st),
@@ -1352,6 +1385,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		deleteConfirm:   storedConfirmAsk(st, deleteConfirmSetting),
 		restartConfirm:  storedConfirmAsk(st, restartConfirmSetting),
 		listSort:        storedListSort(st),
+		listConsistency: storedListConsistency(st),
 		chrome:          storedChrome(st),
 		leaveMode:       storedLeaveMode(st),
 		newSessionAgent: storedNewSessionAgent(st),
@@ -1359,6 +1393,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
 		smartTriage:     storedSmartTriage(st),
+		idleSwitch:      storedIdleSwitch(st),
 		mode:            modeList,
 		version:         version,
 		// Assume the operator is looking until something says otherwise. A
@@ -2166,6 +2201,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case reviewsMsg:
 		return m.finishReviews(msg)
+	case reviewDraftsMsg:
+		return m.finishDrafts(msg)
+	case reviewSubmittedMsg:
+		return m.finishSubmit(msg)
+	case prDetailMsg:
+		return m.finishPullRequest(msg)
 	case autoRouteMsg:
 		return m.finishAutoRoute(msg)
 	case agentPickQuotaMsg:
@@ -2402,8 +2443,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case landingCheckMsg:
 		return m, m.applyLandingCheck(msg)
+	case questionTypedMsg:
+		return m, m.applyQuestionTyped(msg)
 
 	case refreshMsg:
+		// Background and explicit polls can reach the UI out of order. An
+		// older snapshot must not put a working turn back in triage or close
+		// focus on a session the newer pass already saw alive.
+		if msg.listedAt.Before(m.statusesAsOf) {
+			return m, nil
+		}
 		m.ageError()
 		// The focused session can die or vanish under us; fall back to the
 		// list rather than typing into nothing.
@@ -2420,11 +2469,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		before, wasFocused := m.focusedStatus()
-		current := !msg.listedAt.Before(m.statusesAsOf)
 		m.sessions = sessions
-		if msg.listedAt.After(m.statusesAsOf) {
-			m.statusesAsOf = msg.listedAt
-		}
+		m.statusesAsOf = msg.listedAt
 		heldLandings := m.resumeHeldSnippets()
 		m.settleLandings(msg.listedAt, msg.unseen)
 		m.dropHeldAckOnNewTurn()
@@ -2474,6 +2520,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait
 		m.askQuestions = msg.askQuestions
+		m.authFailures = msg.authFailures
 		m.hookless = msg.hookless
 		m.stale = msg.stale
 		m.hogBadges = msg.hogBadges
@@ -2506,12 +2553,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sweep := m.sweepExpiredArchives()
 		// Off the loop, so a busy tmux server delays a child's filing rather
 		// than the board's next frame. What it finds lands as childSweptMsg.
-		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev())
+		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.settleHibernated())
 		m.settleInstall()
 		m.rebuildRows()
 		if focusClosed {
 			focusExit = tea.Batch(focusExit, m.moveOnFromClosedFocus())
-		} else if wasFocused && current {
+		} else if wasFocused {
 			focusExit = m.handOverOnWork(before)
 		}
 		// A board that came up with triage already on enters the head of its
@@ -2536,24 +2583,25 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A drain that ran out of work left the operator on the list with
 		// the queue still open: the first pass carrying a new session that
 		// needs a person picks it straight up. See triageResume.
-		pickup := m.triagePickupCmd()
-		if current {
-			pickup = tea.Batch(pickup, m.handOverOnIdle(time.Now()))
-		}
+		pickup := tea.Batch(m.triagePickupCmd(), m.handOverOnIdle(time.Now()))
 		// A pass that ran with a stale selection (a session created this
 		// tick) carries the wrong preview; resync and fetch it directly.
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
+			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.loadDrafts())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
+		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.loadDrafts())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)
+		return m, nil
+
+	case hibernateSettledMsg:
+		m.applyHibernateSettled(msg)
 		return m, nil
 
 	case adoptTickMsg:
@@ -2913,6 +2961,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		model, cmd := m.handleMouse(msg)
+		// A click can select a session or leave focus, so the poller hears
+		// about it the same way it hears about a keystroke.
+		m.syncPollInput()
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
 
 	case tea.KeyboardEnhancementsMsg:
@@ -2933,6 +2984,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
 
 	case tea.PasteMsg:
+		if m.reviewPageOpen() {
+			if page := m.reviewPage(); page.compose != nil {
+				text := strings.ReplaceAll(msg.Content, "\r\n", "\n")
+				text = strings.ReplaceAll(text, "\r", "\n")
+				lines := strings.Split(text, "\n")
+				for i, line := range lines {
+					lines[i] = cleanText(line)
+				}
+				page.compose.text = append(page.compose.text, []rune(strings.Join(lines, "\n"))...)
+				page.compose.scroll = 0
+				return m, nil
+			}
+		}
 		if m.mode == modeSettings && m.settings.jevPasting {
 			return m, m.pasteIntoJevKey(msg)
 		}
@@ -3325,6 +3389,9 @@ func (m *Model) buildTree() {
 		for _, groupSessions := range sessionsByGroup {
 			m.sortGroupSessions(groupSessions)
 		}
+	}
+	if !m.triage && query == "" && !m.showArchived {
+		m.keepListPositions(sessionsByGroup)
 	}
 	// After the sort too: a block a helper floats heads its group whatever
 	// order the rest are in. See rolefloat.go.

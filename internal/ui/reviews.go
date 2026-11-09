@@ -197,7 +197,7 @@ func (m *Model) prepareReviews() (prepared, left int, err error) {
 		}
 		id, launchErr := m.launchReview(r)
 		if launchErr == nil {
-			launchErr = m.store.AttachReviewSession(r.Repo, r.Number, id, time.Now())
+			launchErr = m.store.AttachReviewSession(r.Repo, r.Number, id, r.HeadSHA, time.Now())
 		}
 		if launchErr != nil {
 			err = fmt.Errorf("review briefing for %s not started: %w", pr, launchErr)
@@ -270,6 +270,28 @@ func (m *Model) reviewCounts() (pending, started int) {
 // onReviewsTab is whether the rail lists the review queue rather than the
 // sessions.
 func (m *Model) onReviewsTab() bool { return m.reviewQueue && m.reviewsTab }
+
+// reviewsPR is the pull request's page opened from the Reviews tab, made the
+// first time it is asked for and kept while the board runs, so a pull request
+// fetched once is not fetched again on the next visit.
+func (m *Model) reviewsPR() *reviewsView {
+	if m.reviewsPage == nil {
+		m.reviewsPage = &reviewsView{m: m}
+	}
+	return m.reviewsPage
+}
+
+// reviewsView is the one pull request opened from the Reviews tab, and every
+// pull request fetched while the board runs. See reviewpage.go.
+type reviewsView struct {
+	m     *Model
+	page  *prPage
+	cache prCache
+}
+
+// reviewPageOpen is whether the content column shows a pull request's page
+// rather than the selected ask.
+func (m *Model) reviewPageOpen() bool { return m.onReviewsTab() && m.reviewPage() != nil }
 
 // selectedReview is the ask under the tab's cursor.
 func (m *Model) selectedReview() (store.ReviewRequest, bool) {
@@ -505,6 +527,9 @@ func (m *Model) reviewsTabKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if !m.onReviewsTab() {
 		return m, nil, false
 	}
+	if m.reviewPageOpen() {
+		return m.reviewPageKey(msg)
+	}
 	if action, bound := m.action(keymap.ContextReviews, msg); bound {
 		model, cmd := m.reviewsTabAction(action)
 		return model, cmd, true
@@ -514,6 +539,40 @@ func (m *Model) reviewsTabKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	return m.reviewsTabListAction(action)
+}
+
+// reviewPageKey answers a key while a pull request's page is open on the
+// Reviews tab: a summary or comment being written takes every key, then the
+// page's own keys, then the list keys the tab passes through.
+func (m *Model) reviewPageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if m.reviewPage().compose != nil {
+		model, cmd := m.handleComposeKey(msg)
+		return model, cmd, true
+	}
+	if action, bound := m.action(keymap.ContextReviewPage, msg); bound {
+		model, cmd := m.handleReviewPageKey(action, bound)
+		return model, cmd, true
+	}
+	if action, bound := m.action(keymap.ContextList, msg); bound && reviewsTabAllows[action] {
+		return m, nil, false
+	}
+	return m, nil, true
+}
+
+// reviewPageLines is the content column while a pull request's page is open:
+// its title, then the page.
+func (m *Model) reviewPageLines(width, height int) []string {
+	view := m.reviewsPR()
+	styles := viewStyles()
+	out := []string{"", styles[viewStyleKey{ToneMuted, true}].Render(textfmt.TruncateWidth(cleanText(view.pageTitle()), width, "…")), ""}
+	for _, row := range view.renderPage(width, max(height-len(out), 1)) {
+		var b strings.Builder
+		for _, span := range row {
+			b.WriteString(styles[viewStyleKey{span.Tone, span.Bold}].Render(cleanText(span.Text)))
+		}
+		out = append(out, textfmt.TruncateWidth(b.String(), width, "…"))
+	}
+	return out
 }
 
 // reviewsTabListAction is what a list action does on the Reviews tab: it
@@ -546,7 +605,7 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	case keymap.Refresh:
 		return m, m.ingestReviews()
-	case keymap.ReviewOpen, keymap.ReviewDismiss, keymap.ReviewStart:
+	case keymap.ReviewOpen, keymap.ReviewDismiss, keymap.ReviewStart, keymap.ReviewView:
 	default:
 		return nil, nil
 	}
@@ -561,6 +620,8 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 		m.setReviewState(r, store.ReviewDismissed, "")
 		m.reportDone("dismissed " + r.Repo + "#" + strconv.Itoa(r.Number))
 		return m, nil
+	case keymap.ReviewView:
+		return m, m.openPullRequest(r)
 	}
 	return m.startReview(r)
 }
@@ -568,7 +629,7 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 // setReviewState moves every open ask on the pull request, and reloads the
 // queue so the row and the page follow.
 func (m *Model) setReviewState(r store.ReviewRequest, state, sessionID string) {
-	if err := m.store.SetPullRequestReviewState(r.Repo, r.Number, state, sessionID, time.Now()); err != nil {
+	if err := m.store.SetPullRequestReviewState(r.Repo, r.Number, state, sessionID, r.HeadSHA, time.Now()); err != nil {
 		m.errBar.text = "review queue: " + err.Error()
 		return
 	}

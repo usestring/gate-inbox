@@ -14,6 +14,29 @@ import (
 )
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Key capture must receive the chord so these global bindings can be moved.
+	if m.mode != modeHelp || (!m.help.capturing && m.help.clash == nil) {
+		if action, bound := m.action(keymap.ContextList, msg); bound {
+			switch action {
+			case keymap.PreviousPane:
+				return m.stepPane(-1)
+			case keymap.NextPane:
+				return m.stepPane(1)
+			}
+		}
+	}
+	if !m.split.resizeMode {
+		if model, cmd, ok := m.newSessionFromAnywhere(msg); ok {
+			return model, cmd
+		}
+		if model, cmd, ok := m.killFromAnywhere(msg); ok {
+			return model, cmd
+		}
+	}
+	return m.handleScreenKey(msg)
+}
+
+func (m *Model) handleScreenKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Resize mode owns the keyboard until the drag commits or the user
 	// cancels: other bindings would fight the mouse-gated session.
 	if m.split.resizeMode {
@@ -38,13 +61,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		default:
 			return m, nil
 		}
-	}
-
-	if model, cmd, ok := m.newSessionFromAnywhere(msg); ok {
-		return model, cmd
-	}
-	if model, cmd, ok := m.killFromAnywhere(msg); ok {
-		return model, cmd
 	}
 
 	switch m.mode {
@@ -123,8 +139,22 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// ctrl+c quits from every screen. It is read here rather than through
+	// the map because it is the one key the operator may not move: a board
+	// that could not be interrupted is a board somebody has to kill.
+	if msg.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+
+	if m.reviewPageOpen() {
+		if model, cmd, answered := m.reviewPageKey(msg); answered {
+			m.clearGroupJump()
+			return model, cmd
+		}
+	}
+
 	// A number names a group, and the digits of one arrive as separate
-	// keypresses, so they are read ahead of every other binding -- including
+	// keypresses, so they are read ahead of every other list binding -- including
 	// the artifact row's refusals, since a jump acts on the tree rather than
 	// on the row it starts from. Any other key ends the number rather than
 	// being swallowed into it. Read by keyName, not the printed text, so an
@@ -133,13 +163,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.typeGroupNumber(msg.String())
 	}
 	m.clearGroupJump()
-
-	// ctrl+c quits from every screen. It is read here rather than through
-	// the map because it is the one key the operator may not move: a board
-	// that could not be interrupted is a board somebody has to kill.
-	if msg.String() == "ctrl+c" {
-		return m, tea.Quit
-	}
 
 	// The Reviews tab lists asks, not sessions, so it answers its own keys
 	// and refuses the ones that would act on a session it is not showing.
@@ -216,6 +239,10 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, m.ingestReviews()
 	case keymap.ReviewsTab:
 		return m, m.toggleReviewsTab()
+	case keymap.PreviousPane:
+		return m.stepPane(-1)
+	case keymap.NextPane:
+		return m.stepPane(1)
 	case keymap.CursorUp:
 		return m, m.moveCursor(-1)
 	case keymap.CursorDown:

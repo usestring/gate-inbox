@@ -1,0 +1,30 @@
+⏺ The region is in. What changed:
+
+  1. Coverage:
+     - Added the region to the statewide searches.
+     - Added a starting point for the place lookup.
+  2. Rollout:
+     - Raise the size limits before the first run.
+     - Put them back after two clean runs.
+
+  ┌──────────────┬─────────────────────────────┐
+  │ Step         │ The tool                    │
+  ├──────────────┼─────────────────────────────┤
+  │ Edit files   │ Edits one line              │
+  ├──────────────┼─────────────────────────────┤
+  │ When to ship │ Between two scheduled runs  │
+  └──────────────┴─────────────────────────────┘
+
+● User answered Claude's questions:
+  ⎿  · Add the size limits to the PR? → Add it (Recommended)
+  ⎿  You've hit your weekly limit · resets Friday at 9pm
+
+✻ Crunched for 4m 12s · done 5:17 PM
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   What do you want to do?
+
+   ❯ 1. Stop and wait for limit to reset
+     2. Wait here, then continue automatically at Friday 9pm
+     3. Switch to usage credits
+
+   Enter to confirm · Esc to cancel

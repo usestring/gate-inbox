@@ -5,7 +5,7 @@ type_ahead = true
 activity_cutoff = "(?m)^❯"
 input_line = ""
 turn_end = "^[✻✳✶✽✢·✦✧+*] \\S+ for \\d.*$"
-chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$"
+chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$|^\\s*\\d+% until auto-compact\\b.*$"
 blocked_line = "Interrupted ·"
 trailing_note = "^※"
 busy_line = "^[✻✳✶✽✢·✦✧+*] (?:Waiting for \\d+ (?:background agents?|dynamic workflows?)|\\S+ for \\d.*· \\d+ [^·]*still running)"
@@ -71,7 +71,7 @@ dialog_step_entry = ""
 scrolled_line = ""
 jump_to_bottom_key = ""
 echo_budget = "0s"
-interrupt_keys = []
+interrupt_keys = ["Escape", "Escape"]
 rules[0] waiting "\\x{25B3} Permission required"
 rules[1] waiting "\\x{21C6} select\\s+enter confirm"
 rules[2] waiting "(?m)^.*\\benter (?:submit|toggle|confirm)[ \\x{A0}]+esc dismiss[ \\x{A0}]*$"

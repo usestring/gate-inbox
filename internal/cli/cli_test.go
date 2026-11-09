@@ -43,6 +43,8 @@ type fakeSessions struct {
 	directory    string
 	pinned       bool
 	taskID       string
+	claimOpts    sessioncmd.ClaimOptions
+	assignee     string
 	taskListOpts sessioncmd.TaskListOptions
 	title        string
 	body         string
@@ -152,6 +154,16 @@ func (f *fakeSessions) Stop(sessionID string, dryRun, archive bool) (sessioncmd.
 	return sessioncmd.StopResult{Target: f.session, DryRun: dryRun, Archive: archive}, f.failWith
 }
 
+func (f *fakeSessions) Hibernate(sessionID, targetID string, dryRun bool) (sessioncmd.HibernateResult, error) {
+	f.callerID, f.targetID, f.dryRun = sessionID, targetID, dryRun
+	return sessioncmd.HibernateResult{DryRun: dryRun, Hibernated: []sessioncmd.Session{f.session}}, f.failWith
+}
+
+func (f *fakeSessions) HibernateIdle(after time.Duration, dryRun bool) (sessioncmd.HibernateResult, error) {
+	f.dryRun = dryRun
+	return sessioncmd.HibernateResult{DryRun: dryRun, Hibernated: []sessioncmd.Session{f.session}}, f.failWith
+}
+
 func (f *fakeSessions) Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error) {
 	f.callerID, f.dryRun = sessionID, dryRun
 	return sessioncmd.ParkResult{DryRun: dryRun, Parked: []sessioncmd.Session{f.session}, Promoted: 2, Owed: 1}, f.failWith
@@ -224,13 +236,18 @@ func (f *fakeSessions) Tasks(sessionID string, opts sessioncmd.TaskListOptions) 
 	return sessioncmd.TaskList{Tasks: []sessioncmd.Task{f.task}, Matched: 1, Returned: 1}, f.failWith
 }
 
-func (f *fakeSessions) CreateTask(sessionID, title, body string, dependsOn []string) (sessioncmd.Task, error) {
-	f.callerID, f.title, f.body, f.dependsOn = sessionID, title, body, dependsOn
+func (f *fakeSessions) CreateTask(sessionID string, spec sessioncmd.TaskSpec) (sessioncmd.Task, error) {
+	f.callerID, f.title, f.body, f.dependsOn, f.assignee = sessionID, spec.Title, spec.Body, spec.DependsOn, spec.Assignee
 	return f.task, f.failWith
 }
 
-func (f *fakeSessions) ClaimTask(sessionID, taskID string) (sessioncmd.Task, error) {
-	f.callerID, f.taskID = sessionID, taskID
+func (f *fakeSessions) AssignTask(sessionID, taskID, assignee string) (sessioncmd.Task, error) {
+	f.callerID, f.taskID, f.assignee = sessionID, taskID, assignee
+	return f.task, f.failWith
+}
+
+func (f *fakeSessions) ClaimTask(sessionID, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error) {
+	f.callerID, f.taskID, f.claimOpts = sessionID, taskID, opts
 	return f.task, f.failWith
 }
 
@@ -464,13 +481,13 @@ func TestTaskGroupRejectsAnUnknownVerb(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unknown verb should not dispatch")
 	}
-	want := `task has no "finnish" command; it takes list, create, claim, finish, release, delete`
+	want := `task has no "finnish" command; it takes list, create, claim, assign, finish, release, delete`
 	if err.Error() != want {
 		t.Fatalf("error = %q, want %q", err, want)
 	}
 
 	bare := dispatch(&bytes.Buffer{}, "task", taskVerbs(), nil, "cafe0001", t.TempDir())
-	if bare == nil || bare.Error() != "usage: gate-inbox task <list|create|claim|finish|release|delete>" {
+	if bare == nil || bare.Error() != "usage: gate-inbox task <list|create|claim|assign|finish|release|delete>" {
 		t.Fatalf("a bare group should print its verbs, got %v", bare)
 	}
 }
@@ -627,10 +644,29 @@ func TestSpawnKeepReachesCreate(t *testing.T) {
 	}
 }
 
+// Every way the shell names a spawn's tasks reaches Create, in order: ids,
+// then titles, then the JSON a stale MCP server delegates with.
+func TestSpawnTasksReachCreate(t *testing.T) {
+	fake := &fakeSessions{session: sampleSession()}
+	if err := runSpawn(&bytes.Buffer{}, fake, []string{
+		"--name", "worker", "--task", "t1,t2", "--new-task", "write docs",
+		"--tasks-json", `[{"title":"backfill","body":"every row","depends_on":["t1"]}]`,
+	}, "cafe0001"); err != nil {
+		t.Fatalf("spawn with tasks: %v", err)
+	}
+	want := []sessioncmd.SpawnTask{{ID: "t1"}, {ID: "t2"}, {Title: "write docs"}, {Title: "backfill", Body: "every row", DependsOn: []string{"t1"}}}
+	if !reflect.DeepEqual(fake.opts.Tasks, want) {
+		t.Fatalf("spawn tasks = %+v, want %+v", fake.opts.Tasks, want)
+	}
+	if err := runSpawn(&bytes.Buffer{}, fake, []string{"--tasks-json", "{nope"}, "cafe0001"); err == nil || !strings.Contains(err.Error(), "--tasks-json") {
+		t.Fatalf("malformed --tasks-json = %v", err)
+	}
+}
+
 func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 	table := Commands()
 	registered := []string{
-		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "accounts", "switch-account", "archive", "mute", "cleanup-children", "park", "unpark",
+		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "accounts", "switch-account", "archive", "mute", "cleanup-children", "park", "unpark", "hibernate",
 		"groups", "create-group", "pin-group", "delete-group", "task", "reserve", "release-files", "reservations", "terminal",
 		"rename", "priority", "sweep", "stop", "_finish-stop", "children", "inbox",
 	}
@@ -645,7 +681,7 @@ func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 
 	help := Help()
 	for _, line := range []string{usageSessions, usageChildren, usageReserve, usageTerminalSend, usageRename, usagePriority, usageSweep, usageInboxServe,
-		"task <list|create|claim|finish|release|delete>"} {
+		"task <list|create|claim|assign|finish|release|delete>"} {
 		if !strings.Contains(help, line) {
 			t.Fatalf("help is missing %q:\n%s", line, help)
 		}

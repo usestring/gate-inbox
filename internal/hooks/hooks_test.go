@@ -348,19 +348,21 @@ func TestPreToolUseCommandReportsTheQuestionDialog(t *testing.T) {
 	}
 }
 
-// A turn that died on an API error ends there: Stop does not fire for it.
-// The limit is the board's to recover; every other failure is a turn that
-// ended and wants a person.
+// Stop does not fire after an API error. Rate limits and authentication
+// failures need distinct outcomes; other failures still end the turn.
 func TestStopFailureCommandEndsTheTurn(t *testing.T) {
 	cases := []struct {
 		name    string
 		payload string
 		want    string
 	}{
-		{"rate limit", `{"hook_event_name":"StopFailure","error":"rate_limit"}`, status.Errored},
-		{"overloaded", `{"hook_event_name":"StopFailure","error":"overloaded"}`, status.Finished},
-		{"server error", `{"hook_event_name":"StopFailure","error":"server_error"}`, status.Finished},
-		{"unreadable payload", `not json`, status.Finished},
+		{"signed out", `{"hook_event_name":"StopFailure","error":"authentication_failed","last_assistant_message":"Not logged in · Please run /login"}`, "errored ClaudeSignInRequired"},
+		{"expired login", `{"error": "authentication_failed", "last_assistant_message": "Login expired · Please run /login"}`, "errored ClaudeSignInRequired"},
+		{"invalid credentials", `{"error":"authentication_failed","last_assistant_message":"API Error: Invalid API key"}`, "errored ClaudeAuthenticationFailed"},
+		{"rate limit", `{"hook_event_name":"StopFailure","error":"rate_limit"}`, "errored StopFailure"},
+		{"overloaded", `{"hook_event_name":"StopFailure","error":"overloaded"}`, "finished StopFailure"},
+		{"server error", `{"error":"server_error","error_details":"authentication_failed"}`, "finished StopFailure"},
+		{"unreadable payload", `not json`, "finished StopFailure"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -375,7 +377,7 @@ func TestStopFailureCommandEndsTheTurn(t *testing.T) {
 				t.Fatalf("hook command failed: %v", err)
 			}
 			raw, _ := os.ReadFile(file)
-			want := "working PostToolUse\n" + tc.want + " StopFailure\n"
+			want := "working PostToolUse\n" + tc.want + "\n"
 			if string(raw) != want {
 				t.Fatalf("log = %q want %q", raw, want)
 			}

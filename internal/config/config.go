@@ -563,6 +563,10 @@ type Board struct {
 	// machine; choosing this value there again goes back to following the
 	// file.
 	Sidebar string `toml:"sidebar"`
+	// OfferCLIOnLimit has the usage-limit card offer to continue the
+	// conversation on another CLI as well as on another subscription. Off
+	// by default: a limit is a reason to change accounts, not agents.
+	OfferCLIOnLimit bool `toml:"offer_cli_on_limit"`
 }
 
 type Config struct {
@@ -593,18 +597,23 @@ type Config struct {
 	// with nothing on its screen changing before its row is flagged stale:
 	// the label has outlived any turn it could describe, so it is more
 	// likely a misread than a long turn.
-	StaleStatusAfter Duration     `toml:"stale_status_after"`
-	Board            Board        `toml:"board"`
-	Naming           Naming       `toml:"naming"`
-	Log              Log          `toml:"log"`
-	Children         Children     `toml:"children"`
-	Work             Work         `toml:"work"`
-	Integrations     Integrations `toml:"integrations"`
-	Hogs             Hogs         `toml:"hogs"`
-	ClaudeCode       ClaudeCode   `toml:"claude_code"`
-	Codex            Codex        `toml:"codex"`
-	OpenCode         OpenCode     `toml:"opencode"`
-	Relaunch         Relaunch     `toml:"relaunch"`
+	StaleStatusAfter Duration `toml:"stale_status_after"`
+	// HibernateAfter is how long a session must rest, idle or finished,
+	// before the board hibernates it: stops its process to give the memory
+	// back, keeping its row, mail and claims, and waking it on its next
+	// message. Zero, the default, leaves every session running.
+	HibernateAfter Duration     `toml:"hibernate_after"`
+	Board          Board        `toml:"board"`
+	Naming         Naming       `toml:"naming"`
+	Log            Log          `toml:"log"`
+	Children       Children     `toml:"children"`
+	Work           Work         `toml:"work"`
+	Integrations   Integrations `toml:"integrations"`
+	Hogs           Hogs         `toml:"hogs"`
+	ClaudeCode     ClaudeCode   `toml:"claude_code"`
+	Codex          Codex        `toml:"codex"`
+	OpenCode       OpenCode     `toml:"opencode"`
+	Relaunch       Relaunch     `toml:"relaunch"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -858,6 +867,11 @@ const codexTurnEndRuleOnly = `(?m)^(?:─+ Worked for [\dhms. ]+─.*|─{20,}\s
 // carrying it verbatim takes the current pattern.
 const claudeChromeLineUpdateOnly = `^\s*[─q]{4,}.*$|^[\s─q]*$|^\s*✔ Update installed\b.*$`
 
+// claudeChromeLineClearHint is the claude chrome_line shipped before the
+// "8% until auto-compact" hint under a turn-end summary was read as chrome; a
+// config carrying it verbatim takes the current pattern.
+const claudeChromeLineClearHint = `^\s*[─q]{4,}.*$|^[\s─q]*$|^\s*✔ Update installed\b.*$|^\s*new task\? /clear to save\b.*$`
+
 // codexTurnEndMiddot is the 0.154 turn_end, which read only a middle dot
 // between the duration and the time ("Worked for 1m 5s · 02:41"). Later
 // builds draw a bullet there.
@@ -960,7 +974,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	if name == "claude" && (user.BusyLine == busyLineAgentsOnly || user.BusyLine == busyLineShellsOnly || user.BusyLine == busyLineEveryKind || user.BusyLine == busyLineWaitOnly) {
 		user.BusyLine = def.BusyLine
 	}
-	if name == "claude" && user.ChromeLine == claudeChromeLineUpdateOnly {
+	if name == "claude" && (user.ChromeLine == claudeChromeLineUpdateOnly || user.ChromeLine == claudeChromeLineClearHint) {
 		user.ChromeLine = def.ChromeLine
 	}
 	if name == "claude" && user.ArrowDialogLine == arrowDialogNavigateOnly {
@@ -1233,9 +1247,11 @@ const defaultConfig = `poll_interval = "2s"
 # The board's layout. sidebar is the side of the frame the sessions list sits
 # on, "right" or "left"; the session's pane takes the other side. Settings
 # can pick the other side on one machine, and picking this value there again
-# goes back to following this file.
+# goes back to following this file. offer_cli_on_limit has the usage-limit
+# card offer the other CLIs as well as another subscription of the same one.
 # [board]
 # sidebar = "right"
+# offer_cli_on_limit = false
 
 # Asking a live agent to name its session interrupts it for a housekeeping
 # turn: the rename directive on a managed launch, the pending note in an
@@ -1415,10 +1431,10 @@ turn_end = "^[✻✳✶✽✢·✦✧+*] \\S+ for \\d.*$"
 # chrome_line is consulted by lastContentIndex, so only chrome_line keeps the
 # banner from masking a blocked_line interrupt above it.
 #
-# The right-aligned "new task? /clear to save 177.6k tokens" hint claude
-# draws under a turn-end summary once the context is large is chrome for the
-# same reason.
-chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$"
+# The right-aligned "new task? /clear to save 177.6k tokens" and "8% until
+# auto-compact" hints claude draws under a turn-end summary once the context
+# is large are chrome for the same reason.
+chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$|^\\s*\\d+% until auto-compact\\b.*$"
 blocked_line = "Interrupted ·"
 # recap blocks ("※ recap: …") render below the turn-end summary
 trailing_note = "^※"
@@ -1533,6 +1549,10 @@ revive_command = "opencode --continue"
 # it, and the poll that pressed Enter for it could not tell the manager's
 # prompt from a line the operator was writing.
 prompt_mode = "send"
+# opencode 2.x arms its interrupt on the first Escape ("esc again to
+# interrupt") and stops the turn on the second; the manager sends them as
+# separate writes so they are not read as one alt+Escape.
+interrupt_keys = ["Escape", "Escape"]
 # r asks the session to name itself with this: /rename is a command the
 # manager registers into every opencode session it starts, through the
 # generated OPENCODE_CONFIG (internal/mcpreg), so there is nowhere to install

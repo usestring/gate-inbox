@@ -149,6 +149,10 @@ chmod +x "$shim"
 # capped near 108 bytes — a scratch directory under the run output is long
 # enough to blow that, and tmux reports it as "File name too long".
 sock="$(mktemp -d /tmp/gib-cap.XXXXXX)"
+# A run that fails or is interrupted before the teardown below would otherwise
+# leave the board's tmux server running, and with it every demo-agent.sh pane,
+# which loops until its server goes away.
+trap 'tmux -S "$sock/tmux-$(id -u)/default" kill-server >/dev/null 2>&1 || true; rm -rf "$sock"' EXIT
 home="$work/board"
 mkdir -p "$home"
 rm -f "$home/state.db" "$home/state.db-shm" "$home/state.db-wal"

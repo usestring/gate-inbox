@@ -36,6 +36,9 @@ poll_interval = "2s"
 # see it that way, then leaves the rail and the counts for good.
 # [work]
 # settle_after = "24h"
+# Return failed checks to the live agent that opened the PR, up to two repair
+# prompts until CI passes. Delivery uses the session inbox and its normal guards.
+# ci_feedback = false
 
 # Your own Claude Code config. While the board runs it keeps its hooks in
 # ~/.claude/settings.json and an MCP server named gate-inbox in ~/.claude.json

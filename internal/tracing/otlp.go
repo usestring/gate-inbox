@@ -247,9 +247,9 @@ func encode(spans []Span) ([]byte, error) {
 	for _, span := range spans {
 		status := map[string]any{"code": 1}
 		if span.Err != nil {
-			status = map[string]any{"code": 2, "message": span.Err.Error()}
+			status = map[string]any{"code": 2, "message": scrubMessage(span.Err.Error())}
 		}
-		out = append(out, map[string]any{
+		encoded := map[string]any{
 			"traceId":           span.traceID,
 			"spanId":            span.spanID,
 			"parentSpanId":      span.parentID,
@@ -257,9 +257,17 @@ func encode(spans []Span) ([]byte, error) {
 			"kind":              1, // INTERNAL
 			"startTimeUnixNano": strconv.FormatInt(span.Start.UnixNano(), 10),
 			"endTimeUnixNano":   strconv.FormatInt(span.End.UnixNano(), 10),
-			"attributes":        encodeAttrs(span.Attrs),
+			"attributes":        encodeAttrs(privatize(span.Attrs)),
 			"status":            status,
-		})
+		}
+		if len(span.links) > 0 {
+			links := make([]any, 0, len(span.links))
+			for _, l := range span.links {
+				links = append(links, map[string]any{"traceId": l.TraceID, "spanId": l.SpanID})
+			}
+			encoded["links"] = links
+		}
+		out = append(out, encoded)
 	}
 	return json.Marshal(map[string]any{"resourceSpans": []any{map[string]any{
 		"resource": map[string]any{"attributes": encodeAttrs(resource())},

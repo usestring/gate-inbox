@@ -69,11 +69,7 @@ func TestTheResourceNamesTheBuildAndTheMachine(t *testing.T) {
 	}
 	// These four come from the running process, so they are always knowable
 	// and their absence is a defect rather than an unstamped build.
-	// A machine that will not say its own name leaves host.name out, which
-	// is the one value here that can legitimately be missing.
-	host, _ := os.Hostname()
 	for key, want := range map[string]any{
-		"host.name":               host,
 		"os.type":                 runtime.GOOS,
 		"host.arch":               runtime.GOARCH,
 		"process.runtime.version": runtime.Version(),
@@ -126,7 +122,7 @@ func TestTheResourceIsSentOncePerPayloadNotPerSpan(t *testing.T) {
 // and it makes a binary that predates this attribution indistinguishable from
 // one that has it and could not resolve a commit.
 func TestAnUnknownCommitIsOmittedRatherThanNamed(t *testing.T) {
-	attrs := identity(buildIdentity{Host: "box", Instance: "17-abcd"}, nil, false)
+	attrs := identity(buildIdentity{Instance: "17-abcd"}, nil, false)
 	for _, attr := range attrs {
 		switch attr.Key {
 		case "service.version", "vcs.revision", "vcs.time", "vcs.modified":
@@ -142,7 +138,7 @@ func TestAnUnknownCommitIsOmittedRatherThanNamed(t *testing.T) {
 		{Key: "vcs.revision", Value: ""},
 		{Key: "vcs.modified", Value: ""},
 	}}
-	for _, attr := range identity(buildIdentity{Host: "box", Instance: "17-abcd"}, blank, true) {
+	for _, attr := range identity(buildIdentity{Instance: "17-abcd"}, blank, true) {
 		if strings.HasPrefix(attr.Key, "vcs.") || attr.Key == "service.version" {
 			t.Fatalf("%s was emitted as %v from a blank stamp", attr.Key, attr.Value)
 		}
@@ -159,7 +155,7 @@ func TestTheLinkerRevisionWinsOverTheStamp(t *testing.T) {
 		{Key: "vcs.modified", Value: "true"},
 	}}
 	got := map[string]any{}
-	for _, attr := range identity(buildIdentity{Revision: "linker00000000000000000000000000000000f", Host: "box", Instance: "17-abcd"}, stamped, true) {
+	for _, attr := range identity(buildIdentity{Revision: "linker00000000000000000000000000000000f", Instance: "17-abcd"}, stamped, true) {
 		got[attr.Key] = attr.Value
 	}
 	if got["service.version"] != "linker00000000000000000000000000000000f" {
@@ -177,7 +173,7 @@ func TestTheLinkerRevisionWinsOverTheStamp(t *testing.T) {
 	}
 	// With no linker value the stamp is what service.version reports.
 	fallback := map[string]any{}
-	for _, attr := range identity(buildIdentity{Host: "box", Instance: "17-abcd"}, stamped, true) {
+	for _, attr := range identity(buildIdentity{Instance: "17-abcd"}, stamped, true) {
 		fallback[attr.Key] = attr.Value
 	}
 	if fallback["service.version"] != "stamped0000000000000000000000000000000f" {
@@ -193,7 +189,6 @@ func TestTheFingerprintStandsInWhenNoCommitIsKnowable(t *testing.T) {
 	got := map[string]any{}
 	for _, attr := range identity(buildIdentity{
 		Fingerprint: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-		Host:        "box",
 		Instance:    "17-abcd",
 	}, nil, false) {
 		got[attr.Key] = attr.Value
@@ -217,7 +212,6 @@ func TestAKnownCommitIsStillPreferredToTheFingerprint(t *testing.T) {
 	for _, attr := range identity(buildIdentity{
 		Revision:    "linker00000000000000000000000000000000f",
 		Fingerprint: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-		Host:        "box",
 		Instance:    "17-abcd",
 	}, nil, false) {
 		got[attr.Key] = attr.Value
@@ -235,13 +229,13 @@ func TestAKnownCommitIsStillPreferredToTheFingerprint(t *testing.T) {
 // The tag is only emitted when a release build resolved one. main keeps its
 // "dev" default out of here, and an empty Release must not become a key.
 func TestTheReleaseTagIsOmittedUntilThereIsOne(t *testing.T) {
-	for _, attr := range identity(buildIdentity{Host: "box", Instance: "17-abcd"}, nil, false) {
+	for _, attr := range identity(buildIdentity{Instance: "17-abcd"}, nil, false) {
 		if attr.Key == "service.release" {
 			t.Fatalf("service.release was emitted as %v by a build with no tag", attr.Value)
 		}
 	}
 	got := map[string]any{}
-	for _, attr := range identity(buildIdentity{Release: "0.31.0", Host: "box", Instance: "17-abcd"}, nil, false) {
+	for _, attr := range identity(buildIdentity{Release: "0.31.0", Instance: "17-abcd"}, nil, false) {
 		got[attr.Key] = attr.Value
 	}
 	if got["service.release"] != "0.31.0" {

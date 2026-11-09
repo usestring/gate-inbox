@@ -7,6 +7,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/tracetest"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 // This server runs in its own process, one per agent session, so nothing the
@@ -25,7 +26,7 @@ func TestEveryToolCallIsRecordedAgainstItsSession(t *testing.T) {
 	if span.Attr("tool") != "list_sessions" {
 		t.Errorf("tool = %v, want list_sessions", span.Attr("tool"))
 	}
-	if span.Attr("session") != "abc123" {
+	if span.Attr("session") != tracing.KeyedID("session", "abc123") {
 		t.Errorf("session = %v, want the session this server was started as", span.Attr("session"))
 	}
 	if span.Attr("failed") != false {

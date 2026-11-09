@@ -300,8 +300,7 @@ func (*gitCommands) run(dir string, args ...string) (string, bool) {
 			subcommand = args[0]
 		}
 		tracing.Record("worktracker.git", started, time.Now(), err,
-			tracing.Attr{Key: "git.subcommand", Value: subcommand},
-			tracing.Attr{Key: "dir", Value: dir})
+			tracing.Attr{Key: "git.subcommand", Value: subcommand})
 	}
 	if err != nil {
 		return "", false
@@ -764,7 +763,6 @@ func (t *Tracker) Discover(session Session) []workspec.Ref {
 	if traced {
 		tracing.Record("worktracker.discover", started, time.Now(), nil,
 			tracing.Attr{Key: "session", Value: session.ID},
-			tracing.Attr{Key: "dir", Value: session.Dir},
 			tracing.Attr{Key: "refs", Value: len(refs)},
 			tracing.Attr{Key: "live", Value: session.Live})
 	}

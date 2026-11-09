@@ -11,6 +11,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/promptcache"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tracetest"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 func TestContextSnapshotsDeduplicateAndUseExactConversation(t *testing.T) {
@@ -69,7 +70,7 @@ func TestContextSnapshotsDeduplicateAndUseExactConversation(t *testing.T) {
 		t.Fatalf("got %d context snapshots, want three changed samples from the current launch", len(spans))
 	}
 	for i, span := range spans {
-		for key, want := range map[string]any{"session": "live", "account.name": "NAMED", "model": "claude-test", "usage.context_tokens": int64(1240), "usage.input_tokens": int64(40), "usage.cache_read_input_tokens": int64(1000), "usage.cache_creation_input_tokens": int64(200)} {
+		for key, want := range map[string]any{"session": tracing.KeyedID("session", "live"), "account.name": tracing.KeyedID("account", "NAMED"), "model": "claude-test", "usage.context_tokens": int64(1240), "usage.input_tokens": int64(40), "usage.cache_read_input_tokens": int64(1000), "usage.cache_creation_input_tokens": int64(200)} {
 			if span.Attr(key) != want {
 				t.Errorf("%s = %v, want %v", key, span.Attr(key), want)
 			}

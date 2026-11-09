@@ -212,8 +212,22 @@ func (m *Model) handOverOnWork(before string) tea.Cmd {
 	return m.handOverFocused(sess)
 }
 
+// idleSwitchSetting turns handOverOnIdle on or off. On is the default.
+const idleSwitchSetting = "idle_switch"
+
+// storedIdleSwitch reads whether an idle operator is moved off a working
+// session. Anything but "off" is on, so an unset or unreadable store keeps
+// the behaviour the board had before the setting existed.
+func storedIdleSwitch(st *store.Store) bool {
+	chosen, err := st.Setting(idleSwitchSetting)
+	return err != nil || chosen != "off"
+}
+
+// handOverOnIdle moves an operator who has sat three minutes in a working
+// session to the next session needing a person. The "switch when idle"
+// setting turns it off.
 func (m *Model) handOverOnIdle(now time.Time) tea.Cmd {
-	if m.mode != modeFocus || m.lastInteractionAt.IsZero() || now.Sub(m.lastInteractionAt) < 3*time.Minute {
+	if !m.idleSwitch || m.mode != modeFocus || m.lastInteractionAt.IsZero() || now.Sub(m.lastInteractionAt) < 3*time.Minute {
 		return nil
 	}
 	current, ok := m.selected()

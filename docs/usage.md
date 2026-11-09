@@ -110,6 +110,8 @@ For example, a finished session you last turned to 5 minutes ago goes ahead of a
 
 Turn `smart triage` off in Settings (or store `smart_triage = "off"`) for the strict order: within each priority, every question first, then the Reviews row, then every finished session, then idle, then errored, each oldest first.
 
+If you sit in a working session for three minutes without touching the board, it moves you to the next session that needs a person. Turn `switch when idle` off in Settings (or store `idle_switch = "off"`) to stay where you are.
+
 The rest of the session's controls work from inside it: `ctrl+a` attaches, `ctrl+x` ends the session, `ctrl+n` starts a
 new one in its group, `alt+/` copies the agent's session id, `alt+;` steps back to the one you just
 left. `ctrl+s` opens your snippet menu over the session in front of you.

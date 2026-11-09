@@ -609,3 +609,32 @@ func TestModelCommandsStayInTriageUntilAPromptLands(t *testing.T) {
 		})
 	}
 }
+
+func TestIdleSwitchDefaultsOnAndPersists(t *testing.T) {
+	m := buildModel(t)
+	if !m.idleSwitch || !storedIdleSwitch(m.store) {
+		t.Fatal("a fresh store did not come up with the idle switch on")
+	}
+	m.openSettings()
+	m.settings.field = settingsFieldIdleSwitch
+	m.cycleSetting(1)
+	m.saveAndCloseSettings()
+	if m.idleSwitch || storedIdleSwitch(m.store) {
+		t.Fatalf("idle switch off was not applied and persisted: %s", m.errBar.text)
+	}
+	m.openSettings()
+	m.settings.field = settingsFieldIdleSwitch
+	m.cycleSetting(-1)
+	m.saveAndCloseSettings()
+	if !m.idleSwitch || !storedIdleSwitch(m.store) {
+		t.Fatal("idle switch did not go back on")
+	}
+}
+
+// Off, a long-idle operator in a focused session is left where they are.
+func TestIdleSwitchOffNeverMovesTheOperator(t *testing.T) {
+	m := &Model{mode: modeFocus, lastInteractionAt: time.Now().Add(-time.Hour)}
+	if cmd := m.handOverOnIdle(time.Now()); cmd != nil {
+		t.Fatal("handOverOnIdle moved the operator with the idle switch off")
+	}
+}

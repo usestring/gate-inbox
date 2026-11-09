@@ -363,6 +363,7 @@ type Model struct {
 	// askQuestions mirrors refreshMsg.askQuestions, and questionCard is the
 	// preview's card drawn from it. See previewquestions.go.
 	askQuestions map[string][]convo.AskQuestion
+	authFailures map[string]string
 	questionCard questionCard
 	screenCard   screenCard
 	// hookless mirrors refreshMsg.hookless: the rows whose status is
@@ -1084,6 +1085,7 @@ type refreshMsg struct {
 	// askQuestions is each Claude session's pending AskUserQuestion call,
 	// for a pane standing on a several-question dialog.
 	askQuestions map[string][]convo.AskQuestion
+	authFailures map[string]string
 	// hookless is every session whose agent no longer carries the hook
 	// settings flag, so its status is coming off the pane rather than out of
 	// its status file. Replaced whole each pass like queuedMessages, which is
@@ -2511,6 +2513,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait
 		m.askQuestions = msg.askQuestions
+		m.authFailures = msg.authFailures
 		m.hookless = msg.hookless
 		m.stale = msg.stale
 		m.hogBadges = msg.hogBadges

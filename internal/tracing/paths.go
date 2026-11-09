@@ -23,8 +23,8 @@ import (
 
 // HashPath is p as it may leave the machine: each segment a keyed hash of the
 // path up to and including it, joined with "/", after "pa:" for an absolute
-// path or "pr:" for a relative one. /home/u/repo becomes pa:1a2b3c4d/5e6f7a8b/
-// 9c0d1e2f: paths that share a prefix share their leading hashes and show
+// path or "pr:" for a relative one, so a three-directory absolute path
+// becomes pa:1a2b3c4d/5e6f7a8b/9c0d1e2f: paths that share a prefix share their leading hashes and show
 // their depth, and nothing else about them can be read without this install's
 // key. Each hash covers the whole prefix, so the same name at two places in
 // two paths does not show as the same hash.
@@ -104,8 +104,9 @@ var (
 	// ("C:\Program Files\x"), so a run with spaces counts as long as a
 	// separator ends it.
 	drivePath = regexp.MustCompile(`(^|[` + stop + `=:])([A-Za-z]:[/\\](?:[^"'<>|\r\n/\\]*[/\\])*[^` + stop + `]*)`)
-	// knownRoot is any token holding a root directory, wherever it starts:
-	// "x/home/y", "C:\Users\y" and "/tmp/y" all name a place on a disk.
+	// knownRoot is any token with one of these root directories inside it,
+	// wherever the token starts and with either separator: each names a
+	// place on a disk.
 	knownRoot = regexp.MustCompile(`(?i)[^` + stop + `=]*[/\\](home|users|tmp|var|private|opt|root|mnt|volumes|etc|run|srv|nix|usr|documents and settings)[/\\][^` + stop + `]*`)
 	// rooted is a token that starts as a path does: "/", "~/", "./", "../"
 	// or a UNC share, at the start of the value or after a separator, so
@@ -188,8 +189,8 @@ func replaceFold(s, place string) string {
 var pathStart = regexp.MustCompile(`(?i)^(~|\.{1,2}[/\\]|/|\\\\|[a-z]:[/\\]|file:/)`)
 
 // isPath is whether s is a path and nothing else. One that begins as a path
-// does is taken whole, spaces in its directories included ("/Users/Jo Smith/
-// x"), unless its last segment runs on into words: that is a message.
+// does is taken whole, spaces in its directories included, unless its last
+// segment runs on into words: that is a message.
 func isPath(s string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" || hashedPath.MatchString(s) {

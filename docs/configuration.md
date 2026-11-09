@@ -207,3 +207,28 @@ retires any CI feedback that has not started delivery.
 ## Right-to-left text
 
 Hebrew and Arabic rows are painted as the cells they occupy, the same on every host. A terminal that runs its own bidirectional layout, iTerm2's right-to-left support or WezTerm's `bidi_enabled`, reorders those rows itself; turn that support off to read the frame in the columns Gate Inbox paints.
+
+## PR review and conflict feedback
+
+```toml
+[work]
+pr_feedback = true
+```
+
+This is off by default and uses the same recorded-owner routing and inbox guards as CI
+feedback. Enable one review-feedback source for a PR: independent external watchers do
+not share this feature's deduplication state and can send duplicate prompts.
+
+Only human changes-requested reviews and unresolved, non-outdated review threads on the
+current commit produce review feedback. A newer approval or dismissal supersedes a
+reviewer's request; ordinary comments and bot reviews do not request changes. Incomplete
+review or thread lists cannot trigger feedback or clear its repair budget. A new commit
+alone does not clear outstanding review feedback. Conflicts require GitHub's explicit
+`CONFLICTING` result and both head and base commits; `UNKNOWN` never means a conflict.
+
+Review and conflict feedback each allow two repair prompts and one escalation until
+complete evidence confirms resolution. Repeated snapshots and board restarts do not
+repeat a prompt. A changed conflict base can produce the next bounded round. Obsolete
+queued feedback is retired; claimed messages may already be in delivery. Every prompt
+requires fresh state and repository ownership checks before edits. No review is dismissed,
+thread resolved, worker replaced or PR merged automatically.

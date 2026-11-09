@@ -69,8 +69,9 @@ type PR struct {
 	// of the same rank newest first.
 	UpdatedAt time.Time
 	FetchedAt time.Time
-	// CI is not persisted in the display cache: automatic feedback needs a fresh observation.
-	CI *CISnapshot
+	// Feedback snapshots are not persisted in the display cache: automation needs a fresh observation.
+	CI       *CISnapshot
+	Feedback *PRFeedbackSnapshot
 }
 
 type CISnapshot struct {

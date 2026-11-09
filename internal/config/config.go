@@ -319,6 +319,7 @@ type Children struct {
 // Work configures how the board follows its sessions' pull requests and tickets.
 type Work struct {
 	CIFeedback bool `toml:"ci_feedback"`
+	PRFeedback bool `toml:"pr_feedback"`
 
 	// SettleAfter is how long a merged or closed pull request, or a completed
 	// or cancelled ticket, stays on the board after the operator first had it
@@ -1312,6 +1313,10 @@ const defaultConfig = `poll_interval = "2s"
 # Return failed checks to the live agent that opened the PR, up to two repair
 # prompts until CI passes. Delivery uses the session inbox and its normal guards.
 # ci_feedback = false
+# Return human review requests, unresolved current-commit threads and confirmed
+# merge conflicts through the same guarded inbox, with two prompts per kind.
+# Use one feedback source per PR; independent external watchers can duplicate it.
+# pr_feedback = false
 
 # Your own Claude Code config. While the board runs it keeps its hooks in
 # ~/.claude/settings.json and an MCP server named gate-inbox in ~/.claude.json

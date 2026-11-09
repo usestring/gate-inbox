@@ -96,7 +96,7 @@ func TestOnlyToolCallsAreRecorded(t *testing.T) {
 	// listing: the listing is a protocol message, not something an agent
 	// waited on a session command for.
 	span := tracetest.One(t, recorded, "mcp.tool")
-	if span.Attr("tool") != "list_sessions" {
-		t.Errorf("the recorded call is %v, want the only tool call made", span.Attr("tool"))
+	if span.Attr("tool.id") != tracing.KeyedID("tool", "list_sessions") {
+		t.Errorf("the recorded call is %v, want the only tool call made", span.Attr("tool.id"))
 	}
 }

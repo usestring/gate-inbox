@@ -109,22 +109,23 @@ func TestApplyOpencodeSetsEnvToConfigFile(t *testing.T) {
 	}
 }
 
-// v2 serves every session from one background service per user, which reads
-// its own environment rather than the launching client's: the generated
-// config never reaches the agent and the MCP server it spawns carries the id
-// of whichever session started the service. A private server per session is
-// what makes both land, so the v2 launch carries --standalone.
-func TestApplyOpencodeV2RunsAPrivateServer(t *testing.T) {
+// v2's own background service reads its own environment rather than the
+// launching client's, so a launch never leaves the session to it: the pane
+// runs opencode-attach, which attaches the TUI to the board's shared server
+// (named by --server-config) or falls back to a private one, and the
+// session's own config stays in OPENCODE_CONFIG for that fallback.
+func TestApplyOpencodeV2RunsThroughAttach(t *testing.T) {
 	dir := t.TempDir()
 	env := map[string]string{hooks.EnvSessionID: "abcd1234"}
 	command, err := Apply("opencode", "/opt/bin/gate-inbox", dir, "opencode --prompt 'go'", env, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command != "opencode --prompt 'go' --standalone" {
-		t.Fatalf("v2 launch = %q, want --standalone appended", command)
+	shared := filepath.Join(dir, hooks.GeneratedName("gate-inbox-mcp-opencode.json", opencodeConfig("/opt/bin/gate-inbox", "", "", "")))
+	if want := "'/opt/bin/gate-inbox' opencode-attach --server-config '" + shared + "' -- opencode --prompt 'go'"; command != want {
+		t.Fatalf("v2 launch = %q, want %q", command, want)
 	}
-	if want := filepath.Join(dir, hooks.GeneratedName("gate-inbox-mcp-opencode.json", opencodeConfig("/opt/bin/gate-inbox", "", "", ""))); env["OPENCODE_CONFIG"] != want {
+	if want := shared; env["OPENCODE_CONFIG"] != want {
 		t.Fatalf("OPENCODE_CONFIG = %q, want the shared %q when no model is chosen", env["OPENCODE_CONFIG"], want)
 	}
 	content, err := os.ReadFile(env["OPENCODE_CONFIG"])
@@ -177,8 +178,9 @@ func TestPreviewOpencodeV2NamesTheSessionConfigWithoutWriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command != "opencode --standalone" {
-		t.Fatalf("preview command = %q", command)
+	shared := filepath.Join(dir, hooks.GeneratedName("gate-inbox-mcp-opencode.json", opencodeConfig("/opt/bin/gate-inbox", "", "", "")))
+	if want := "'/opt/bin/gate-inbox' opencode-attach --model 'anthropic/claude-sonnet-5' --server-config '" + shared + "' -- opencode"; command != want {
+		t.Fatalf("preview command = %q, want %q", command, want)
 	}
 	if want := filepath.Join(dir, hooks.GeneratedName("gate-inbox-mcp-opencode-abcd1234.json", opencodeConfig("/opt/bin/gate-inbox", "anthropic/claude-sonnet-5", "", ""))); env["OPENCODE_CONFIG"] != want {
 		t.Fatalf("OPENCODE_CONFIG = %q, want %q", env["OPENCODE_CONFIG"], want)
@@ -277,5 +279,44 @@ func TestApplyNoneLeavesEverything(t *testing.T) {
 	command, err := Apply("none", "/opt/bin/gate-inbox", t.TempDir(), "aider", env, "")
 	if err != nil || command != "aider" || len(env) != 0 {
 		t.Fatalf("command = %q, env = %v, err = %v", command, env, err)
+	}
+}
+
+// A session restricted to a profile keeps a private server: the shared one
+// serves every tool, so no --server-config is passed and attach runs it
+// standalone.
+func TestApplyOpencodeProfileStaysStandalone(t *testing.T) {
+	dir := t.TempDir()
+	env := map[string]string{hooks.EnvSessionID: "abcd1234"}
+	write := func(name string, content []byte) (string, error) { return writeConfig(dir, name, content) }
+	command, err := opencodeCommand("/opt/bin/gate-inbox", dir, "opencode", env, "", "review", false, true, write)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "'/opt/bin/gate-inbox' opencode-attach -- opencode"; command != want {
+		t.Fatalf("profile launch = %q, want %q", command, want)
+	}
+}
+
+// A launched opencode's private server skips the in-memory file index,
+// unless the operator set the variable themselves.
+func TestApplyOpencodeTrimsServerMemory(t *testing.T) {
+	t.Setenv("OPENCODE_DISABLE_FFF", "")
+	os.Unsetenv("OPENCODE_DISABLE_FFF")
+	env := map[string]string{hooks.EnvSessionID: "abcd1234"}
+	if _, err := Apply("opencode", "/opt/bin/gate-inbox", t.TempDir(), "opencode", env, ""); err != nil {
+		t.Fatal(err)
+	}
+	if env["OPENCODE_DISABLE_FFF"] != "1" {
+		t.Fatalf("env = %v", env)
+	}
+
+	t.Setenv("OPENCODE_DISABLE_FFF", "0")
+	env = map[string]string{hooks.EnvSessionID: "abcd1234"}
+	if _, err := Apply("opencode", "/opt/bin/gate-inbox", t.TempDir(), "opencode", env, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, set := env["OPENCODE_DISABLE_FFF"]; set {
+		t.Fatalf("operator's value overridden: %v", env)
 	}
 }

@@ -581,3 +581,60 @@ func TestFailedEarlyComposerHandoverResumesTheWaitingQueue(t *testing.T) {
 		})
 	}
 }
+
+func TestModelCommandsStayInTriageUntilAPromptLands(t *testing.T) {
+	for _, command := range []string{"/model", "/model fast", "/status"} {
+		t.Run(command, func(t *testing.T) {
+			m := drainOnComposer(t)
+			id := focusedID(t, m)
+			for i := range m.sessions {
+				m.sessions[i].Tool = "quietchat"
+			}
+			m.rebuildRows()
+			if err := m.tmux.SendText(id, "printf '\\n› "+command+"\\n'"); err != nil {
+				t.Fatal(err)
+			}
+			waitForPaneText(t, m, id, "\n› "+command+"\n")
+			m = pressEnter(m)
+			if m.mode != modeFocus || focusedID(t, m) != id || m.isMuted(onlyLanding(t, m).sess) {
+				t.Fatal("a CLI command advanced triage before the agent took a prompt")
+			}
+			if onlyLanding(t, m).early {
+				t.Fatal("a CLI command used the immediate composer handover")
+			}
+			landAnswer(t, m, id)
+			if focusedName(t, m) != "next" {
+				t.Fatal("a slash command that became an agent prompt did not advance triage")
+			}
+		})
+	}
+}
+
+func TestIdleSwitchDefaultsOnAndPersists(t *testing.T) {
+	m := buildModel(t)
+	if !m.idleSwitch || !storedIdleSwitch(m.store) {
+		t.Fatal("a fresh store did not come up with the idle switch on")
+	}
+	m.openSettings()
+	m.settings.field = settingsFieldIdleSwitch
+	m.cycleSetting(1)
+	m.saveAndCloseSettings()
+	if m.idleSwitch || storedIdleSwitch(m.store) {
+		t.Fatalf("idle switch off was not applied and persisted: %s", m.errBar.text)
+	}
+	m.openSettings()
+	m.settings.field = settingsFieldIdleSwitch
+	m.cycleSetting(-1)
+	m.saveAndCloseSettings()
+	if !m.idleSwitch || !storedIdleSwitch(m.store) {
+		t.Fatal("idle switch did not go back on")
+	}
+}
+
+// Off, a long-idle operator in a focused session is left where they are.
+func TestIdleSwitchOffNeverMovesTheOperator(t *testing.T) {
+	m := &Model{mode: modeFocus, lastInteractionAt: time.Now().Add(-time.Hour)}
+	if cmd := m.handOverOnIdle(time.Now()); cmd != nil {
+		t.Fatal("handOverOnIdle moved the operator with the idle switch off")
+	}
+}

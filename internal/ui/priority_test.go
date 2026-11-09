@@ -285,6 +285,44 @@ func TestNegativePrioritiesSortBelowDefault(t *testing.T) {
 	}
 }
 
+func TestNegativePrioritySurvivesAWaitingChild(t *testing.T) {
+	for _, smart := range []bool{false, true} {
+		for _, inherited := range []bool{false, true} {
+			for _, childPriority := range []priority.Tier{priority.Unset, priority.Urgent} {
+				t.Run(fmt.Sprintf("smart=%v/inherited=%v/child=%s", smart, inherited, childPriority.Label()), func(t *testing.T) {
+					parent := smartSess("parent", status.Finished, time.Minute)
+					parent.Group = "deferred"
+					child := smartSess("child", status.Waiting, time.Minute)
+					child.ParentID, child.Priority = parent.ID, childPriority
+					m := smartFleet(t, parent, child,
+						smartSess("question", status.Waiting, time.Hour),
+						smartSess("done", status.Finished, time.Hour),
+						smartSess("idle", status.Idle, time.Hour),
+					)
+					m.smartTriage = smart
+					if inherited {
+						m.priorityGroups = map[string]priority.Tier{"deferred": priority.Low}
+					} else {
+						m.sessions[0].Priority = priority.Low
+					}
+					m.rebuildRows()
+					assertRail(t, m, "question", "done", "idle", "parent", "child")
+					if got, want := drainOrder(m), []string{"question", "done", "idle", "parent"}; !slices.Equal(got, want) {
+						t.Fatalf("drain = %v, want %v", got, want)
+					}
+
+					m.sessions[0].Status = status.Working
+					m.rebuildRows()
+					assertRail(t, m, "question", "done", "idle", "parent", "child")
+					if got, want := drainOrder(m), []string{"question", "done", "idle"}; !slices.Equal(got, want) {
+						t.Fatalf("drain entered a working parent: %v", got)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestMediumPriorityJumpsTheTriageRing(t *testing.T) {
 	m := buildModel(t)
 	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go

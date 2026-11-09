@@ -101,7 +101,7 @@ func (m *Model) rescindLatestSubmission() (tea.Model, tea.Cmd) {
 		m.errBar.text = m.deadSessionHint()
 		return m, nil
 	}
-	if err := m.tmux.SendKeys(sess.ID, m.submissionInterruptKeys(sess.Tool)...); err != nil {
+	if err := sendInterruptKeys(m.tmux, sess.ID, m.submissionInterruptKeys(sess.Tool)); err != nil {
 		m.errBar.text = err.Error()
 		return m, nil
 	}

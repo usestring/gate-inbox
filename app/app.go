@@ -43,6 +43,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcprelay"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
+	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -394,6 +395,12 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 			return mcpserver.Run(ctx, configDir, sessionID, version, extensions, steering, profile)
 		}),
 	}
+	table[mcpreg.OpencodeAttachVerb] = withConfigDir(func(args []string, _, configDir string) error {
+		return runOpencodeAttach(ctx, args, configDir)
+	})
+	table[opencodeServeVerb] = func(args []string) error {
+		return runOpencodeServe(ctx, args)
+	}
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
 		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
 	})
@@ -402,6 +409,16 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	table["channel"] = withConfigDir(func(args []string, sessionID, configDir string) error {
 		return cli.RunChannel(os.Stdin, os.Stdout, args, sessionID, configDir)
 	})
+	// mcp-serve is the one MCP server every launched claude session of the
+	// config dir shares, which a launch starts when none answers. It acts
+	// as no session of its own: each request names and proves its caller.
+	table[mcpshared.Verb] = func([]string) error {
+		dir, err := config.Dir()
+		if err != nil {
+			return err
+		}
+		return mcpserver.ServeShared(ctx, dir, version, extensions)
+	}
 	table["mcp-relay"] = func(args []string) error {
 		dir, err := config.Dir()
 		if err != nil {

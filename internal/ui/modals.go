@@ -463,6 +463,10 @@ func (m *Model) viewSettings() string {
 	if m.settings.smartTriage {
 		smartTriage = "on"
 	}
+	idleSwitch := "off"
+	if m.settings.idleSwitch {
+		idleSwitch = "on"
+	}
 	toolValue := ""
 	if len(m.settings.toolNames) > 0 {
 		toolValue = m.settings.toolNames[m.settings.toolIndex]
@@ -510,12 +514,14 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldDeleteConfirm, "ask before deleting", normalizeConfirmAsk(m.settings.deleteConfirm)) + "\n" +
 		row(settingsFieldRestartConfirm, "ask before restarting", normalizeConfirmAsk(m.settings.restartConfirm)) + "\n" +
 		row(settingsFieldListSort, "sort", normalizeListSort(m.settings.listSort)) + "\n" +
+		row(settingsFieldListConsistency, "list consistency", normalizeListConsistency(m.settings.listConsistency)) + "\n" +
 		row(settingsFieldChrome, "key hints", normalizeChrome(m.settings.chrome)) + "\n" +
 		row(settingsFieldLeave, "on leaving a session", normalizeLeaveMode(m.settings.leaveMode)) + "\n" +
 		row(settingsFieldQuickClose, "after hotkey send", quickClose) + "\n" +
 		row(settingsFieldFocusKey, "session keys", focusKey) + "\n" +
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
 		row(settingsFieldSmartTriage, "smart triage", smartTriage) + "\n" +
+		row(settingsFieldIdleSwitch, "switch when idle", idleSwitch) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
 		row(settingsFieldClaudeSetup, "claude code setup", claudeSetupLabel(m.cfg.ClaudeCode.SetupOn(), m.settings.claudeSetup)) + "\n" +

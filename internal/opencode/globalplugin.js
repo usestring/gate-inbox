@@ -10,6 +10,8 @@ const steering = __STEERING__;
 
 const hooksDir = home + "/hooks";
 const adoptedDir = hooksDir + "/adopted";
+const bindingsDir = home + "/channel-keys/opencode-sessions";
+const sharedServerState = home + "/opencode-server.json";
 const rowPattern = /^[A-Za-z0-9_-]+$/;
 const panePattern = /^%[0-9]+$/;
 const markerName = /^([0-9]+)(%[0-9]+)$/;
@@ -81,6 +83,27 @@ const markedSession = (sessionID) => {
   return undefined;
 };
 
+// onSharedServer is this process the board's shared opencode server.
+const onSharedServer = () => {
+  try {
+    return JSON.parse(readFileSync(sharedServerState, "utf8")).pid === process.pid;
+  } catch {
+    return false;
+  }
+};
+
+// launchedRow is the row a session launched onto the board's shared server
+// is, as the launch recorded it before the TUI opened the session.
+const launchedRow = (sessionID) => {
+  if (!/^ses_[A-Za-z0-9]+$/.test(sessionID ?? "")) return undefined;
+  try {
+    const [row] = readFileSync(bindingsDir + "/" + sessionID, "utf8").trim().split(" ");
+    return rowPattern.test(row ?? "") ? row : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const writeWhole = (path, content) => {
   const staging = path + "." + process.pid + ".part";
   writeFileSync(staging, content, { mode: 0o644 });
@@ -119,9 +142,27 @@ export default {
         const env = shell?.env;
         const sessionID = pending.get(shell?.command);
         pending.delete(shell?.command);
+        if (!env) return;
+        if (onSharedServer()) {
+          // The board's shared server runs every launched session's shells.
+          // Its password would let one of them read and drive all the
+          // others, so no shell gets it. A shell gets the environment its
+          // launch set on the session, its row included; one
+          // whose session lost it, to a restart the supervisor has not set
+          // it again after, still gets its row from the launch's binding.
+          delete env.OPENCODE_SERVER_PASSWORD;
+          delete env.OPENCODE_PASSWORD;
+          const row = launchedRow(sessionID);
+          if (row && env.GATE_INBOX_SESSION_ID !== row) {
+            env.GATE_INBOX_SESSION_ID = row;
+            env.GATE_INBOX_BIN = bin;
+            env.GATE_INBOX_HOME = home;
+          }
+          return;
+        }
         // A session the board launched has its row in its environment
-        // already, and its own server and config.
-        if (!env || env.GATE_INBOX_SESSION_ID) return;
+        // already.
+        if (env.GATE_INBOX_SESSION_ID) return;
         const marker = paneMarker(env);
         if (!marker || !boardUp()) return;
         env.GATE_INBOX_SESSION_ID = marker.row;

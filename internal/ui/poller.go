@@ -881,6 +881,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	answerableWait := make(map[string]bool)
 	askQuestions := make(map[string][]convo.AskQuestion)
 	askReads := make(map[string]*askRead)
+	authFailures := make(map[string]string)
 	// paneModes is each live session's permission mode, rebuilt every pass
 	// so a session that has gone takes its mode with it. See notePaneMode.
 	paneModes := make(map[string]string, len(p.paneModes))
@@ -1029,7 +1030,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 						return errMsg{err}
 					}
 					phases.inbox += lap(&step)
-					derived, err := p.deriveCleanPaneStatus(sess, clean, agentAlive, paneHashes)
+					derived, err := p.deriveCleanPaneStatus(sess, clean, agentAlive, paneHashes, &sample.authFailure)
 					if err != nil {
 						return errMsg{err}
 					}
@@ -1111,6 +1112,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 				p.noteScreen(sess, newStatus, clean, now)
 			}
 			samples[sess.ID] = sample
+			if !exited && newStatus == status.Errored && sample.authFailure != "" {
+				authFailures[sess.ID] = sample.authFailure
+			}
 			if exited {
 				newStatus = status.Errored
 			}
@@ -1281,6 +1285,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		searchText:       searchText,
 		answerableWait:   answerableWait,
 		askQuestions:     askQuestions,
+		authFailures:     authFailures,
 		hookless:         p.hooklessRows(),
 		stale:            p.staleRows(),
 		hogBadges:        p.hogWatch.badgeRows(),
@@ -2078,7 +2083,7 @@ func (p *poller) interruptForMessage(sess store.Session, msg store.InboxMessage,
 	if !p.safeToInterrupt(sess.Tool, fresh) {
 		return true, nil
 	}
-	if err := p.tmux.SendKeys(sess.ID, keys...); err != nil {
+	if err := sendInterruptKeys(p.tmux, sess.ID, keys); err != nil {
 		return true, fmt.Errorf("interrupt %s for a message from %s: %w", sess.Name, msg.SenderName, err)
 	}
 	now := time.Now()
@@ -2698,10 +2703,12 @@ func activityFingerprint(region string) uint64 {
 // own viewport above the live bottom: that one holds for as long as the
 // viewport stays there, and records no baseline meanwhile.
 func (p *poller) derivePaneStatus(sess store.Session, pane string, agentAlive bool, paneHashes map[string]uint64) (string, error) {
-	return p.deriveCleanPaneStatus(sess, ansi.Strip(pane), agentAlive, paneHashes)
+	var authFailure string
+	return p.deriveCleanPaneStatus(sess, ansi.Strip(pane), agentAlive, paneHashes, &authFailure)
 }
 
-func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAlive bool, paneHashes map[string]uint64) (string, error) {
+func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAlive bool, paneHashes map[string]uint64, authFailure *string) (string, error) {
+	*authFailure = ""
 	// A displaced viewport is showing history, not now.
 	displaced := p.engine.ViewportDisplaced(sess.Tool, text)
 	region, hasRegion := p.engine.ActivityRegion(sess.Tool, text)
@@ -2740,9 +2747,17 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 			// The file itself stays. It is not this board's to delete while
 			// the session is alive, and a relaunch that restores the flag
 			// picks it straight back up.
-			if hookStatus, ok := p.hooks.Read(sess.ID); ok {
+			if ev, ok := p.hooks.ReadEvent(sess.ID); ok {
+				hookStatus := ev.State
 				if p.missedTurn(sess, hookStatus) {
 					return status.Working, nil
+				}
+				// A turn summary can remain visible below a failed reply.
+				// The hook knows how that turn ended.
+				if hookStatus == status.Errored &&
+					(ev.Name == hooks.ClaudeSignInRequired || ev.Name == hooks.ClaudeAuthenticationFailed) {
+					*authFailure = ev.Name
+					return status.Errored, nil
 				}
 				derived := p.applyHookStatus(sess, text, hookStatus, displaced)
 				if hookStatus == status.Finished && (derived == status.Finished || derived == status.Idle) && p.backgroundPending(sess) {

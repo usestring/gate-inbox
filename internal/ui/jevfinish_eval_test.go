@@ -67,11 +67,14 @@ var (
 )
 
 type jevEvalCase struct {
-	ID     int              `json:"id"`
-	Class  string           `json:"class"`
-	Source string           `json:"source"`
-	Next   string           `json:"next,omitempty"`
-	msgs   []search.Message `json:"-"`
+	ID     int    `json:"id"`
+	Class  string `json:"class"`
+	Source string `json:"source"`
+	Next   string `json:"next,omitempty"`
+	// Last opens the agent message the case ends on, so a harness can find
+	// the same cut in the raw transcript.
+	Last string           `json:"last,omitempty"`
+	msgs []search.Message `json:"-"`
 }
 
 type jevEvalVariant struct {
@@ -142,7 +145,13 @@ func jevEvalCases(files []string, archived map[string]bool) map[string][]jevEval
 			return
 		}
 		seen[digest] = true
-		byClass[class] = append(byClass[class], jevEvalCase{Class: class, Source: source, Next: boundedText(next, 120), msgs: msgs})
+		last := ""
+		for i := len(msgs) - 1; i >= 0 && last == ""; i-- {
+			if msgs[i].Role == "assistant" {
+				last = boundedText(msgs[i].Text, 120)
+			}
+		}
+		byClass[class] = append(byClass[class], jevEvalCase{Class: class, Source: source, Next: boundedText(next, 120), Last: last, msgs: msgs})
 	}
 	for _, path := range files {
 		msgs, err := search.ReadMessages(search.Target{Tool: search.ToolClaude, Path: path}, "")

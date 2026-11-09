@@ -821,14 +821,14 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if quiet {
 		m.frameUnchanged()
 	}
-	// A dialog key can open a text field or advance a question, so only a
-	// composer Enter may hand over before the answer is seen landing. Its check
-	// still runs and returns the session to the queue if the answer never
-	// lands; see handOverOnEnter. A key that pulls a scrolled-back pane to its
-	// live bottom was typed at history, not at the prompt, and stays. The
-	// echo chase is dropped: its frames are for the pane being left, and its
-	// captures would contend with the next pane's first one.
-	if landing != nil && resume == nil && key.Code == tea.KeyEnter && handsOver && !dialog && baseline != "" {
+	// Dialog keys and slash commands can advance CLI pickers without submitting
+	// a prompt, so only an ordinary composer Enter may hand over before the
+	// answer is seen landing. Its check still runs and returns the session to
+	// the queue if the answer never lands; see handOverOnEnter. A key that pulls
+	// a scrolled-back pane to its live bottom was typed at history, not at the
+	// prompt, and stays. The echo chase is dropped: its frames are for the pane
+	// being left, and its captures would contend with the next pane's first one.
+	if landing != nil && resume == nil && key.Code == tea.KeyEnter && handsOver && !dialog && baseline != "" && !m.paneHasSlashCommand(sess.Tool, baseline) {
 		if next := m.handOverOnEnter(sess, keyAt); next != nil {
 			return m, tea.Batch(landing, next)
 		}

@@ -496,7 +496,7 @@ type HogRule struct {
 }
 
 // ClaudeCode configures what the board keeps in the operator's own Claude Code
-// config, as opposed to the per-session config a launch passes.
+// config, and which MCP server the per-session config a launch passes names.
 type ClaudeCode struct {
 	// Setup keeps Gate Inbox's hooks and MCP relay registered in the Claude
 	// Code user config, which is what gives a claude started outside the
@@ -504,10 +504,20 @@ type ClaudeCode struct {
 	// means on: nobody has to find a command to get it. false takes the
 	// entries back out.
 	Setup *bool `toml:"setup"`
+	// SharedMCP points every claude the board launches at one shared Gate
+	// Inbox MCP server (`gate-inbox mcp-serve`) instead of starting a
+	// server process per session, which on a large board is the bulk of
+	// the helpers' memory. Absent means off for now: an extension built
+	// against an older Gate Inbox reads its session from its registration,
+	// which in the shared server names none.
+	SharedMCP *bool `toml:"shared_mcp"`
 }
 
 // SetupOn reports whether the board keeps its Claude Code entries registered.
 func (c ClaudeCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
+// SharedMCPOn reports whether launched claudes use the shared MCP server.
+func (c ClaudeCode) SharedMCPOn() bool { return c.SharedMCP != nil && *c.SharedMCP }
 
 // Codex configures what the board keeps in the operator's own Codex config.
 type Codex struct {
@@ -529,10 +539,29 @@ type OpenCode struct {
 	// its row, steering and conversation binding once it is adopted. Absent
 	// means on; false takes the plugin back out.
 	Setup *bool `toml:"setup"`
+	// Server is how a launched session gets its opencode server: "shared"
+	// (the default) attaches every session to one server per board, which
+	// costs each one its TUI alone; "standalone" gives each session a
+	// private server of its own, which costs it about 300 MB more. A shared
+	// server needs the plugin above to tell the board's tools which session
+	// called them, so with setup off every session runs standalone.
+	Server string `toml:"server"`
 }
+
+// OpenCode server modes, as [opencode] server names them.
+const (
+	OpenCodeServerShared     = "shared"
+	OpenCodeServerStandalone = "standalone"
+)
 
 // SetupOn reports whether the board keeps its OpenCode plugin registered.
 func (c OpenCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
+// SharedServer reports whether launched sessions attach to the board's one
+// shared opencode server.
+func (c OpenCode) SharedServer() bool {
+	return c.SetupOn() && c.Server != OpenCodeServerStandalone
+}
 
 // Naming configures how sessions get their names.
 type Naming struct {
@@ -597,18 +626,23 @@ type Config struct {
 	// with nothing on its screen changing before its row is flagged stale:
 	// the label has outlived any turn it could describe, so it is more
 	// likely a misread than a long turn.
-	StaleStatusAfter Duration     `toml:"stale_status_after"`
-	Board            Board        `toml:"board"`
-	Naming           Naming       `toml:"naming"`
-	Log              Log          `toml:"log"`
-	Children         Children     `toml:"children"`
-	Work             Work         `toml:"work"`
-	Integrations     Integrations `toml:"integrations"`
-	Hogs             Hogs         `toml:"hogs"`
-	ClaudeCode       ClaudeCode   `toml:"claude_code"`
-	Codex            Codex        `toml:"codex"`
-	OpenCode         OpenCode     `toml:"opencode"`
-	Relaunch         Relaunch     `toml:"relaunch"`
+	StaleStatusAfter Duration `toml:"stale_status_after"`
+	// HibernateAfter is how long a session must rest, idle or finished,
+	// before the board hibernates it: stops its process to give the memory
+	// back, keeping its row, mail and claims, and waking it on its next
+	// message. Zero, the default, leaves every session running.
+	HibernateAfter Duration     `toml:"hibernate_after"`
+	Board          Board        `toml:"board"`
+	Naming         Naming       `toml:"naming"`
+	Log            Log          `toml:"log"`
+	Children       Children     `toml:"children"`
+	Work           Work         `toml:"work"`
+	Integrations   Integrations `toml:"integrations"`
+	Hogs           Hogs         `toml:"hogs"`
+	ClaudeCode     ClaudeCode   `toml:"claude_code"`
+	Codex          Codex        `toml:"codex"`
+	OpenCode       OpenCode     `toml:"opencode"`
+	Relaunch       Relaunch     `toml:"relaunch"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -983,6 +1017,7 @@ func mergeTool(name string, user, def Tool) Tool {
 		user.Rules = withAskUserQuestionRules(user.Rules, def.Rules)
 	} else if name == "opencode" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, opencodeDialogSamples)
+		user.Rules = withRuleInState(opencodeLostServerSample, user.Rules, def.Rules, "errored")
 	} else if name == "codex" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, codexDialogSamples)
 		for i, rule := range user.Rules {
@@ -1110,9 +1145,21 @@ func withDialogRules(user, def []Rule, samples []string) []Rule {
 	return user
 }
 
+// opencodeLostServerSample is the overlay an opencode TUI shows while it
+// has lost its server, which a config written before the shared server
+// existed reads as working off the spinner behind it.
+const opencodeLostServerSample = "Reconnecting to the server automatically."
+
 func withRuleFor(sample string, user, def []Rule) []Rule {
+	return withRuleInState(sample, user, def, "waiting")
+}
+
+// withRuleInState adds the built-in rule in state that recognizes sample to
+// user's rules when none of theirs in that state does, right after the
+// waiting rules that lead the list.
+func withRuleInState(sample string, user, def []Rule, state string) []Rule {
 	for _, r := range user {
-		if r.State != "waiting" {
+		if r.State != state {
 			continue
 		}
 		re, err := regexp.Compile(r.Pattern)
@@ -1121,7 +1168,7 @@ func withRuleFor(sample string, user, def []Rule) []Rule {
 		}
 	}
 	for _, d := range def {
-		if d.State != "waiting" {
+		if d.State != state {
 			continue
 		}
 		re, err := regexp.Compile(d.Pattern)
@@ -1270,6 +1317,11 @@ const defaultConfig = `poll_interval = "2s"
 # and so does switching "claude code setup" off in Settings.
 # [claude_code]
 # setup = true
+#
+# true has every claude the board launches reach the board's tools through
+# one shared server, gate-inbox mcp-serve, which the board starts, instead
+# of a server process of its own.
+# shared_mcp = false
 
 # Your own Codex config. While the board runs, on a machine with codex
 # installed, it keeps two hook entries (UserPromptSubmit and Stop) in
@@ -1287,8 +1339,14 @@ const defaultConfig = `poll_interval = "2s"
 # outside the board speaks as its row and gets the board's steering once the
 # board adopts it. It does nothing in any session the board has not adopted.
 # false removes it.
+#
+# server is how a launched opencode session gets its server: "shared"
+# attaches every session to one server per board, so each costs only its
+# TUI; "standalone" gives each a private server, about 300 MB more apiece.
+# The shared server needs the plugin, so setup = false means standalone.
 # [opencode]
 # setup = true
+# server = "shared"
 
 # The diagnostic log. It is a file log only -- this program owns the
 # terminal, so nothing is ever printed to the screen. "gate-inbox
@@ -1544,6 +1602,10 @@ revive_command = "opencode --continue"
 # it, and the poll that pressed Enter for it could not tell the manager's
 # prompt from a line the operator was writing.
 prompt_mode = "send"
+# opencode 2.x arms its interrupt on the first Escape ("esc again to
+# interrupt") and stops the turn on the second; the manager sends them as
+# separate writes so they are not read as one alt+Escape.
+interrupt_keys = ["Escape", "Escape"]
 # r asks the session to name itself with this: /rename is a command the
 # manager registers into every opencode session it starts, through the
 # generated OPENCODE_CONFIG (internal/mcpreg), so there is nowhere to install
@@ -1623,6 +1685,11 @@ rules = [
   { state = "waiting", pattern = "(?m)^[ \\x{A0}]*\\x{2503}[ \\x{A0}]+Questions[ \\x{A0}]*$" },
   { state = "errored", pattern = "(?i)requires more credits" },
   { state = "errored", pattern = "(?im)^\\s*error\\b" },
+  # A TUI that lost its server says so in an overlay and keeps retrying
+  # behind it with the turn's spinner still drawn. On the board's shared
+  # server the supervisor brings the server back within seconds; past that
+  # the session is stuck, not working.
+  { state = "errored", pattern = "Reconnecting to the server automatically" },
   # opencode draws no agent row mid-turn; its only spinner is the footer
   # "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt" under the composer, which this rule reads because
   # the match scope takes in a footer that trips a working rule

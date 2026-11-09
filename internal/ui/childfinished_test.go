@@ -68,6 +68,7 @@ func TestRelayChildRestQueuesForTheParent(t *testing.T) {
 		says   string
 	}{
 		{status.Finished, "has finished its turn"},
+		{status.Background, "has ended its turn with background work still running"},
 		{status.Errored, "has stopped with an error"},
 		{status.Dead, "is gone"},
 	}
@@ -92,6 +93,27 @@ func TestRelayChildRestQueuesForTheParent(t *testing.T) {
 			}
 			if !strings.Contains(head.Body, tc.says) {
 				t.Errorf("message does not say how the child came to rest:\n%s", head.Body)
+			}
+		})
+	}
+}
+
+// A finished child whose shell starts printing again reads background with
+// no turn in between, and that is not news to its parent.
+func TestRelayChildRestIgnoresBackgroundFromRest(t *testing.T) {
+	for _, from := range []string{status.Finished, status.Idle} {
+		t.Run(from, func(t *testing.T) {
+			p, st := pollerWithStore(t)
+			parent := seedSession(t, st, store.Session{ID: "parent01", Name: "site-graph-endpoint", Status: status.Working})
+			child := seedSession(t, st, store.Session{ID: "child001", Name: "sampleapp-reach-census", ParentID: parent.ID, Status: from})
+
+			if err := p.relayChildRest(child, status.Background); err != nil {
+				t.Fatalf("relayChildRest: %v", err)
+			}
+			if _, found, err := st.HeadMessage(parent.ID); err != nil {
+				t.Fatalf("HeadMessage: %v", err)
+			} else if found {
+				t.Fatalf("a child moving from %s to background woke its parent", from)
 			}
 		})
 	}

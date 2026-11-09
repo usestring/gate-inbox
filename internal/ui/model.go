@@ -289,6 +289,11 @@ type Model struct {
 	// so the poll clock cannot stack a second set of tmux forks behind the
 	// set already waiting. See childsweep.go.
 	childSweeping bool
+	// hibernating is set while a settleHibernated pass is out, and
+	// hibernateSweptAt is when the last one swept for idle sessions. See
+	// hibernate.go.
+	hibernating      bool
+	hibernateSweptAt time.Time
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -358,6 +363,7 @@ type Model struct {
 	// askQuestions mirrors refreshMsg.askQuestions, and questionCard is the
 	// preview's card drawn from it. See previewquestions.go.
 	askQuestions map[string][]convo.AskQuestion
+	authFailures map[string]string
 	questionCard questionCard
 	screenCard   screenCard
 	// hookless mirrors refreshMsg.hookless: the rows whose status is
@@ -573,6 +579,9 @@ type Model struct {
 	// listSortBeforeRecent is the order the recent toggle returns to. It is
 	// not persisted: a manager that opens on recent toggles back to manual.
 	listSortBeforeRecent string
+	listConsistency      string
+	listPositions        map[string]map[string]int
+	listPositionSort     string
 	// chrome is the persisted override for the legend under the list. See
 	// layout.go.
 	chrome string
@@ -655,6 +664,10 @@ type Model struct {
 	// key that answers a focused session in a drain also hands it over. Off
 	// by default; see autoproceed.go.
 	autoProceed bool
+	// idleSwitch mirrors the persisted idle switch: with it on, an operator
+	// left idle in a working session is moved to one needing a person. See
+	// handOverOnIdle.
+	idleSwitch bool
 	// muted is the sessions this drain has already been shown, keyed by id.
 	// It is what stops the queue handing back work the operator has just
 	// done; see mute.go for why it is memory of the pass rather than state
@@ -970,11 +983,13 @@ type settingsState struct {
 	deleteConfirm    string
 	restartConfirm   string
 	listSort         string
+	listConsistency  string
 	chrome           string
 	leaveMode        string
 	newSessionAgent  string
 	autoProceed      bool
 	smartTriage      bool
+	idleSwitch       bool
 	reopenSessions   string
 	outsidePanes     string
 	// claudeSetup is the Settings switch for the board's entries in the
@@ -1017,12 +1032,14 @@ const (
 	settingsFieldDeleteConfirm
 	settingsFieldRestartConfirm
 	settingsFieldListSort
+	settingsFieldListConsistency
 	settingsFieldChrome
 	settingsFieldLeave
 	settingsFieldQuickClose
 	settingsFieldFocusKey
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
+	settingsFieldIdleSwitch
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
 	settingsFieldClaudeSetup
@@ -1074,6 +1091,7 @@ type refreshMsg struct {
 	// askQuestions is each Claude session's pending AskUserQuestion call,
 	// for a pane standing on a several-question dialog.
 	askQuestions map[string][]convo.AskQuestion
+	authFailures map[string]string
 	// hookless is every session whose agent no longer carries the hook
 	// settings flag, so its status is coming off the pane rather than out of
 	// its status file. Replaced whole each pass like queuedMessages, which is
@@ -1367,6 +1385,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		deleteConfirm:   storedConfirmAsk(st, deleteConfirmSetting),
 		restartConfirm:  storedConfirmAsk(st, restartConfirmSetting),
 		listSort:        storedListSort(st),
+		listConsistency: storedListConsistency(st),
 		chrome:          storedChrome(st),
 		leaveMode:       storedLeaveMode(st),
 		newSessionAgent: storedNewSessionAgent(st),
@@ -1374,6 +1393,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
 		smartTriage:     storedSmartTriage(st),
+		idleSwitch:      storedIdleSwitch(st),
 		mode:            modeList,
 		version:         version,
 		// Assume the operator is looking until something says otherwise. A
@@ -2500,6 +2520,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait
 		m.askQuestions = msg.askQuestions
+		m.authFailures = msg.authFailures
 		m.hookless = msg.hookless
 		m.stale = msg.stale
 		m.hogBadges = msg.hogBadges
@@ -2532,7 +2553,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sweep := m.sweepExpiredArchives()
 		// Off the loop, so a busy tmux server delays a child's filing rather
 		// than the board's next frame. What it finds lands as childSweptMsg.
-		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev())
+		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.settleHibernated())
 		m.settleInstall()
 		m.rebuildRows()
 		if focusClosed {
@@ -2577,6 +2598,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)
+		return m, nil
+
+	case hibernateSettledMsg:
+		m.applyHibernateSettled(msg)
 		return m, nil
 
 	case adoptTickMsg:
@@ -2936,6 +2961,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		model, cmd := m.handleMouse(msg)
+		// A click can select a session or leave focus, so the poller hears
+		// about it the same way it hears about a keystroke.
+		m.syncPollInput()
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
 
 	case tea.KeyboardEnhancementsMsg:
@@ -3361,6 +3389,9 @@ func (m *Model) buildTree() {
 		for _, groupSessions := range sessionsByGroup {
 			m.sortGroupSessions(groupSessions)
 		}
+	}
+	if !m.triage && query == "" && !m.showArchived {
+		m.keepListPositions(sessionsByGroup)
 	}
 	// After the sort too: a block a helper floats heads its group whatever
 	// order the rest are in. See rolefloat.go.

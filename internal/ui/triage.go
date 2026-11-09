@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -385,7 +386,13 @@ func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string
 			if kid.Muted {
 				continue
 			}
-			if k := m.triageKeyOf(kid, now); k.before(best) {
+			k := m.triageKeyOf(kid, now)
+			// A child's question can lift the branch's state, but cannot
+			// undo the operator deferring the whole branch.
+			if m.tierOf(sess) == priority.Low {
+				k.priority = priority.Low.Rank()
+			}
+			if k.before(best) {
 				best, holder = k, kid
 			}
 		}

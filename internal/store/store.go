@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -398,6 +399,8 @@ CREATE TABLE IF NOT EXISTS settings (
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS file_reservations_holder ON file_reservations (session_id, pattern)`,
 		`CREATE INDEX IF NOT EXISTS file_reservations_live ON file_reservations (expires_at)`,
+		`ALTER TABLE file_reservations ADD COLUMN resolved_path TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE file_reservations ADD COLUMN match_glob TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN tmux_socket TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN tmux_pane_id TEXT NOT NULL DEFAULT ''`,
 		// Existing rows default to the one source automatic naming may never
@@ -1134,7 +1137,25 @@ const (
 // still has every report its earlier life sent sitting in its parent's inbox,
 // delivered, and reading those made the sweep end the new life the first
 // time it came to rest -- a minute after the revive that asked for it back.
+//
+// A hibernated or parked child is left out. Both read dead with their pane
+// gone, which is exactly the exited case, but neither is over. A hibernated
+// one is only paused, and filing it would start the archive's deletion clock
+// on it. A parked one is owed a revive by unpark, and unpark drops an
+// archived row as gone: on 2026-11-07 a board started after a park and a
+// reboot filed about 56 parked children past the window, and none of them
+// came back.
 func (s *Store) AutoArchivableChildren(before time.Time) ([]ArchivableChild, error) {
+	// Read before the query: the store shares one connection.
+	hibernated, err := s.Hibernated()
+	if err != nil {
+		return nil, err
+	}
+	parked, err := s.Parked()
+	if err != nil {
+		return nil, fmt.Errorf("read parked set: %w", err)
+	}
+	skip := slices.Concat(hibernated, parked)
 	rows, err := s.db.Query(
 		`SELECT s.id,
 		        EXISTS (
@@ -1159,6 +1180,9 @@ func (s *Store) AutoArchivableChildren(before time.Time) ([]ArchivableChild, err
 		var reported bool
 		if err := rows.Scan(&child.ID, &reported); err != nil {
 			return nil, err
+		}
+		if slices.Contains(skip, child.ID) {
+			continue
 		}
 		child.Reason = ArchiveReasonWindow
 		if reported {

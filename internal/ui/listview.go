@@ -484,6 +484,9 @@ func (m *Model) sessionDetailLines(width int) []string {
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
 		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.LaunchTime()), factRoom, "…"))),
 	}
+	if id := strings.TrimSpace(sess.AgentSessionID); id != "" {
+		lines = append(lines, railFact(pad, "session", valueStyle.Render(textfmt.TruncateWidth(id, factRoom, "…"))))
+	}
 	if usage != "" {
 		lines = append(lines, railFact(pad, "usage", usage))
 	}
@@ -676,8 +679,12 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 		if entry.isArtifact() && entry.art.more == 0 {
 			link = entry.art.url
 		}
+		sessionID := ""
+		if entry.entersAs() {
+			sessionID = entry.sess.ID
+		}
 		for _, line := range splitLines(render(entry, selected, offset+i, tone)) {
-			lines = append(lines, contentLine{text: line, tone: tone, link: link})
+			lines = append(lines, contentLine{text: line, tone: tone, link: link, sessionID: sessionID})
 		}
 	}
 	// The counters ride in whatever room the entries leave. Claiming a line
@@ -1642,10 +1649,13 @@ func (m *Model) contentLines(width, height int) []contentLine {
 			if page, ok := m.headPaneLines(width, rest, gutter); ok {
 				m.previewBodyOffset = len(body)
 				body = append(body, page...)
-			} else if _, ok := m.selected(); !ok {
+			} else if sess, ok := m.selected(); !ok {
 				body = append(body, ours(splitLines(mutedStyle.Render("Select a session to inspect it.")))...)
 			} else {
 				header := m.stoppedConversationHeader(inner)
+				if label, hint := m.claudeAuthNotice(sess); hint != "" {
+					header = splitLines(ansi.Wrap(statusTint(status.Errored, label)+": "+hint, max(inner, 1), ""))
+				}
 				header = header[:min(len(header), max(0, rest-2))]
 				body = append(body, ours(header)...)
 				m.previewBodyOffset = len(body)

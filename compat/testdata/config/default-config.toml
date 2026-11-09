@@ -45,6 +45,11 @@ poll_interval = "2s"
 # and so does switching "claude code setup" off in Settings.
 # [claude_code]
 # setup = true
+#
+# true has every claude the board launches reach the board's tools through
+# one shared server, gate-inbox mcp-serve, which the board starts, instead
+# of a server process of its own.
+# shared_mcp = false
 
 # Your own Codex config. While the board runs, on a machine with codex
 # installed, it keeps two hook entries (UserPromptSubmit and Stop) in
@@ -62,8 +67,14 @@ poll_interval = "2s"
 # outside the board speaks as its row and gets the board's steering once the
 # board adopts it. It does nothing in any session the board has not adopted.
 # false removes it.
+#
+# server is how a launched opencode session gets its server: "shared"
+# attaches every session to one server per board, so each costs only its
+# TUI; "standalone" gives each a private server, about 300 MB more apiece.
+# The shared server needs the plugin, so setup = false means standalone.
 # [opencode]
 # setup = true
+# server = "shared"
 
 # The diagnostic log. It is a file log only -- this program owns the
 # terminal, so nothing is ever printed to the screen. "gate-inbox
@@ -319,6 +330,10 @@ revive_command = "opencode --continue"
 # it, and the poll that pressed Enter for it could not tell the manager's
 # prompt from a line the operator was writing.
 prompt_mode = "send"
+# opencode 2.x arms its interrupt on the first Escape ("esc again to
+# interrupt") and stops the turn on the second; the manager sends them as
+# separate writes so they are not read as one alt+Escape.
+interrupt_keys = ["Escape", "Escape"]
 # r asks the session to name itself with this: /rename is a command the
 # manager registers into every opencode session it starts, through the
 # generated OPENCODE_CONFIG (internal/mcpreg), so there is nowhere to install
@@ -398,6 +413,11 @@ rules = [
   { state = "waiting", pattern = "(?m)^[ \\x{A0}]*\\x{2503}[ \\x{A0}]+Questions[ \\x{A0}]*$" },
   { state = "errored", pattern = "(?i)requires more credits" },
   { state = "errored", pattern = "(?im)^\\s*error\\b" },
+  # A TUI that lost its server says so in an overlay and keeps retrying
+  # behind it with the turn's spinner still drawn. On the board's shared
+  # server the supervisor brings the server back within seconds; past that
+  # the session is stuck, not working.
+  { state = "errored", pattern = "Reconnecting to the server automatically" },
   # opencode draws no agent row mid-turn; its only spinner is the footer
   # "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt" under the composer, which this rule reads because
   # the match scope takes in a footer that trips a working rule

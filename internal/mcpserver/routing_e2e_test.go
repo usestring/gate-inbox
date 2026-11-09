@@ -211,7 +211,9 @@ func TestChosenAccountLaunchAndHTTPExportEndToEnd(t *testing.T) {
 							}
 						}
 						for key, want := range map[string]any{
-							"session": lastSession, "model": "claude-fixture", "account.name": "ALICE1",
+							// The session and account leave the machine as keyed ids.
+							"session": tracing.KeyedID("session", lastSession), "model": "claude-fixture",
+							"account.name":         tracing.KeyedID("account", "ALICE1"),
 							"usage.context_tokens": "5500", "usage.input_tokens": "500", "usage.output_tokens": "75",
 							"usage.cache_read_input_tokens": "4000", "usage.cache_creation_input_tokens": "1000",
 						} {

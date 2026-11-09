@@ -83,8 +83,12 @@ var (
 // or a place blanked; what failed and why stays readable.
 func scrubMessage(msg string) string {
 	msg = hashPathsIn(msg)
-	msg = urlPattern.ReplaceAllString(msg, "<url>")
-	msg = emailPattern.ReplaceAllString(msg, "<email>")
+	if strings.Contains(msg, "://") {
+		msg = urlPattern.ReplaceAllString(msg, "<url>")
+	}
+	if strings.Contains(msg, "@") {
+		msg = emailPattern.ReplaceAllString(msg, "<email>")
+	}
 	if host := machineName(); host != "" {
 		msg = strings.ReplaceAll(msg, host, "<host>")
 	}

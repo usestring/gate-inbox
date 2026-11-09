@@ -81,17 +81,22 @@ func hashPathWith(key []byte, p string) string {
 	}
 	hashes := make([]string, len(segments))
 	prefix := flag
+	m := hmac.New(sha256.New, key)
+	var sum [sha256.Size]byte
 	for i, segment := range segments {
 		prefix += "/" + segment
-		m := hmac.New(sha256.New, key)
+		m.Reset()
 		m.Write([]byte("path\x00"))
 		m.Write([]byte(prefix))
-		hashes[i] = hex.EncodeToString(m.Sum(nil))[:pathSegmentHex]
+		hashes[i] = hex.EncodeToString(m.Sum(sum[:0]))[:pathSegmentHex]
 	}
 	return flag + strings.Join(hashes, "/")
 }
 
 func isLetter(c byte) bool { return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' }
+
+// knownRoots are the directories knownRoot looks for, lowercase.
+var knownRoots = []string{"home", "users", "tmp", "var", "private", "opt", "root", "mnt", "volumes", "etc", "run", "srv", "nix", "usr", "documents and settings"}
 
 // stop are the characters a path cannot run across: whitespace, quotes and
 // the brackets and separators that surround a value in a message.
@@ -107,7 +112,7 @@ var (
 	// knownRoot is any token with one of these root directories inside it,
 	// wherever the token starts and with either separator: each names a
 	// place on a disk.
-	knownRoot = regexp.MustCompile(`(?i)[^` + stop + `=]*[/\\](home|users|tmp|var|private|opt|root|mnt|volumes|etc|run|srv|nix|usr|documents and settings)[/\\][^` + stop + `]*`)
+	knownRoot = regexp.MustCompile(`(?i)[^` + stop + `=]*[/\\](` + strings.Join(knownRoots, "|") + `)[/\\][^` + stop + `]*`)
 	// rooted is a token that starts as a path does: "/", "~/", "./", "../"
 	// or a UNC share, at the start of the value or after a separator, so
 	// "1/2" and "and/or" are left alone.
@@ -118,17 +123,34 @@ var (
 // form of it. A trailing colon or full stop is the sentence's, not the
 // path's, and is kept.
 func hashPathsIn(s string) string {
-	if s == "" {
+	// Every pattern below, and every local place, needs a separator, and
+	// most of what a span carries has none: those skip the regexes, which
+	// are most of what this filter costs.
+	if !strings.ContainsAny(s, `/\`) {
 		return s
 	}
+	// Each pattern runs only where a plain search of the text, lowercased and
+	// with either separator read as "/", finds what it needs. Hashing a path
+	// never makes one of these appear, so the search can be done once.
+	seen := asciiLower(strings.ReplaceAll(s, `\`, "/"))
 	for _, place := range localPlaces() {
-		s = replaceFold(s, place)
+		if strings.Contains(seen, place.seen) {
+			s = replaceFold(s, place.dir)
+		}
 	}
-	s = fileURL.ReplaceAllStringFunc(s, hashToken)
-	s = replaceLed(drivePath, s)
-	s = knownRoot.ReplaceAllStringFunc(s, hashToken)
-	s = replaceLed(rooted, s)
-	return s
+	if strings.Contains(seen, "file:/") {
+		s = fileURL.ReplaceAllStringFunc(s, hashToken)
+	}
+	if strings.Contains(seen, ":/") {
+		s = replaceLed(drivePath, s)
+	}
+	for _, root := range knownRoots {
+		if strings.Contains(seen, "/"+root+"/") {
+			s = knownRoot.ReplaceAllStringFunc(s, hashToken)
+			break
+		}
+	}
+	return replaceLed(rooted, s)
 }
 
 // replaceLed hashes each match of re's second group, leaving the separator
@@ -188,32 +210,36 @@ func replaceFold(s, place string) string {
 // pathStart is a value that begins the way a path does.
 var pathStart = regexp.MustCompile(`(?i)^(~|\.{1,2}[/\\]|/|\\\\|[a-z]:[/\\]|file:/)`)
 
-// isPath is whether s is a path and nothing else. One that begins as a path
-// does is taken whole, spaces in its directories included, unless its last
-// segment runs on into words: that is a message.
-func isPath(s string) bool {
-	s = strings.TrimSpace(s)
-	if s == "" || hashedPath.MatchString(s) {
-		return false
-	}
-	if pathStart.MatchString(s) {
-		last := s[strings.LastIndexAny(s, `/\`)+1:]
-		if !strings.ContainsAny(last, " \t\r\n") {
-			return true
-		}
-	}
-	return hashedPath.MatchString(strings.Trim(hashPathsIn(s), ":. "))
-}
-
 // HidePaths is s as it may leave the machine: HashPath of it when it is a
 // path and nothing else, otherwise s with each path inside it hashed in
 // place. Extensions call it, through extension.HidePaths, on anything they
 // send elsewhere, so their events and the board's spans agree on a path.
+//
+// A value that begins as a path does is taken whole, spaces in its
+// directories included, unless its last segment runs on into words: that is
+// a message. So is one that, once its paths are hashed, is one hash and
+// nothing else.
 func HidePaths(s string) string {
-	if isPath(s) {
-		return HashPath(s)
+	trimmed := strings.TrimSpace(s)
+	// Without a separator the only path is one under "~", and most values
+	// -- ids, counts, labels -- are neither: they leave as they are.
+	if !strings.ContainsAny(s, `/\`) && !strings.HasPrefix(trimmed, "~") {
+		return s
 	}
-	return hashPathsIn(s)
+	if trimmed == "" || hashedPath.MatchString(trimmed) {
+		return hashPathsIn(s)
+	}
+	if pathStart.MatchString(trimmed) {
+		last := trimmed[strings.LastIndexAny(trimmed, `/\`)+1:]
+		if !strings.ContainsAny(last, " \t\r\n") {
+			return HashPath(trimmed)
+		}
+	}
+	hidden := hashPathsIn(s)
+	if hashedPath.MatchString(strings.Trim(strings.TrimSpace(hidden), ":. ")) {
+		return HashPath(trimmed)
+	}
+	return hidden
 }
 
 // localPlaces are this machine's own directories: the home directory, where
@@ -221,7 +247,19 @@ func HidePaths(s string) string {
 // the temp directory and the binary's. Each is caught as text wherever it
 // appears, so a path that matches no pattern above still never leaves.
 // Longest first, so a repository inside home is hashed whole.
-var localPlaces = sync.OnceValue(findLocalPlaces)
+var localPlaces = sync.OnceValue(loadLocalPlaces)
+
+func loadLocalPlaces() []localPlace {
+	dirs := findLocalPlaces()
+	places := make([]localPlace, len(dirs))
+	for i, dir := range dirs {
+		places[i] = localPlace{dir: dir, seen: asciiLower(strings.ReplaceAll(dir, `\`, "/"))}
+	}
+	return places
+}
+
+// localPlace is a directory, and how hashPathsIn's search sees it.
+type localPlace struct{ dir, seen string }
 
 func findLocalPlaces() []string {
 	var places []string

@@ -35,8 +35,8 @@ func withPlaces(t *testing.T) (home, repo string) {
 	}
 	t.Setenv("HOME", home)
 	t.Chdir(repo)
-	localPlaces = sync.OnceValue(findLocalPlaces)
-	t.Cleanup(func() { localPlaces = sync.OnceValue(findLocalPlaces) })
+	localPlaces = sync.OnceValue(loadLocalPlaces)
+	t.Cleanup(func() { localPlaces = sync.OnceValue(loadLocalPlaces) })
 	return home, repo
 }
 

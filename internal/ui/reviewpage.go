@@ -437,9 +437,9 @@ type filesBody struct {
 
 // filesLines is the Files changed tab: each file's header and its diff with
 // both line numbers in the gutter, and each review thread and draft drawn
-// under the line it is on. A thread or draft whose line is no longer in the
-// diff is listed at the end of its file, as GitHub folds an outdated one, and
-// one whose file has left the diff is listed after every file.
+// under the line it is on. Outdated threads and drafts from an earlier
+// commit or a line off the diff go at the end of their file. If the file has
+// left the diff, they go after every file.
 func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int64, width int) filesBody {
 	body := filesBody{drafts: map[int64]int{}, targets: map[int]store.ReviewDraft{}}
 	byPath := map[string][]forge.ReviewThread{}
@@ -455,7 +455,7 @@ func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int
 	}
 	putDraft := func(d store.ReviewDraft) {
 		body.drafts[d.ID] = len(body.lines)
-		body.lines = append(body.lines, draftLines(d, d.ID == selected, width)...)
+		body.lines = append(body.lines, draftLines(d, d.ID == selected, d.HeadSHA != detail.HeadSHA, width)...)
 	}
 	for i, f := range detail.Files {
 		if i > 0 {
@@ -466,13 +466,23 @@ func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int
 		if f.Previous != "" && f.Previous != f.Path {
 			name = f.Previous + " → " + f.Path
 		}
-		body.lines = append(body.lines, []Span{
+		threads, fileDrafts := byPath[f.Path], draftsByPath[f.Path]
+		header := []Span{
 			{Text: name, Tone: ToneAccent, Bold: true},
 			{Text: "  +" + strconv.Itoa(f.Additions), Tone: ToneGood},
 			{Text: " -" + strconv.Itoa(f.Deletions), Tone: ToneBad},
 			{Text: "  " + f.Status, Tone: ToneMuted},
-		})
-		threads, fileDrafts := byPath[f.Path], draftsByPath[f.Path]
+		}
+		stale := 0
+		for _, d := range fileDrafts {
+			if d.HeadSHA != detail.HeadSHA {
+				stale++
+			}
+		}
+		if stale > 0 {
+			header = append(header, Span{Text: " · " + countOf(stale, "stale draft"), Tone: ToneWarn})
+		}
+		body.lines = append(body.lines, header)
 		delete(byPath, f.Path)
 		delete(draftsByPath, f.Path)
 		placed := make([]bool, len(threads))
@@ -493,7 +503,7 @@ func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int
 				}
 			}
 			for j, d := range fileDrafts {
-				if !placedDraft[j] && onLine(d.Side, d.Line, line) {
+				if !placedDraft[j] && d.HeadSHA == detail.HeadSHA && onLine(d.Side, d.Line, line) {
 					placedDraft[j] = true
 					putDraft(d)
 				}
@@ -511,7 +521,11 @@ func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int
 		}
 		for j, d := range fileDrafts {
 			if !placedDraft[j] {
-				body.lines = append(body.lines, []Span{{Text: "  Not on a line of this diff: line " + strconv.Itoa(d.Line) + ", left out of the review", Tone: ToneMuted}})
+				label := "Not on a line of this diff"
+				if d.HeadSHA != detail.HeadSHA {
+					label = "From an earlier commit"
+				}
+				body.lines = append(body.lines, []Span{{Text: "  " + label + ": line " + strconv.Itoa(d.Line) + ", left out of the review", Tone: ToneMuted}})
 				putDraft(d)
 			}
 		}

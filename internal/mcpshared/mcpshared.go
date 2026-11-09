@@ -70,6 +70,14 @@ const (
 	lockFDEnv     = "GATE_INBOX_MCP_SERVE_LOCK_FD"
 )
 
+// CallTimeout is how long claude lets one call to the shared server run.
+// Claude Code cuts a call to an HTTP server at 60 s unless the server's
+// entry sets "timeout", in milliseconds, while a wait_for_session may run up
+// to two minutes (sessioncmd.MaxWaitTimeout) -- which over stdio, with no
+// such cut, returns as an answer. Without this a parent's long wait on a
+// child came back as "The operation timed out" at 60 s.
+const CallTimeout = 150 * time.Second
+
 // ErrRunning is Listen finding another server already serving the config dir.
 var ErrRunning = errors.New("a shared MCP server is already running for this config dir")
 
@@ -357,8 +365,9 @@ func WriteClaudeConfig(configDir, url, profile, id string) (string, error) {
 	content, err := json.MarshalIndent(map[string]any{
 		"mcpServers": map[string]any{
 			mcpreg.ServerName: map[string]any{
-				"type": "http",
-				"url":  url + MCPPath + profile,
+				"type":    "http",
+				"url":     url + MCPPath + profile,
+				"timeout": CallTimeout.Milliseconds(),
 				"headers": map[string]string{
 					CallerHeader:      id,
 					CallerTokenHeader: token,

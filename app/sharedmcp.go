@@ -10,8 +10,9 @@ import (
 )
 
 // sharedMCPEvery is how often the board checks the shared MCP server: one
-// loopback GET, so a dead server is back within this long.
-const sharedMCPEvery = 30 * time.Second
+// loopback GET, so a dead server is back within this long, and a call a
+// session makes during the gap is the only one that fails.
+const sharedMCPEvery = 5 * time.Second
 
 // sharedMCPStart is how long the board waits for the server it starts.
 const sharedMCPStart = 5 * time.Second
@@ -34,12 +35,19 @@ func keepSharedMCP(dir string, on bool) (stop func()) {
 		defer close(done)
 		ticker := time.NewTicker(sharedMCPEvery)
 		defer ticker.Stop()
+		// warned is the last failure logged, so a server that cannot start
+		// (a squatted port) is logged once, not every check.
+		warned := ""
 		for {
 			if url := mcpshared.URL(dir); !mcpshared.Healthy(dir, url) {
 				if started, err := mcpshared.Ensure(dir, launch.Executable(), sharedMCPStart); err != nil {
-					logging.Warn("shared MCP server down and could not be started", "url", url, logging.Err(err))
+					if err.Error() != warned {
+						logging.Warn("shared MCP server down and could not be started", "url", url, logging.Err(err))
+						warned = err.Error()
+					}
 				} else {
 					logging.Info("shared MCP server started", "url", started)
+					warned = ""
 				}
 			}
 			select {

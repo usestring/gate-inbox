@@ -15,6 +15,7 @@ import (
 	"github.com/usestring/gate-inbox/extension/mcptool"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
 // post sends one JSON-RPC request to the shared server as session id with
@@ -162,5 +163,58 @@ func TestSharedServerRefusesAnUnknownProfile(t *testing.T) {
 	}
 	if status, _ := post(t, url+mcpshared.MCPPath+"everything", "abcd1234", token, "tools/list", map[string]any{}); status == http.StatusOK {
 		t.Fatal("a path naming no profile was served")
+	}
+}
+
+// callerTransport sends every request as session id with its token, the
+// way a session's generated config makes claude send them.
+type callerTransport struct{ id, token string }
+
+func (c callerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Header.Set(CallerHeader, c.id)
+	req.Header.Set(CallerTokenHeader, c.token)
+	return http.DefaultTransport.RoundTrip(req)
+}
+
+// The shared server tells a client its tool list never changes, in either
+// protocol era, so the client holds no notification stream that a server
+// restart would break. A client told otherwise opens subscriptions/listen,
+// and Claude Code gives a server up for good once that stream drops and
+// does not come back within about 15 s.
+func TestSharedServerOffersNoToolListChanges(t *testing.T) {
+	dir, url := sharedTestServer(t)
+	token, err := parentseal.CallerToken(dir, "abcd1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"2025-06-18", "2026-07-28"} {
+		client := mcp.NewClient(&mcp.Implementation{Name: "test"}, &mcp.ClientOptions{
+			ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {},
+		})
+		transport := &mcp.StreamableClientTransport{
+			Endpoint:   url + mcpshared.MCPPath + "all",
+			HTTPClient: &http.Client{Transport: callerTransport{"abcd1234", token}},
+		}
+		session, err := client.Connect(context.Background(), transport, &mcp.ClientSessionOptions{ProtocolVersion: version})
+		if err != nil {
+			t.Fatalf("%s: connect: %v", version, err)
+		}
+		caps := session.InitializeResult().Capabilities
+		session.Close()
+		if caps == nil || caps.Tools == nil {
+			t.Fatalf("%s: capabilities %+v offer no tools", version, caps)
+		}
+		if caps.Tools.ListChanged {
+			t.Fatalf("%s: the shared server offers tool list changes, so a client holds a stream open for them", version)
+		}
+	}
+}
+
+// Claude cuts a call to the shared server at mcpshared.CallTimeout, so the
+// longest wait_for_session must end, and answer, before it.
+func TestSharedCallTimeoutOutlastsTheLongestWait(t *testing.T) {
+	if mcpshared.CallTimeout <= sessioncmd.MaxWaitTimeout {
+		t.Fatalf("calls are cut at %s, but a wait may run %s", mcpshared.CallTimeout, sessioncmd.MaxWaitTimeout)
 	}
 }

@@ -142,9 +142,37 @@ func (s *sharedServer) serverFor(r *http.Request) *mcp.Server {
 	if !ok {
 		// No session of its own: every call's caller comes from its request.
 		server = NewProfileServer(s.configDir, "", s.version, s.extensions, "", profile)
+		server.AddReceivingMiddleware(fixedTools)
 		s.servers[profile] = server
 	}
 	return server
+}
+
+// fixedTools clears the tools capability's listChanged from what the
+// server tells a client it can do. The SDK sets it for any server with
+// tools, but this one's tool list never changes after it is built, and a
+// client told it may change holds a subscriptions/listen stream open to
+// hear about it. That stream is what strands a session when the server
+// restarts: Claude Code reads the stream dropping as the server failing,
+// retries for about 15 s, and then gives the server up until the user
+// reconnects it by hand, while the board brings the server back on the same
+// URL. With no stream held, a restart is invisible to a session between
+// calls, and its next call reaches the new process.
+func fixedTools(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		result, err := next(ctx, method, req)
+		var caps *mcp.ServerCapabilities
+		switch r := result.(type) {
+		case *mcp.InitializeResult:
+			caps = r.Capabilities
+		case *mcp.DiscoverResult:
+			caps = r.Capabilities
+		}
+		if caps != nil && caps.Tools != nil {
+			caps.Tools.ListChanged = false
+		}
+		return result, err
+	}
 }
 
 // followUpgrades hands the server over to a replaced binary

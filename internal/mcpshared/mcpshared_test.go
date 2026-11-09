@@ -170,6 +170,7 @@ func TestClaudeConfigNamesItsSessionPrivately(t *testing.T) {
 			Type    string            `json:"type"`
 			URL     string            `json:"url"`
 			Headers map[string]string `json:"headers"`
+			Timeout int64             `json:"timeout"`
 		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(data, &config); err != nil {
@@ -181,5 +182,9 @@ func TestClaudeConfigNamesItsSessionPrivately(t *testing.T) {
 	}
 	if entry.Headers[CallerHeader] != "abcd1234" || !parentseal.VerifyCaller(dir, "abcd1234", entry.Headers[CallerTokenHeader]) {
 		t.Fatalf("headers = %v, want the session and its own token", entry.Headers)
+	}
+	// Without it, claude cuts every call to the server at 60 s.
+	if entry.Timeout != CallTimeout.Milliseconds() {
+		t.Fatalf("timeout = %d ms, want %d", entry.Timeout, CallTimeout.Milliseconds())
 	}
 }

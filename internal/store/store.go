@@ -1437,15 +1437,18 @@ func (s *Store) SetAgentSessionID(id, agentSessionID string) error {
 
 // BindAgentSessionID records a captured conversation id, but only while the
 // session is still the launch the capture ran for: unbound, and launched at
-// the moment the capturing pass read. It reports whether the write landed.
+// the moment the capturing pass read, with no other unarchived row claiming
+// that conversation. It reports whether the write landed.
 // Capture reads a tool's store from a snapshot and can take minutes, long
 // enough for a restart to clear the id and move the launch on underneath it,
 // and that stale answer names the conversation the restart just dropped.
 func (s *Store) BindAgentSessionID(id, agentSessionID string, launchedAt time.Time) (bool, error) {
 	res, err := s.db.Exec(
 		`UPDATE sessions SET agent_session_id = ?
-		 WHERE id = ? AND agent_session_id = '' AND agent_launched_at = ?`,
-		agentSessionID, id, encodeTime(launchedAt))
+		 WHERE id = ? AND agent_session_id = '' AND agent_launched_at = ?
+		 AND NOT EXISTS (SELECT 1 FROM sessions other WHERE other.id != ?
+		     AND other.archived = 0 AND other.agent_session_id = ?)`,
+		agentSessionID, id, encodeTime(launchedAt), id, agentSessionID)
 	if err != nil {
 		return false, err
 	}

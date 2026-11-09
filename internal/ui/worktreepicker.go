@@ -140,22 +140,27 @@ func (m *Model) handleWorktreePickerKey(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *Model) chooseWorktree(path string) {
-	picker := m.form.worktrees
-	if !isDir(path) {
-		picker.message = "That checkout is no longer available."
+	if message := m.useWorktreePath(path); message != "" {
+		m.form.worktrees.message = message
 		return
+	}
+	m.form.worktrees = nil
+}
+
+func (m *Model) useWorktreePath(path string) string {
+	if !isDir(path) {
+		return "That checkout is no longer available."
 	}
 	// The directory field is single-line and trimmed on submit. Refuse a
 	// path it cannot represent rather than sending the session elsewhere.
 	input := m.form.dir
 	input.SetValue(path)
 	if input.Value() != path || strings.TrimSpace(path) != path {
-		picker.message = "That path cannot be entered in the directory field."
-		return
+		return "That path cannot be entered in the directory field."
 	}
 	m.setPathField(path)
 	m.pathSugg.reset()
-	m.form.worktrees = nil
+	return ""
 }
 
 func (m *Model) viewWorktreePicker() string {

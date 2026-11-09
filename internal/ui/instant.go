@@ -45,6 +45,7 @@ func (m *Model) spawnInstantIn(toolName, group string) (tea.Model, tea.Cmd) {
 		m.reportLaunchError(err)
 		return m, nil
 	}
+	m.rememberRecentWorktree(dir)
 	// A new session is starting, which the attention filter excludes, so the
 	// row this keypress made would otherwise land off screen.
 	m.statusFilter = statusFilterAll

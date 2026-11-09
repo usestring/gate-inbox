@@ -206,6 +206,9 @@ func (m *Model) viewForm() string {
 	}
 
 	b.WriteString(formField("dir", m.form.dir.View(), m.form.focus == fieldDir))
+	if m.hasRecentWorktree() {
+		b.WriteString(formField("recent", m.viewRecentWorktree(), false))
+	}
 	if m.form.focus == fieldDir && m.pathSugg.showing() {
 		b.WriteString(m.viewPathSuggestions() + "\n")
 	}
@@ -237,6 +240,9 @@ func (m *Model) viewForm() string {
 		hint = [][2]string{change, {"tab/↑↓", "move"}, {"↵", "create"}, {"esc", "cancel"}}
 	}
 	hint = append([][2]string{{"F2", "worktrees"}}, hint...)
+	if m.hasRecentWorktree() {
+		hint = append([][2]string{{"F4", "use recent"}}, hint...)
+	}
 	return m.card("◆ New Session", strings.TrimRight(b.String(), "\n"), hint)
 }
 

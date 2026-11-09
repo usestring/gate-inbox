@@ -1,10 +1,25 @@
 package git
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// WorktreeLocation returns the Git directory shared by all linked checkouts
+// and the root of the checkout containing dir.
+func (d *Driver) WorktreeLocation(dir string) (commonDir, root string, err error) {
+	out, err := d.run(dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel")
+	if err != nil {
+		return "", "", err
+	}
+	commonDir, root, ok := strings.Cut(out, "\n")
+	if !ok || strings.Contains(root, "\n") || !filepath.IsAbs(commonDir) || !filepath.IsAbs(root) {
+		return "", "", fmt.Errorf("git did not return a worktree location")
+	}
+	return filepath.Clean(commonDir), filepath.Clean(root), nil
+}
 
 // Worktree describes an existing checkout. Branch is empty on a detached HEAD.
 type Worktree struct {

@@ -2206,6 +2206,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case worktreesLoadedMsg:
 		m.finishWorktreePicker(msg)
 		return m, nil
+	case recentWorktreeMsg:
+		m.finishRecentWorktree(msg)
+		return m, nil
 	case migrateAutoMsg:
 		return m.finishMigrateAuto(msg)
 	case accountAutoMsg:

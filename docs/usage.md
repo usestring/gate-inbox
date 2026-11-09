@@ -255,6 +255,10 @@ is marked current. Type to filter by branch or path, use the arrow keys to highl
 press `enter` to fill the directory field. `esc` returns to the form without changing the directory.
 The picker requires Git 2.36 or newer.
 
+The form keeps the group's default directory. If your last New Session in that repository used a
+different checkout and it still exists, the form shows its branch and path below the directory.
+Press `F4` to fill the directory with that checkout, then `enter` when you're ready to launch.
+
 Create worktrees with your repository's own tooling first. You can also enter the path directly,
 use `spawn --directory`, or set `directory` on the MCP `create_session` tool. The board treats the
 checkout as any other directory: nothing follows a rename, and deleting the session leaves it in place.

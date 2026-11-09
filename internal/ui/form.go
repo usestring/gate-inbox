@@ -68,6 +68,7 @@ type form struct {
 	dir       textinput.Model
 	dirAuto   bool
 	worktrees *worktreePicker
+	recent    recentWorktreeMsg
 	// prompt is a composer rather than a plain textarea: a first task is
 	// often a screenshot, so the box has to hold pasted images.
 	prompt composer
@@ -426,15 +427,15 @@ func (m *Model) formToolSelection() ([]string, int) {
 	return names, index
 }
 
-func (m *Model) openForm() {
-	m.openFormFor(m.contextGroup(), "")
+func (m *Model) openForm() tea.Cmd {
+	return m.openFormFor(m.contextGroup(), "")
 }
 
-func (m *Model) openFormFor(group, tool string) {
+func (m *Model) openFormFor(group, tool string) tea.Cmd {
 	tools, toolIndex := m.formToolSelection()
 	if len(m.installedOnly(tools)) == 0 {
 		m.errBar.text = m.noCLIText()
-		return
+		return nil
 	}
 
 	// Not an example name: a name is the field nobody has to fill in, and one
@@ -468,6 +469,7 @@ func (m *Model) openFormFor(group, tool string) {
 	m.form.dir.SetValue(m.groupDefaultDir(m.selectedGroupPath()))
 	m.pathSugg.reset()
 	m.mode = modeForm
+	return m.lookupRecentWorktree()
 }
 
 func (m *Model) selectedGroupPath() string {
@@ -533,6 +535,10 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.Code == tea.KeyF2 && msg.Mod == 0 {
 		return m, m.openWorktreePicker()
 	}
+	if msg.Code == tea.KeyF4 && msg.Mod == 0 && m.hasRecentWorktree() {
+		m.useRecentWorktree()
+		return m, nil
+	}
 	dirSuggesting := m.form.focus == fieldDir && m.pathSugg.active()
 	dirCapturing := m.form.focus == fieldDir && m.pathSugg.capturing()
 	promptFocused := m.form.focus == fieldPrompt
@@ -595,8 +601,7 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.form.focus == fieldGroup {
-			m.moveGroupCursor(-1)
-			return m, nil
+			return m, m.moveGroupCursor(-1)
 		}
 		if m.flipSkip() || m.cycleExtra(-1) {
 			return m, nil
@@ -611,8 +616,7 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.form.focus == fieldGroup {
-			m.moveGroupCursor(1)
-			return m, nil
+			return m, m.moveGroupCursor(1)
 		}
 		if m.flipSkip() || m.cycleExtra(1) {
 			return m, nil
@@ -656,18 +660,20 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // moveGroupCursor moves within the expanded group picker, wrapping at the
 // ends; a delta of 0 re-resolves the dependent defaults in place.
-func (m *Model) moveGroupCursor(delta int) {
+func (m *Model) moveGroupCursor(delta int) tea.Cmd {
 	count := len(m.form.groups)
 	if count == 0 {
-		return
+		return nil
 	}
 	m.form.groupIndex = (m.form.groupIndex + delta + count) % count
 	if m.mode == modeForm && m.form.dirAuto {
 		m.form.dir.SetValue(m.groupDefaultDir(m.selectedGroupPath()))
+		return m.lookupRecentWorktree()
 	}
 	if m.mode == modeGroupForm && m.groupForm.pathAuto {
 		m.groupForm.path.SetValue(m.ancestorGroupDir(m.selectedGroupPath()))
 	}
+	return nil
 }
 
 // flipSkip toggles the focused skip-permissions field, if it is on one.
@@ -871,6 +877,9 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 	spawn := func() error {
 		var err error
 		id, err = m.spawnSessionWith(toolName, m.formModel(), name, dir, group, prompt, autoNamed, store.SourceUser, values, perms)
+		if err == nil {
+			m.rememberRecentWorktree(dir)
+		}
 		return err
 	}
 	if err := spawn(); err != nil {
@@ -942,6 +951,7 @@ func (m *Model) submitFormTerminal(toolName string) (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
+	m.rememberRecentWorktree(dir)
 	m.statusFilter = statusFilterAll
 	m.toolFilter = ""
 	m.mode = modeList

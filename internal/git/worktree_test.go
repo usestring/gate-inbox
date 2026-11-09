@@ -6,6 +6,41 @@ import (
 	"testing"
 )
 
+func TestWorktreeLocationSharesIdentityOnlyWithinARepository(t *testing.T) {
+	driver, repo := testRepo(t)
+	write(t, repo, "README", "seed\n")
+	commit(t, repo, "seed")
+
+	dir := t.TempDir()
+	linked := filepath.Join(dir, "linked checkout")
+	clone := filepath.Join(dir, "clone")
+	gitIn(t, repo, "worktree", "add", "--detach", linked)
+	gitIn(t, repo, "clone", repo, clone)
+
+	nested := filepath.Join(linked, "nested")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	common, _, err := driver.WorktreeLocation(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkedCommon, linkedRoot, err := driver.WorktreeLocation(nested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoot, err := filepath.EvalSymlinks(linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linkedCommon != common || linkedRoot != wantRoot {
+		t.Fatalf("linked checkout = %q, %q; want %q, %q", linkedCommon, linkedRoot, common, wantRoot)
+	}
+	if cloneCommon, _, err := driver.WorktreeLocation(clone); err != nil || cloneCommon == common {
+		t.Fatalf("clone shares the source repo's identity: %q (%v)", cloneCommon, err)
+	}
+}
+
 func TestWorktreesListsUsableCheckouts(t *testing.T) {
 	driver, repo := testRepo(t)
 	write(t, repo, "README", "seed\n")

@@ -10,12 +10,11 @@ import (
 )
 
 // choiceKeys are the menu keys that pick a held dialog's numbered choices:
-// a is 1 through c is 3. While the target pane holds a choice dialog they
+// a is 1 through e is 5. While the target pane holds a choice dialog they
 // come ahead of any snippet on the same letter, since a snippet sent there
 // would only be refused by the dialog guard. Once no dialog is held, the
-// letters are the snippets' again. Three, not more: d and e carry snippets
-// operators reach for, and a fourth choice is rare enough to arrow to.
-const choiceKeys = "abc"
+// letters are the snippets' again.
+const choiceKeys = "abcde"
 
 // choiceFor reads a menu key as the 1-based choice it picks, or 0.
 func choiceFor(key string) int {

@@ -295,8 +295,8 @@ const progressText = "summarise all current progress in bullet points, " +
 	"including every PR link and its status, and what the next steps are " +
 	"— or, if all the work here is finished, say so"
 
-// While a dialog is held the menu reads a through c as its choices 1 through
-// 3, so continue sits on t rather than losing its key to them.
+// While a dialog is held the menu reads a through e as its choices 1 through
+// 5, so continue sits on t rather than losing its key to them.
 //
 // Defaults are written on first run and are then the user's to edit. They are
 // the answers the v1 inbox offered as one-tap shortcuts, plus the handful an

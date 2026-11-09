@@ -329,3 +329,49 @@ func TestQueuedEscalationSurvivesChangedAndUncertainSnapshotsUntilResolved(t *te
 		})
 	}
 }
+
+func TestRetiredUnclaimedFeedbackReplaysWithoutSpendingAnotherRound(t *testing.T) {
+	for _, kind := range []string{"review", "conflict"} {
+		t.Run(kind, func(t *testing.T) {
+			st := board(t)
+			pr := reviewedPR()
+			if kind == "conflict" {
+				pr.Feedback.Reviews = nil
+				pr.Feedback.Mergeability = "CONFLICTING"
+			}
+			observe(t, st, pr)
+			first := head(t, st, true)
+			pr.Feedback.ReviewsComplete = false
+			pr.Feedback.Mergeability = "UNKNOWN"
+			pr.FetchedAt = pr.FetchedAt.Add(time.Second)
+			observe(t, st, pr)
+			head(t, st, false)
+			pr.Feedback.ReviewsComplete = true
+			pr.Feedback.Mergeability = "CONFLICTING"
+			if kind == "review" {
+				pr.Feedback.Mergeability = "MERGEABLE"
+			}
+			pr.FetchedAt = pr.FetchedAt.Add(time.Second)
+			observe(t, st, pr)
+			replay := head(t, st, true)
+			if replay.ID == first.ID || !strings.Contains(replay.Body, "round 1 of 2") {
+				t.Fatalf("retired feedback was lost or spent another round: %+v", replay)
+			}
+			if err := st.MarkDelivered(replay.ID, pr.FetchedAt); err != nil {
+				t.Fatal(err)
+			}
+			pr.FetchedAt = pr.FetchedAt.Add(time.Second)
+			observe(t, st, pr)
+			head(t, st, false)
+			pr.Feedback.BaseSHA = "next-base"
+			if kind == "review" {
+				pr.Feedback.Reviews[0].ID = "next-review"
+			}
+			pr.FetchedAt = pr.FetchedAt.Add(time.Second)
+			observe(t, st, pr)
+			if msg := head(t, st, true); !strings.Contains(msg.Body, "round 2 of 2") {
+				t.Fatalf("replay changed the episode budget: %s", msg.Body)
+			}
+		})
+	}
+}

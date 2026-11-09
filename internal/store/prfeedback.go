@@ -22,7 +22,7 @@ func (s *Store) ObservePRFeedback(kind PRFeedbackKind, obs FeedbackObservation) 
 	default:
 		return 0, fmt.Errorf("unknown PR feedback kind %q", kind)
 	}
-	return s.observeFeedback(obs, feedbackPolicy{"pr-feedback:v1:" + string(kind) + ":", "PR " + string(kind), resolved})
+	return s.observeFeedback(obs, feedbackPolicy{"pr-feedback:v1:" + string(kind) + ":", "PR " + string(kind), resolved, "feedback-state-changed"})
 }
 
 func (s *Store) CancelPRFeedback(at time.Time) error {

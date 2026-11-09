@@ -12,8 +12,8 @@ import (
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
-func TestChoiceForMapsAThroughC(t *testing.T) {
-	for key, want := range map[string]int{"a": 1, "b": 2, "c": 3, "d": 0, "e": 0, "f": 0, "t": 0, "ab": 0, "": 0} {
+func TestChoiceForMapsAThroughE(t *testing.T) {
+	for key, want := range map[string]int{"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 0, "t": 0, "ab": 0, "": 0} {
 		if got := choiceFor(key); got != want {
 			t.Errorf("choiceFor(%q) = %d, want %d", key, got, want)
 		}
@@ -44,6 +44,54 @@ func TestMenuLetterPicksTheHeldDialogsChoice(t *testing.T) {
 	}
 	if m.landings[sess.ID] != nil {
 		t.Fatal("the snippet on b was sent as well")
+	}
+}
+
+func TestMenuLettersDAndEPickHeldDialogChoices(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		key   rune
+		multi bool
+		focus bool
+		want  string
+	}{
+		{name: "fourth from list", key: 'd', want: "picked D. Fourth"},
+		{name: "fifth checkbox from focus", key: 'e', multi: true, focus: true, want: "toggled E. Fifth"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := buildModel(t)
+			writeSnippets(t, m, []snippets.Snippet{{Key: string(tt.key), Text: "snippet must not send"}})
+			liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+			m.rebuildRows()
+			sess := sessionNamed(t, m, "ask")
+			if err := m.tmux.SendText(sess.ID, "exec cat"); err != nil {
+				t.Fatalf("start cat: %v", err)
+			}
+			for i := range m.sessions {
+				m.sessions[i].Tool = "claude-hooked"
+			}
+			m.rebuildRows()
+			pane := "Choose an option\n❯ 1. First\n  2. Second\n  3. Third\n  4. Fourth\n  5. Fifth\nEnter to select · Esc to cancel"
+			if tt.multi {
+				pane = strings.ReplaceAll(pane, ". ", ". [ ] ")
+			}
+			if err := m.tmux.SendText(sess.ID, pane); err != nil {
+				t.Fatalf("paint dialog: %v", err)
+			}
+			waitForHeldDialog(t, m, sess.ID)
+			m.selectSessionRow(t, "ask")
+			if tt.focus {
+				m.enterFocusOn(t, "ask")
+			}
+
+			m = pressInMenu(t, m, letter(tt.key))
+			if !strings.HasPrefix(m.errBar.text, tt.want) {
+				t.Fatalf("err = %q, want %q", m.errBar.text, tt.want)
+			}
+			if m.landings[sess.ID] != nil {
+				t.Fatal("the conflicting snippet was sent")
+			}
+		})
 	}
 }
 

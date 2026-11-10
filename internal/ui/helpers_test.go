@@ -188,6 +188,11 @@ func buildModelWithStorePath(t testing.TB) (*Model, string) {
 	m := New(cfg, st, driver, engine, hooks.NewManager(t.TempDir()), "dev")
 	m.width = 120
 	m.height = 40
+	// The device a test runs on is whatever terminal launched it. Keys start
+	// on the shared tables so a rebind test reads the same file on every
+	// machine; a test of device scoping sets themeDevice itself.
+	m.themeDevice = ""
+	m.resolveKeys()
 	t.Cleanup(func() {
 		for _, s := range m.sessions {
 			driver.Kill(s.ID)

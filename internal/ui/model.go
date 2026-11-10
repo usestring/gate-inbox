@@ -170,6 +170,14 @@ type Model struct {
 	// a key that does nothing with the explanation in a process nobody sees.
 	keys        *keymap.Map
 	keyProblems []string
+	// keyFile is keys.toml as read, device layers included; globalKeys is
+	// its shared tables resolved alone, which a device's layer is diffed
+	// against on save; keysDevice is the device keys was resolved for; and
+	// keyReadProblems are the file's own read errors, kept across re-resolves.
+	keyFile         keymap.File
+	globalKeys      *keymap.Map
+	keysDevice      string
+	keyReadProblems []string
 	// extUIs, extKeys, extBridge and extBadges are what the build's
 	// extensions added: see extensions.go.
 	extUIs    []ExtensionUI
@@ -2306,6 +2314,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := tea.Batch(m.setVisible(visible), m.loadDeviceTheme(msg.device))
 		if m.themeDevice != device {
 			cmd = tea.Batch(cmd, m.loadDeviceLayout())
+			m.keysDeviceChanged()
 		}
 		return m, cmd
 

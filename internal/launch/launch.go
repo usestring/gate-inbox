@@ -627,13 +627,14 @@ func Compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 
 // sharedServer is the config a launch points its claude session at to reach
 // the shared MCP server (mcpshared), or "" for a server of the session's own.
-// Only claude takes one, and only with the operator's shared_mcp on. A
+// Only claude and pi take one (takes), and only with the operator's
+// shared_mcp on; pi's extension reads the same config claude does. A
 // server that does not answer in time, or a config that cannot be written,
 // is no reason to fail or hold up the launch: the session gets its own
 // server, as it always did. A plan composed without side effects starts and
 // writes nothing, and names the config a launch would.
-func sharedServer(configDir, style, profile, id string, write bool) string {
-	if style != "claude" {
+func sharedServer(configDir string, takes bool, profile, id string, write bool) string {
+	if !takes {
 		return ""
 	}
 	cfg, err := config.LoadDir(configDir)
@@ -720,7 +721,8 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		// it would otherwise pass on.
 		env[tool.AccountEnv] = ""
 	}
-	sharedConfig := sharedServer(manager.ConfigDir(), style, profile, id, write)
+	pi := tool.StatusSource == hooks.StatusSourcePi
+	sharedConfig := sharedServer(manager.ConfigDir(), style == "claude" || pi, profile, id, write)
 	register := mcpreg.PreviewProfile
 	if write {
 		register = mcpreg.ApplyProfile
@@ -734,8 +736,8 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	if err != nil {
 		return "", nil, err
 	}
-	if tool.StatusSource == hooks.StatusSourcePi {
-		return withPiExtension(manager, command, env, id, write)
+	if pi {
+		return withPiExtension(manager, command, env, id, profile, sharedConfig, write)
 	}
 	if tool.StatusSource != hooks.StatusSourceClaude {
 		return command, env, nil
@@ -768,7 +770,13 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 // extension is written under the hooks dir with a content-stamped name, so
 // this build's launch loads this build's extension and never one an older
 // build left there; nothing is written to ~/.pi.
-func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id string, write bool) (string, map[string]string, error) {
+//
+// It also names the MCP config the extension registers the board's server
+// from (piext.MCPConfigEnv): sharedConfig, the shared server's config holding
+// the session's caller token in the key dir, as a claude launch's is; or,
+// with the shared server off or unreachable, a config that starts a server of
+// the session's own. Only the path rides the environment, never the token.
+func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id, profile, sharedConfig string, write bool) (string, map[string]string, error) {
 	path := piext.Path(manager.Dir())
 	if write {
 		var err error
@@ -776,6 +784,14 @@ func withPiExtension(manager *hooks.Manager, command string, env map[string]stri
 			return "", nil, err
 		}
 	}
+	mcpConfig := sharedConfig
+	if mcpConfig == "" {
+		var err error
+		if mcpConfig, err = mcpreg.OwnServerConfig(Executable(), manager.Dir(), profile, write); err != nil {
+			return "", nil, err
+		}
+	}
+	env[piext.MCPConfigEnv] = mcpConfig
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)
 	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
 }

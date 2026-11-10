@@ -19,6 +19,13 @@ import (
 //go:embed extension.ts
 var source []byte
 
+// MCPConfigEnv names, in a pi launch's environment, the MCP config the
+// extension registers the board's server from: a file in the mcpServers
+// shape Claude Code reads, whose gate-inbox entry is either the shared
+// server with the session's caller token (kept in the key dir) or a server
+// of the session's own.
+const MCPConfigEnv = "GATE_INBOX_MCP_CONFIG"
+
 // fileName is the extension's name before its content stamp
 // (hooks.GeneratedName).
 const fileName = "gate-inbox-pi-extension.ts"

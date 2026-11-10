@@ -92,6 +92,9 @@ With auto-proceed enabled, a confirmed submission also opens the next session wh
 
 An agent can set the same flag for a session from its shell or its MCP tools: `gate-inbox mute <session-id>` mutes, `gate-inbox mute <session-id> --off` unmutes, and the MCP `mute_session` tool takes the same `muted` argument. The board picks the change up on its next poll, and the key and the command write the same field.
 
+If Claude Code is waiting on a question, select its row to read the question and choices in the
+preview. Open the session to answer.
+
 ### Draining full-width
 
 Triage plus two keys is the whole drain. `i` turns triage on and opens the head of the queue,

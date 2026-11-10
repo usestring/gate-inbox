@@ -346,6 +346,9 @@ func (m *Model) conversationBody(width int) []string {
 func (m *Model) withQuestionCard(rows []string, width, height int) []string {
 	card := m.previewQuestions(width, height)
 	if len(card) == 0 {
+		card = m.previewSingleClaudeQuestion(width, height)
+	}
+	if len(card) == 0 {
 		return rows
 	}
 	return append(rows[:len(rows):len(rows)], card...)

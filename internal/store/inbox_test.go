@@ -399,3 +399,16 @@ func TestWithdrawDropsOnlyTheSendersQueuedMessages(t *testing.T) {
 		t.Fatalf("another sender's message = %+v, %v; want it still queued", kept, err)
 	}
 }
+
+func TestConfirmLaunchesDefaultsOn(t *testing.T) {
+	st := newTestStore(t)
+	if !st.ConfirmLaunches() {
+		t.Fatal("unset confirm_launches should confirm")
+	}
+	if err := st.SetSetting(ConfirmLaunchesKey, "off"); err != nil {
+		t.Fatal(err)
+	}
+	if st.ConfirmLaunches() {
+		t.Fatal(`confirm_launches = "off" should not confirm`)
+	}
+}

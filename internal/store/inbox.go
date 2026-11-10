@@ -149,6 +149,19 @@ var DefaultInboxLimits = InboxLimits{
 // what it queues.
 const PollerHeartbeatKey = "poller_heartbeat"
 
+// ConfirmLaunchesKey is the board setting for the launch Approval a
+// top-level agent puts to its user before it launches on a voiced turn.
+// "off" lets agents launch nested sessions without asking; anything else,
+// unset included, keeps the question.
+const ConfirmLaunchesKey = "confirm_launches"
+
+// ConfirmLaunches reports whether a top-level agent must confirm its
+// launches. An unreadable store confirms, so a failure never drops the gate.
+func (s *Store) ConfirmLaunches() bool {
+	chosen, err := s.Setting(ConfirmLaunchesKey)
+	return err != nil || chosen != "off"
+}
+
 const (
 	// PollerHeartbeatPeriod is how often the manager restamps that row.
 	PollerHeartbeatPeriod = 10 * time.Second

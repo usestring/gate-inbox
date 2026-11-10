@@ -18,9 +18,11 @@ import (
 // own processes: the board that seals and the hook that checks. So they live
 // in a directory of their own, 0700 with 0600 files, and every Claude Code
 // session Gate Inbox launches is given settings that deny its sandboxed shell
-// and its Read tool that directory (see hooks.KeyDirDenials). An agent whose
-// sandbox is off, or one run outside Gate Inbox under the same user, can still
-// read them; the threat model says so.
+// and its Read tool that directory (see hooks.KeyDirDenials). Every other CLI
+// it launches has no such setting, so it runs under an OS-level confinement
+// that hides the directory from its whole process tree (see keyconfine). A
+// claude whose sandbox is off, or any agent run outside Gate Inbox under the
+// same user, can still read them; the threat model says so.
 
 // KeyDirName is the directory under the config dir that holds the keys.
 const KeyDirName = "channel-keys"

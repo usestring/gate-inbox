@@ -532,7 +532,7 @@ func (m *Model) viewHelp() string {
 		}
 	}
 
-	title := " Keys"
+	title := " Keys · " + m.keysScope()
 	if m.help.legend {
 		title = " Legend"
 	}

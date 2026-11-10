@@ -36,9 +36,6 @@ poll_interval = "2s"
 # see it that way, then leaves the rail and the counts for good.
 # [work]
 # settle_after = "24h"
-# Return failed checks to the live agent that opened the PR, up to two repair
-# prompts until CI passes. Delivery uses the session inbox and its normal guards.
-# ci_feedback = false
 # Return human review requests, unresolved current-commit threads and confirmed
 # merge conflicts through the same guarded inbox, with two prompts per kind.
 # Use one feedback source per PR; independent external watchers can duplicate it.

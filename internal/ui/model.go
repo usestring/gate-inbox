@@ -1006,6 +1006,7 @@ type settingsState struct {
 	jevCopyOn          bool
 	promptSuggest      bool
 	reviewQueue        bool
+	ciFeedback         bool
 	arrowsStay         bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.

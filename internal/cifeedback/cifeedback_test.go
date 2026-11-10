@@ -22,6 +22,9 @@ func feedbackStore(t *testing.T) *store.Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
+	if err := st.SetSetting(store.CIFeedbackSetting, "on"); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.CreateSession(store.Session{ID: "owner", Tool: "claude", Status: "idle"}); err != nil {
 		t.Fatal(err)
 	}

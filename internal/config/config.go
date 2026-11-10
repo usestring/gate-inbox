@@ -318,7 +318,6 @@ type Children struct {
 
 // Work configures how the board follows its sessions' pull requests and tickets.
 type Work struct {
-	CIFeedback bool `toml:"ci_feedback"`
 	PRFeedback bool `toml:"pr_feedback"`
 
 	// SettleAfter is how long a merged or closed pull request, or a completed
@@ -1310,9 +1309,6 @@ const defaultConfig = `poll_interval = "2s"
 # see it that way, then leaves the rail and the counts for good.
 # [work]
 # settle_after = "24h"
-# Return failed checks to the live agent that opened the PR, up to two repair
-# prompts until CI passes. Delivery uses the session inbox and its normal guards.
-# ci_feedback = false
 # Return human review requests, unresolved current-commit threads and confirmed
 # merge conflicts through the same guarded inbox, with two prompts per kind.
 # Use one feedback source per PR; independent external watchers can duplicate it.

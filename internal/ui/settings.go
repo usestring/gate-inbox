@@ -198,6 +198,7 @@ func (m *Model) openSettings() {
 		jevCopyOn:        m.jevCopyOn,
 		promptSuggest:    m.promptSuggest,
 		reviewQueue:      m.reviewQueue,
+		ciFeedback:       storedExperiment(m.store, store.CIFeedbackSetting),
 		arrowsStay:       m.arrowsStay,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
 	}

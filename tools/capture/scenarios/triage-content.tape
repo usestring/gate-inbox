@@ -11,11 +11,9 @@ Type "I"
 Sleep 2s
 Screenshot {{SHOTS}}/03-both.png
 Sleep 1s
-Type "s"
-Sleep 3s
-Alt+]
+Type "I"
 Sleep 2s
-Screenshot {{SHOTS}}/04-switch-from-session.png
+Screenshot {{SHOTS}}/04-sessions-mode-before-restart.png
 Sleep 1s
 Type "q"
 Sleep 2s

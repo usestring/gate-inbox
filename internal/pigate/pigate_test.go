@@ -183,12 +183,37 @@ func TestDecideMergeGate(t *testing.T) {
 	cwd := t.TempDir()
 	rules := sources(t, cwd, map[string]map[string][]string{})
 	covered := func(string, string) (string, bool) { return "covered", true }
-	refused := func(string, string) (string, bool) { return "", false }
+	refused := func(string, string) (string, bool) { return "merge gate: PR #1 has a failing check", false }
 	if d := Decide(Env{Rules: rules, Grants: []grant.Grant{}, MergeGate: covered}, bashReq(cwd, "gh pr merge 1 --squash")); d.Decision != Allow {
 		t.Errorf("covered merge: %+v", d)
 	}
-	if d := Decide(Env{Rules: rules, Grants: []grant.Grant{}, MergeGate: refused}, bashReq(cwd, "gh pr merge 1 --squash")); d.Decision != Ask {
-		t.Errorf("refused merge: %+v", d)
+	if d := Decide(Env{Rules: rules, Grants: []grant.Grant{}, MergeGate: refused}, bashReq(cwd, "gh pr merge 1 --squash")); d.Decision != Ask ||
+		d.Reason != "merge gate: PR #1 has a failing check" {
+		t.Errorf("refused merge: %+v, want the gate's own reason", d)
+	}
+}
+
+// Pi spells the board's mcp__gate-inbox__ tools mcp__gate_inbox__; a rule or
+// grant in either spelling matches a call in either.
+func TestDecideMatchesEitherSpellingOfAnMCPServer(t *testing.T) {
+	cwd := t.TempDir()
+	for _, call := range []string{"mcp__gate_inbox__send_session", "mcp__gate-inbox__send_session"} {
+		req := Request{ToolName: call, ToolInput: map[string]any{}, Cwd: cwd}
+		for _, rule := range []string{"mcp__gate-inbox__send_session", "mcp__gate_inbox__send_session", "mcp__gate-inbox"} {
+			deny := Env{Rules: sources(t, cwd, map[string]map[string][]string{"user settings": {"deny": {rule}}}), Grants: []grant.Grant{}}
+			if d := Decide(deny, req); d.Decision != Deny {
+				t.Errorf("deny %s, call %s: %+v", rule, call, d)
+			}
+			allow := Env{Rules: sources(t, cwd, map[string]map[string][]string{"user settings": {"allow": {rule}}}), Grants: []grant.Grant{}}
+			if d := Decide(allow, req); d.Decision != Allow {
+				t.Errorf("allow %s, call %s: %+v", rule, call, d)
+			}
+		}
+	}
+	other := Request{ToolName: "mcp__gate_inbox__kill_session", ToolInput: map[string]any{}, Cwd: cwd}
+	allowOne := Env{Rules: sources(t, cwd, map[string]map[string][]string{"user settings": {"allow": {"mcp__gate-inbox__send_session"}}}), Grants: []grant.Grant{}}
+	if d := Decide(allowOne, other); d.Decision != Ask {
+		t.Errorf("an allow rule for one tool allowed another: %+v", d)
 	}
 }
 

@@ -44,19 +44,25 @@ func Hook(in io.Reader, configDir, sessionID, statusFile string, now time.Time) 
 }
 
 // mergeGate is the merge-gate mod's check (merge-gate-check) for a pi call.
+// When it does not allow the merge it says why, in merge-gate-check's words,
+// so the model learns what would have to change rather than only that the
+// call needs approval.
 func mergeGate(configDir, command, cwd string) (string, bool) {
 	cfg, err := config.LoadDir(configDir)
-	if err != nil || !cfg.MergeGate.Enabled() {
+	if err != nil {
 		return "", false
+	}
+	if !cfg.MergeGate.Enabled() {
+		return "merge gate: no standing merge authority is configured", false
 	}
 	m, ok := mergegate.Parse(command, cwd)
 	if !ok {
-		return "", false
+		return "merge gate: the standing merge authority does not cover that shape of command", false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if mergegate.Check(ctx, cfg.MergeGate, m) != nil {
-		return "", false
+	if err := mergegate.Check(ctx, cfg.MergeGate, m); err != nil {
+		return "merge gate: " + err.Error(), false
 	}
 	return fmt.Sprintf("Gate Inbox merge gate: the standing merge authority covers a squash merge of #%d", m.Number), true
 }

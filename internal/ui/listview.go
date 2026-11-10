@@ -1000,7 +1000,8 @@ func (m *Model) sessionGlyph(sess store.Session) string {
 	if resting && m.isShell(sess.Tool) {
 		return subtleText(shellGlyph)
 	}
-	return statusTint(sess.Status, statusGlyph(sess.Status))
+	st := m.shownStatus(sess)
+	return statusTint(st, statusGlyph(st))
 }
 
 // namePlaceholder stands in for the name a spawn generated while the agent

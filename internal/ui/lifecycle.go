@@ -76,11 +76,19 @@ func (m *Model) attachSelected() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	// Entering a hibernated session is asking for it back: it wakes on its
+	// conversation and the attach lands on the relaunched pane.
 	if !m.tmux.Exists(sess.ID) {
-		m.errBar.text = m.deadSessionHint()
-		return m, nil
+		if !m.isHibernated(sess) {
+			m.errBar.text = m.deadSessionHint()
+			return m, nil
+		}
+		if !m.wakeForFocus(sess) {
+			return m, nil
+		}
+	} else {
+		m.errBar.text = ""
 	}
-	m.errBar.text = ""
 	if err := m.store.AcknowledgeFinished(sess.ID); err != nil {
 		m.errBar.text = err.Error()
 		return m, nil

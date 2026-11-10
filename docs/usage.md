@@ -536,10 +536,13 @@ Each session's tmux pane is polled (default every 2s) to derive a status:
 | `✕` | `errored` | The tool reported an error |
 | `○` | `idle` | Nothing running |
 | `◎` | `delegating` | Turn ended, but children it spawned are still going: their results will come back to it |
+| `◓` | `hibernating` | Stopped to give its memory back; entering it or sending it a message wakes it on its conversation |
 | `✕` | `dead` | The tmux session is gone |
 | `◌` | `starting` | The pane is still launching |
 
 `delegating` is never read off a pane. It is laid over a `finished` or `idle` session that still has children it spawned starting, working, waiting or delegating themselves, or a child's rest notice not yet typed into its prompt, and it ends once the last of those results has landed. Triage and `w` do not hand a delegating session over as done; it rises only when a child needs you, the same way any parent does. The MCP tools report it too: `list_sessions` can filter on it, `wait_for_session` does not count it as stopped unless `until` names it, and `cleanup_children` leaves it by default.
+
+`hibernating` is never read off a pane either. Hibernation (`gate-inbox hibernate`, or `hibernate_after` in the config) stops a session at rest to give its memory back, and the store keeps the row dead, but the board and the MCP tools lay `hibernating` over it so it never reads as one that crashed or was killed. It wakes on its own conversation, as a revive would, when anything is sent to it (`send_session`, `send_children`, a child's report or question, a line typed on the board) or when you enter or focus it; the message waits in its queue and goes in once the agent is at its prompt. Triage ranks it with the dead rows, below everything that could use you. `list_sessions` can filter on it, and `wait_for_session` counts it as stopped.
 
 Every row carries its mark, and each state has its own color from the active theme, so a glance down the rail tells you who needs you. The key map (`h`) keeps bindings; its legend (`l` from the key map) lists the marks in those same colors.
 

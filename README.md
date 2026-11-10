@@ -318,7 +318,8 @@ state before it stops any of them: a session that was mid-turn, starting, or wai
 background shell, and every session tracking one of those up to its root, has work in flight. The
 rest (idle, finished, asking you something, stopped on a limit) is dormant. With `hibernate_after`
 set, a session that hibernation would already take is hibernated instead of parked: it stays on the
-board and wakes on its next message rather than coming back with the rest. `gate-inbox unpark`
+board, marked `◓ hibernating` rather than dead, and wakes on its conversation when a message
+arrives for it or you enter it, rather than coming back with the rest. `gate-inbox unpark`
 brings every parked session back on its conversation, parents before their children: the work in
 flight first, telling only the ones stopped mid-turn to continue, then the dormant ones with nothing
 sent, so they cost no tokens. Each relaunch waits its turn in the shared relaunch queue (see

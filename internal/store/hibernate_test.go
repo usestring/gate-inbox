@@ -4,6 +4,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/status"
 )
 
 // A hibernated child reads dead with no pane, the exited case the child
@@ -66,5 +68,29 @@ func TestHibernatedToSettleNamesRowsWithMailOrNoLongerDead(t *testing.T) {
 	slices.Sort(got)
 	if want := []string{"deleted", "mailed", "revived"}; !slices.Equal(got, want) {
 		t.Fatalf("settle = %v, want %v", got, want)
+	}
+}
+
+// The overlay names a hibernated row for what it is and leaves everything
+// else alone: a row that really died, an archived one, and one that came
+// back some other way keep their stored status.
+func TestApplyHibernatedReadsOnlyLiveDeadRowsInTheSet(t *testing.T) {
+	t.Parallel()
+	rows := []Session{
+		{ID: "sleep001", Status: status.Dead},
+		{ID: "gone0001", Status: status.Dead},
+		{ID: "filed001", Status: status.Dead, Archived: true},
+		{ID: "back0001", Status: status.Idle},
+	}
+	set := []string{"sleep001", "filed001", "back0001"}
+	got := ApplyHibernated(slices.Clone(rows), set)
+	want := []string{status.Hibernating, status.Dead, status.Dead, status.Idle}
+	for i, sess := range got {
+		if sess.Status != want[i] {
+			t.Fatalf("%s = %s, want %s", sess.ID, sess.Status, want[i])
+		}
+		if shown := Shown(rows[i], set); shown != want[i] {
+			t.Fatalf("Shown(%s) = %s, want %s", sess.ID, shown, want[i])
+		}
 	}
 }

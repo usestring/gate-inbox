@@ -313,6 +313,7 @@ func legendSections() []helpSection {
 			lit("◎ waiting on sessions", "blocked on child results; resumes to synthesize them when they return"),
 			lit("◒ background", "the turn ended with a shell, monitor or task still running"),
 			lit("◍ pending", "offline: a send is held in the outbox until the network returns"),
+			lit("◓ hibernating", "stopped to give its memory back; entering it or sending it a message wakes it on its conversation"),
 			lit("✕ errored", "the tool reported an error, or the session is dead"),
 			lit("◌ starting", "the pane is still launching"),
 		}},

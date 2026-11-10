@@ -3,6 +3,8 @@ package store
 import (
 	"slices"
 	"strings"
+
+	"github.com/usestring/gate-inbox/internal/status"
 )
 
 // hibernatedSetting holds the ids hibernate stopped to give their memory
@@ -93,4 +95,30 @@ func (s *Store) HibernatedToSettle() ([]string, error) {
 		}
 	}
 	return settle, nil
+}
+
+// ApplyHibernated sets Status to hibernating on every live row in ids that
+// the store holds dead, so the board and the tools say a hibernated session
+// is resting rather than gone. A row that is no longer dead came back some
+// other way and reads as what it is now; an archived row is filed away and
+// stays dead. It rewrites sessions in place and returns it: call it on rows
+// headed for display, never on the rows the next poll derives from, because
+// everything that asks whether a pane is there still reads dead.
+func ApplyHibernated(sessions []Session, ids []string) []Session {
+	if len(ids) == 0 {
+		return sessions
+	}
+	for i, sess := range sessions {
+		sessions[i].Status = Shown(sess, ids)
+	}
+	return sessions
+}
+
+// Shown is sess's status as the board and the tools report it: hibernating
+// for a dead row in the hibernated set, its stored status otherwise.
+func Shown(sess Session, hibernated []string) string {
+	if sess.Status == status.Dead && !sess.Archived && slices.Contains(hibernated, sess.ID) {
+		return status.Hibernating
+	}
+	return sess.Status
 }

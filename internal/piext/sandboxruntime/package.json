@@ -1,0 +1,9 @@
+{
+  "name": "gate-inbox-pi-sandbox-runtime",
+  "private": true,
+  "type": "module",
+  "description": "Builds the sandbox runtime Gate Inbox's pi extension loads. Run build.sh; the output is committed.",
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.81"
+  }
+}

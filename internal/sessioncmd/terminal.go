@@ -14,6 +14,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/extension/gitroot"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -337,9 +339,18 @@ func (t *Terminals) Create(sessionID string, opts CreateTerminalOptions) (create
 			}
 		}
 	}
+	// Composed as a terminal opened on the board is, so it runs confined
+	// out of the key directory as every non-Claude launch does
+	// (launch.compose). An agent drives this one through send_terminal, and
+	// a shell started outside that confinement would read the keys for any
+	// session that asked it to.
+	command, env, err := launch.Environment(hooks.NewManager(runtime.configDir), toolName, tool, tool.Command, sess.ID, "", "", false, nil)
+	if err != nil {
+		return Terminal{}, err
+	}
 	launched := false
 	if err := create(sess, func() error {
-		err := runtime.createPane(sess.ID, sess.Cwd, tool.Command, nil)
+		err := runtime.createPane(sess.ID, sess.Cwd, command, env)
 		launched = err == nil
 		return err
 	}); err != nil {

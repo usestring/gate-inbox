@@ -37,7 +37,13 @@ func Path(hooksDir string) string {
 // Ensure writes this build's extension under hooksDir and returns its path.
 // A file already there holds the same bytes, since the name is theirs, and
 // is left alone.
+//
+// The sandbox runtime its bash tool loads is written beside it
+// (EnsureSandbox).
 func Ensure(hooksDir string) (string, error) {
+	if err := EnsureSandbox(hooksDir); err != nil {
+		return "", err
+	}
 	return hooks.WriteGenerated(hooksDir, fileName, source)
 }
 

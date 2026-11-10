@@ -11,7 +11,18 @@ what the repository and its binaries contain that is licensed by someone else.
   files of every linked module are copied verbatim under `LICENSES/third_party/<module>/`; MIT,
   BSD and Apache-2.0 all require that text to travel with a binary distribution. Run
   `scripts/third-party-licences.sh --check` to confirm the committed copy is current.
-- **JavaScript/npm**: none. The repository has no `package.json` or lockfile.
+- **JavaScript/npm**: the pi extension's sandbox runtime only. `internal/piext/sandboxruntime/build.sh` bundles
+  `@anthropic-ai/sandbox-runtime` and its dependencies (pinned by that directory's `package.json` and
+  `bun.lock`) into `internal/piext/sandbox-runtime.mjs`, which is embedded in the binary, and copies
+  each bundled package's licence into `LICENSES/npm/<package>/`.
+
+  | Package | Version | Licence |
+  |---|---|---|
+  | `@anthropic-ai/sandbox-runtime` | 0.0.81 | Apache-2.0 |
+  | `zod` | 3.25.76 | MIT |
+  | `commander` | 12.1.0 | MIT |
+  | `@pondwader/socks5-server` | 1.0.10 | MIT |
+  | `node-forge` | 1.4.3 | BSD-3-Clause OR GPL-2.0; distributed under BSD-3-Clause |
 - **CI actions** in `.github/workflows/ci.yml` (`actions/checkout`, `actions/setup-go`,
   `actions/upload-artifact`, all MIT) run in CI only and are not distributed.
 - **Non-code assets** are listed by hand below; the generator does not touch that section.

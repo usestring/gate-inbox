@@ -35,6 +35,14 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 		}
 		return nil
 	}
+	if len(args) == 2 && args[0] == "pi" {
+		// The board's pi extension (package piext) reports pi's lifecycle
+		// here; its status lines land in the file the launch set.
+		if output := hooks.DispatchPi(args[1], in, os.Getenv(envname.StatusFile)); output != "" {
+			fmt.Fprintln(out, output)
+		}
+		return nil
+	}
 	if len(args) == 2 && args[0] == "global" {
 		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
 		if err != nil || sessionID == "" {

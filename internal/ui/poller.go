@@ -2719,7 +2719,7 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 	// exactly like a turn that ended -- so the extension that knows writes
 	// the file, and this reads it.
 	pinned := sessionhooks.Role(sess.Role).PinnedStatus
-	if p.statusSources[sess.Tool] == hooks.StatusSourceClaude || pinned {
+	if hooks.FileStatus(p.statusSources[sess.Tool]) || pinned {
 		if !agentAlive {
 			// The agent died without its SessionEnd cleanup hook
 			// (crash, SIGKILL); a stale file must not mask the pane.

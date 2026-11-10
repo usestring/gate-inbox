@@ -139,11 +139,19 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 		m.errBar.text = m.archivedFocusHint()
 		return m, nil
 	}
+	// Focusing a hibernated session wakes it on its conversation, so the
+	// operator lands in its pane rather than on a dead-row hint.
 	if !m.tmux.Exists(sess.ID) {
-		m.errBar.text = m.deadSessionHint()
-		return m, nil
+		if !m.isHibernated(sess) {
+			m.errBar.text = m.deadSessionHint()
+			return m, nil
+		}
+		if !m.wakeForFocus(sess) {
+			return m, nil
+		}
+	} else {
+		m.errBar.text = ""
 	}
-	m.errBar.text = ""
 	if m.triage {
 		// A drain hands the session over and the operator starts reading and
 		// typing an answer into it. Acknowledging here spends the alert

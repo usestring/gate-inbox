@@ -116,7 +116,7 @@ func TestOverrideMovesAKey(t *testing.T) {
 func TestOverridesRoundTripThroughTheFile(t *testing.T) {
 	dir := t.TempDir()
 	want := Overrides{ContextList: {NewSession: {"z"}, Archive: {"delete", "x"}}}
-	if err := Save(dir, want); err != nil {
+	if err := Save(dir, File{Global: want}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Load(dir)

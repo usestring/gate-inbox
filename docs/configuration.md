@@ -136,6 +136,23 @@ A `fork_command` references its source through `{id}` or `{session_file}`, so on
 
 State is stored next to the config in `state.db` (SQLite).
 
+## Key bindings
+
+`keys.toml`, beside `config.toml`, holds your rebinds: one table per screen, one line per action naming the keys it answers to. A first run writes it as a commented list of every action. The key map (`?`) rebinds from inside the board and writes this file; what the file gets wrong is listed at the foot of the key map and falls back to the layer below.
+
+A table named `[device."<identity>".<screen>]` applies on one device only, on top of the shared tables: precedence is the built-in default, then the shared table, then the attached device's table, action by action. The identity is the device fingerprint the theme and layout are kept under, and the key map's title names the one attached now (`? Keys · ssh:203.0.113.7/xterm-256color`). It is `device:<name>` when the client's environment sets `GATE_INBOX_DEVICE`, otherwise `ssh:<client ip>/<TERM_PROGRAM or TERM>` for an SSH client, otherwise `local:<terminal>`. A board in a persistent tmux pane reads the identity from the client attached now, so its keys change when another device attaches.
+
+```toml
+[focus]
+hand_over = ["§"]
+
+# PgDn moves on to the next session in triage, on this connection only.
+[device."ssh:203.0.113.7/xterm-256color".focus]
+hand_over = ["pgdown"]
+```
+
+An SSH identity carries the client's IP, so a connection that comes from a new address stops matching its table. For a name that survives that, set `GATE_INBOX_DEVICE` on the client and forward it (`SetEnv GATE_INBOX_DEVICE=laptop` in the client's `ssh_config`, with `AcceptEnv GATE_INBOX_DEVICE` on the server), then use `[device."device:laptop".<screen>]`. While the board knows the attached device, a rebind or reset from the key map edits that device's tables and leaves the shared ones alone; resetting there puts the action back on its shared binding. A key bound in the focused view is taken from the agent's pane on that device: binding `pgdown` there stops it scrolling the agent.
+
 ## The diagnostic log
 
 Gate Inbox owns the terminal while it runs, so it never prints anything to the screen: what it

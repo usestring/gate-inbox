@@ -1262,6 +1262,10 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	hibernated, err := p.store.Hibernated()
+	if err != nil {
+		return errMsg{err}
+	}
 	if p.offline() {
 		recoveries, err := p.store.LimitRecoveries()
 		if err != nil {
@@ -1284,6 +1288,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		previewAt:        previewAt,
 		agents:           agents,
 		queuedMessages:   queued,
+		hibernated:       hibernated,
 		granted:          granted,
 		compactWindows:   p.compactViews,
 		archivedChildren: archivedKids,

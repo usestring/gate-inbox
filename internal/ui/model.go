@@ -170,6 +170,14 @@ type Model struct {
 	// a key that does nothing with the explanation in a process nobody sees.
 	keys        *keymap.Map
 	keyProblems []string
+	// keyFile is keys.toml as read, device layers included; globalKeys is
+	// its shared tables resolved alone, which a device's layer is diffed
+	// against on save; keysDevice is the device keys was resolved for; and
+	// keyReadProblems are the file's own read errors, kept across re-resolves.
+	keyFile         keymap.File
+	globalKeys      *keymap.Map
+	keysDevice      string
+	keyReadProblems []string
 	// extUIs, extKeys, extBridge and extBadges are what the build's
 	// extensions added: see extensions.go.
 	extUIs    []ExtensionUI
@@ -336,6 +344,11 @@ type Model struct {
 	// queuedMessages is replaced whole on every refresh rather than merged,
 	// so a delivered message's badge clears itself.
 	queuedMessages map[string]int
+	// hibernated is the ids hibernate stopped, replaced whole on every
+	// refresh like queuedMessages. Their rows stay dead in m.sessions, since
+	// every check for a pane must still find none, and shownStatus reads
+	// them as hibernating for everything drawn. See hibernate.go.
+	hibernated []string
 	// granted is every permission a parent granted a session with
 	// grant_permission, by session, replaced whole like queuedMessages so a
 	// revoke clears it.
@@ -1100,6 +1113,7 @@ type refreshMsg struct {
 	previewAt        time.Time
 	agents           agentStats
 	queuedMessages   map[string]int
+	hibernated       []string
 	granted          map[string][]string
 	compactWindows   map[string]compactView
 	archivedChildren map[string]int
@@ -2323,6 +2337,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := tea.Batch(m.setVisible(visible), m.loadDeviceTheme(msg.device))
 		if m.themeDevice != device {
 			cmd = tea.Batch(cmd, m.loadDeviceLayout())
+			m.keysDeviceChanged()
 		}
 		return m, cmd
 
@@ -2534,6 +2549,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pinnedGroups = msg.pinnedGroups
 		m.agents = msg.agents
 		m.queuedMessages = msg.queuedMessages
+		m.hibernated = msg.hibernated
 		m.granted = msg.granted
 		m.compactWindows = msg.compactWindows
 		m.archivedChildren = msg.archivedChildren

@@ -5,6 +5,7 @@ package ui
 import (
 	"fmt"
 	"github.com/usestring/gate-inbox/internal/keymap"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -381,7 +382,7 @@ func parentGroup(group string) string {
 func (m *Model) groupStatusBreakdown(group string) string {
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Hibernating, status.Dead} {
 		if counts[st] > 0 {
 			// The count carries the state's color, the word stays quiet: a
 			// rollup line should read as one texture, not as six labels
@@ -396,7 +397,7 @@ func (m *Model) groupStatusCounts(group string) map[string]int {
 	counts := map[string]int{}
 	for _, sess := range m.listedAgents() {
 		if inGroupSubtree(sess.Group, group) {
-			counts[sess.Status]++
+			counts[m.shownStatus(sess)]++
 		}
 	}
 	return counts
@@ -409,7 +410,7 @@ func (m *Model) groupStatusCounts(group string) map[string]int {
 func (m *Model) groupStatusGlyphs(group string) string {
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Hibernating, status.Dead} {
 		if counts[st] == 0 {
 			continue
 		}
@@ -1008,6 +1009,26 @@ func humanBytes(b uint64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f%cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// homeRelative shows a path under the home directory as ~/..., the way a
+// shell prompt does. The detail pane's dir row is the one place the board
+// prints a session's full path, and the home prefix is the part of it that
+// says nothing about the session but names the account: it is the first thing
+// cut by truncateTail on a narrow rail anyway, and it is what a screenshot or
+// a recorded capture would otherwise publish.
+func homeRelative(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || home == "/" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if rest, ok := strings.CutPrefix(path, strings.TrimSuffix(home, "/")+"/"); ok {
+		return "~/" + rest
+	}
+	return path
 }
 
 // truncateTail keeps the end of the string (best for paths).

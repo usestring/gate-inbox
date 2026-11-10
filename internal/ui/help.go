@@ -395,6 +395,8 @@ func legendMarkStatus(key string) (string, bool) {
 		return status.Background, true
 	case status.Pending:
 		return status.Pending, true
+	case status.Hibernating:
+		return status.Hibernating, true
 	case status.Errored:
 		return status.Errored, true
 	case status.Starting:
@@ -532,7 +534,7 @@ func (m *Model) viewHelp() string {
 		}
 	}
 
-	title := " Keys"
+	title := " Keys · " + m.keysScope()
 	if m.help.legend {
 		title = " Legend"
 	}

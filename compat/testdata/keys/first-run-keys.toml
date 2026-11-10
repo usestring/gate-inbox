@@ -9,6 +9,11 @@
 # rather than by hand if you would rather not look a name up. Anything this
 # file gets wrong is reported on the board at startup and falls back to its
 # default, so a typo here never costs you the list.
+#
+# A table named [device."<identity>".<screen>] applies on one device only, on
+# top of the tables above: the identity is the one Settings and the key map
+# print for the device attached now. Rebinding from the key map writes to the
+# attached device's tables when the board knows the device.
 
 # [list]
 # cursor_up           = ["up", "k"]  # move the cursor up (cannot be unbound)

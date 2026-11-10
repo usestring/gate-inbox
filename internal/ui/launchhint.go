@@ -73,7 +73,29 @@ func (m *Model) reportLaunchError(err error, retry ...func() error) {
 		})
 		return
 	}
+	var outdated config.OutdatedToolError
+	if errors.As(err, &outdated) {
+		m.openLaunchHint(launchFix{
+			text:    outdatedToolText(outdated),
+			command: deps.Command(outdated.Binary),
+			binary:  outdated.Binary,
+			retry:   again,
+		})
+		return
+	}
 	m.errBar.text = err.Error()
+}
+
+// outdatedToolText is missingToolText for a CLI that is installed but older
+// than the board supports. The vendor installer is also the upgrade, so the
+// dialog offers the same command.
+func outdatedToolText(outdated config.OutdatedToolError) string {
+	head := outdated.Binary + " " + outdated.Version + " is older than " + outdated.Floor +
+		", the oldest version Gate Inbox supports."
+	if command := deps.Command(outdated.Binary); command != "" {
+		return head + "\n\nupgrade it with: " + command
+	}
+	return head
 }
 
 // missingToolText opens on why the launch stopped, then the command that

@@ -41,6 +41,24 @@ func TestReportLaunchErrorOpensInstallHintForMissingCLI(t *testing.T) {
 	}
 }
 
+// A pi below the board's floor opens the same dialog as a missing one: the
+// vendor installer is also the upgrade, so it offers that command to run.
+func TestReportLaunchErrorOffersTheUpgradeForAnOutdatedCLI(t *testing.T) {
+	m := buildModel(t)
+
+	m.reportLaunchError(config.OutdatedToolError{Binary: "pi", Version: "0.85.1", Floor: "1.5.0"}, nil)
+
+	if m.mode != modeLaunchHint {
+		t.Fatalf("mode = %v, want modeLaunchHint", m.mode)
+	}
+	if m.launchFix.command != deps.Command("pi") || m.launchFix.binary != "pi" {
+		t.Fatalf("fix = %+v, want the pi installer", m.launchFix)
+	}
+	if frame := ansi.Strip(m.viewLaunchHint()); !strings.Contains(frame, "pi.dev/install.sh") {
+		t.Fatalf("dialog should show the upgrade command:\n%s", frame)
+	}
+}
+
 func TestReportLaunchErrorOpensHintForUnknownMissingCLI(t *testing.T) {
 	m := buildModel(t)
 

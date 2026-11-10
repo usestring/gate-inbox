@@ -190,6 +190,7 @@ func (m *Model) openSettings() {
 		autoProceed:      m.autoProceed,
 		smartTriage:      m.smartTriage,
 		triageOrder:      normalizeTriageOrder(m.triageOrder),
+		triageContent:    normalizeTriageContent(m.triageContent),
 		triageKeepAlives: m.triageKeepAlives,
 		idleSwitch:       m.idleSwitch,
 		confirmLaunches:  m.store.ConfirmLaunches(),
@@ -377,6 +378,9 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(triageOrderSetting, normalizeTriageOrder(m.settings.triageOrder)); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(triageContentSetting, normalizeTriageContent(m.settings.triageContent)); err != nil {
+		m.errBar.text = err.Error()
+	}
 	triageKeepAlives := "off"
 	if m.settings.triageKeepAlives {
 		triageKeepAlives = "on"
@@ -432,6 +436,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.autoProceed = m.settings.autoProceed
 	m.smartTriage = m.settings.smartTriage
 	m.triageOrder = normalizeTriageOrder(m.settings.triageOrder)
+	m.applyTriageContent(m.settings.triageContent)
 	m.triageKeepAlives = m.settings.triageKeepAlives
 	m.idleSwitch = m.settings.idleSwitch
 	m.focusOnEnter = m.settings.enterFocuses
@@ -698,6 +703,8 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.smartTriage = !m.settings.smartTriage
 	case settingsFieldTriageOrder:
 		m.settings.triageOrder = cycleMode(triageOrders, normalizeTriageOrder(m.settings.triageOrder), step)
+	case settingsFieldTriageContent:
+		m.settings.triageContent = cycleMode(triageContents, normalizeTriageContent(m.settings.triageContent), step)
 	case settingsFieldTriageKeepAlives:
 		m.settings.triageKeepAlives = !m.settings.triageKeepAlives
 	case settingsFieldIdleSwitch:

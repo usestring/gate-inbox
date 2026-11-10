@@ -129,7 +129,7 @@ func (m *Model) handOverReviews() (bool, tea.Cmd) {
 func (m *Model) reviewsSlot(tried map[string]bool) (int, bool) {
 	// A review is a person waiting, but not a question, so questions only
 	// leaves the tab to be opened by hand.
-	if !m.reviewQueue || m.triageStartupEnter || m.search != "" || tried[reviewsTriedKey] || !m.reviewsWaiting() ||
+	if !m.reviewQueue || normalizeTriageContent(m.triageContent) == triageContentSessions || m.triageStartupEnter || m.search != "" || tried[reviewsTriedKey] || !m.reviewsWaiting() ||
 		normalizeTriageOrder(m.triageOrder) == triageOrderQuestionsOnly {
 		return 0, false
 	}

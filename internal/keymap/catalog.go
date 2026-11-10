@@ -93,7 +93,8 @@ const (
 	// and queues the new ones: see reviews.go in the ui package.
 	IngestReviews Action = "ingest_reviews"
 	// ReviewsTab switches the rail between the sessions and the review queue.
-	ReviewsTab Action = "reviews_tab"
+	ReviewsTab    Action = "reviews_tab"
+	TriageContent Action = "triage_content"
 )
 
 // Review queue actions.
@@ -233,6 +234,7 @@ var Catalog = []Binding{
 	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
 	{ContextList, ToolFilter, []string{"Y"}, "filter to one CLI, or show all", false},
 	{ContextList, Triage, []string{"i"}, "triage this group as one queue", false},
+	{ContextList, TriageContent, []string{"I", "alt+]"}, "cycle triage: sessions, reviews, or both", false},
 	{ContextList, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
 	{ContextList, EmptyGroups, []string{}, "hide / show empty groups", false},
 	{ContextList, RecentSort, []string{}, "sort by your last interaction / back to the previous order", false},
@@ -304,6 +306,7 @@ var Catalog = []Binding{
 	// ui package's focusactions.go. Option+letter belongs to snippet chords,
 	// so these sit on ctrl or option+punctuation.
 	{ContextFocus, NewSession, []string{"ctrl+n"}, "new session in this one's group", false},
+	{ContextFocus, TriageContent, []string{"alt+]"}, "cycle triage: sessions, reviews, or both", false},
 	{ContextFocus, ReviewsTab, []string{"ctrl+]"}, "switch to the Reviews tab", false},
 	{ContextFocus, CopySessionID, []string{"alt+/"}, "copy the agent's session id", false},
 	{ContextFocus, CopyJev, []string{"alt+'"}, "copy what JEV reads as left for you to copy", false},

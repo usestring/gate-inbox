@@ -530,6 +530,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
 		row(settingsFieldSmartTriage, "smart triage", smartTriage) + "\n" +
 		row(settingsFieldTriageOrder, "triage order", triageOrderLabel(m.settings.triageOrder)) + "\n" +
+		row(settingsFieldTriageContent, "triage includes", normalizeTriageContent(m.settings.triageContent)) + "\n" +
 		row(settingsFieldTriageKeepAlives, "walk keep-alives", triageKeepAlives) + "\n" +
 		row(settingsFieldIdleSwitch, "switch when idle", idleSwitch) + "\n" +
 		row(settingsFieldConfirmLaunches, "confirm launches", confirmLaunches) + "\n" +

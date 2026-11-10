@@ -669,6 +669,7 @@ type Model struct {
 	// the drain hands over first, or at all. triageKeepAlives puts keep-alive
 	// rests back in the drain. See triageorder.go.
 	triageOrder      string
+	triageContent    string
 	triageKeepAlives bool
 	// triageStartupEnter is set when triage was already on at startup, so the
 	// first poll enters the head of the queue the way turning triage on does.
@@ -1013,6 +1014,7 @@ type settingsState struct {
 	autoProceed      bool
 	smartTriage      bool
 	triageOrder      string
+	triageContent    string
 	triageKeepAlives bool
 	idleSwitch       bool
 	confirmLaunches  bool
@@ -1067,6 +1069,7 @@ const (
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
 	settingsFieldTriageOrder
+	settingsFieldTriageContent
 	settingsFieldTriageKeepAlives
 	settingsFieldIdleSwitch
 	settingsFieldConfirmLaunches
@@ -1348,6 +1351,7 @@ type attachDoneMsg struct {
 }
 
 func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status.Engine, hookManager *hooks.Manager, version string) *Model {
+	reviewQueue, triageContent := storedReviewQueue(st), storedTriageContent(st)
 	statusSources := make(map[string]string, len(cfg.Tools))
 	sessionStores := make(map[string]string, len(cfg.Tools))
 	mcpStyles := make(map[string]string, len(cfg.Tools))
@@ -1406,7 +1410,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		jevAutoSuggest:   storedJevAutoSuggest(st),
 		jevFinishCheck:   storedJevFinishCheck(st),
 		jevCopyOn:        storedJevCopy(st),
-		reviewQueue:      storedReviewQueue(st),
+		reviewQueue:      reviewQueue,
 		promptSuggest:    storedPromptSuggestions(st),
 		comfortableRows:  storedComfortableRows(st),
 		layout:           storedLayout(st),
@@ -1426,6 +1430,8 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		autoProceed:      storedAutoProceed(st),
 		smartTriage:      storedSmartTriage(st),
 		triageOrder:      storedTriageOrder(st),
+		triageContent:    triageContent,
+		reviewsTab:       reviewQueue && triageContent == triageContentReviews,
 		triageKeepAlives: storedTriageKeepAlives(st),
 		idleSwitch:       storedIdleSwitch(st),
 		mode:             modeList,

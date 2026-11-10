@@ -237,6 +237,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, m.toggleShowAllWork()
 	case keymap.IngestReviews:
 		return m, m.ingestReviews()
+	case keymap.TriageContent:
+		return m, m.cycleTriageContent()
 	case keymap.ReviewsTab:
 		return m, m.toggleReviewsTab()
 	case keymap.PreviousPane:
@@ -502,6 +504,7 @@ var artifactRowActions = map[keymap.Action]bool{
 	// queue is no row's.
 	keymap.IngestReviews: true,
 	keymap.ReviewsTab:    true,
+	keymap.TriageContent: true,
 }
 
 // stepCursor is one move of the selection: the next row that is not an

@@ -132,6 +132,16 @@ An extension that runs sessions on several Claude subscriptions can rank them by
 
 ## The review queue
 
+Press `I` on the list, or `alt+]` on the list or inside a session, to cycle what
+triage includes: **both → sessions → reviews**. Settings → **triage includes**
+offers the same choice, saved across restarts. **Sessions** skips the Reviews
+tab and review briefing sessions, so finishing your sessions leaves the drain
+waiting for another session. **Reviews** skips ordinary sessions and keeps review
+asks and their briefing sessions. **Both**, the default, combines the queues.
+The tab bar shows the current choice. `]` still switches tabs by hand without
+changing what triage includes. To clear a review from the queue, select it and
+press `x`; a fresh ask can queue it again.
+
 `P` asks GitHub for the pull requests waiting on your review and queues the new ones in a **Reviews** row at the top of the board. Nothing polls: the queue changes only when you press the key. Three asks count:
 
 - you are requested as a reviewer;

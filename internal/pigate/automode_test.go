@@ -62,6 +62,10 @@ func TestAutoModeDecliningAsksWithItsScores(t *testing.T) {
 // saved, and no board server to ask, every undecided call still asks.
 func TestHookWithAKeyButNoBoardServerAsks(t *testing.T) {
 	configDir := t.TempDir()
+	// The operator's own settings could allow the call before auto mode is
+	// reached.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv(jev.KeyEnv, "test-key")
 	if err := os.MkdirAll(filepath.Dir(jev.KeyPath(configDir)), 0o700); err != nil {
 		t.Fatal(err)

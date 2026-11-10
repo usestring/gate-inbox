@@ -124,9 +124,9 @@ func NewEngine(cfg config.Config) (*Engine, error) {
 }
 
 // Match derives a status and reports whether any signal matched, so the
-// caller can distinguish a real signal from the default fallback. A usage
-// or rate-limit banner is errored even when a turn-end summary or a limit
-// dialog would otherwise settle the turn. Rules then run scoped to the
+// caller can distinguish a real signal from the default fallback. Usage,
+// rate-limit and latest Codex failure banners are errored even when a
+// turn-end summary or a limit dialog would otherwise settle the turn. Rules then run scoped to the
 // current turn. If the first matching rule is working, a matching waiting
 // rule later in the list overrides it so persisted rule order cannot mask
 // a user prompt. Every other first match returns as configured. When no
@@ -139,6 +139,13 @@ func (e *Engine) Match(tool, pane string) (string, bool) {
 	}
 	if tr.isLimit(pane) || e.CapacityBanner(tool, pane) != "" {
 		return Errored, true
+	}
+	if tool == "codex" && !e.ViewportDisplaced(tool, pane) {
+		failures := tr
+		failures.limitLine = codexFailureLine
+		if len(failures.limitLines(pane)) != 0 {
+			return Errored, true
+		}
 	}
 	if state, ok := tr.matchRules(tr.matchScope(pane)); ok {
 		return state, true
@@ -200,6 +207,8 @@ func (e *Engine) LimitBanner(tool, pane string) string {
 	}
 	return strings.Join(strings.Fields(strings.Join(tr.limitLines(pane), " ")), " ")
 }
+
+var codexFailureLine = &matcher{re: regexp.MustCompile(`(?m)^[ \t]*■[ \t]+\S`)}
 
 var codexCapacityLine = &matcher{re: regexp.MustCompile(`(?m)^[ \t]*■[ \t]+The selected model is at capacity\b`)}
 

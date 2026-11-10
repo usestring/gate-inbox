@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
@@ -144,5 +145,28 @@ func TestPiLaunchNamesTheBoardsMCPConfig(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A pi launch names the board's plugin directory, written as a claude
+// launch writes it, so the extension can offer its skills and commands.
+func TestPiLaunchNamesTheBoardsPlugin(t *testing.T) {
+	dir := t.TempDir()
+	tool := config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi}
+	_, env, err := Environment(hooks.NewManager(dir), "pi", tool, tool.Command, "abcd1234", "", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := claudeplugin.Path(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env[piext.PluginDirEnv] != want {
+		t.Fatalf("%s = %q, want %q", piext.PluginDirEnv, env[piext.PluginDirEnv], want)
+	}
+	for _, rel := range []string{"skills/relay-child-dialog/SKILL.md", "commands/children.md", "commands/gi-sweep.md"} {
+		if _, err := os.Stat(filepath.Join(want, rel)); err != nil {
+			t.Fatalf("the launch did not write %s: %v", rel, err)
+		}
 	}
 }

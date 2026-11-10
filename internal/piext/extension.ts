@@ -123,25 +123,29 @@ const mcpConfigFile = process.env.GATE_INBOX_MCP_CONFIG ?? "";
 // declared to the model directly, as Claude Code declares them.
 function boardServerConfig(): McpServerConfig {
   const parsed = JSON.parse(readFileSync(mcpConfigFile, "utf8")) as {
-    mcpServers?: Record<string, Record<string, unknown>>;
+    mcpServers?: Record<string, ClaudeServerEntry>;
   };
   const entry = parsed.mcpServers?.[mcpServer];
   if (!entry) throw new Error(`${mcpConfigFile} has no ${mcpServer} server`);
-  const config: Record<string, unknown> = {
-    exposure: "direct",
-    description: "Gate Inbox board: sessions, status, permissions",
-  };
-  if (typeof entry.url === "string") {
-    config.url = entry.url;
-    config.headers = entry.headers;
-    if (typeof entry.timeout === "number") config.timeout = Math.ceil(entry.timeout / 1000);
-  } else {
-    config.command = entry.command;
-    config.args = entry.args;
-    config.env = entry.env;
+  const shared = { exposure: "direct", description: "Gate Inbox board: sessions, status, permissions" } as const;
+  if (entry.url) {
+    const timeout = entry.timeout ? Math.ceil(entry.timeout / 1000) : undefined;
+    return { ...shared, url: entry.url, headers: entry.headers, timeout };
   }
-  return config as McpServerConfig;
+  if (!entry.command) throw new Error(`${mcpConfigFile}: the ${mcpServer} server has neither url nor command`);
+  return { ...shared, command: entry.command, args: entry.args, env: entry.env };
 }
+
+// ClaudeServerEntry is the part of a Claude Code mcpServers entry the
+// launch writes; timeout is in milliseconds.
+type ClaudeServerEntry = {
+  url?: string;
+  headers?: Record<string, string>;
+  timeout?: number;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+};
 
 // overridingConfigs names the pi config files that define a server under
 // the board's name. Pi lets a file-configured server win over one an

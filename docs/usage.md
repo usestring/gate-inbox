@@ -201,7 +201,9 @@ Press `space` on the list, or `ctrl+s` anywhere including inside a focused sessi
 - On a session showing a **question** (Claude Code's `AskUserQuestion`) that has a free-text row, a submitting snippet answers it: its text is typed into the "Type something" row and submitted, then read back, so a stock reply like "What would you suggest?" answers the question without you attaching. The text is never matched against the options, even when it names one. A multi-select, a question without a free-text row, a permission prompt and a snippet with `autoSubmit` off still refuse the send and leave the dialog for you, as every dialog did before.
 - On a **group** row there is no pane to send to, so the menu says to select a session. `n` and `ctrl+n` start a new agent in the group.
 
-Settings → **experimental** contains five features, all off by default.
+Settings → **experimental** contains optional features, all off by default.
+
+**PR CI feedback** sends failed checks to the live agent that opened the pull request. It allows up to two repair prompts until CI passes and requires the GitHub integration. Saving the switch takes effect immediately; turning it off retires feedback that has not started delivery. See [PR CI feedback](configuration.md#pr-ci-feedback) for the ownership and delivery guards.
 
 **Compressed focus view** keeps the shortened conversation on screen in focus mode. It is off by default, including for existing users who previously chose the conversation view. Prompt and input mirroring is still experimental; use `F3` to return to the live terminal to see and submit input. Disabling it restores the live terminal whenever a session is focused.
 

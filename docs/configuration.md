@@ -173,6 +173,32 @@ no_compress = false     # rotated files are gzipped by default
 `max_backups` left unset is derived from `max_total_mb / max_size_mb`, so the two cannot be
 configured into contradicting each other.
 
+## PR CI feedback
+
+To send failed CI checks back to the agent that opened the pull request, turn on
+**PR CI feedback** in Settings → **Experimental features**. This experiment is off by
+default, persists on the board, and requires the GitHub integration. It uses the board's existing
+GitHub polling, so no webhook or separate watcher is needed. Only a PR recorded as opened
+by exactly one unarchived, live agent session receives feedback; mentioning a PR does not
+make a session its owner. Dead sessions are never revived for CI.
+
+Feedback waits for the checks on the current commit to finish, then queues the failed
+check names and links through the normal inbox. Delivery waits behind permission dialogs
+and unfinished operator input. The agent must recheck the PR and follow its repository's
+ownership and permission rules before acting. This does not acquire an external PR lock
+or coordinate a separate PR-attention service.
+
+Duplicate failures stay suppressed across board restarts. A rerun or a new failing commit
+can produce another round, with at most two repair prompts until CI passes. A third failure
+asks the agent to report the remaining problem to the operator. Pending checks and new
+commits do not reset that limit. Green CI clears the episode and retires feedback still
+waiting in the inbox. Claimed messages may already be on their way to the agent, which is
+why every repair prompt requires a fresh check before acting.
+
+Check lists truncated by GitHub are held without automatic repair. Feedback includes check
+metadata and links; it does not download logs. Disabling the experiment takes effect when
+you save Settings and retires any CI feedback that has not started delivery. No restart is needed.
+
 ## Right-to-left text
 
 Hebrew and Arabic rows are painted as the cells they occupy, the same on every host. A terminal that runs its own bidirectional layout, iTerm2's right-to-left support or WezTerm's `bidi_enabled`, reorders those rows itself; turn that support off to read the frame in the columns Gate Inbox paints.

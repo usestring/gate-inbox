@@ -5,6 +5,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -35,6 +36,8 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.jevCopyOn }},
 	{reviewQueueSetting, "Review queue", "Fetch the pull requests you were asked to review on GitHub onto a Reviews tab (]).\nRuns on the ingest key only; [integrations.reviews] sets what counts as an ask.",
 		func(s *settingsState) *bool { return &s.reviewQueue }},
+	{store.CIFeedbackSetting, "PR CI feedback", "Return failed CI checks to the live agent that opened the pull request.\nAllows up to two repair prompts until CI passes; requires the GitHub integration.",
+		func(s *settingsState) *bool { return &s.ciFeedback }},
 	{arrowsStaySetting, "Arrows stay in sessions", "Send Left and Right to the focused session at the prompt's edges too.\nOff, Left at the prompt's head and Right at its end go back to the list.",
 		func(s *settingsState) *bool { return &s.arrowsStay }},
 }
@@ -61,6 +64,11 @@ func (m *Model) persistExperiments() {
 			value = "on"
 		}
 		if err := m.store.SetSetting(feature.setting, value); err != nil {
+			m.errBar.text = err.Error()
+		}
+	}
+	if !storedExperiment(m.store, store.CIFeedbackSetting) {
+		if err := m.store.CancelCIFeedback(time.Now()); err != nil {
 			m.errBar.text = err.Error()
 		}
 	}

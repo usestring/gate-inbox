@@ -406,16 +406,19 @@ type Tracker struct {
 	// one: everything is asked about from cold on every start.
 	Memory Memory
 	Now    func() time.Time
+	// Restored cache entries must never trigger actions; only fresh results reach this hook.
+	OnPRRefresh func(map[string]forge.PR)
 	// SettleAfter is how long a settled artifact outlives its first sighting
 	// on screen. Zero means DefaultSettleAfter.
 	SettleAfter time.Duration
 
-	mu      sync.RWMutex
-	refs    map[string][]workspec.Ref
-	prs     map[string]forge.PR
-	tickets map[string]forge.Ticket
-	fetched map[string]time.Time
-	health  struct{ gh, linear forge.Health }
+	mu        sync.RWMutex
+	refreshMu sync.Mutex
+	refs      map[string][]workspec.Ref
+	prs       map[string]forge.PR
+	tickets   map[string]forge.Ticket
+	fetched   map[string]time.Time
+	health    struct{ gh, linear forge.Health }
 	// seen is when each settled artifact was first on screen. dirty and
 	// dropped are what Refresh has yet to write through to the store: the
 	// marks arrive off the event loop, where a database write does not
@@ -843,6 +846,9 @@ func (p *refreshSpans) emit() {
 // what to ask about, and forget reads it to decide what to keep. Handing this a subset would drop
 // the state of every session left out of it.
 func (t *Tracker) Refresh(sessions []Session) {
+	// Overlapping ticks must not deliver observations in response-completion order.
+	t.refreshMu.Lock()
+	defer t.refreshMu.Unlock()
 	// Declared before the defer that emits it and registered before every
 	// other defer here, so the pass's span closes after the store writes the
 	// others do. Those writes are part of what a refresh costs, and a span
@@ -917,6 +923,9 @@ func (t *Tracker) Refresh(sessions []Session) {
 	// Outside the lock: this writes to SQLite, and holding the tracker's lock across a disk
 	// write would stall every render that reads it. Only what was resolved this pass goes in.
 	defer t.remember(prs, tickets)
+	if t.OnPRRefresh != nil {
+		defer func() { t.OnPRRefresh(prs) }()
+	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()

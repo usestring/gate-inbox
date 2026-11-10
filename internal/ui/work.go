@@ -19,6 +19,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/nativefeedback"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -48,6 +49,9 @@ func newWorkTracker(cfg config.Config, st *store.Store) *worktracker.Tracker {
 		Linear:       cfg.Integrations.Linear.On(),
 		LinearAPIKey: os.Getenv("LINEAR_API_KEY"),
 	})
+	if github, ok := gh.(*forge.GitHub); ok {
+		github.PRFeedback = cfg.Work.PRFeedback
+	}
 	tracker := worktracker.New(worktracker.NewGit(), gh, linear)
 	tracker.SettleAfter = cfg.Work.SettleAfter.Duration
 	if st != nil {
@@ -62,10 +66,20 @@ func newWorkTracker(cfg config.Config, st *store.Store) *worktracker.Tracker {
 			if err := cifeedback.Observe(st, prs, agentTools); err != nil {
 				logging.Warn("could not queue CI feedback", logging.Err(err))
 			}
+			if cfg.Work.PRFeedback {
+				if err := nativefeedback.Observe(st, prs, agentTools); err != nil {
+					logging.Warn("could not queue PR feedback", logging.Err(err))
+				}
+			}
 		}
 		if !storedExperiment(st, store.CIFeedbackSetting) {
 			if err := st.CancelCIFeedback(time.Now()); err != nil {
 				logging.Warn("could not retire disabled CI feedback", logging.Err(err))
+			}
+		}
+		if !cfg.Work.PRFeedback {
+			if err := st.CancelPRFeedback(time.Now()); err != nil {
+				logging.Warn("could not retire disabled PR feedback", logging.Err(err))
 			}
 		}
 	}

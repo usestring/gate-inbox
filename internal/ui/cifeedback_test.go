@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/workspec"
@@ -122,5 +124,53 @@ func TestCIFeedbackOptInUsesBoardRefreshAndDisablingRetiresQueue(t *testing.T) {
 	msg, ok, err = st.HeadMessage("owner")
 	if err != nil || !ok || !strings.Contains(msg.Body, "round 2 of 2") {
 		t.Fatalf("restored delivery spent another repair round: %+v, %v, %v", msg, ok, err)
+	}
+}
+
+func TestPRFeedbackOptInUsesBoardRefreshAndDisablingRetiresQueue(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "board.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const url = "https://github.com/example/repo/pull/7"
+	at := time.Unix(200, 0)
+	if err := st.CreateSession(store.Session{ID: "owner", Tool: "agent", Status: "idle"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordOpenedPRs("owner", []string{url}, at); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{Tools: map[string]config.Tool{"agent": {}}}
+	refresh := func() {
+		t.Helper()
+		tracker := newWorkTracker(cfg, st)
+		tracker.GitHub = ciTestForge{pr: forge.PR{URL: url, State: forge.PROpen, FetchedAt: at,
+			Feedback: &forge.PRFeedbackSnapshot{HeadSHA: "head", BaseSHA: "base", Mergeability: "CONFLICTING"}}}
+		session := worktracker.Session{ID: "owner", Text: url, Live: true}
+		tracker.Discover(session)
+		tracker.Refresh([]worktracker.Session{session})
+	}
+	queued := func() int {
+		t.Helper()
+		n, err := st.QueuedCount("owner")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	refresh()
+	if n := queued(); n != 0 {
+		t.Fatalf("default feedback: %d", n)
+	}
+	cfg.Work.PRFeedback = true
+	refresh()
+	if n := queued(); n != 1 {
+		t.Fatalf("enabled feedback: %d", n)
+	}
+	cfg.Work.PRFeedback = false
+	newWorkTracker(cfg, st)
+	if n := queued(); n != 0 {
+		t.Fatalf("disabled feedback still queued: %d", n)
 	}
 }

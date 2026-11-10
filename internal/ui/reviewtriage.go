@@ -127,7 +127,10 @@ func (m *Model) handOverReviews() (bool, tea.Cmd) {
 // last handed over, no search narrowing the list, and not already tried in
 // this advance.
 func (m *Model) reviewsSlot(tried map[string]bool) (int, bool) {
-	if !m.reviewQueue || m.search != "" || tried[reviewsTriedKey] || !m.reviewsWaiting() {
+	// A review is a person waiting, but not a question, so questions only
+	// leaves the tab to be opened by hand.
+	if !m.reviewQueue || m.search != "" || tried[reviewsTriedKey] || !m.reviewsWaiting() ||
+		normalizeTriageOrder(m.triageOrder) == triageOrderQuestionsOnly {
 		return 0, false
 	}
 	from := 0

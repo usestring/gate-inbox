@@ -189,6 +189,8 @@ func (m *Model) openSettings() {
 		newSessionAgent:  normalizeNewSessionAgent(m.newSessionAgent),
 		autoProceed:      m.autoProceed,
 		smartTriage:      m.smartTriage,
+		triageOrder:      normalizeTriageOrder(m.triageOrder),
+		triageKeepAlives: m.triageKeepAlives,
 		idleSwitch:       m.idleSwitch,
 		confirmLaunches:  m.store.ConfirmLaunches(),
 		reopenSessions:   m.reopenSessionsMode(),
@@ -372,6 +374,16 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(smartTriageSetting, smartTriage); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(triageOrderSetting, normalizeTriageOrder(m.settings.triageOrder)); err != nil {
+		m.errBar.text = err.Error()
+	}
+	triageKeepAlives := "off"
+	if m.settings.triageKeepAlives {
+		triageKeepAlives = "on"
+	}
+	if err := m.store.SetSetting(triageKeepAlivesSetting, triageKeepAlives); err != nil {
+		m.errBar.text = err.Error()
+	}
 	idleSwitch := "off"
 	if m.settings.idleSwitch {
 		idleSwitch = "on"
@@ -419,6 +431,8 @@ func (m *Model) persistSettings() tea.Cmd {
 	}
 	m.autoProceed = m.settings.autoProceed
 	m.smartTriage = m.settings.smartTriage
+	m.triageOrder = normalizeTriageOrder(m.settings.triageOrder)
+	m.triageKeepAlives = m.settings.triageKeepAlives
 	m.idleSwitch = m.settings.idleSwitch
 	m.focusOnEnter = m.settings.enterFocuses
 	m.arrowsStay = storedArrowsStay(m.store)
@@ -682,6 +696,10 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.autoProceed = !m.settings.autoProceed
 	case settingsFieldSmartTriage:
 		m.settings.smartTriage = !m.settings.smartTriage
+	case settingsFieldTriageOrder:
+		m.settings.triageOrder = cycleMode(triageOrders, normalizeTriageOrder(m.settings.triageOrder), step)
+	case settingsFieldTriageKeepAlives:
+		m.settings.triageKeepAlives = !m.settings.triageKeepAlives
 	case settingsFieldIdleSwitch:
 		m.settings.idleSwitch = !m.settings.idleSwitch
 	case settingsFieldConfirmLaunches:

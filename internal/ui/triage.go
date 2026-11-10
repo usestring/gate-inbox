@@ -281,7 +281,10 @@ func (m *Model) triageLess(a, b store.Session) bool {
 // deadline for every warm session, so a deadline that outranked the state
 // put every session touched in the last hour ahead of every question.
 func (m *Model) triageBefore(ka, kb triageKey, a, b store.Session, now time.Time) bool {
-	if ka.errored == kb.errored && ka.band == triageBandScored && kb.band == triageBandScored &&
+	// Oldest first puts every walkable row in one state, so a deadline there
+	// would order the whole walk, which is the bug above over again.
+	if normalizeTriageOrder(m.triageOrder) != triageOrderOldest &&
+		ka.errored == kb.errored && ka.band == triageBandScored && kb.band == triageBandScored &&
 		ka.asking == kb.asking && ka.priority == kb.priority && ka.tier == kb.tier {
 		if before, differ := m.deadlineBefore(a.ID, b.ID, now); differ {
 			return before
@@ -365,6 +368,7 @@ func (m *Model) triageKeyOf(sess store.Session, now time.Time) triageKey {
 			key.band, key.score = triageBandScored, triageScore(sess)
 			key.tier = m.triageScoredRank(sess)
 		}
+		key = m.orderTriageKey(key, sess)
 	}
 	return key
 }
@@ -668,7 +672,7 @@ func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool
 		if reviews && i >= at {
 			return reviewsTurn, true
 		}
-		if m.triageHandable(row, leftID, tried) && m.triageWalkable(row.sess) {
+		if m.triageHandable(row, leftID, tried) && m.triageWalkable(row.sess) && m.inTriageRotation(row.sess) {
 			return i, true
 		}
 	}
@@ -753,7 +757,7 @@ func (m *Model) triagePickupCmd() tea.Cmd {
 		return nil
 	}
 	for _, row := range m.rows {
-		if !row.entersAs() || !m.triageHandable(row, "", nil) || !m.needsPerson(row.sess) {
+		if !row.entersAs() || !m.triageHandable(row, "", nil) || !m.needsPerson(row.sess) || !m.inTriageRotation(row.sess) {
 			continue
 		}
 		// The flag clears only on entry: a session that refuses to be

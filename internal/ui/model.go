@@ -652,6 +652,11 @@ type Model struct {
 	// orders the walk newest turn first; off, by the strict state-first order.
 	// See triageScore.
 	smartTriage bool
+	// triageOrder mirrors the persisted triage_order setting: which sessions
+	// the drain hands over first, or at all. triageKeepAlives puts keep-alive
+	// rests back in the drain. See triageorder.go.
+	triageOrder      string
+	triageKeepAlives bool
 	// triageStartupEnter is set when triage was already on at startup, so the
 	// first poll enters the head of the queue the way turning triage on does.
 	// Restoring the mode without the entry leaves the operator on a list they
@@ -994,6 +999,8 @@ type settingsState struct {
 	newSessionAgent  string
 	autoProceed      bool
 	smartTriage      bool
+	triageOrder      string
+	triageKeepAlives bool
 	idleSwitch       bool
 	confirmLaunches  bool
 	reopenSessions   string
@@ -1046,6 +1053,8 @@ const (
 	settingsFieldFocusKey
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
+	settingsFieldTriageOrder
+	settingsFieldTriageKeepAlives
 	settingsFieldIdleSwitch
 	settingsFieldConfirmLaunches
 	settingsFieldReopenSessions
@@ -1361,50 +1370,52 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	// force here rather than read off the model on every paint.
 	applyGlyphSet(storedGlyphs(st))
 	model := &Model{
-		conversation:    &conversationView{locator: newHistoryLocator(), compact: true, hovered: -1},
-		landingLocator:  newHistoryLocator(),
-		cfg:             cfg,
-		store:           st,
-		tmux:            driver,
-		hooks:           hookManager,
-		gitDrv:          gitDriver,
-		engine:          engine,
-		setSnapshots:    st.SetSnapshots,
-		work:            newWorkTracker(cfg, st),
-		convos:          newConvoIndex(),
-		drift:           sessname.NewDrift(),
-		firstPrompts:    map[string][]string{},
-		poller:          newPoller(st, driver, engine, hookManager, gitDriver, statusSources, sessionStores, mcpStyles, shellTools, cfg.PollInterval.Duration),
-		collapsed:       loadCollapsed(st),
-		split:           splitState{ratio: loadSplitRatio(st)},
-		focusOnEnter:    storedFocusOnEnter(st),
-		focusView:       storedFocusView(st),
-		arrowsStay:      storedArrowsStay(st),
-		jevAutoSuggest:  storedJevAutoSuggest(st),
-		jevFinishCheck:  storedJevFinishCheck(st),
-		jevCopyOn:       storedJevCopy(st),
-		reviewQueue:     storedReviewQueue(st),
-		promptSuggest:   storedPromptSuggestions(st),
-		comfortableRows: storedComfortableRows(st),
-		layout:          storedLayout(st),
-		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
-		palette:         storedPalette(st),
-		glyphs:          storedGlyphs(st),
-		archiveConfirm:  storedArchiveConfirm(st),
-		deleteConfirm:   storedConfirmAsk(st, deleteConfirmSetting),
-		restartConfirm:  storedConfirmAsk(st, restartConfirmSetting),
-		listSort:        storedListSort(st),
-		listConsistency: storedListConsistency(st),
-		chrome:          storedChrome(st),
-		leaveMode:       storedLeaveMode(st),
-		newSessionAgent: storedNewSessionAgent(st),
-		triage:          storedTriage(st),
-		triageScope:     storedTriageScope(st),
-		autoProceed:     storedAutoProceed(st),
-		smartTriage:     storedSmartTriage(st),
-		idleSwitch:      storedIdleSwitch(st),
-		mode:            modeList,
-		version:         version,
+		conversation:     &conversationView{locator: newHistoryLocator(), compact: true, hovered: -1},
+		landingLocator:   newHistoryLocator(),
+		cfg:              cfg,
+		store:            st,
+		tmux:             driver,
+		hooks:            hookManager,
+		gitDrv:           gitDriver,
+		engine:           engine,
+		setSnapshots:     st.SetSnapshots,
+		work:             newWorkTracker(cfg, st),
+		convos:           newConvoIndex(),
+		drift:            sessname.NewDrift(),
+		firstPrompts:     map[string][]string{},
+		poller:           newPoller(st, driver, engine, hookManager, gitDriver, statusSources, sessionStores, mcpStyles, shellTools, cfg.PollInterval.Duration),
+		collapsed:        loadCollapsed(st),
+		split:            splitState{ratio: loadSplitRatio(st)},
+		focusOnEnter:     storedFocusOnEnter(st),
+		focusView:        storedFocusView(st),
+		arrowsStay:       storedArrowsStay(st),
+		jevAutoSuggest:   storedJevAutoSuggest(st),
+		jevFinishCheck:   storedJevFinishCheck(st),
+		jevCopyOn:        storedJevCopy(st),
+		reviewQueue:      storedReviewQueue(st),
+		promptSuggest:    storedPromptSuggestions(st),
+		comfortableRows:  storedComfortableRows(st),
+		layout:           storedLayout(st),
+		sidebar:          storedSidebar(st, cfg.Board.Sidebar),
+		palette:          storedPalette(st),
+		glyphs:           storedGlyphs(st),
+		archiveConfirm:   storedArchiveConfirm(st),
+		deleteConfirm:    storedConfirmAsk(st, deleteConfirmSetting),
+		restartConfirm:   storedConfirmAsk(st, restartConfirmSetting),
+		listSort:         storedListSort(st),
+		listConsistency:  storedListConsistency(st),
+		chrome:           storedChrome(st),
+		leaveMode:        storedLeaveMode(st),
+		newSessionAgent:  storedNewSessionAgent(st),
+		triage:           storedTriage(st),
+		triageScope:      storedTriageScope(st),
+		autoProceed:      storedAutoProceed(st),
+		smartTriage:      storedSmartTriage(st),
+		triageOrder:      storedTriageOrder(st),
+		triageKeepAlives: storedTriageKeepAlives(st),
+		idleSwitch:       storedIdleSwitch(st),
+		mode:             modeList,
+		version:          version,
 		// Assume the operator is looking until something says otherwise. A
 		// manager that cannot answer the question -- not under tmux, and a
 		// terminal that never reports focus -- then behaves exactly as it

@@ -243,12 +243,17 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 	if !known {
 		return GrantResult{}, fmt.Errorf("tool %s is no longer configured", target.Tool)
 	}
-	if tool.StatusSource != hooks.StatusSourceClaude {
+	if tool.StatusSource != hooks.StatusSourceClaude && tool.StatusSource != hooks.StatusSourcePi {
 		return GrantResult{}, unsupportedGrant(target.Tool)
 	}
 	gs, err := requested(req)
 	if err != nil {
 		return GrantResult{}, err
+	}
+	if tool.StatusSource == hooks.StatusSourcePi && !req.Revoke {
+		if err := piGrantable(gs); err != nil {
+			return GrantResult{}, err
+		}
 	}
 	var result GrantResult
 	if req.Revoke {
@@ -485,6 +490,14 @@ func (s *Sessions) applyGrants(runtime *runtime, target store.Session, force boo
 	if len(grants) > 0 {
 		out.settings = path
 	}
+	if runtime.cfg.Tools[target.Tool].StatusSource == hooks.StatusSourcePi {
+		// Pi's tool gate (package pigate) reads the session's grants from the
+		// store on every call once its settings file exists, so the change is
+		// in force from its next call and nothing restarts.
+		out.running = runtime.driver.Exists(target.ID)
+		out.note = "pi reads its grants on every tool call, so this applies from its next call without a restart"
+		return out, nil
+	}
 	adopted := target.TmuxPaneID != ""
 	if adopted {
 		if err := runtime.reach(target); err != nil {
@@ -561,9 +574,11 @@ func (s *Sessions) ExpireGrants(now time.Time) (int, error) {
 		case err != nil:
 			errs = append(errs, err)
 			continue
-		case (target.Status == status.Working || target.Status == status.Background) && target.TmuxPaneID == "" && runtime.driver.Exists(target.ID):
-			// An adopted session's hooks stop honouring a grant the moment
-			// it lapses, so only a launched one keeps it until it rests.
+		case (target.Status == status.Working || target.Status == status.Background) && target.TmuxPaneID == "" &&
+			runtime.cfg.Tools[target.Tool].StatusSource != hooks.StatusSourcePi && runtime.driver.Exists(target.ID):
+			// An adopted session's hooks, and a pi session's tool gate, stop
+			// honouring a grant the moment it lapses, so only a launched
+			// Claude session keeps it until it rests.
 			continue
 		}
 		for _, g := range grants {
@@ -707,7 +722,24 @@ func adoptedGrantNote(gs []grant.Grant, revoked bool) string {
 	return strings.Join(parts, ". ")
 }
 
-// unsupportedGrant says why a CLI other than Claude Code cannot be granted a
+// piGrantable refuses the kinds pi's tool gate has no use for, rather than
+// recording a grant that would change nothing: pi has no sandbox network for
+// a domain to open, and its auto mode is not told of approved prefixes.
+func piGrantable(gs []grant.Grant) error {
+	for _, g := range gs {
+		switch g.Kind {
+		case grant.KindDomain:
+			return errors.New("a pi session cannot be granted a domain: pi has no sandbox network for one to open; " +
+				"grant the rule for the tool instead, such as WebFetch(domain:" + g.Value + ")")
+		case grant.KindSoft:
+			return errors.New("a pi session cannot be granted a soft command: its auto mode is not told of approved " +
+				"prefixes; grant the rule instead, such as Bash(" + g.Value + ":*)")
+		}
+	}
+	return nil
+}
+
+// unsupportedGrant says why a CLI other than Claude Code or pi cannot be granted a
 // permission this way, and what that CLI has instead.
 func unsupportedGrant(tool string) error {
 	switch tool {
@@ -719,8 +751,8 @@ func unsupportedGrant(tool string) error {
 		return errors.New("opencode sessions cannot be granted a permission this way yet; a person " +
 			"changes the permission rules in opencode.json")
 	}
-	return fmt.Errorf("%s sessions cannot be granted a permission: only Claude Code sessions launch with a "+
-		"settings file Gate Inbox writes", tool)
+	return fmt.Errorf("%s sessions cannot be granted a permission: only Claude Code sessions, which launch with a "+
+		"settings file Gate Inbox writes, and pi sessions, whose tool gate reads grants live, take one", tool)
 }
 
 // FormatGrant is a grant's result as text.

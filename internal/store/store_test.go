@@ -1722,3 +1722,42 @@ func TestPaneSizeRoundTripsAndRefusesJunk(t *testing.T) {
 		}
 	}
 }
+
+func TestBindAgentSessionIDRejectsAnotherManagersClaim(t *testing.T) {
+	path := filepath.Join(tmuxtest.ScratchDir(t), "binding.db")
+	first, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	for _, id := range []string{"a", "b"} {
+		if err := first.CreateSession(sample(id, "g1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := second.Get("b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bound, err := first.BindAgentSessionID("a", "shared", time.Time{}); err != nil || !bound {
+		t.Fatalf("first capture: bound=%v err=%v", bound, err)
+	}
+	if bound, err := second.BindAgentSessionID("b", "shared", snapshot.AgentLaunchedAt); err != nil || bound {
+		t.Fatalf("stale snapshot duplicated a conversation: bound=%v err=%v", bound, err)
+	}
+	got, err := second.Get("b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AgentSessionID != "" {
+		t.Fatalf("losing row bound %q", got.AgentSessionID)
+	}
+	if bound, err := second.BindAgentSessionID("b", "own", snapshot.AgentLaunchedAt); err != nil || !bound {
+		t.Fatalf("independent capture: bound=%v err=%v", bound, err)
+	}
+}

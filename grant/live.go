@@ -31,6 +31,10 @@ type Call struct {
 	Input map[string]any
 	// Cwd is the session's working directory, and Home the user's.
 	Cwd, Home string
+	// RuleBase is where a rule written as /path is read from: the root of
+	// the settings file the rule came from. A grant has none, so such a rule
+	// matches nothing.
+	RuleBase string
 }
 
 // fileTools are the tools each file rule covers, as Claude Code applies them:
@@ -162,6 +166,12 @@ func commandAllowed(pattern, command string) bool {
 	if command == "" || strings.ContainsAny(command, commandMeta) {
 		return false
 	}
+	return commandMatches(pattern, command)
+}
+
+// commandMatches matches one command, already trimmed, against a Bash rule's
+// pattern, with no regard for what else the command carries.
+func commandMatches(pattern, command string) bool {
 	if prefix, ok := strings.CutSuffix(pattern, ":*"); ok {
 		prefix = strings.TrimSpace(prefix)
 		if prefix == "" || !strings.HasPrefix(command, prefix) {
@@ -242,7 +252,10 @@ func resolvePattern(pattern string, call Call) (string, bool) {
 	case strings.HasPrefix(pattern, "//"):
 		return "/" + strings.TrimLeft(pattern, "/"), true
 	case singleSlash(pattern):
-		return "", false
+		if call.RuleBase == "" || !filepath.IsAbs(call.RuleBase) {
+			return "", false
+		}
+		return filepath.Clean(call.RuleBase) + pattern, true
 	case strings.HasPrefix(pattern, "~/"):
 		if call.Home == "" {
 			return "", false

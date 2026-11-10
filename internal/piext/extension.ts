@@ -125,4 +125,56 @@ export default function gateInbox(pi: ExtensionAPI) {
   pi.on("session_shutdown", async (event, ctx) => {
     await report("session_shutdown", { reason: event.reason, cwd: ctx.cwd });
   });
+  registerToolGate(pi);
+}
+
+// gateTimeoutMs bounds one PreToolUse decision. It is longer than a status
+// event's: the merge gate asks GitHub, and the answer is worth waiting for.
+const gateTimeoutMs = 30000;
+
+type GateDecision = {
+  permissionDecision: "allow" | "deny" | "ask";
+  reason?: string;
+  tool?: string;
+  ruleSuggestion?: string;
+};
+
+// decide asks `hook pi PreToolUse` about one call. Anything but a
+// well-formed answer, including no answer at all, is "ask": the gate fails
+// closed, never open.
+async function decide(payload: Record<string, unknown>): Promise<GateDecision> {
+  const answer = (await runHook("PreToolUse", payload, gateTimeoutMs)) as Partial<GateDecision> | undefined;
+  const verdict = answer?.permissionDecision;
+  if (verdict === "allow" || verdict === "deny" || verdict === "ask") {
+    return answer as GateDecision;
+  }
+  return { permissionDecision: "ask", reason: "Gate Inbox did not answer" };
+}
+
+// registerToolGate holds every tool call until the board decides it. The
+// decision is the board's, in Go; this only carries the call there and the
+// answer back.
+function registerToolGate(pi: ExtensionAPI) {
+  pi.on("tool_call", async (event, ctx) => {
+    const tool = pi.getAllTools().find((t) => t.name === event.toolName);
+    const d = await decide({
+      tool_name: event.toolName,
+      tool_input: event.input,
+      cwd: ctx.cwd,
+      tool_use_id: event.toolCallId,
+      read_only: tool?.annotations?.readOnlyHint === true,
+    });
+    if (ctx.signal?.aborted) return { block: true, reason: "cancelled" };
+    if (d.permissionDecision === "allow") return undefined;
+    if (d.permissionDecision === "deny") {
+      return { block: true, reason: `Gate Inbox refused this call: ${d.reason ?? "denied"}` };
+    }
+    return askUser(d);
+  });
+}
+
+// askUser is what an "ask" does. Until the board can draw a permission
+// dialog in the pane, a call that needs approval is refused with why.
+async function askUser(d: GateDecision): Promise<{ block: true; reason: string }> {
+  return { block: true, reason: `This call needs approval, which Gate Inbox cannot ask for yet: ${d.reason ?? "no rule allows it"}` };
 }

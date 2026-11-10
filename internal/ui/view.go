@@ -798,6 +798,7 @@ func (m *Model) peekLegendSections() []legendSection {
 func (m *Model) rowLegend() legendSection {
 	if m.onReviewsTab() {
 		return legendSection{title: "Reviews", pairs: [][2]string{
+			{m.tightCap(keymap.ContextList, keymap.NewSession), "new session"},
 			{m.tightCap(keymap.ContextReviews, keymap.ReviewStart), "start"},
 			{m.tightCap(keymap.ContextReviews, keymap.ReviewOpen), "open"},
 			{m.tightCap(keymap.ContextReviews, keymap.ReviewDismiss), "dismiss"},

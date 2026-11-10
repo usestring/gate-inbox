@@ -99,6 +99,24 @@ func ToolName(pi string) string {
 	return pi
 }
 
+// mcpForm spells an MCP tool name, or a rule naming one, with its server's
+// hyphens as underscores. Pi registers a server's tools under that spelling
+// (mcp__gate_inbox__send_session for the board's mcp__gate-inbox__ server),
+// while rules and grants are written as Claude Code spells them, so both
+// sides of a match are put in the one spelling. Anything else is unchanged.
+func mcpForm(name string) string {
+	rest, ok := strings.CutPrefix(name, "mcp__")
+	if !ok {
+		return name
+	}
+	server, tail, found := strings.Cut(rest, "__")
+	server = strings.ReplaceAll(server, "-", "_")
+	if !found {
+		return "mcp__" + server
+	}
+	return "mcp__" + server + "__" + tail
+}
+
 // passThrough are tools that run other tools: each call they make reaches
 // tool_call again, with its own name, and is decided there.
 var passThrough = map[string]bool{"codemode": true, "tool_search": true}
@@ -120,7 +138,8 @@ type Env struct {
 	// dialog with "don't ask again". Nil means read them from the file.
 	Approvals []string
 	// MergeGate reports whether the standing merge authority covers a
-	// gh pr merge command, and why. Nil means no merge is covered.
+	// gh pr merge command, and why, or why not. Nil means no merge is
+	// covered.
 	MergeGate func(command, cwd string) (string, bool)
 	Now       time.Time
 }
@@ -143,7 +162,7 @@ func Decide(env Env, req Request) Decision {
 			return d
 		}
 	}
-	call := grant.Call{Tool: tool, Input: req.ToolInput, Cwd: req.Cwd, Home: env.Home}
+	call := grant.Call{Tool: mcpForm(tool), Input: req.ToolInput, Cwd: req.Cwd, Home: env.Home}
 	rules := env.Rules
 	if rules == nil {
 		rules = Load(Sources(env.ClaudeHome, env.Home, req.Cwd))
@@ -152,7 +171,7 @@ func Decide(env Env, req Request) Decision {
 		c := call
 		c.RuleBase = r.Source.Base
 		for _, rule := range r.Deny {
-			if grant.MatchesDeny(rule, c) {
+			if grant.MatchesDeny(mcpForm(rule), c) {
 				d.Decision, d.Reason = Deny, fmt.Sprintf("the deny rule %s in the %s (%s)", rule, r.Source.Label, r.Source.Path)
 				return d
 			}
@@ -163,17 +182,20 @@ func Decide(env Env, req Request) Decision {
 		c := call
 		c.RuleBase = r.Source.Base
 		for _, rule := range r.Ask {
-			if grant.MatchesDeny(rule, c) {
+			if grant.MatchesDeny(mcpForm(rule), c) {
 				return asking(d, call, fmt.Sprintf("the ask rule %s in the %s", rule, r.Source.Label))
 			}
 		}
 	}
+	var mergeRefusal string
 	if merge := mergeCommand(call); merge != "" {
 		if env.MergeGate != nil {
-			if why, ok := env.MergeGate(merge, req.Cwd); ok {
+			why, ok := env.MergeGate(merge, req.Cwd)
+			if ok {
 				d.Decision, d.Reason = Allow, why
 				return d
 			}
+			mergeRefusal = why
 		}
 	}
 	grants := env.Grants
@@ -181,6 +203,7 @@ func Decide(env Env, req Request) Decision {
 		grants = sessionGrants(env)
 	}
 	for _, g := range grants {
+		g.Value = mcpForm(g.Value)
 		if grant.Allows(g, call) {
 			d.Decision, d.Reason = Allow, "Gate Inbox grant: "+grant.Describe(g)
 			return d
@@ -200,7 +223,7 @@ func Decide(env Env, req Request) Decision {
 		c := call
 		c.RuleBase = r.Source.Base
 		for _, rule := range r.Allow {
-			if grant.MatchesAllow(rule, c) {
+			if grant.MatchesAllow(mcpForm(rule), c) {
 				d.Decision, d.Reason = Allow, fmt.Sprintf("the allow rule %s in the %s", rule, r.Source.Label)
 				return d
 			}
@@ -212,7 +235,11 @@ func Decide(env Env, req Request) Decision {
 			return d
 		}
 	}
-	return asking(d, call, "no rule or grant allows it")
+	reason := "no rule or grant allows it"
+	if mergeRefusal != "" {
+		reason = mergeRefusal
+	}
+	return asking(d, call, reason)
 }
 
 // asking is d as an ask, with what its dialog shows.

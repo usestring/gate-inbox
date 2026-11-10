@@ -17,10 +17,10 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-// JEV copy acts when the operator presses its key. It reads the latest
+// Clef copy acts when the operator presses its key. It reads the latest
 // assistant message of the session the key was pressed on, picks out the
 // text an operator might lift from it -- drafts, fenced blocks, code spans and
-// links -- and asks JEV which of them the agent left for the operator to use
+// links -- and asks Clef which of them the agent left for the operator to use
 // themselves: a command to run in their own terminal, a link to open, a value
 // to paste into a form. The first pick goes on the clipboard, and pressing
 // the key again on the same turn walks through the rest in the order the
@@ -301,7 +301,7 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 	}
 	key, _ := m.jevKey()
 	if key == "" {
-		m.errBar.text = "JEV copy needs a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY)"
+		m.errBar.text = "Clef copy needs CLEF_ACCOUNT_ID and a Cloudflare token (Settings → Clef, or CLEF_API_KEY)"
 		return m, nil
 	}
 	if m.conversation == nil {
@@ -313,7 +313,7 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 	database := opencodeDBPath()
 	from := m.displayName(sess)
 	generation := m.jevCopy.generation
-	m.reportDone("JEV is reading " + from + "'s last message")
+	m.reportDone("Clef is reading " + from + "'s last message")
 	return m, func() tea.Msg {
 		msg := jevCopyResultMsg{generation: generation, turn: turn, from: from}
 		target, found := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
@@ -338,9 +338,9 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 		texts, ok := askJevCopy(ctx, key, text, candidates)
 		switch {
 		case !ok:
-			msg.note = "JEV did not answer; nothing copied"
+			msg.note = "Clef did not answer; nothing copied"
 		case len(texts) == 0:
-			msg.note = "JEV found nothing in " + from + "'s last message left for you to copy"
+			msg.note = "Clef found nothing in " + from + "'s last message left for you to copy"
 		}
 		msg.texts, msg.ok = texts, ok
 		return msg

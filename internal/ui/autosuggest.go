@@ -135,9 +135,13 @@ func rankNextSubmissions(ctx context.Context, client *http.Client, endpoint, key
 	return []string{input.Candidates[choice]}
 }
 
-// askJev posts one choice question to JEV and returns the index of the
+// askJev posts one choice question to Clef and returns the index of the
 // chosen candidate, or -1 for "none" and for any failed request.
 func askJev(ctx context.Context, client *http.Client, endpoint, key string, state any, instructions, none string, candidates []string) int {
+	endpoint = jev.ResolveEndpoint(endpoint)
+	if endpoint == "" || key == "" {
+		return -1
+	}
 	criteria := map[string]string{"none": none}
 	for i, candidate := range candidates {
 		criteria["c"+string(rune('1'+i))] = candidate
@@ -172,17 +176,20 @@ func askJev(ctx context.Context, client *http.Client, endpoint, key string, stat
 	if resp.StatusCode != http.StatusOK {
 		return -1
 	}
-	var reply struct {
-		Model   string `json:"model"`
-		Answers map[string]struct {
-			Type   string `json:"type"`
-			Choice string `json:"choice"`
-		} `json:"answers"`
+	var envelope struct {
+		Success bool `json:"success"`
+		Result  struct {
+			Model   string `json:"model"`
+			Answers map[string]struct {
+				Type   string `json:"type"`
+				Choice string `json:"choice"`
+			} `json:"answers"`
+		} `json:"result"`
 	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&reply) != nil || reply.Model != jevModel {
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&envelope) != nil || !envelope.Success || envelope.Result.Model != jevModel {
 		return -1
 	}
-	answer := reply.Answers["next"]
+	answer := envelope.Result.Answers["next"]
 	if answer.Type != "choice" {
 		return -1
 	}

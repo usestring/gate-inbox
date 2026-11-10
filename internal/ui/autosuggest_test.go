@@ -36,7 +36,8 @@ func TestRecentSubmissionAutocompleteExcludesCurrentTurn(t *testing.T) {
 }
 
 func TestAutoSuggestIsOffAndNeverTargetsNewSessions(t *testing.T) {
-	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	t.Setenv("CLEF_API_KEY", "test-key")
+	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
 	m := buildModel(t)
 	createSession(t, m, "existing", t.TempDir(), "")
 	m.selectSessionRow(t, "existing")
@@ -68,7 +69,7 @@ func TestAutoSuggestIsOffAndNeverTargetsNewSessions(t *testing.T) {
 		t.Fatalf("existing session suggestion = %q", got)
 	}
 	if bar := ansi.Strip(m.viewQuickBar(80, 4)); !strings.Contains(bar, "ctrl+y insert · Add the search box") || !strings.Contains(bar, "carry on") {
-		t.Fatalf("quick bar omitted the JEV suggestion: %q", bar)
+		t.Fatalf("quick bar omitted the Clef suggestion: %q", bar)
 	}
 	var pastedID, pastedText string
 	restore := pasteFocused
@@ -104,7 +105,8 @@ func TestAutoSuggestIsOffAndNeverTargetsNewSessions(t *testing.T) {
 }
 
 func TestAutoSuggestWaitsForAssistantAndIgnoresStaleReply(t *testing.T) {
-	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	t.Setenv("CLEF_API_KEY", "test-key")
+	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
 	m := buildModel(t)
 	createSession(t, m, "existing", t.TempDir(), "")
 	m.selectSessionRow(t, "existing")
@@ -159,9 +161,9 @@ func TestJevRankingBoundsPayloadAndHonorsNone(t *testing.T) {
 			t.Error(err)
 		}
 		requests <- request
-		_ = json.NewEncoder(w).Encode(map[string]any{"model": jevModel, "answers": map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": map[string]any{"model": jevModel, "answers": map[string]any{
 			"next": map[string]any{"type": "choice", "choice": choice.Load().(string)},
-		}})
+		}}})
 	}))
 	defer server.Close()
 	var messages []search.Message

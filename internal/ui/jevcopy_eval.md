@@ -28,7 +28,7 @@ fixture messages to TypeSafe using the existing key; it does not write the
 clipboard or send any draft to its intended recipient:
 
 ```sh
-JEV_COPY_EVAL=/tmp/copy-eval TYPESAFE_API_KEY="$TYPESAFE_API_KEY" \
+JEV_COPY_EVAL=/tmp/copy-eval CLEF_API_KEY="$CLEF_API_KEY" CLEF_ACCOUNT_ID="$CLEF_ACCOUNT_ID" \
   env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$(mktemp -d)" \
   go test -short ./internal/ui -run '^TestJevCopyEval$' -v -timeout 4m
 ```

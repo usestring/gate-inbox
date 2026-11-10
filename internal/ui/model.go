@@ -147,8 +147,8 @@ type Model struct {
 	restartFlags   restartpresets.Set
 	restartFlagErr string
 	jevAutoSuggest bool
-	// jevSavedKey is the TypeSafe key pasted in Settings → JEV, read once
-	// at startup; TYPESAFE_API_KEY still wins over it (see jevKey).
+	// jevSavedKey is the Cloudflare key pasted in Settings → Clef, read once
+	// at startup; CLEF_API_KEY still wins over it (see jevKey).
 	jevSavedKey    string
 	jevFinishCheck bool
 	jevFinish      jevFinishState

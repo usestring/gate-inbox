@@ -47,7 +47,7 @@ func TestSettingsTogglesQuickClose(t *testing.T) {
 func TestExperimentalFeatureIsDefaultOffAndPersists(t *testing.T) {
 	m := buildModel(t)
 	if m.jevAutoSuggest {
-		t.Fatal("JEV Auto Suggest should be off by default")
+		t.Fatal("Clef Auto Suggest should be off by default")
 	}
 	m.openSettings()
 	m.settings.field = settingsFieldExperimental

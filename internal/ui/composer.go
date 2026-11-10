@@ -284,7 +284,7 @@ func (c *composer) setValue(value string, cursor int) tea.Cmd {
 }
 
 // suggestions ranks the snippets matching the prompt, with preferred, the
-// Key JEV picked among them, moved to the front when it is one of them.
+// Key Clef picked among them, moved to the front when it is one of them.
 func (c *composer) suggestions(snips []promptsnips.Snippet, preferred string) []promptsnips.Snippet {
 	if len(snips) == 0 || len(c.attachments) > 0 {
 		return nil

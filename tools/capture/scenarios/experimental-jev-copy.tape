@@ -1,6 +1,6 @@
-# Run with --no-seed --foreign jev-copy. The copy key asks JEV for real, so it
-# needs TYPESAFE_API_KEY in the environment, and it writes this machine's
-# clipboard with the fixture's text. JEV can answer after the first press's
+# Run with --no-seed --foreign jev-copy. The copy key asks Clef for real, so it
+# needs CLEF_API_KEY and CLEF_ACCOUNT_ID, and it writes this machine's
+# clipboard with the fixture's text. Clef can answer after the first press's
 # status has cleared, so the still is a second press, copying from the picks
 # the first one kept.
 Sleep 8s
@@ -16,7 +16,9 @@ Up
 Sleep 1s
 Enter
 Sleep 1s
-Up
+Down
+Down
+Down
 Sleep 1s
 Right
 Sleep 1s

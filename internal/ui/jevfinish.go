@@ -19,8 +19,8 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
-// The JEV finish check reads a Claude session's transcript each time the row
-// turns finished and asks JEV two yes-no questions about it in one call:
+// The Clef finish check reads a Claude session's transcript each time the row
+// turns finished and asks Clef two yes-no questions about it in one call:
 // whether the work is done, and whether the agent stopped because it had no
 // Chrome browser tools. The second has a fixed remedy, so the board applies
 // it without asking: end the pane, resume the same conversation with
@@ -29,7 +29,7 @@ import (
 // Only a confident answer acts. A finished score short of confident but at
 // least jevFinishProbeLow asks the agent itself, by typing jevFinishProbe
 // into the idle session; its DONE or NOT DONE reply settles the finish on
-// the next pass without asking JEV again. Anything else, a missing key, a
+// the next pass without asking Clef again. Anything else, a missing key, a
 // failed request or an unreadable transcript leaves the row as it was.
 
 const jevFinishCheckSetting = "experimental_jev_finish_check"
@@ -56,7 +56,7 @@ const (
 const (
 	// The question says outright that optional follow-ups and a PR awaiting
 	// review still count as finished: asked only for "no work left open",
-	// JEV read those as open and scored most sessions the user then closed
+	// Clef read those as open and scored most sessions the user then closed
 	// as unfinished.
 	jevFinishedQuestion = "Is this session at its end state: the agent has finished the task it was given and reported the result, " +
 		"so the user could close the session now? Count it as finished even if the agent offers optional follow-ups or a PR awaits " +
@@ -101,11 +101,11 @@ type jevFinishResultMsg struct {
 	verdict  jevFinishVerdict
 	ok       bool
 	// probe is the agent's answer when the finish is its reply to
-	// jevFinishProbe; JEV is not asked about such a finish.
+	// jevFinishProbe; Clef is not asked about such a finish.
 	probe jevFinishProbeAnswer
 	// report is what the agent said of its own work with report_status
 	// since its work was last set. When there is one, neither the probe nor
-	// JEV is asked: the agent knows its plan, and the last few turns may not.
+	// Clef is asked: the agent knows its plan, and the last few turns may not.
 	report   search.StatusReport
 	reported bool
 }
@@ -326,7 +326,7 @@ func (m *Model) applyJevFinish(msg jevFinishResultMsg) {
 	}
 	m.jevFinish.asked[msg.id] = msg.digest
 	sess, ok := m.sessionByID(msg.id)
-	// The row moved on while JEV read it: the verdict is about a finish that
+	// The row moved on while Clef read it: the verdict is about a finish that
 	// is no longer the one on screen.
 	if !ok || sess.Archived || sess.Status != status.Finished || jevFinishIdentity(sess) != msg.identity || m.jevFinishAttended(sess) {
 		return
@@ -348,27 +348,27 @@ func (m *Model) applyJevFinish(msg jevFinishResultMsg) {
 	logging.Info("jev finish check", "session", sess.ID, "finished", msg.verdict.finished, "missing_chrome", msg.verdict.missingChrome)
 	switch msg.verdict.decide() {
 	case jevFinishDone:
-		m.reportDone(fmt.Sprintf("JEV says %s is done (%.1f%%)", sess.Name, msg.verdict.finished*100))
+		m.reportDone(fmt.Sprintf("Clef says %s is done (%.1f%%)", sess.Name, msg.verdict.finished*100))
 	case jevFinishProbeAgent:
 		// The poller types it once the prompt is at rest and nobody is
 		// typing there, so it cannot land on a draft or a dialog.
 		if err := m.store.QueuePendingInput(sess.ID, queuedJevFinishProbe(sess)); err != nil {
-			m.errBar.text = "JEV finish probe: " + err.Error()
+			m.errBar.text = "Clef finish probe: " + err.Error()
 		}
 	case jevFinishRelaunchChrome:
 		if m.jevFinish.chromeRelaunched[sess.ID] {
-			m.errBar.text = fmt.Sprintf("JEV: %s still lacks Chrome after a relaunch with %s; left as it is", sess.Name, chromeFlag)
+			m.errBar.text = fmt.Sprintf("Clef: %s still lacks Chrome after a relaunch with %s; left as it is", sess.Name, chromeFlag)
 			return
 		}
 		if err := m.relaunchWithChrome(sess); err != nil {
-			m.errBar.text = "JEV Chrome relaunch: " + err.Error()
+			m.errBar.text = "Clef Chrome relaunch: " + err.Error()
 			return
 		}
 		if m.jevFinish.chromeRelaunched == nil {
 			m.jevFinish.chromeRelaunched = map[string]bool{}
 		}
 		m.jevFinish.chromeRelaunched[sess.ID] = true
-		m.reportDone(fmt.Sprintf("JEV: %s lacked Chrome (%.1f%%); relaunched with %s and told it to continue",
+		m.reportDone(fmt.Sprintf("Clef: %s lacked Chrome (%.1f%%); relaunched with %s and told it to continue",
 			sess.Name, msg.verdict.missingChrome*100, chromeFlag))
 	}
 }

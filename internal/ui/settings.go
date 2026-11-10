@@ -412,7 +412,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.persistExperiments()
 	m.jevFinishCheck = m.settings.jevFinishCheck
 	if m.jevCopyOn != m.settings.jevCopyOn {
-		// Either way, what JEV picked before the switch is dropped, and a
+		// Either way, what Clef picked before the switch is dropped, and a
 		// read still in flight lands on a generation that no longer counts.
 		m.jevCopy = jevCopyState{generation: m.jevCopy.generation + 1, busy: m.jevCopy.busy, copying: m.jevCopy.copying}
 	}

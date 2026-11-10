@@ -29,7 +29,7 @@ type promptJevResultMsg struct {
 
 // promptJevState is JEV's pick among the New Session suggestions for one
 // draft. identity names the draft and candidate set the pick was asked for,
-// and choice is the chosen snippet's Key, empty until JEV answers.
+// and choice is the chosen snippet's Key, empty until Clef answers.
 type promptJevState struct {
 	seq      int
 	identity string
@@ -57,7 +57,7 @@ func promptJevIdentity(draft string, matches []promptsnips.Snippet) string {
 }
 
 // promptJevInput is the request the New Session prompt would make now. It
-// needs both Prompt suggestions and JEV Auto Suggest on and a key, and at
+// needs both Prompt suggestions and Clef Auto Suggest on and a key, and at
 // least two candidates, since ranking one discloses it for nothing.
 func (m *Model) promptJevInput() (identity, draft string, texts []string, matches []promptsnips.Snippet, ok bool) {
 	if !m.promptSuggest || !m.jevAutoSuggest || m.mode != modeForm || m.form.focus != fieldPrompt ||
@@ -118,7 +118,7 @@ func (m *Model) applyPromptJev(msg promptJevResultMsg) {
 }
 
 // promptJevChoice is JEV's pick for the draft as it stands, or empty when
-// the draft or its candidates changed since JEV was asked.
+// the draft or its candidates changed since Clef was asked.
 func (m *Model) promptJevChoice() string {
 	if m.promptJev.choice == "" {
 		return ""

@@ -36,10 +36,11 @@ func newSessionJevModel(t *testing.T) *Model {
 }
 
 func TestNewSessionJevNeedsBothTogglesKeyAndChoices(t *testing.T) {
-	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	t.Setenv("CLEF_API_KEY", "test-key")
+	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
 	m := newSessionJevModel(t)
 	if cmd := m.schedulePromptJev(); cmd != nil {
-		t.Fatal("JEV Auto Suggest off still queued a request")
+		t.Fatal("Clef Auto Suggest off still queued a request")
 	}
 	m.jevAutoSuggest = true
 	m.promptSuggest = false
@@ -47,11 +48,12 @@ func TestNewSessionJevNeedsBothTogglesKeyAndChoices(t *testing.T) {
 		t.Fatal("Prompt suggestions off still queued a request")
 	}
 	m.promptSuggest = true
-	t.Setenv("TYPESAFE_API_KEY", "")
+	t.Setenv("CLEF_API_KEY", "")
 	if cmd := m.schedulePromptJev(); cmd != nil {
 		t.Fatal("missing key still queued a request")
 	}
-	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	t.Setenv("CLEF_API_KEY", "test-key")
+	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
 	m.form.prompt.input.SetValue("Review the pull")
 	if cmd := m.schedulePromptJev(); cmd != nil {
 		t.Fatal("a single candidate was sent for ranking")
@@ -70,7 +72,8 @@ func TestNewSessionJevNeedsBothTogglesKeyAndChoices(t *testing.T) {
 }
 
 func TestNewSessionJevPickLeadsAndStaysEditable(t *testing.T) {
-	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	t.Setenv("CLEF_API_KEY", "test-key")
+	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
 	m := newSessionJevModel(t)
 	m.jevAutoSuggest = true
 	m.schedulePromptJev()
@@ -83,27 +86,28 @@ func TestNewSessionJevPickLeadsAndStaysEditable(t *testing.T) {
 	m.applyPromptJev(promptJevResultMsg{seq: m.promptJev.seq, identity: m.promptJev.identity, choice: picked.Key})
 	got := m.form.prompt.suggestions(m.promptSnips, m.promptJevChoice())
 	if got[0].Key != picked.Key || len(got) != len(local) {
-		t.Fatalf("JEV pick %q did not lead %v", picked.Key, got)
+		t.Fatalf("Clef pick %q did not lead %v", picked.Key, got)
 	}
-	if line := m.promptSuggestionLine(&m.form.prompt, 120); !strings.Contains(line, "jev") {
-		t.Fatalf("JEV pick is not labelled: %q", line)
+	if line := m.promptSuggestionLine(&m.form.prompt, 120); !strings.Contains(line, "clef") {
+		t.Fatalf("Clef pick is not labelled: %q", line)
 	}
 	m.handleFormKey(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
 	if value := m.form.prompt.input.Value(); value != picked.Text || m.mode != modeForm || len(m.sessions) != 0 {
 		t.Fatalf("accepted %q in mode %v", value, m.mode)
 	}
 	if m.promptJevChoice() != "" {
-		t.Fatal("JEV pick outlived the draft it was asked for")
+		t.Fatal("Clef pick outlived the draft it was asked for")
 	}
 	m.form.prompt.input.SetValue("Review the")
 	m.jevAutoSuggest = false
 	if m.promptJevChoice() != "" {
-		t.Fatal("JEV pick survived turning JEV Auto Suggest off")
+		t.Fatal("Clef pick survived turning Clef Auto Suggest off")
 	}
 }
 
 func TestNewSessionJevSchedulesAfterAsyncTextPaste(t *testing.T) {
-	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	t.Setenv("CLEF_API_KEY", "test-key")
+	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
 	m := newSessionJevModel(t)
 	m.jevAutoSuggest = true
 	m.form.prompt.input.SetValue("")
@@ -164,9 +168,9 @@ func TestNewSessionJevPayloadIsBounded(t *testing.T) {
 			t.Error(err)
 		}
 		requests <- request
-		_ = json.NewEncoder(w).Encode(map[string]any{"model": jevModel, "answers": map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": map[string]any{"model": jevModel, "answers": map[string]any{
 			"next": map[string]any{"type": "choice", "choice": choice},
-		}})
+		}}})
 	}))
 	defer server.Close()
 	if got := rankNewSessionPrompts(context.Background(), server.Client(), server.URL, "test-key", draft, sent); got != 2 {

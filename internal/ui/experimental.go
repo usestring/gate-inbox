@@ -26,13 +26,13 @@ type experiment struct {
 }
 
 var experiments = []experiment{
-	{jevAutoSuggestSetting, "JEV Auto Suggest", "Suggest the next reply in an existing session; rank New Session prompts.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends bounded text to TypeSafe.",
+	{jevAutoSuggestSetting, "Clef Auto Suggest", "Suggest the next reply in an existing session; rank New Session prompts.\nNeeds CLEF_ACCOUNT_ID and a Cloudflare token (Settings → Clef, or CLEF_API_KEY); sends bounded text to Cloudflare.",
 		func(s *settingsState) *bool { return &s.jevAutoSuggest }},
-	{promptSuggestionsSetting, "Prompt suggestions", "Reuse recurring prompts in New Session.\nReads local history; sends matches to TypeSafe only with JEV on.",
+	{promptSuggestionsSetting, "Prompt suggestions", "Reuse recurring prompts in New Session.\nReads local history; sends matches to Cloudflare only with Clef on.",
 		func(s *settingsState) *bool { return &s.promptSuggest }},
-	{jevFinishCheckSetting, "JEV finish check", "On finish, say when a Claude session is done, asking the agent when JEV is unsure,\nand relaunch one that stopped without Chrome with --chrome. Needs a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends its last turns to TypeSafe.",
+	{jevFinishCheckSetting, "Clef finish check", "On finish, say when a Claude session is done, asking the agent when Clef is unsure,\nand relaunch one that stopped without Chrome with --chrome. Needs CLEF_ACCOUNT_ID and a Cloudflare token (Settings → Clef, or CLEF_API_KEY); sends its last turns to Cloudflare.",
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},
-	{jevCopySetting, "JEV copy", "On a key, copy the command, link or value the agent left for you in its last message.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends that message to TypeSafe.",
+	{jevCopySetting, "Clef copy", "On a key, copy the command, link or value the agent left for you in its last message.\nNeeds CLEF_ACCOUNT_ID and a Cloudflare token (Settings → Clef, or CLEF_API_KEY); sends that message to Cloudflare.",
 		func(s *settingsState) *bool { return &s.jevCopyOn }},
 	{reviewQueueSetting, "Review queue", "Fetch the pull requests you were asked to review on GitHub onto a Reviews tab (]).\nRuns on the ingest key only; [integrations.reviews] sets what counts as an ask.",
 		func(s *settingsState) *bool { return &s.reviewQueue }},

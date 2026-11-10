@@ -23,12 +23,12 @@ import (
 )
 
 // TestJevFinishEval scores the finish check against the Claude transcripts on
-// this machine, because the board's own log only shows what JEV said, never
+// this machine, because the board's own log only shows what Clef said, never
 // whether the user then closed the session. It builds the cases at run time
 // and writes them, with every score, outside the repository: transcripts are
 // private and stay on the machine that holds them.
 //
-// It calls the live JEV API, so it runs only when asked:
+// It calls the live Clef API, so it runs only when asked:
 //
 //	JEV_FINISH_EVAL=<output dir> go test ./internal/ui -run TestJevFinishEval -v
 //
@@ -232,7 +232,7 @@ func TestJevFinishEval(t *testing.T) {
 	configDir := os.Getenv("JEV_EVAL_CONFIG")
 	key := jev.Key(configDir)
 	if key == "" {
-		t.Skip("no TypeSafe key")
+		t.Skip("no Cloudflare key")
 	}
 	if err := os.MkdirAll(outDir, 0o700); err != nil {
 		t.Fatal(err)

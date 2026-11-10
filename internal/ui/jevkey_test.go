@@ -18,7 +18,7 @@ func openJevSettings(t *testing.T, m *Model) {
 	m.settings.field = settingsFieldJev
 	m.handleSettingsKey(key("enter"))
 	if !m.settings.jevPanel {
-		t.Fatal("the JEV row did not open the JEV card")
+		t.Fatal("the Clef row did not open the Clef card")
 	}
 }
 
@@ -140,13 +140,13 @@ func TestJevCardToggleSharesTheExperiment(t *testing.T) {
 	m.handleSettingsKey(key("esc"))
 	m.handleSettingsKey(key("esc"))
 	if !m.jevAutoSuggest || !storedJevAutoSuggest(m.store) {
-		t.Fatal("JEV card toggle did not persist JEV Auto Suggest")
+		t.Fatal("Clef card toggle did not persist Clef Auto Suggest")
 	}
 	m.openSettings()
 	m.settings.field = settingsFieldExperimental
 	m.handleSettingsKey(key("enter"))
-	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "> JEV Auto Suggest  ◂ on ▸") {
-		t.Fatalf("Experimental card disagrees with the JEV card:\n%s", card)
+	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "> Clef Auto Suggest  ◂ on ▸") {
+		t.Fatalf("Experimental card disagrees with the Clef card:\n%s", card)
 	}
 }
 
@@ -192,11 +192,11 @@ func TestJevFeaturesStayOffWithASavedKeyUntilEnabled(t *testing.T) {
 	m := newSessionJevModel(t)
 	m.jevSavedKey = testJevKey
 	if cmd := m.schedulePromptJev(); cmd != nil {
-		t.Fatal("a saved key alone queued a JEV request with the experiment off")
+		t.Fatal("a saved key alone queued a Clef request with the experiment off")
 	}
 	m.jevAutoSuggest = true
 	if cmd := m.schedulePromptJev(); cmd == nil {
-		t.Fatal("a saved key with JEV on did not queue a request")
+		t.Fatal("a saved key with Clef on did not queue a request")
 	}
 	m.jevSavedKey = ""
 	if cmd := m.schedulePromptJev(); cmd != nil {

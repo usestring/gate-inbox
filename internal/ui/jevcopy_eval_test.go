@@ -122,7 +122,7 @@ func TestJevCopyEval(t *testing.T) {
 	}
 	key := jev.Key(os.Getenv("JEV_EVAL_CONFIG"))
 	if key == "" {
-		t.Fatal("JEV copy eval needs a TypeSafe key")
+		t.Fatal("Clef copy eval needs a Cloudflare key")
 	}
 	if err := os.MkdirAll(output, 0o700); err != nil {
 		t.Fatal(err)

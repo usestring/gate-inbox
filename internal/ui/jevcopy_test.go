@@ -108,6 +108,7 @@ func TestLatestAssistantTextNeedsTheTurnToEndOnTheAgent(t *testing.T) {
 }
 
 func TestAskJevCopyKeepsOnlyConfidentPicks(t *testing.T) {
+	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
 	previous := jevHTTPClient
 	t.Cleanup(func() { jevHTTPClient = previous })
 	var questions map[string]struct{ Instructions string }
@@ -120,7 +121,7 @@ func TestAskJevCopyKeepsOnlyConfidentPicks(t *testing.T) {
 		}
 		questions = body.Questions
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
-			`{"model":"` + jevModel + `","answers":{"c1":{"type":"noul","noul":0.95},"c2":{"type":"noul","noul":0.5}}}`))}, nil
+			`{"success":true,"result":{"model":"` + jevModel + `","answers":{"c1":{"type":"noul","noul":0.95},"c2":{"type":"noul","noul":0.5}}}}`))}, nil
 	})}
 	picked, ok := askJevCopy(t.Context(), "key", "message", []string{"gcloud auth login", "README.md"})
 	if !ok || !slices.Equal(picked, []string{"gcloud auth login"}) {
@@ -132,11 +133,12 @@ func TestAskJevCopyKeepsOnlyConfidentPicks(t *testing.T) {
 }
 
 // copyTurn writes a Claude transcript whose last message is text and returns
-// a model with JEV copy on, a session for it, and a count of JEV calls that
+// a model with Clef copy on, a session for it, and a count of Clef calls that
 // answer each candidate with the matching score.
 func copyTurn(t *testing.T, text string, scores ...float64) (*Model, store.Session, *int) {
 	t.Helper()
-	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	t.Setenv("CLEF_API_KEY", "test-key")
+	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
 	home := t.TempDir()
 	sess := store.Session{ID: "waiting", Name: "auth", Tool: "claude", Status: status.Waiting,
 		AgentSessionID: "conversation", LastStatusAt: time.Unix(100, 0)}
@@ -159,7 +161,7 @@ func copyTurn(t *testing.T, text string, scores ...float64) (*Model, store.Sessi
 			answers = append(answers, fmt.Sprintf(`"c%d":{"type":"noul","noul":%v}`, i+1, score))
 		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
-			`{"model":"` + jevModel + `","answers":{` + strings.Join(answers, ",") + `}}`))}, nil
+			`{"success":true,"result":{"model":"` + jevModel + `","answers":{` + strings.Join(answers, ",") + `}}}`))}, nil
 	})}
 	m := &Model{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}},
 		sessions: []store.Session{sess}, jevCopyOn: true,
@@ -203,7 +205,7 @@ func TestCopyWithJevReadsOnTheKeyThenWalksItsPicks(t *testing.T) {
 	m, sess, calls := copyTurn(t, "Run `gcloud auth login`, then open https://console.example.test/run and read `README.md`.", 0.9, 0.95, 0.1)
 	wrote := stubClipboard(t, nil)
 	if *calls != 0 {
-		t.Fatal("JEV was asked before the key")
+		t.Fatal("Clef was asked before the key")
 	}
 	pressCopy(t, m, sess)
 	if *calls != 1 || !slices.Equal(*wrote, []string{"gcloud auth login"}) {
@@ -216,7 +218,7 @@ func TestCopyWithJevReadsOnTheKeyThenWalksItsPicks(t *testing.T) {
 	pressCopy(t, m, sess)
 	want := []string{"gcloud auth login", "https://console.example.test/run", "gcloud auth login"}
 	if *calls != 1 || !slices.Equal(*wrote, want) {
-		t.Fatalf("the same turn was not walked from what JEV picked: calls %d, wrote %q", *calls, *wrote)
+		t.Fatalf("the same turn was not walked from what Clef picked: calls %d, wrote %q", *calls, *wrote)
 	}
 	sess.LastStatusAt = sess.LastStatusAt.Add(time.Minute)
 	pressCopy(t, m, sess)
@@ -229,7 +231,7 @@ func TestCopyWithJevSaysWhyNothingWasCopied(t *testing.T) {
 	m, sess, calls := copyTurn(t, "Read `README.md` for the details.", 0.2)
 	wrote := stubClipboard(t, nil)
 	pressCopy(t, m, sess)
-	if *calls != 1 || len(*wrote) != 0 || !strings.Contains(m.errBar.text, "JEV found nothing") {
+	if *calls != 1 || len(*wrote) != 0 || !strings.Contains(m.errBar.text, "Clef found nothing") {
 		t.Fatalf("calls %d, wrote %q, status %q", *calls, *wrote, m.errBar.text)
 	}
 
@@ -267,7 +269,7 @@ func TestCopyWithJevRetriesFailedRequests(t *testing.T) {
 		return nil, errors.New("service unavailable")
 	})}
 	pressCopy(t, m, sess)
-	if failedCalls == 0 || len(*wrote) != 0 || !strings.Contains(m.errBar.text, "JEV did not answer") {
+	if failedCalls == 0 || len(*wrote) != 0 || !strings.Contains(m.errBar.text, "Clef did not answer") {
 		t.Fatalf("failed calls %d, wrote %q, status %q", failedCalls, *wrote, m.errBar.text)
 	}
 	jevHTTPClient = workingClient
@@ -310,7 +312,7 @@ func TestCopyWithJevTakesOnePressAtATime(t *testing.T) {
 	wrote := stubClipboard(t, nil)
 	_, read := m.copyWithJev(sess)
 	if _, again := m.copyWithJev(sess); again != nil {
-		t.Fatal("a second press started while JEV was reading")
+		t.Fatal("a second press started while Clef was reading")
 	}
 	write := m.applyJevCopy(read().(jevCopyResultMsg))
 	if _, again := m.copyWithJev(sess); again != nil {
@@ -381,7 +383,7 @@ func TestCopyWithJevCopiesDraftWithoutItsCommentary(t *testing.T) {
 					}
 					answers[name] = map[string]any{"type": "noul", "noul": score}
 				}
-				response, err := json.Marshal(map[string]any{"model": jevModel, "answers": answers})
+				response, err := json.Marshal(map[string]any{"success": true, "result": map[string]any{"model": jevModel, "answers": answers}})
 				if err != nil {
 					t.Fatal(err)
 				}

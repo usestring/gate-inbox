@@ -154,7 +154,7 @@ func welcomeRowHas(section welcomeSection, key string) bool { return hintHas(sec
 var hintLiteralAllowed = map[string]string{
 	"help.go":       "the key map screen's own keys are read literally in handleHelpKey",
 	"launchhint.go": "the setup card's i and c are read literally in its handler",
-	"jevkey.go":     "the JEV key panel's x is read literally in its handler",
+	"jevkey.go":     "the Clef key panel's x is read literally in its handler",
 	"modals.go":     "settings and form keys (J/K in the CLI list) are read literally",
 	"welcome.go":    "n on the card is read literally in handleWelcomeKey, w on the key map in handleHelpKey",
 	"confirm.go":    "n/esc on a dialog are read literally in handleConfirmAnswer",

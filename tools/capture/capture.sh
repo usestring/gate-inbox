@@ -384,76 +384,34 @@ if [[ -z "$width" || -z "$height" ]]; then
 fi
 printf 'capture: %sx%s cells at font size %s = %sx%s px\n' "$cols" "$rows" "$font_size" "$width" "$height"
 
-# Every credential and home the board could read is withheld or scratch.
-launch="clear && cd $project && env -u TMUX -u TMUX_PANE -u GATE_INBOX_SESSION_ID"
-launch="$launch -u LINEAR_API_KEY -u GITHUB_TOKEN -u GH_TOKEN -u OPENCODE_DB HOME=$fake_home"
-launch="$launch XDG_CONFIG_HOME=$fake_home/.config XDG_DATA_HOME=$fake_home/.local/share"
-launch="$launch XDG_STATE_HOME=$fake_home/.local/state XDG_CACHE_HOME=$fake_home/.cache"
-launch="$launch GATE_INBOX_HOME=$home CLAUDE_CONFIG_DIR=$claude_dir CODEX_HOME=$codex_dir"
-launch="$launch TMUX_TMPDIR=$sock $binary"
+# Every credential and home the board could read is withheld or scratch, and
+# the device label is a fixed name rather than whatever SSH_CONNECTION says,
+# since Settings prints it. The launcher lives in the scratch tmux directory,
+# outside the run output, so the absolute paths it holds never sit beside the
+# recording the uploader scans; the tape only names it. See runtape.sh.
+launcher_dir="$sock/bin"
+mkdir -p "$launcher_dir"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'cd %q || exit 1\n' "$project"
+  printf 'exec env -u TMUX -u TMUX_PANE -u GATE_INBOX_SESSION_ID'
+  printf ' -u LINEAR_API_KEY -u GITHUB_TOKEN -u GH_TOKEN -u OPENCODE_DB'
+  printf ' -u SSH_CONNECTION -u SSH_CLIENT -u SSH_TTY GATE_INBOX_DEVICE=capture'
+  printf ' HOME=%q XDG_CONFIG_HOME=%q XDG_DATA_HOME=%q' "$fake_home" "$fake_home/.config" "$fake_home/.local/share"
+  printf ' XDG_STATE_HOME=%q XDG_CACHE_HOME=%q' "$fake_home/.local/state" "$fake_home/.cache"
+  printf ' GATE_INBOX_HOME=%q CLAUDE_CONFIG_DIR=%q CODEX_HOME=%q' "$home" "$claude_dir" "$codex_dir"
+  printf ' TMUX_TMPDIR=%q %q "$@"\n' "$sock" "$binary"
+} >"$launcher_dir/gib-cap-launch"
+chmod +x "$launcher_dir/gib-cap-launch"
 
 tape="$work/run-$run_id.tape"
-{
-  printf 'Output %s/board.gif\n' "$rel_media"
-  printf 'Output %s/video.webm\n' "$rel_video"
-  # The screen as text, for the pre-upload scan; it is never uploaded.
-  printf 'Output %s/board.txt\n' "$rel_media"
-  printf 'Set Width %s\nSet Height %s\nSet FontSize %s\n' "$width" "$height" "$font_size"
-  printf 'Set TypingSpeed 15ms\n'
-  if [[ -n "$vhs_theme" ]]; then printf 'Set Theme "%s"\n' "$vhs_theme"; fi
-  if [[ -n "$vhs_theme_json" ]]; then printf 'Set Theme %s\n' "$vhs_theme_json"; fi
-  printf 'Hide\n'
-  printf 'Type "%s"\nEnter\nSleep 8s\n' "$launch"
-  # Wait for the board before pressing anything: until its TUI has negotiated
-  # the terminal's keyboard protocol, an Enter arrives as ctrl+j and the
-  # welcome screen drops it — which used to feed the seeding keys to a screen
-  # that was still up. First run opens on the welcome screen; Enter dismisses it.
-  printf 'Enter\nSleep 3s\n'
-  # Seed a board worth looking at. "n" is the one-question spawn — type the
-  # CLI, Enter creates — which is the only seeding path that survives being
-  # driven blind: the ctrl+n form has seven rows, and an Enter that lands on
-  # the wrong one advances instead of creating. Creating focuses the new
-  # session, so ctrl+q returns to the list.
-  [[ $no_seed -eq 1 ]] && tools=()
-  for tool in "${tools[@]}"; do
-    printf 'Type "n"\nSleep 1500ms\n'
-    printf 'Type "%s"\nSleep 800ms\n' "$tool"
-    printf 'Enter\nSleep 6s\n'
-    printf 'Ctrl+q\nSleep 2s\n'
-  done
-  printf 'Show\nSleep 1s\n'
-  # A scenario writes its stills to {{SHOTS}}; only this driver knows the run
-  # id. {{LAUNCH}} and {{TMUX}} are for the scenarios that have to leave the
-  # board and come back -- a restart, or the panes going away under it -- which
-  # no keystroke inside the board can produce. {{HOME}} is the scratch config
-  # directory, for a scenario that seeds a row no keystroke can make. Ampersands
-  # in the launch line are escaped because sed reads a bare & as the whole match.
-  sed -e "s|{{SHOTS}}|$rel_media|g" \
-    -e "s|{{HOME}}|$home|g" \
-    -e "s|{{LAUNCH}}|${launch//&/\\&}|g" \
-    -e "s|{{TMUX}}|tmux -S $sock/tmux-$(id -u)/default|g" \
-    "$scenario" | awk '
-    # vhs sends Alt+x as a bare x: the escape byte a terminal puts in front of
-    # an alt chord never reaches the pty, so every alt binding this board has
-    # reads as its unmodified key, and Alt+, and Alt+\ do not parse at all.
-    # Escape with a Type straight after it is that prefix, byte for byte, so a
-    # scenario can spell an alt chord the way the keymap spells it.
-    {
-      line = $0
-      sub(/[[:space:]]+$/, "", line)
-      if (match(line, /^[[:space:]]*Alt\+[^[:space:]]$/) && substr(line, length(line)) != "\047") {
-        indent = substr(line, 1, index(line, "Alt") - 1)
-        printf "%sEscape\n%sType \047%s\047\n", indent, indent, substr(line, length(line))
-        next
-      }
-      print
-    }'
-  # A Screenshot needs frames after it to be written, and every run owes
-  # post-to-pr.ts at least one still.
-  printf '\nScreenshot %s/zz-final.png\nSleep 800ms\n' "$rel_media"
-} >"$tape"
+[[ $no_seed -eq 1 ]] && tools=()
+CAP_WIDTH="$width" CAP_HEIGHT="$height" CAP_FONT_SIZE="$font_size" \
+  CAP_VHS_THEME="$vhs_theme" CAP_VHS_THEME_JSON="$vhs_theme_json" \
+  "$here/runtape.sh" "$scenario" "$rel_media" "$rel_video" ${tools[@]+"${tools[@]}"} >"$tape"
 
-(cd "$out" && PATH="$work/bin:$PATH" vhs "$tape")
+(cd "$out" && PATH="$launcher_dir:$work/bin:$PATH" GIB_CAP_HOME="$home" \
+  GIB_CAP_TMUX="$sock/tmux-$(id -u)/default" vhs "$tape")
 
 printf '%s' "$run_id" >"$out/media/.latest-run"
 tmux -S "$sock/tmux-$(id -u)/default" kill-server >/dev/null 2>&1 || true

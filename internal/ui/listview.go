@@ -481,7 +481,7 @@ func (m *Model) sessionDetailLines(width int) []string {
 	lines := []string{
 		railFact(pad, "cli", chipStyle.Render(textfmt.TruncateWidth(tool, max(factRoom-2, 1), "…"))),
 		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
-		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
+		railFact(pad, "dir", mutedStyle.Render(truncateTail(homeRelative(sess.Cwd), factRoom))),
 		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.LaunchTime()), factRoom, "…"))),
 	}
 	if id := strings.TrimSpace(sess.AgentSessionID); id != "" {
@@ -537,7 +537,7 @@ func (m *Model) groupDetailLines(group, pad string, room int) []string {
 	} else if m.pinnedGroups[group] {
 		suffix = " " + subtleStyle.Render("pinned")
 	}
-	dir := mutedStyle.Render(truncateTail(path, max(room-railFactLabelWidth-textfmt.Width(suffix), 1))) + suffix
+	dir := mutedStyle.Render(truncateTail(homeRelative(path), max(room-railFactLabelWidth-textfmt.Width(suffix), 1))) + suffix
 	lines = append(lines, railFact(pad, "dir", dir))
 	if breakdown := m.groupStatusBreakdown(group); breakdown != "" {
 		lines = append(lines, railFact(pad, "state", trimmedValue(breakdown)(max(room-railFactLabelWidth, 1))))

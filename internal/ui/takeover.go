@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/usestring/gate-inbox/internal/adopt"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -240,6 +241,10 @@ func (m *Model) takeOver(sess store.Session, procs *adopt.ProcTable, claude []co
 					cwd = session.Cwd
 				}
 			}
+		}
+	} else if config.IsPiTool(m.cfg.Tools, sess.Tool) {
+		if id, convCwd, ok := convo.PiConversationInPane(convo.PiSessionsDir(), sess.Cwd); ok {
+			convID, cwd = id, convCwd
 		}
 	}
 	// A tool that resumes by id needs the id: relaunching on its continue

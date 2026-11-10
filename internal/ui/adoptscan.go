@@ -92,18 +92,19 @@ func (m *Model) newAdoptRun() *adoptRun {
 		return nil
 	}
 	run := &adoptRun{
-		tools:    tools,
-		self:     m.selfPaneKey(),
-		known:    make(map[string]bool, len(m.sessions)),
-		names:    make(map[string]bool, len(m.sessions)),
-		index:    m.convos,
-		drift:    m.drift,
-		stor:     m.store,
-		hooks:    m.hooks,
-		driver:   m.tmux,
-		home:     filepath.Dir(m.hooks.Dir()),
-		naming:   m.cfg.Naming,
-		rejected: map[string]int{},
+		tools:        tools,
+		self:         m.selfPaneKey(),
+		known:        make(map[string]bool, len(m.sessions)),
+		names:        make(map[string]bool, len(m.sessions)),
+		index:        m.convos,
+		drift:        m.drift,
+		stor:         m.store,
+		hooks:        m.hooks,
+		driver:       m.tmux,
+		home:         filepath.Dir(m.hooks.Dir()),
+		naming:       m.cfg.Naming,
+		rejected:     map[string]int{},
+		namedOutside: m.namedOutsideTools(),
 		// The operator's own answers: panes they left off the board, and
 		// whether outside panes are wanted at all. Orphaned sessions of
 		// the manager's own are recovered either way.
@@ -297,6 +298,10 @@ type adoptRun struct {
 	// request typed into its live session.
 	naming   config.Naming
 	rejected map[string]int
+	// namedOutside is the tools whose sessions are named from the outside
+	// (skip_rename_directive): the naming pass reads their own session
+	// title, so an adopted pane of theirs is never typed a rename request.
+	namedOutside map[string]bool
 	// ignored is the panes the operator left off the board, by
 	// paneDecisionKey. skipForeign refuses every pane the manager did not
 	// start, which is the "ignore them" setting.
@@ -420,7 +425,7 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 			TmuxPaneID:     candidate.PaneID,
 			AgentSessionID: entry.conversation,
 		}
-		if !fromTitle && r.naming.Asks() {
+		if !fromTitle && r.naming.Asks() && !r.namedOutside[entry.tool] {
 			sess.PendingInputs = []string{adoptedRenameInput(r.home, sess.ID)}
 		}
 		if err := r.stor.CreateSession(sess); err != nil {
@@ -920,6 +925,17 @@ func (m *Model) agentToolNames() map[string]bool {
 	names := map[string]bool{}
 	for name, tool := range m.cfg.Tools {
 		if !tool.Shell && tool.Command != "" {
+			names[name] = true
+		}
+	}
+	return names
+}
+
+// namedOutsideTools is the configured tools that set skip_rename_directive.
+func (m *Model) namedOutsideTools() map[string]bool {
+	names := map[string]bool{}
+	for name, tool := range m.cfg.Tools {
+		if tool.SkipRenameDirective {
 			names[name] = true
 		}
 	}

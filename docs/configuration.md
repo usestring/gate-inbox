@@ -175,14 +175,9 @@ configured into contradicting each other.
 
 ## PR CI feedback
 
-To send failed CI checks back to the agent that opened the pull request, enable:
-
-```toml
-[work]
-ci_feedback = true
-```
-
-This is off by default and requires the GitHub integration. It uses the board's existing
+To send failed CI checks back to the agent that opened the pull request, turn on
+**PR CI feedback** in Settings → **Experimental features**. This experiment is off by
+default, persists on the board, and requires the GitHub integration. It uses the board's existing
 GitHub polling, so no webhook or separate watcher is needed. Only a PR recorded as opened
 by exactly one unarchived, live agent session receives feedback; mentioning a PR does not
 make a session its owner. Dead sessions are never revived for CI.
@@ -201,8 +196,8 @@ waiting in the inbox. Claimed messages may already be on their way to the agent,
 why every repair prompt requires a fresh check before acting.
 
 Check lists truncated by GitHub are held without automatic repair. Feedback includes check
-metadata and links; it does not download logs. Disabling the option and restarting the board
-retires any CI feedback that has not started delivery.
+metadata and links; it does not download logs. Disabling the experiment takes effect when
+you save Settings and retires any CI feedback that has not started delivery. No restart is needed.
 
 ## Right-to-left text
 

@@ -364,5 +364,4 @@ default  tools.terminal.trust_store = ""
 default  tools.terminal.turn_end = ""
 default  tools.terminal.type_ahead = false
 default  tools.terminal.typed_prompt_prefixes = []
-default  work.ci_feedback = false
 default  work.settle_after = "0s"

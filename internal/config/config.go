@@ -316,10 +316,9 @@ type Children struct {
 	KeepFinished bool `toml:"keep_finished"`
 }
 
-// Work configures how the board follows its sessions' pull requests and tickets.
+// Work configures what the board does with the pull requests and tickets its
+// sessions are on once they are over.
 type Work struct {
-	CIFeedback bool `toml:"ci_feedback"`
-
 	// SettleAfter is how long a merged or closed pull request, or a completed
 	// or cancelled ticket, stays on the board after the operator first had it
 	// on screen in that state. Unset, a day.
@@ -1309,9 +1308,6 @@ const defaultConfig = `poll_interval = "2s"
 # see it that way, then leaves the rail and the counts for good.
 # [work]
 # settle_after = "24h"
-# Return failed checks to the live agent that opened the PR, up to two repair
-# prompts until CI passes. Delivery uses the session inbox and its normal guards.
-# ci_feedback = false
 
 # Your own Claude Code config. While the board runs it keeps its hooks in
 # ~/.claude/settings.json and an MCP server named gate-inbox in ~/.claude.json

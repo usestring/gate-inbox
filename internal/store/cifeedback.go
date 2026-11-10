@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const CIFeedbackSetting = "experimental_ci_feedback"
+
 type FeedbackObservation struct {
 	URL        string
 	HeadSHA    string
@@ -38,10 +40,14 @@ type feedbackState struct {
 
 func (s *Store) ObserveCI(obs CIObservation) (int64, error) {
 	obs.Resolved = obs.Passing
-	return s.observeFeedback(obs.FeedbackObservation, feedbackPolicy{"ci-feedback:v1:", "CI", "CI passes", "ci-state-changed"})
+	return s.observeFeedbackWithSetting(obs.FeedbackObservation, feedbackPolicy{"ci-feedback:v1:", "CI", "CI passes", "ci-state-changed"}, CIFeedbackSetting)
 }
 
 func (s *Store) observeFeedback(obs FeedbackObservation, policy feedbackPolicy) (int64, error) {
+	return s.observeFeedbackWithSetting(obs, policy, "")
+}
+
+func (s *Store) observeFeedbackWithSetting(obs FeedbackObservation, policy feedbackPolicy, enabledSetting string) (int64, error) {
 	if obs.URL == "" || obs.HeadSHA == "" || obs.At.IsZero() {
 		return 0, nil
 	}
@@ -51,6 +57,17 @@ func (s *Store) observeFeedback(obs FeedbackObservation, policy feedbackPolicy) 
 		return 0, err
 	}
 	defer tx.Rollback()
+
+	if enabledSetting != "" {
+		var enabled string
+		err := tx.QueryRow(`SELECT value FROM settings WHERE key = ?`, enabledSetting).Scan(&enabled)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return 0, err
+		}
+		if enabled != "on" {
+			return 0, nil
+		}
+	}
 
 	key := policy.Key + obs.URL
 	var raw string

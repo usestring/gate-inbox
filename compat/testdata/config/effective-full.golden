@@ -423,7 +423,6 @@ default  tools.terminal.trust_store = ""
 default  tools.terminal.turn_end = ""
 default  tools.terminal.type_ahead = false
 default  tools.terminal.typed_prompt_prefixes = []
-default  work.ci_feedback = false
 file*    work.settle_after = "48h0m0s"
          (file: "48h")
 ignored  supervisor.disabled = true

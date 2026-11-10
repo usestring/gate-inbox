@@ -71,3 +71,22 @@ func TestEnvironmentClearsAPiSessionsStaleStatus(t *testing.T) {
 		t.Fatalf("stale status file survived the launch: %v", err)
 	}
 }
+
+// The board's TypeSafe key is withheld from a pi pane, so neither the launch
+// script nor the environment the tmux server would pass on carries it.
+func TestAPiLaunchWithholdsTheTypeSafeKey(t *testing.T) {
+	t.Setenv("TYPESAFE_API_KEY", "operator-key")
+	manager := hooks.NewManager(t.TempDir())
+	pi := config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi}
+	_, env, err := Compose(manager, "pi", pi, pi.Command, "abcd1234", "", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := env["TYPESAFE_API_KEY"]; value != tmux.Withheld {
+		t.Fatalf("TYPESAFE_API_KEY = %q, want it withheld", value)
+	}
+	claude := config.Tool{Command: "cat"}
+	if _, env, err = Compose(manager, "plain", claude, claude.Command, "abcd1234", "", "", false, nil); err != nil || env["TYPESAFE_API_KEY"] != "operator-key" {
+		t.Fatalf("a non-pi launch lost the operator's key: %q, %v", env["TYPESAFE_API_KEY"], err)
+	}
+}

@@ -139,7 +139,8 @@ func TestSmartTriagePutsUrgentAtTheHead(t *testing.T) {
 		urgent,
 		smartSess("q-fresh", status.Waiting, time.Minute),
 	)
-	assertRail(t, m, "urgent", "q-fresh", "q-old", "done-old")
+	// The questions lead whatever their tier; urgent heads the rest.
+	assertRail(t, m, "q-fresh", "q-old", "urgent", "done-old")
 }
 
 // Idle is on the walk like everything else, so a session wrongly read as
@@ -283,21 +284,39 @@ func TestSmartTriageLeavingAPageMutesItsSession(t *testing.T) {
 	}
 }
 
-// A deadline still ahead goes before the score in the scored band.
+// A deadline still ahead goes before the score in the scored band, among
+// sessions of one state.
 func TestSmartTriageDeadlineGoesBeforeTheScore(t *testing.T) {
 	m := smartFleet(t,
-		smartSess("ask", status.Waiting, time.Minute),
-		smartSess("calm", status.Idle, time.Hour),
+		smartSess("fresh", status.Finished, time.Minute),
+		smartSess("calm", status.Finished, time.Hour),
 	)
 	m.queueDeadlines = map[string]time.Time{"calm": smartNow.Add(time.Minute)}
 	m.rebuildRows()
-	assertRail(t, m, "calm", "ask")
+	assertRail(t, m, "calm", "fresh")
 	m.clock = func() time.Time { return smartNow.Add(2 * time.Minute) }
 	m.rebuildRows()
-	assertRail(t, m, "ask", "calm")
+	assertRail(t, m, "fresh", "calm")
 }
 
-// Smart triage off keeps the strict order within each band: priority, state, then
+// A deadline never puts a session ahead of a better state. The cache warden
+// publishes one for every warm session, so a deadline that outranked the
+// state put every session touched in the last hour ahead of every question.
+func TestSmartTriageDeadlineNeverJumpsAQuestion(t *testing.T) {
+	m := smartFleet(t,
+		smartSess("ask", status.Waiting, time.Hour),
+		smartSess("warm", status.Finished, time.Minute),
+		smartSess("calm", status.Idle, time.Minute),
+	)
+	m.queueDeadlines = map[string]time.Time{
+		"warm": smartNow.Add(time.Minute),
+		"calm": smartNow.Add(time.Minute),
+	}
+	m.rebuildRows()
+	assertRail(t, m, "ask", "warm", "calm")
+}
+
+// Smart triage off keeps the strict order within each band: questions, priority, state, then
 // oldest, with a seen finish ranked as the idle row it reads as.
 func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
 	urgent := smartSess("urgent-done", status.Finished, time.Minute)
@@ -320,7 +339,7 @@ func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
 	m := smartFleet(t, fleet...)
 	m.smartTriage = false
 	m.rebuildRows()
-	want := []string{"urgent-done", "q-old", "q-fresh", "done-aged", "lead", "kid", "calm", "seen", "broke"}
+	want := []string{"q-old", "q-fresh", "urgent-done", "done-aged", "lead", "kid", "calm", "seen", "broke"}
 	assertRail(t, m, want...)
 	if got, want := drainOrder(m), slices.DeleteFunc(slices.Clone(want), func(n string) bool { return n == "lead" || n == "kid" }); !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want %v", got, want)

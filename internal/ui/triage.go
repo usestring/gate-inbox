@@ -20,11 +20,14 @@ import (
 // because the one thing triage must never do is walk somebody into a
 // session that is mid-turn.
 //
-// A parent waiting on child results still owns the unfinished work. It stays
-// on the attention queue below finished sessions, and a child
-// asking a question lifts the branch through the child's own rank.
-// background ranks below idle: the turn ended and can take input, but the
-// shell it left running may wake it into another turn.
+// delegating and background sit with working, below every session that is
+// ready. A parent waiting on child results has nothing for the operator
+// until a result arrives and starts a real turn, and a session whose shell
+// is still running will wake on its own; neither is ever handed over. Until
+// they were ranked this way, a delegating parent that the cache warden kept
+// warm came round on every pass with only its "ok" to read. A child asking a
+// question still lifts the branch through the child's own rank, and the
+// parent relays it, as it does for a working parent.
 //
 // triageReview is the Reviews tab's tier, and no session's: a pull request
 // somebody asked the operator to review is a person waiting on them, but not
@@ -44,11 +47,11 @@ var triageTiers = []string{
 	triageReview,
 	triageBlocked,
 	status.Finished,
-	status.Delegating,
 	status.Idle,
-	status.Background,
 	status.Pending,
 	status.Errored,
+	status.Delegating,
+	status.Background,
 	status.Working,
 	status.Starting,
 	status.Dead,
@@ -110,9 +113,7 @@ var triageScoredTiers = []string{
 	triageBlocked,
 	status.Finished,
 	triageFinishedSeen,
-	status.Delegating,
 	status.Idle,
-	status.Background,
 	triageChoreRest,
 	status.Errored,
 }
@@ -186,7 +187,7 @@ func (m *Model) now() time.Time {
 // so the queue the rail paints and the queue ctrl+q walks cannot drift apart.
 func requiresInput(st string) bool {
 	switch st {
-	case status.Waiting, status.Errored, status.Finished, status.Delegating:
+	case status.Waiting, status.Errored, status.Finished:
 		return true
 	}
 	return false
@@ -223,11 +224,11 @@ func (m *Model) needsPerson(sess store.Session) bool {
 }
 
 // triageWalkable is what a drain will hand over at all: the sessions that
-// need a person and the idle or background ones. Neither is waiting on
-// anybody, so they do not count as attention, but each can be useful to
-// hand over in its turn: a completed turn can take input even while a
-// monitor keeps running. Working, starting and dead stay
-// off, bar a working or starting label flagged stale (see stalestatus.go): entering a mid-turn session is the one thing triage must never do,
+// need a person and the idle ones. An idle session is not waiting on
+// anybody, so it does not count as attention, but it can be useful to hand
+// over in its turn. Working, starting, delegating, background and dead stay
+// off: a delegating or background session will take its next turn without
+// the operator, bar a working or starting label flagged stale (see stalestatus.go): entering a mid-turn session is the one thing triage must never do,
 // and a dead pane cannot be entered.
 //
 // The rail paints this, the mute keys read it and the walk above filters on
@@ -245,7 +246,7 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 	// idle one is: the screen under it has not moved in hours, so entering
 	// cannot interrupt a turn, and a person looking is the only way the
 	// misread gets noticed.
-	return (sess.Status == status.Idle || sess.Status == status.Background || m.isStale(sess) || m.isChoreRest(sess)) && !m.ownedByExtension(sess.ID)
+	return (sess.Status == status.Idle || m.isStale(sess) || m.isChoreRest(sess)) && !m.ownedByExtension(sess.ID)
 }
 
 // triageLess sorts the queue into bands -- scored, walkable, the rest, muted

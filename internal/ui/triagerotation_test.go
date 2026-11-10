@@ -219,3 +219,50 @@ func TestTriageNeverHandsOverDeadOrHibernatedSessions(t *testing.T) {
 func sameSet(a, b []string) bool {
 	return slices.Equal(slices.Sorted(slices.Values(a)), slices.Sorted(slices.Values(b)))
 }
+
+// The reported case: a parent waiting on a child's two-hour watch, kept warm
+// by the cache warden so its last turns are a keep-alive and "ok", showed on
+// the first triage tab with nothing to answer. A delegating or background
+// session has nothing for the operator until its next real turn: it is never
+// handed over, never counts as needing a person, and sorts under every
+// session that is ready, urgent or not, keep-alive or not.
+func TestTriageNeverHandsOverDelegatingOrBackgroundSessions(t *testing.T) {
+	parent := smartSess("delegating-parent", status.Delegating, time.Minute)
+	parent.Priority = priority.Urgent
+	m := smartFleet(t,
+		parent,
+		smartSess("watching", status.Background, 2*time.Minute),
+		smartSess("ask-a", status.Waiting, 5*time.Hour),
+		smartSess("ask-b", status.Waiting, 6*time.Hour),
+		smartSess("done", status.Finished, 3*time.Hour),
+		smartSess("napping", status.Idle, 4*time.Hour),
+	)
+	m.queueDeadlines = map[string]time.Time{"delegating-parent": smartNow.Add(50 * time.Minute)}
+	m.choreRests = choreRestsOf(m.sessions, map[string]store.InboxMessage{
+		"delegating-parent": {SenderID: store.OperatorVoicedSenderID("cache-warden"), Body: keepWarmBody, DeliveredAt: smartNow},
+	})
+	m.rebuildRows()
+	if got := drainOrder(m); !slices.Equal(got, []string{"ask-a", "ask-b", "done", "napping"}) {
+		t.Fatalf("drain = %v, want the ready sessions only, questions first", got)
+	}
+	for _, name := range []string{"delegating-parent", "watching"} {
+		sess, _ := m.sessionByID(name)
+		if m.needsPerson(sess) || m.triageWalkable(sess) {
+			t.Fatalf("%s counts as needing a person or walkable", name)
+		}
+	}
+	rail := sessionNames(m)
+	for _, name := range []string{"delegating-parent", "watching"} {
+		if slices.Index(rail, name) < slices.Index(rail, "napping") {
+			t.Fatalf("rail = %v, want %s under every ready session", rail, name)
+		}
+	}
+	m.triagePickupCmd()
+	m.triageResume = true
+	if cmd := m.triagePickupCmd(); cmd != nil {
+		sess := m.rows[m.cursor].sess
+		if sess.Status == status.Delegating || sess.Status == status.Background {
+			t.Fatalf("a drained queue picked %s back up", sess.Name)
+		}
+	}
+}

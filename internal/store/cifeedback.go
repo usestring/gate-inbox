@@ -105,6 +105,9 @@ func (s *Store) observeFeedbackWithSetting(obs FeedbackObservation, policy feedb
 	var retry bool
 	if seen && !state.Escalated && obs.Signature != "" && obs.Open {
 		retry, err = retiredFeedback(tx, key+":"+obs.Signature, policy.Retired)
+		if err == nil && !retry && enabledSetting == CIFeedbackSetting {
+			retry, err = retiredFeedback(tx, key+":"+obs.Signature, "ci-feedback-disabled")
+		}
 		if err != nil {
 			return 0, err
 		}

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ func TestCIFeedbackOptInUsesBoardRefreshAndDisablingRetiresQueue(t *testing.T) {
 	st := m.store
 	const url = "https://github.com/example/repo/pull/7"
 	at := time.Now()
+	attempt := "failed-run"
 	if err := st.CreateSession(store.Session{ID: "owner", Tool: "claude", Status: "idle"}); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +43,7 @@ func TestCIFeedbackOptInUsesBoardRefreshAndDisablingRetiresQueue(t *testing.T) {
 		at = at.Add(2 * time.Minute)
 		tracker.GitHub = ciTestForge{pr: forge.PR{URL: url, State: forge.PROpen, Checks: forge.ChecksFailing, FetchedAt: at,
 			CI: &forge.CISnapshot{HeadSHA: "current", Complete: true, Checks: []forge.CICheck{{
-				ID: at.Format(time.RFC3339Nano), Name: "tests", Status: "COMPLETED", Conclusion: "FAILURE",
+				ID: attempt, Name: "tests", Status: "COMPLETED", Conclusion: "FAILURE",
 			}}}}}
 		session := worktracker.Session{ID: "owner", Text: url, Live: true}
 		tracker.Discover(session)
@@ -99,5 +101,26 @@ func TestCIFeedbackOptInUsesBoardRefreshAndDisablingRetiresQueue(t *testing.T) {
 	refresh()
 	if n := queued(); n != 0 {
 		t.Fatalf("existing tracker queued feedback after disabling: %d messages", n)
+	}
+	toggle()
+	refresh()
+	msg, ok, err := st.HeadMessage("owner")
+	if err != nil || !ok || !strings.Contains(msg.Body, "round 1 of 2") {
+		t.Fatalf("re-enabling did not restore the undelivered round: %+v, %v, %v", msg, ok, err)
+	}
+	if err := st.MarkDelivered(msg.ID, at); err != nil {
+		t.Fatal(err)
+	}
+	toggle()
+	toggle()
+	refresh()
+	if n := queued(); n != 0 {
+		t.Fatalf("re-enabling replayed delivered feedback: %d messages", n)
+	}
+	attempt = "next-run"
+	refresh()
+	msg, ok, err = st.HeadMessage("owner")
+	if err != nil || !ok || !strings.Contains(msg.Body, "round 2 of 2") {
+		t.Fatalf("restored delivery spent another repair round: %+v, %v, %v", msg, ok, err)
 	}
 }

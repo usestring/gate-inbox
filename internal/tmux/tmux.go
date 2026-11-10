@@ -574,7 +574,7 @@ func (d *Driver) Create(id, cwd, command string, env map[string]string, width, h
 			d.paneThemePush.Unlock()
 			return err
 		}
-		args = append(args, shell.runScript(scriptPath))
+		args = append(args, withheld(env)+shell.runScript(scriptPath))
 	}
 	args = append(args, trailingTheme...)
 	_, runErr := d.run(args...)
@@ -639,6 +639,35 @@ const (
 	exitFileWrite = `[ -z "$` + envname.ExitFile + `" ] || printf '%s\n' "$` + exitStatusVar + `" > "$` + envname.ExitFile + `" 2>/dev/null` + "\n"
 )
 
+// Withheld is the env value that keeps a variable out of the pane entirely.
+// An export of "" is not enough: the pane's first process inherits the tmux
+// server's environment, fixed when the server started, and keeps it in its
+// own environ for its children to read whatever the script exports later.
+// So a withheld variable is dropped from that first process's environment
+// as well as unset in the script, after any startup file that set it again.
+const Withheld = "\x00withheld"
+
+// withheld is the prefix that starts the pane's first process without the
+// withheld variables, or "" when there are none. It execs, so the shell tmux
+// runs the window command under does not stay behind holding them.
+func withheld(env map[string]string) string {
+	var keys []string
+	for key, value := range env {
+		if value == Withheld {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+	prefix := "exec env"
+	for _, key := range keys {
+		prefix += " -u " + ShellQuote(key)
+	}
+	return prefix + " "
+}
+
 // filterMallocNoise runs command with its stderr through a filter dropping
 // the "MallocStackLogging: can't turn off malloc stack logging" lines macOS
 // libmalloc prints for every process Claude Code spawns. They land on the
@@ -672,6 +701,10 @@ func writeLaunchScript(path string, env map[string]string, command, colorFgBg st
 	var body strings.Builder
 	body.WriteString("#!/bin/sh\n")
 	for _, key := range keys {
+		if env[key] == Withheld {
+			body.WriteString("unset " + key + "\n")
+			continue
+		}
 		body.WriteString("export " + key + "=" + ShellQuote(env[key]) + "\n")
 	}
 	// Export COLORFGBG in the pane itself. The global option tmux carries in

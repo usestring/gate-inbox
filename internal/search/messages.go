@@ -95,6 +95,9 @@ type messageEnvelope struct {
 	Text      string          `json:"text"`
 	Synthetic bool            `json:"synthetic"`
 	Ignored   bool            `json:"ignored"`
+	Error     *struct {
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
 func parseMessage(line []byte, tool string) (Message, bool) {
@@ -116,6 +119,10 @@ func parseMessage(line []byte, tool string) (Message, bool) {
 		}
 		envelope = row.Message
 	case ToolCodex:
+		if row.Type == "event_msg" && row.Payload.Type == "task_complete" && row.Payload.Error != nil {
+			text := strings.TrimSpace(row.Payload.Error.Message)
+			return Message{Role: "error", Text: text}, text != ""
+		}
 		if row.Type != "response_item" || row.Payload.Type != "message" {
 			return Message{}, false
 		}

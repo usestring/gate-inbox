@@ -240,10 +240,10 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 // first row it can, so the two cannot disagree. See nextTriageInput.
 //
 // Errored rows follow other unmuted rows so a failed turn cannot displace
-// work that can move forward. Otherwise a higher priority tier sorts above
-// any lower one whatever its band, state, deadline or wait. Within a
-// tier the bands follow, and smart triage orders the scored band (every
-// walkable session; the walkable band is then empty) by state, then most
+// work that can move forward. Within each band, a higher priority tier sorts
+// above any lower one, so busy sessions cannot displace sessions ready for
+// input. Smart triage orders the scored band (every walkable session; the
+// walkable band is then empty) by priority, then state, then most
 // recent turn first (see triageScore); every other band, and the strict
 // order, sorts by status rank, then oldest first. See priority.go.
 //
@@ -283,7 +283,7 @@ const (
 )
 
 // triageKey is everything the queue orders by before it falls back to who has
-// waited longest: how much the work matters, the band, the status rank,
+// waited longest: the band, how much the work matters, the status rank,
 // and a scored session's recency. It is a value rather than comparisons in a row
 // because a parent adopts the best key in its lineage, and "best" has to mean
 // the same thing there as it does here.
@@ -304,11 +304,11 @@ func (k triageKey) before(o triageKey) bool {
 	if k.errored != o.errored {
 		return !k.errored
 	}
-	if k.priority != o.priority {
-		return k.priority < o.priority
-	}
 	if k.band != o.band {
 		return k.band < o.band
+	}
+	if k.priority != o.priority {
+		return k.priority < o.priority
 	}
 	if k.tier != o.tier {
 		return k.tier < o.tier

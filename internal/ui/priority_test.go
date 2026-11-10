@@ -24,7 +24,7 @@ func sessionID(t *testing.T, m *Model, name string) string {
 	return ""
 }
 
-// A raised session goes ahead of every lower tier, whatever its state: an
+// Among sessions ready for input, a raised tier goes ahead of lower tiers: an
 // urgent finished session and an urgent idle one both go before an untiered
 // question. The rail has to read in the order the drain walks.
 func TestPriorityLiftsAheadOfLowerTiers(t *testing.T) {
@@ -137,8 +137,7 @@ func TestPriorityKeyCyclesTheSession(t *testing.T) {
 	}
 }
 
-// The tiers order the queue before the states do, so it reads urgent, high,
-// then the ones nobody has tiered, then low, each tier by state inside it.
+// Ready sessions come first; priority orders each band before state does.
 func TestTiersOrderTheQueue(t *testing.T) {
 	m := buildModel(t)
 	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
@@ -161,11 +160,36 @@ func TestTiersOrderTheQueue(t *testing.T) {
 	loadStoredRows(t, m)
 	pressKey(t, m, key("i"))
 
-	// The tier outranks the band: a high working session sits above an
-	// untiered idle one, and a low question below every untiered row.
-	want := []string{"new-block", "reviewme", "grinder", "napping", "booting", "gone", "old-block", "crashed"}
+	// A high working session waits below an untiered idle one and a low
+	// question, while still leading the other sessions that cannot take input.
+	want := []string{"new-block", "reviewme", "napping", "old-block", "grinder", "booting", "gone", "crashed"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
+	}
+}
+
+func TestPriorityWorkingWaitsBehindReadySessions(t *testing.T) {
+	for _, smart := range []bool{false, true} {
+		t.Run(fmt.Sprintf("smart=%t", smart), func(t *testing.T) {
+			ask := smartSess("ask", status.Waiting, time.Second)
+			ask.Priority = priority.Low
+			done := smartSess("done", status.Finished, time.Second)
+			busy := smartSess("busy", status.Working, time.Second)
+			busy.Priority = priority.Urgent
+			starting := smartSess("starting", status.Starting, time.Second)
+			starting.Priority = priority.High
+			m := smartFleet(t, busy, starting, ask, done)
+			m.smartTriage = smart
+			m.rebuildRows()
+
+			assertRail(t, m, "done", "ask", "busy", "starting")
+			if got, want := drainOrder(m), []string{"done", "ask"}; !slices.Equal(got, want) {
+				t.Fatalf("handovers = %v, want %v", got, want)
+			}
+			m.sessions[0].Status = status.Waiting
+			m.rebuildRows()
+			assertRail(t, m, "busy", "done", "ask", "starting")
+		})
 	}
 }
 

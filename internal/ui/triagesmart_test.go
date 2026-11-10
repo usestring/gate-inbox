@@ -297,7 +297,7 @@ func TestSmartTriageDeadlineGoesBeforeTheScore(t *testing.T) {
 	assertRail(t, m, "ask", "calm")
 }
 
-// Smart triage off is the strict order exactly: tier first, then state, then
+// Smart triage off keeps the strict order within each band: priority, state, then
 // oldest, with a seen finish ranked as the idle row it reads as.
 func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
 	urgent := smartSess("urgent-done", status.Finished, time.Minute)

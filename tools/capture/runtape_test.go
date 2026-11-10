@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // absolutePath is a filesystem path under a root a machine keeps local state
@@ -19,7 +21,7 @@ func runTape(t *testing.T, scenario string, tools ...string) string {
 	t.Helper()
 	args := append([]string{"runtape.sh", scenario, "media/run", "test-results/run"}, tools...)
 	cmd := exec.Command("bash", args...)
-	cmd.Env = append(os.Environ(), "CAP_WIDTH=1400", "CAP_HEIGHT=800", "CAP_FONT_SIZE=20",
+	cmd.Env = append(tmuxtest.Environ(), "CAP_WIDTH=1400", "CAP_HEIGHT=800", "CAP_FONT_SIZE=20",
 		`CAP_VHS_THEME_JSON={ "name": "oled", "background": "#000000" }`)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -80,7 +82,7 @@ func TestRunTapeReplacesPlaceholdersWithNames(t *testing.T) {
 
 func TestRunTapeRefusesAnAbsoluteOutput(t *testing.T) {
 	cmd := exec.Command("bash", "runtape.sh", "scenarios/board-tour.tape", "/tmp/media", "test-results/run")
-	cmd.Env = append(os.Environ(), "CAP_WIDTH=1", "CAP_HEIGHT=1", "CAP_FONT_SIZE=1")
+	cmd.Env = append(tmuxtest.Environ(), "CAP_WIDTH=1", "CAP_HEIGHT=1", "CAP_FONT_SIZE=1")
 	if err := cmd.Run(); err == nil {
 		t.Fatal("runtape.sh accepted an absolute output directory")
 	}

@@ -57,6 +57,32 @@ func TestTriageContentShortcutPersistsAndSwitchesTabs(t *testing.T) {
 	}
 }
 
+func TestTriageContentRestoresReviewClassificationBeforeFirstPoll(t *testing.T) {
+	m := buildModel(t)
+	for key, value := range map[string]string{
+		reviewQueueSetting:   "on",
+		triageContentSetting: triageContentSessions,
+	} {
+		if err := m.store.SetSetting(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ask := reviewAsk(1, time.Minute)
+	if _, err := m.store.UpsertReviewRequests([]store.ReviewRequest{ask}, smartNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.AttachReviewSession(ask.Repo, ask.Number, "briefing", ask.HeadSHA, smartNow); err != nil {
+		t.Fatal(err)
+	}
+	restored := New(m.cfg, m.store, m.tmux, m.engine, m.hooks, "test")
+	if restored.inTriageContent(smartSess("briefing", status.Waiting, time.Minute)) {
+		t.Fatal("saved sessions-only mode included a review before its first poll")
+	}
+	if !restored.inTriageContent(smartSess("ordinary", status.Waiting, time.Minute)) {
+		t.Fatal("saved sessions-only mode excluded an ordinary session")
+	}
+}
+
 func TestTriageContentDoesNotPickUpExcludedArrivals(t *testing.T) {
 	for _, content := range []string{triageContentSessions, triageContentReviews} {
 		t.Run(content, func(t *testing.T) {

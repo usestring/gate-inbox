@@ -1461,6 +1461,11 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	model.loadSnippets()
 	model.loadRestartFlags()
 	model.loadJevKey()
+	if model.reviewQueue {
+		if err := model.reloadReviewRequests(); err != nil {
+			logging.Info("review queue restore", logging.Err(err))
+		}
+	}
 	model.seedFromStore()
 	model.triageStartupEnter = model.triage
 	model.noteOpencodeVersion(opencode.Cached())

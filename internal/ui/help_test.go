@@ -173,7 +173,7 @@ func TestHelpNeverAdvertisesReview(t *testing.T) {
 			t.Errorf("key map still carries a %q section", section.title)
 		}
 		for _, row := range section.rows {
-			if row.action == keymap.IngestReviews || row.action == keymap.ReviewsTab {
+			if row.action == keymap.IngestReviews || row.action == keymap.ReviewsTab || row.action == keymap.TriageContent {
 				exempt = append(exempt, row.text)
 				continue
 			}

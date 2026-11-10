@@ -804,6 +804,11 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	delivered, err := p.store.LastDelivered()
+	if err != nil {
+		return errMsg{err}
+	}
+	choreRests := choreRestsOf(sessions, delivered)
 	limitContinuations := 0
 	limitRecoveries, err := p.store.LimitRecoveries()
 	if err != nil {
@@ -1284,6 +1289,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		archivedChildren: archivedKids,
 		searchText:       searchText,
 		answerableWait:   answerableWait,
+		choreRests:       choreRests,
 		askQuestions:     askQuestions,
 		authFailures:     authFailures,
 		hookless:         p.hooklessRows(),

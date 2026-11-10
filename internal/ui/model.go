@@ -360,6 +360,11 @@ type Model struct {
 	// empty for a session whose pane could not be captured, which leaves the
 	// row with the operator where a missing reading belongs.
 	answerableWait map[string]bool
+	// choreRests marks each session whose latest turn a board chore started
+	// -- a prompt-cache keep-alive -- after the operator's last turn on it,
+	// keyed to when the chore was delivered. Triage sinks such a rest below
+	// real work; see chorerest.go. Replaced whole every poll.
+	choreRests map[string]time.Time
 	// askQuestions mirrors refreshMsg.askQuestions, and questionCard is the
 	// preview's card drawn from it. See previewquestions.go.
 	askQuestions map[string][]convo.AskQuestion
@@ -1091,6 +1096,7 @@ type refreshMsg struct {
 	archivedChildren map[string]int
 	searchText       map[string]string
 	answerableWait   map[string]bool
+	choreRests       map[string]time.Time
 	// askQuestions is each Claude session's pending AskUserQuestion call,
 	// for a pane standing on a several-question dialog.
 	askQuestions map[string][]convo.AskQuestion
@@ -2522,6 +2528,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait
+		m.choreRests = msg.choreRests
 		m.askQuestions = msg.askQuestions
 		m.authFailures = msg.authFailures
 		m.hookless = msg.hookless

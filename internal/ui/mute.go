@@ -81,6 +81,13 @@ func (m *Model) isMuted(sess store.Session) bool {
 	if sess.Status == mark.status && !sess.LastStatusAt.After(mark.at) {
 		return true
 	}
+	// A keep-alive turn since the mark ends in a fresh finish with nothing
+	// in it, so the mark still covers everything the session holds. Letting
+	// it lapse handed a warm session back on every keep-alive. See
+	// chorerest.go.
+	if m.choreSince(sess, mark.at) {
+		return true
+	}
 	// Leaving or skipping a finished session acknowledges it, which turns it
 	// idle and acked under the same LastStatusAt. That is the finish the mark
 	// was made on, seen, not news; smart triage still scores it, so letting

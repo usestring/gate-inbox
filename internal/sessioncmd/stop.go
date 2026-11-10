@@ -211,6 +211,17 @@ func (r *runtime) stopCaller(id string) (store.Session, error) {
 			return target, err
 		}
 		if !owned {
+			sharedCodex, err := sharedCodexAncestor()
+			if err != nil {
+				return store.Session{}, err
+			}
+			sharedOpencode, err := r.sharedOpencodeAncestor()
+			if err != nil {
+				return store.Session{}, err
+			}
+			if sharedCodex || sharedOpencode {
+				return target, nil
+			}
 			caller, err := r.stopCaller("")
 			if err == nil {
 				return caller, nil

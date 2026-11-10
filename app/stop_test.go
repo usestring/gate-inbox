@@ -305,6 +305,11 @@ func TestSharedCodexStopResolvesStaleManagedEnvironment(t *testing.T) {
 	if err := state.SetAgentSessionID(duplicate.ID, ""); err != nil {
 		t.Fatal(err)
 	}
+	unavailable := store.Session{ID: "unreach1", Tool: "codex", Name: "unavailable", Status: "working",
+		CreatedAt: time.Now(), TmuxSocket: tmuxtest.Socket(t, "missingstop"), TmuxPaneID: "%0"}
+	if err := state.CreateSession(unavailable); err != nil {
+		t.Fatal(err)
+	}
 	result := run(thread, true)
 	if result.Failed {
 		t.Fatalf("own stop: %s", result.Output)
@@ -561,6 +566,20 @@ func TestSharedOpencodeStopUsesThePaneMarker(t *testing.T) {
 		f := newSharedOpencodeStop(t, "ocforeignenv")
 		f.mark("ownoc001", "opencode", f.conversation)
 		result := f.run(f.fake, "foreig01", true)
+		if result.Failed {
+			t.Fatalf("own stop: %s", result.Output)
+		}
+		f.finish(result)
+	})
+	t.Run("unavailable unrelated pane does not block the bound row", func(t *testing.T) {
+		f := newSharedOpencodeStop(t, "ocunavailable")
+		unavailable := store.Session{ID: "unreach1", Tool: "opencode", Name: "unavailable", Status: "working",
+			CreatedAt: time.Now(), TmuxSocket: tmuxtest.Socket(t, "missingocstop"), TmuxPaneID: "%0"}
+		if err := f.state.CreateSession(unavailable); err != nil {
+			t.Fatal(err)
+		}
+		f.mark("ownoc001", "opencode", f.conversation)
+		result := f.run(f.fake, "ownoc001", true)
 		if result.Failed {
 			t.Fatalf("own stop: %s", result.Output)
 		}

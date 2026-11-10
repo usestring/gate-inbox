@@ -52,7 +52,7 @@
 # revive              = ["v"]  # revive it, or restart a live one on its own conversation
 # revive_all          = ["V", "shift+v"]  # revive every dead session
 # ingest_reviews      = ["P", "shift+p"]  # fetch reviews asked of you on GitHub
-# reviews_tab         = ["]"]  # switch between the Sessions and Reviews tabs
+# reviews_tab         = ["ctrl+]", "]"]  # switch between the Sessions and Reviews tabs
 # switch_account      = ["alt+a"]  # switch its account: restarts it on its own conversation
 # restart             = []  # restart it on an empty context
 # restart_with        = []  # restart it with extra flags…

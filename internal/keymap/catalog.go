@@ -203,7 +203,7 @@ var Catalog = []Binding{
 	{ContextList, Revive, []string{"v"}, "revive it, or restart a live one on its own conversation", false},
 	{ContextList, ReviveAll, []string{"V", "shift+v"}, "revive every dead session", false},
 	{ContextList, IngestReviews, []string{"P", "shift+p"}, "fetch reviews asked of you on GitHub", false},
-	{ContextList, ReviewsTab, []string{"]"}, "switch between the Sessions and Reviews tabs", false},
+	{ContextList, ReviewsTab, []string{"ctrl+]", "]"}, "switch between the Sessions and Reviews tabs", false},
 	{ContextList, SwitchAccount, []string{"alt+a"}, "switch its account: restarts it on its own conversation", false},
 	{ContextList, Restart, []string{}, "restart it on an empty context", false},
 	{ContextList, RestartWith, []string{}, "restart it with extra flags…", false},

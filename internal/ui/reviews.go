@@ -493,6 +493,7 @@ func (m *Model) toggleReviewsTab() tea.Cmd {
 		m.errBar.text = "the review queue is experimental: turn it on in Settings → Experimental features"
 		return nil
 	}
+	m.triageStartupEnter = false
 	if !m.reviewsTab {
 		m.reviewsTab = true
 		m.triageResume = false

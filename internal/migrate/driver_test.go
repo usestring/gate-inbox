@@ -47,3 +47,22 @@ func TestLocateRefusesADriverThatCannotHandOver(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// pi's session JSONL is a layout the core's handover filter reads, so a pi
+// driver's transcript carries Kind "pi" and is filtered; a command never is.
+func TestLocateGivesAPiDriversFileThePiKind(t *testing.T) {
+	tooldriverstest.Install(t, &tooldriverstest.Driver{
+		Name: "pi",
+		Transcript: func(req extension.TranscriptRequest) (extension.Transcript, error) {
+			return extension.Transcript{Path: "/sessions/--repo--/x_" + req.ID + ".jsonl", Format: "pi session JSONL"}, nil
+		},
+	})
+	source := store.Session{ID: "s1", Name: "app", Cwd: "/repo", AgentSessionID: "c0ffee"}
+	transcript, err := Locate(fixtureRoots(t), "pi", config.Tool{Command: "pi", SessionStore: "pi"}, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transcript.Kind != "pi" || transcript.Format != "pi session JSONL" {
+		t.Fatalf("transcript = %+v", transcript)
+	}
+}

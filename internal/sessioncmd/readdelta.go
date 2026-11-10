@@ -8,6 +8,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/agentsession"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -101,16 +102,28 @@ func decodeCursor(cursor, conversationID string) (offset int64, ok bool) {
 // served but not exactly as asked -- a cursor that no longer fits, or a gap
 // too large for one read -- and the note travels with it rather than
 // throwing the delta away.
-func (s *Sessions) readDelta(target store.Session, since string) (cursor string, delta convo.Delta, note string, ok bool) {
-	if target.Tool != "claude" {
-		return "", convo.Delta{}, "only Claude Code sessions keep a transcript this can read; a " + target.Tool + " session returns its pane", false
+func (s *Sessions) readDelta(target store.Session, since string, tools map[string]config.Tool) (cursor string, delta convo.Delta, note string, ok bool) {
+	pi := config.IsPiTool(tools, target.Tool)
+	if target.Tool != "claude" && !pi {
+		return "", convo.Delta{}, "only Claude Code and pi sessions keep a transcript this can read; a " + target.Tool + " session returns its pane", false
 	}
 	if target.AgentSessionID == "" {
 		return "", convo.Delta{}, "no conversation id has been captured for this session yet, so there is no transcript to read", false
 	}
-	path := convo.TranscriptFor(s.claudeHome, target.AgentSessionID, target.Cwd)
-	if path == "" {
-		return "", convo.Delta{}, "no transcript on disk for conversation " + target.AgentSessionID + ", so transcript saving is off for this session", false
+	read := convo.Since
+	var path string
+	if pi {
+		read = convo.SincePi
+		path = convo.PiTranscriptFor(convo.PiSessionsDir(), target.AgentSessionID, target.Cwd)
+		if path == "" {
+			// pi writes the file on its first message, not at launch.
+			return "", convo.Delta{}, "no session file on disk for conversation " + target.AgentSessionID + " yet; pi writes it with the first message", false
+		}
+	} else {
+		path = convo.TranscriptFor(s.claudeHome, target.AgentSessionID, target.Cwd)
+		if path == "" {
+			return "", convo.Delta{}, "no transcript on disk for conversation " + target.AgentSessionID + ", so transcript saving is off for this session", false
+		}
 	}
 	offset, resumable := decodeCursor(since, target.AgentSessionID)
 	if since != "" && !resumable {
@@ -119,7 +132,7 @@ func (s *Sessions) readDelta(target store.Session, since string) (cursor string,
 		// The caller gets a first read and a cursor that does fit.
 		note = "cursor was taken from a different conversation, so this read starts from the end of the current one"
 	}
-	delta, err := convo.Since(path, offset)
+	delta, err := read(path, offset)
 	if err != nil {
 		return "", convo.Delta{}, "transcript could not be read: " + err.Error(), false
 	}

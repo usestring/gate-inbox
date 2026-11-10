@@ -381,7 +381,7 @@ func parentGroup(group string) string {
 func (m *Model) groupStatusBreakdown(group string) string {
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Hibernating, status.Dead} {
 		if counts[st] > 0 {
 			// The count carries the state's color, the word stays quiet: a
 			// rollup line should read as one texture, not as six labels
@@ -396,7 +396,7 @@ func (m *Model) groupStatusCounts(group string) map[string]int {
 	counts := map[string]int{}
 	for _, sess := range m.listedAgents() {
 		if inGroupSubtree(sess.Group, group) {
-			counts[sess.Status]++
+			counts[m.shownStatus(sess)]++
 		}
 	}
 	return counts
@@ -409,7 +409,7 @@ func (m *Model) groupStatusCounts(group string) map[string]int {
 func (m *Model) groupStatusGlyphs(group string) string {
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Hibernating, status.Dead} {
 		if counts[st] == 0 {
 			continue
 		}

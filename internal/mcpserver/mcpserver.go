@@ -70,7 +70,7 @@ type readTerminalArgs struct {
 
 type listSessionsArgs struct {
 	Parent          string   `json:"parent,omitempty" jsonschema:"keep only the sessions this one spawned; pass \"me\" for this session's own children, which is the fan-out it is steering; omit for every session whoever spawned it"`
-	Status          []string `json:"status,omitempty" jsonschema:"keep only sessions in these states: starting, working, waiting, delegating, background, finished, idle, errored or dead; omit for every state"`
+	Status          []string `json:"status,omitempty" jsonschema:"keep only sessions in these states: starting, working, waiting, delegating, background, finished, idle, errored, hibernating or dead; omit for every state"`
 	IncludeArchived bool     `json:"include_archived,omitempty" jsonschema:"also list sessions archived out of the active list, which on a long-lived board are most of the table; pass it only when looking for a row to restore with archive_session"`
 	Limit           int      `json:"limit,omitempty" jsonschema:"how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent"`
 	IncludeText     *bool    `json:"include_text,omitempty" jsonschema:"when false, the readable rendering is replaced by a one-line count and the rows come back only in the structured result, which halves the reply; omit or true for both renderings"`
@@ -235,7 +235,7 @@ type waitSessionArgs struct {
 	SessionID  string   `json:"session_id,omitempty" jsonschema:"one session id returned by list_sessions or create_session; for a fan-out use children, or session_ids"`
 	SessionIDs []string `json:"session_ids,omitempty" jsonschema:"several session ids to park on at once; the call ends as soon as any one of them arrives and reports where all of them stand"`
 	Children   bool     `json:"children,omitempty" jsonschema:"park on every session you spawned, which is what a fan-out wants; give this instead of session_id or session_ids, never alongside them"`
-	Until      []string `json:"until,omitempty" jsonschema:"states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, dead); delegating, a session at rest whose own children are still going, and background, one whose turn ended with a shell or task still running, are not among them. Valid values: starting, working, waiting, delegating, background, finished, idle, errored, dead"`
+	Until      []string `json:"until,omitempty" jsonschema:"states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, hibernating, dead); delegating, a session at rest whose own children are still going, and background, one whose turn ended with a shell or task still running, are not among them. Valid values: starting, working, waiting, delegating, background, finished, idle, errored, hibernating, dead"`
 	TimeoutS   int      `json:"timeout_s,omitempty" jsonschema:"seconds to wait before giving up, default 50, maximum 120; your own client may cut the call short before this"`
 }
 
@@ -566,7 +566,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_sessions",
 		Description: "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. " +
-			"Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, background, finished, idle, errored, dead; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it; background is a session whose turn ended with a shell, monitor or task still running, which wakes it into another turn) and which row is this session. " +
+			"Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, background, finished, idle, errored, hibernating, dead; hibernating is a session stopped to give its memory back, not a dead one: any message sent to it wakes it on its conversation, so send to it rather than reviving it; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it; background is a session whose turn ended with a shell, monitor or task still running, which wakes it into another turn) and which row is this session. " +
 			"Send to the session that already owns the work, idle or working, instead of creating another; use create_session for a distinct workstream with no suitable owner, within the user's task or an explicitly invoked skill. " +
 			"Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
 		Annotations: mcptool.Annotations(true, false, false),

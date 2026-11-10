@@ -157,7 +157,7 @@ func statusColor(s string) color.Color {
 		return colorFinished
 	case status.Errored, status.Dead:
 		return colorErrored
-	// Pending and background stay the idle tint: nothing is on screen and
+	// Pending, background and hibernating stay the idle tint: nothing is on screen and
 	// nothing needs a person; the glyph says what each is waiting for.
 	default:
 		return colorIdle

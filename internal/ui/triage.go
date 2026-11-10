@@ -51,6 +51,7 @@ var triageTiers = []string{
 	status.Errored,
 	status.Working,
 	status.Starting,
+	status.Hibernating,
 	status.Dead,
 }
 
@@ -83,7 +84,7 @@ func (m *Model) triageStateOf(sess store.Session) string {
 	if m.isStale(sess) {
 		return status.Idle
 	}
-	return sess.Status
+	return m.shownStatus(sess)
 }
 
 // triageFinishedSeen is the state smart triage gives a finished session the

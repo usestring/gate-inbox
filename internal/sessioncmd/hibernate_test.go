@@ -232,3 +232,106 @@ func TestWakeHibernatedGivesUpOnARowThatCannotComeBack(t *testing.T) {
 		t.Fatalf("undelivered = %d err=%v; want the queue resolved", n, err)
 	}
 }
+
+// A hibernated session is resting, not over, and the tools say so: a caller
+// told it was dead would revive it by hand or give up on the work it holds.
+// A row that really died stays dead beside it.
+func TestListReportsAHibernatedSessionAsHibernatingNotDead(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	rest := restingRow(t, h, "rest0010")
+	gone := childRow(t, h, store.Session{ID: "gone0010", Name: "gone", Status: status.Dead}, false)
+	if _, err := h.sessions.Hibernate(h.caller.ID, rest.ID, false); err != nil {
+		t.Fatalf("Hibernate: %v", err)
+	}
+
+	list, err := h.sessions.List(h.caller.ID, ListOptions{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	got := map[string]string{}
+	for _, sess := range list.Sessions {
+		got[sess.ID] = sess.Status
+	}
+	if got[rest.ID] != status.Hibernating || got[gone.ID] != status.Dead {
+		t.Fatalf("statuses = %v; want %s hibernating and %s dead", got, rest.ID, gone.ID)
+	}
+
+	only, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Hibernating}})
+	if err != nil {
+		t.Fatalf("List hibernating: %v", err)
+	}
+	if len(only.Sessions) != 1 || only.Sessions[0].ID != rest.ID {
+		t.Fatalf("hibernating filter = %+v, want only %s", only.Sessions, rest.ID)
+	}
+	dead, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Dead}})
+	if err != nil {
+		t.Fatalf("List dead: %v", err)
+	}
+	for _, sess := range dead.Sessions {
+		if sess.ID == rest.ID {
+			t.Fatal("the dead filter listed a hibernated session")
+		}
+	}
+}
+
+// send_children is a message to every child, and a hibernated child is
+// resting until one comes: it wakes on its conversation and the message is
+// queued once, to go in when it is at its prompt, instead of being skipped
+// as dead.
+func TestSendChildrenWakesAHibernatedChildAndQueuesTheMessageOnce(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	kid := childRow(t, h, store.Session{ID: "kid00010", Name: "sleepy-kid", Tool: "stoppable", ParentID: h.caller.ID}, true)
+	if _, err := h.sessions.Hibernate(h.caller.ID, kid.ID, false); err != nil {
+		t.Fatalf("Hibernate: %v", err)
+	}
+
+	sent, err := h.sessions.SendChildren(h.caller.ID, "the branch moved")
+	if err != nil {
+		t.Fatalf("SendChildren: %v", err)
+	}
+	if sent.Queued != 1 || sent.Skipped != 0 {
+		t.Fatalf("sent = %+v, want the hibernated child sent to", sent)
+	}
+	if !h.driver.Exists(kid.ID) {
+		t.Fatal("send_children did not wake the hibernated child")
+	}
+	if slices.Contains(hibernated(t, h), kid.ID) {
+		t.Fatal("the woken child is still marked hibernated")
+	}
+	if n, err := h.store.UndeliveredCount(kid.ID); err != nil || n != 1 {
+		t.Fatalf("queued for the child = %d (err %v), want the message once", n, err)
+	}
+}
+
+// A hibernated session stopped only once it was at rest, so a wait on it
+// has its answer: it reached a resting state rather than died.
+func TestObserveWaitCountsAHibernatedSessionAsRestingNotDied(t *testing.T) {
+	t.Parallel()
+	current := []store.Session{{ID: "rest0011", Status: status.Hibernating}, {ID: "gone0011", Status: status.Dead}}
+	wanted := map[string]bool{}
+	for _, state := range restingStates {
+		wanted[state] = true
+	}
+	seen, outcome, settled, err := observeWait(current, map[string]bool{}, wanted, func(store.Session) (bool, error) { return false, nil })
+	if err != nil {
+		t.Fatalf("observeWait: %v", err)
+	}
+	if outcome != WaitReached || settled != 2 {
+		t.Fatalf("outcome = %s, settled = %d; want reached with both settled", outcome, settled)
+	}
+	if seen[0].state != status.Hibernating || seen[0].outcome != WaitReached {
+		t.Fatalf("hibernated observation = %+v, want hibernating and reached", seen[0])
+	}
+
+	delete(wanted, status.Hibernating)
+	delete(wanted, status.Dead)
+	seen, _, _, err = observeWait(current, map[string]bool{}, wanted, func(store.Session) (bool, error) { return false, nil })
+	if err != nil {
+		t.Fatalf("observeWait: %v", err)
+	}
+	if seen[0].outcome == WaitDied || seen[1].outcome != WaitDied {
+		t.Fatalf("outcomes = %s, %s; a hibernated session never reads as a death, a dead one does", seen[0].outcome, seen[1].outcome)
+	}
+}

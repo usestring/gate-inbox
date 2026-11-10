@@ -1619,7 +1619,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
   },
-  "description": "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, background, finished, idle, errored, dead; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it; background is a session whose turn ended with a shell, monitor or task still running, which wakes it into another turn) and which row is this session. Send to the session that already owns the work, idle or working, instead of creating another; use create_session for a distinct workstream with no suitable owner, within the user's task or an explicitly invoked skill. Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
+  "description": "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, background, finished, idle, errored, hibernating, dead; hibernating is a session stopped to give its memory back, not a dead one: any message sent to it wakes it on its conversation, so send to it rather than reviving it; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it; background is a session whose turn ended with a shell, monitor or task still running, which wakes it into another turn) and which row is this session. Send to the session that already owns the work, idle or working, instead of creating another; use create_session for a distinct workstream with no suitable owner, within the user's task or an explicitly invoked skill. Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -1643,7 +1643,7 @@
         "type": "string"
       },
       "status": {
-        "description": "keep only sessions in these states: starting, working, waiting, delegating, background, finished, idle, errored or dead; omit for every state",
+        "description": "keep only sessions in these states: starting, working, waiting, delegating, background, finished, idle, errored, hibernating or dead; omit for every state",
         "items": {
           "type": "string"
         },
@@ -3894,7 +3894,7 @@
         "type": "integer"
       },
       "until": {
-        "description": "states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, dead); delegating, a session at rest whose own children are still going, and background, one whose turn ended with a shell or task still running, are not among them. Valid values: starting, working, waiting, delegating, background, finished, idle, errored, dead",
+        "description": "states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, hibernating, dead); delegating, a session at rest whose own children are still going, and background, one whose turn ended with a shell or task still running, are not among them. Valid values: starting, working, waiting, delegating, background, finished, idle, errored, hibernating, dead",
         "items": {
           "type": "string"
         },

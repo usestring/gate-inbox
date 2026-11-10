@@ -37,6 +37,14 @@ const (
 	// because the machine is offline. Like Delegating it is never derived
 	// from a pane or stored; store.ApplyOutbox lays it over the row.
 	Pending = "pending"
+	// Hibernating is a session hibernate stopped to give its memory back.
+	// The store keeps it dead, because its process is gone and everything
+	// that treats a dead row as having no pane must go on doing so, but it
+	// is resting, not over: the next message or the operator entering it
+	// relaunches it on its own conversation. Like Delegating it is never
+	// derived from a pane or stored; store.ApplyHibernated lays it over the
+	// row for display.
+	Hibernating = "hibernating"
 )
 
 type rule struct {

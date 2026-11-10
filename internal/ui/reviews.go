@@ -336,12 +336,13 @@ func (m *Model) reviewsTabBar(width int) string {
 		reviews += " (" + strconv.Itoa(pending) + ")"
 	}
 	bar := spaces(railInset) + tab("Sessions", !m.reviewsTab) + subtleText(" │ ") + tab(reviews, m.reviewsTab)
-	bar += subtleText(" · triage: " + normalizeTriageContent(m.triageContent))
-	hint := ""
+	hint := normalizeTriageContent(m.triageContent)
 	if key := m.tightCap(keymap.ContextList, keymap.TriageContent); key != "" {
-		hint = subtleText(key + " mode")
+		hint = key + " " + hint
 	}
-	return paint(rowColumns(bar, hint, width-railGutter), width, panelHex())
+	available := width - railGutter
+	bar = textfmt.TruncateWidth(bar, max(available-textfmt.Width(hint)-2, 0), "…")
+	return paint(rowColumns(bar, subtleText(hint), available), width, panelHex())
 }
 
 // reviewLines is how many rail lines one ask takes.

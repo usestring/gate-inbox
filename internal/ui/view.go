@@ -941,6 +941,7 @@ func (m *Model) viewLegend() legendSection {
 				if m.triageScope != "" {
 					text = "triage: " + baseName(m.triageScope)
 				}
+				text += " · " + triageOrderLabel(m.triageOrder)
 			}
 		case keymap.EmptyGroups:
 			if m.hideEmptyGroups {

@@ -463,6 +463,10 @@ func (m *Model) viewSettings() string {
 	if m.settings.smartTriage {
 		smartTriage = "on"
 	}
+	triageKeepAlives := "off"
+	if m.settings.triageKeepAlives {
+		triageKeepAlives = "on"
+	}
 	idleSwitch := "off"
 	if m.settings.idleSwitch {
 		idleSwitch = "on"
@@ -525,6 +529,8 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldFocusKey, "session keys", focusKey) + "\n" +
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
 		row(settingsFieldSmartTriage, "smart triage", smartTriage) + "\n" +
+		row(settingsFieldTriageOrder, "triage order", triageOrderLabel(m.settings.triageOrder)) + "\n" +
+		row(settingsFieldTriageKeepAlives, "walk keep-alives", triageKeepAlives) + "\n" +
 		row(settingsFieldIdleSwitch, "switch when idle", idleSwitch) + "\n" +
 		row(settingsFieldConfirmLaunches, "confirm launches", confirmLaunches) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +

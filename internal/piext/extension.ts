@@ -165,6 +165,7 @@ function registerToolGate(pi: ExtensionAPI) {
       cwd: ctx.cwd,
       tool_use_id: event.toolCallId,
       read_only: tool?.annotations?.readOnlyHint === true,
+      ...userMessages(ctx.sessionManager.getBranch()),
     });
     if (ctx.signal?.aborted) return { block: true, reason: "cancelled" };
     if (d.permissionDecision === "allow") return undefined;
@@ -173,6 +174,25 @@ function registerToolGate(pi: ExtensionAPI) {
     }
     return askUser(d, event.toolCallId, ctx);
   });
+}
+
+// userMessages is the session's first user message and its latest three,
+// which auto mode shows the classifier as what the user asked for. The board
+// leaves out any a session or the board itself wrote.
+function userMessages(entries: unknown[]): { brief?: string; recent?: string[] } {
+  const texts: string[] = [];
+  for (const entry of entries as { type?: string; message?: { role?: string; content?: unknown } }[]) {
+    if (entry?.type !== "message" || entry.message?.role !== "user") continue;
+    const content = entry.message.content;
+    const text =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content.filter((p) => p?.type === "text").map((p) => String(p.text ?? "")).join("\n")
+          : "";
+    if (text.trim()) texts.push(text.slice(0, 4000));
+  }
+  return texts.length ? { brief: texts[0], recent: texts.slice(-3) } : {};
 }
 
 type Answer = { choice: "yes" | "always" | "no" | "cancel"; reason?: string };

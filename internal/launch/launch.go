@@ -23,6 +23,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/piext"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
@@ -777,5 +778,12 @@ func withPiExtension(manager *hooks.Manager, command string, env map[string]stri
 		}
 	}
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)
+	if write && id != "" {
+		// The extension's hook asks auto mode (package piauto) on the board's
+		// shared server, proving its session with the caller token, whose key
+		// a board with no Claude session yet has not minted. Without it auto mode only asks, so a failure here is not a
+		// failed launch.
+		_, _ = parentseal.CallerToken(manager.ConfigDir(), id)
+	}
 	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
 }

@@ -21,7 +21,9 @@
 //  6. The read-only fast path: reading or searching inside the working
 //     directory, simple read-only shell commands that stay inside it, and an
 //     MCP tool its server marks read-only.
-//  7. Otherwise ask.
+//  7. Auto mode: the JEV classifier, asked on the board's side, may allow a
+//     call nothing above settled (package piauto). Every doubt asks.
+//  8. Otherwise ask.
 //
 // A grant is applied after the rules' denials and asks, as a launched Claude
 // Code session reads its grants from an allow list its own deny and ask rules
@@ -39,6 +41,7 @@ import (
 
 	"github.com/usestring/gate-inbox/grant"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/piauto"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -60,6 +63,10 @@ type Request struct {
 	// (pi.getAllTools), which the model cannot set. It counts only for an
 	// MCP tool.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// Brief and Recent are the session's first and latest user messages,
+	// which auto mode shows the classifier.
+	Brief  string   `json:"brief,omitempty"`
+	Recent []string `json:"recent,omitempty"`
 }
 
 // Decision is the answer the extension reads back.
@@ -122,7 +129,10 @@ type Env struct {
 	// MergeGate reports whether the standing merge authority covers a
 	// gh pr merge command, and why. Nil means no merge is covered.
 	MergeGate func(command, cwd string) (string, bool)
-	Now       time.Time
+	// AutoMode asks pi's auto-mode classifier (package piauto) about a call
+	// nothing else settled. Nil means auto mode is not asked.
+	AutoMode func(piauto.Request) piauto.Answer
+	Now      time.Time
 }
 
 // Decide answers one call.
@@ -212,7 +222,29 @@ func Decide(env Env, req Request) Decision {
 			return d
 		}
 	}
-	return asking(d, call, "no rule or grant allows it")
+	reason := "no rule or grant allows it"
+	if autoModeMayAsk(env, call) {
+		a := env.AutoMode(piauto.Request{Tool: tool, Input: req.ToolInput, Cwd: req.Cwd, Brief: req.Brief, Recent: req.Recent})
+		if a.Allow {
+			d.Decision, d.Reason = Allow, fmt.Sprintf("auto-allowed by JEV (in_scope %.2f, safe %.2f)", a.InScope, a.Safe)
+			return d
+		}
+		if a.Note != "" {
+			reason += "; " + a.Note
+		}
+	}
+	return asking(d, call, reason)
+}
+
+// autoModeMayAsk reports whether auto mode may be asked about call at all.
+// It never overrides the merge gate or a request to run outside the sandbox,
+// which only a grant or a person can approve.
+func autoModeMayAsk(env Env, call grant.Call) bool {
+	if env.AutoMode == nil || mergeCommand(call) != "" {
+		return false
+	}
+	outside, _ := call.Input["dangerouslyDisableSandbox"].(bool)
+	return !outside
 }
 
 // asking is d as an ask, with what its dialog shows.

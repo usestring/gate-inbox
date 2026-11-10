@@ -48,7 +48,14 @@ type ReadDigest struct {
 	// RelayAsk is the input for the caller's own AskUserQuestion that relays
 	// the dialog to its user word for word (relayask.go).
 	RelayAsk *RelayAsk `json:"relay_ask,omitempty" jsonschema:"when the session is on a dialog: the exact input for your own AskUserQuestion that puts it to your user word for word, which answer_session relay: true accepts; pass it as is, then answer with the option your user picks"`
+	// AutoAllowed is the last calls a pi session's auto mode let through
+	// without a dialog, each with the classifier's scores.
+	AutoAllowed []string `json:"auto_allowed,omitempty" jsonschema:"a pi session's latest calls its JEV auto mode allowed without asking, each with its scores"`
 }
+
+// autoAllowedShown is how many of a session's auto-allowed calls a read
+// shows.
+const autoAllowedShown = 5
 
 // withQuestions records the dialog's questions, and puts all of them in
 // Question when there are several: the pane shows one, and a parent reading

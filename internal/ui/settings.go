@@ -191,6 +191,7 @@ func (m *Model) openSettings() {
 		smartTriage:      m.smartTriage,
 		idleSwitch:       m.idleSwitch,
 		confirmLaunches:  m.store.ConfirmLaunches(),
+		piAutoMode:       m.store.PiAutoMode(),
 		reopenSessions:   m.reopenSessionsMode(),
 		outsidePanes:     m.outsidePanesMode(),
 		claudeSetup:      m.claudeSetupSwitch(),
@@ -384,6 +385,13 @@ func (m *Model) persistSettings() tea.Cmd {
 		confirmLaunches = "on"
 	}
 	if err := m.store.SetSetting(store.ConfirmLaunchesKey, confirmLaunches); err != nil {
+		m.errBar.text = err.Error()
+	}
+	piAutoMode := "off"
+	if m.settings.piAutoMode {
+		piAutoMode = "on"
+	}
+	if err := m.store.SetSetting(store.PiAutoModeKey, piAutoMode); err != nil {
 		m.errBar.text = err.Error()
 	}
 	if err := m.store.SetSetting(reopenSessionsSetting, normalizeReopenSessions(m.settings.reopenSessions)); err != nil {

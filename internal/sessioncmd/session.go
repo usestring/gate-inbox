@@ -25,6 +25,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/launchpace"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/migrate"
+	"github.com/usestring/gate-inbox/internal/piauto"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -1559,6 +1560,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 		}
 		screen.Digest.RelayAsk = s.relayAskOn(target, raw)
 	}
+	screen.Digest.AutoAllowed = piauto.Recent(hooks.NewManager(s.configDir).StatusFile(target.ID), autoAllowedShown)
 	if since != "" && readable {
 		screen.Mode, screen.Output, screen.Degraded = "delta", renderDelta(delta), note
 		return screen, nil

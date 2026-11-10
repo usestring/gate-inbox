@@ -137,6 +137,8 @@ type GateDecision = {
   reason?: string;
   tool?: string;
   ruleSuggestion?: string;
+  title?: string;
+  block?: string;
 };
 
 // decide asks `hook pi PreToolUse` about one call. Anything but a
@@ -169,12 +171,135 @@ function registerToolGate(pi: ExtensionAPI) {
     if (d.permissionDecision === "deny") {
       return { block: true, reason: `Gate Inbox refused this call: ${d.reason ?? "denied"}` };
     }
-    return askUser(d);
+    return askUser(d, event.toolCallId, ctx);
   });
 }
 
-// askUser is what an "ask" does. Until the board can draw a permission
-// dialog in the pane, a call that needs approval is refused with why.
-async function askUser(d: GateDecision): Promise<{ block: true; reason: string }> {
-  return { block: true, reason: `This call needs approval, which Gate Inbox cannot ask for yet: ${d.reason ?? "no rule allows it"}` };
+type Answer = { choice: "yes" | "always" | "no" | "cancel"; reason?: string };
+
+// askUser puts a call the board asks about to the person at the pane, in a
+// dialog drawn the way Claude Code draws its permission prompt, so the
+// board reads it as one (guarded: never answered on the board's own say).
+// Before it draws, the call is recorded whole, so a command the pane wraps
+// still reads back exactly on the board.
+async function askUser(
+  d: GateDecision,
+  toolUseId: string,
+  ctx: { hasUI: boolean; cwd: string; signal?: AbortSignal; ui: { custom: Function } },
+): Promise<{ block: true; reason: string } | undefined> {
+  const title = d.title || d.tool || "Tool use";
+  const block = d.block || "";
+  if (!ctx.hasUI) {
+    return { block: true, reason: `This call needs approval and this session has no screen to ask on: ${d.reason ?? ""}` };
+  }
+  await runHook("permission-pending", {
+    tool: d.tool,
+    title,
+    block,
+    cwd: ctx.cwd,
+    reason: d.reason,
+    ruleSuggestion: d.ruleSuggestion,
+    tool_use_id: toolUseId,
+  });
+  let answer: Answer = { choice: "cancel" };
+  try {
+    answer = (await ctx.ui.custom(
+      (_tui: unknown, _theme: unknown, keybindings: Keybindings, done: (a: Answer) => void) =>
+        permissionDialog({ title, block, reason: d.reason, suggestion: d.ruleSuggestion }, keybindings, done, ctx.signal),
+      { blocked: { kind: "permission", message: title } },
+    )) as Answer;
+  } finally {
+    if (answer?.choice === "always") await runHook("grant-session", { tool_use_id: toolUseId });
+    await runHook("permission-resolved", {});
+  }
+  switch (answer?.choice) {
+    case "yes":
+    case "always":
+      return undefined;
+    case "no":
+      return {
+        block: true,
+        reason: answer.reason
+          ? `The user refused this call and said: ${answer.reason}`
+          : "The user refused this call. Ask them what to do differently before trying something else.",
+      };
+  }
+  return { block: true, reason: "The user cancelled this call. Wait for their instructions." };
+}
+
+type Keybindings = { matches(data: string, id: string): boolean };
+
+type DialogSpec = { title: string; block: string; reason?: string; suggestion?: string };
+
+// The dialog's legend. "Enter to confirm" with "Esc to cancel" is the
+// permission-prompt legend the board's readers know (dialog.approvalLegend).
+const permissionLegend = "Enter to confirm · Esc to cancel";
+
+// permissionDialog is the dialog's component: Up/Down and Enter, a choice's
+// digit, or Esc. On the "No" choice, typing writes what the person wants
+// instead, which goes back to the model.
+function permissionDialog(spec: DialogSpec, keys: Keybindings, done: (a: Answer) => void, signal?: AbortSignal) {
+  const choices: { label: string; choice: Answer["choice"] }[] = [{ label: "Yes", choice: "yes" }];
+  if (spec.suggestion) choices.push({ label: `Yes, and don't ask again for: ${spec.suggestion}`, choice: "always" });
+  choices.push({ label: "No, and tell pi what to do differently", choice: "no" });
+  let cursor = 0;
+  let reason = "";
+  let finished = false;
+  const finish = (a: Answer) => {
+    if (!finished) {
+      finished = true;
+      done(a);
+    }
+  };
+  signal?.addEventListener("abort", () => finish({ choice: "cancel" }), { once: true });
+  const pick = (i: number) => finish({ choice: choices[i].choice, reason: choices[i].choice === "no" ? reason.trim() : undefined });
+  return {
+    render(width: number): string[] {
+      return renderPermission(spec, choices.map((c) => c.label), cursor, reason, width);
+    },
+    handleInput(data: string): void {
+      const onNo = choices[cursor].choice === "no";
+      if (keys.matches(data, "tui.select.cancel")) finish({ choice: "cancel" });
+      else if (keys.matches(data, "tui.select.up")) cursor = Math.max(0, cursor - 1);
+      else if (keys.matches(data, "tui.select.down")) cursor = Math.min(choices.length - 1, cursor + 1);
+      else if (keys.matches(data, "tui.select.confirm")) pick(cursor);
+      else if (onNo && (data === "\x7f" || data === "\b")) reason = reason.slice(0, -1);
+      else if (!(onNo && reason) && /^[1-9]$/.test(data) && Number(data) <= choices.length) pick(Number(data) - 1);
+      else if (onNo && data.length === 1 && data >= " ") reason += data;
+    },
+    invalidate() {},
+  };
+}
+
+// chunk cuts text into pieces of at most width characters.
+function chunk(text: string, width: number): string[] {
+  const chars = Array.from(text);
+  if (chars.length === 0) return [""];
+  const out: string[] = [];
+  for (let i = 0; i < chars.length; i += width) out.push(chars.slice(i, i + width).join(""));
+  return out;
+}
+
+// renderPermission draws the dialog in Claude Code's shape: a rule as its top
+// edge, the title, the call behind a gutter, why the board asks, the
+// question, numbered choices with the marker, and the legend. Every line fits
+// width; the gutter block wraps rather than truncates, so the whole command
+// is on screen.
+function renderPermission(spec: DialogSpec, labels: string[], cursor: number, reason: string, width: number): string[] {
+  const w = Math.max(20, width - 1);
+  const lines = ["─".repeat(w), ` ${spec.title}`, ""];
+  for (const row of (spec.block || "").split("\n")) {
+    for (const part of chunk(row, w - 4)) lines.push(` │ ${part}`);
+  }
+  lines.push("");
+  if (spec.reason) for (const part of chunk(`Gate Inbox asks because ${spec.reason}`, w - 1)) lines.push(` ${part}`);
+  lines.push(" Do you want to proceed?");
+  labels.forEach((label, i) => {
+    const head = `${i === cursor ? " ❯ " : "   "}${i + 1}. `;
+    const text = i === labels.length - 1 && reason ? `${label}: ${reason}` : label;
+    const pad = " ".repeat(Array.from(head).length);
+    chunk(text, w - pad.length).forEach((part, j) => lines.push(j === 0 ? head + part : pad + part));
+  });
+  lines.push("", ` ${permissionLegend}`);
+  return lines.map((line) => (Array.from(line).length > w ? Array.from(line).slice(0, w).join("") : line));
 }

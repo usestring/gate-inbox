@@ -17,14 +17,14 @@ import (
 // Hook answers `gate-inbox hook pi PreToolUse`: the call on in, the decision
 // as JSON. A payload it cannot read asks, and the extension reads any answer
 // it cannot read, or none, the same way.
-func Hook(in io.Reader, configDir, sessionID string, now time.Time) string {
+func Hook(in io.Reader, configDir, sessionID, statusFile string, now time.Time) string {
 	d := Decision{Decision: Ask, Reason: "Gate Inbox could not read the call"}
 	raw, err := io.ReadAll(io.LimitReader(in, 1<<20))
 	var req Request
 	if err == nil && len(bytes.TrimSpace(raw)) > 0 && json.Unmarshal(raw, &req) == nil && req.ToolName != "" {
 		home, _ := os.UserHomeDir()
 		d = Decide(Env{
-			ConfigDir: configDir, SessionID: sessionID,
+			ConfigDir: configDir, SessionID: sessionID, StatusFile: statusFile,
 			Home: home, ClaudeHome: convo.ClaudeHome(),
 			MergeGate: func(command, cwd string) (string, bool) { return mergeGate(configDir, command, cwd) },
 			Now:       now,

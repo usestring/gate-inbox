@@ -215,7 +215,7 @@ func TestDecideSuggestsARule(t *testing.T) {
 func TestHookAsksOnAnUnreadablePayload(t *testing.T) {
 	for _, in := range []string{"", "not json", `{"tool_input":{}}`} {
 		var d Decision
-		if err := json.Unmarshal([]byte(Hook(strings.NewReader(in), t.TempDir(), "s1", nowForTest)), &d); err != nil {
+		if err := json.Unmarshal([]byte(Hook(strings.NewReader(in), t.TempDir(), "s1", "", nowForTest)), &d); err != nil {
 			t.Fatal(err)
 		}
 		if d.Decision != Ask {

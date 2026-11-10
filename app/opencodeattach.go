@@ -13,17 +13,18 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/keyconfine"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/opencode"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 )
 
 // runOpencodeAttach is what a launched opencode session's pane runs first
 // (see mcpreg's opencode style): it attaches the TUI to the board's shared
 // server, or, when the board is set to standalone or the shared server
 // cannot be reached, gives it the private server it always had. Either way it
-// ends by exec'ing the TUI in its own place, so the pane's process is the
-// opencode the board watches.
+// ends by exec'ing the TUI, confined, in its own place.
 //
 //	gate-inbox opencode-attach [--model provider/model] [--auto] --server-config <path> -- opencode [args]
 func runOpencodeAttach(ctx context.Context, args []string, configDir string) error {
@@ -70,7 +71,20 @@ func runOpencodeAttach(ctx context.Context, args []string, configDir string) err
 			fmt.Fprintf(os.Stderr, "gate-inbox: shared opencode server unavailable, starting standalone: %v\n", err)
 		}
 	}
-	return execTUI(run, extra)
+	// The verb itself runs unconfined, since it writes the session's binding
+	// into the key directory; the TUI, and the private server a standalone
+	// one runs its shells in, get the directory hidden, as every other
+	// non-Claude launch does (launch.confine), keeping only what its MCP
+	// server reads to tell callers apart.
+	keep, err := parentseal.CallerVerification(configDir, true)
+	if err != nil {
+		return err
+	}
+	confined, err := keyconfine.Argv(parentseal.KeyDir(configDir), keep, run)
+	if err != nil {
+		return fmt.Errorf("%s: opencode cannot be kept out of the key directory: %w", mcpreg.OpencodeAttachVerb, err)
+	}
+	return execTUI(confined, extra)
 }
 
 // opencodeServeVerb is the verb runOpencodeServe answers.

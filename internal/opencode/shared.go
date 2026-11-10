@@ -53,6 +53,7 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
+	"github.com/usestring/gate-inbox/internal/keyconfine"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 )
 
@@ -352,6 +353,11 @@ func startSupervisor(ctx context.Context, home, exe, bin, config string) (int, e
 	if exe == "" {
 		return 0, errors.New("opencode: no gate-inbox binary to supervise the shared server")
 	}
+	// Refused here rather than by runServer, whose failures the supervisor
+	// would retry while the launch waited out its deadline.
+	if err := keyconfine.Available(); err != nil {
+		return 0, fmt.Errorf("opencode: shared server cannot be kept out of the key directory: %w", err)
+	}
 	password, err := newPassword()
 	if err != nil {
 		return 0, err
@@ -447,10 +453,28 @@ func runServer(ctx context.Context, home, bin, config, password, port string) (S
 		return Server{}, nil, err
 	}
 	defer logFile.Close()
-	cmd := exec.CommandContext(ctx, bin, "serve", "--hostname", "127.0.0.1", "--port", port)
+	// Every session's shell runs in this server, so it is confined the way a
+	// session's own pane is (launch.confine): the key directory is hidden
+	// from it, except what the MCP server it starts reads to tell its callers
+	// apart. A server that cannot be confined does not start, and each
+	// launch falls back to a private server, which its own launch confines
+	// or refuses.
+	keep, err := parentseal.CallerVerification(home, true)
+	if err != nil {
+		return Server{}, nil, err
+	}
+	argv, err := keyconfine.Argv(parentseal.KeyDir(home), keep, []string{bin, "serve", "--hostname", "127.0.0.1", "--port", port})
+	if err != nil {
+		return Server{}, nil, fmt.Errorf("opencode: shared server cannot be kept out of the key directory: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Env = serverEnv(os.Environ(), config, password)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	// The signal goes to the server itself: the confinement's own process
+	// does not pass one on, and the server would die without its shutdown.
+	cmd.Cancel = func() error {
+		return syscall.Kill(servePID(context.Background(), cmd.Process.Pid), syscall.SIGTERM)
+	}
 	cmd.WaitDelay = 10 * time.Second
 	if dir, err := os.UserHomeDir(); err == nil {
 		cmd.Dir = dir
@@ -464,7 +488,7 @@ func runServer(ctx context.Context, home, bin, config, password, port string) (S
 	deadline := time.After(30 * time.Second)
 	for {
 		if url := listenURL(logPath, offset); url != "" {
-			srv := Server{PID: cmd.Process.Pid, URL: url, Password: password, Supervisor: os.Getpid()}
+			srv := Server{PID: servePID(ctx, cmd.Process.Pid), URL: url, Password: password, Supervisor: os.Getpid()}
 			if srv.alive(ctx) {
 				return srv, wait, nil
 			}
@@ -473,11 +497,35 @@ func runServer(ctx context.Context, home, bin, config, password, port string) (S
 		case err := <-exited:
 			return Server{}, nil, fmt.Errorf("exited at start: %v", err)
 		case <-deadline:
-			_ = cmd.Process.Signal(syscall.SIGTERM)
+			_ = syscall.Kill(servePID(ctx, cmd.Process.Pid), syscall.SIGTERM)
 			return Server{}, nil, errors.New("did not answer within 30s")
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+}
+
+// servePID is the opencode server started as pid: pid itself, or under bwrap
+// (keyconfine), the child it runs the server as. The recorded pid is checked
+// for a server's argv (Server.alive) and matched by stop against a shell's
+// ancestors, so it has to be the server's own.
+func servePID(ctx context.Context, pid int) int {
+	proc, err := process.NewProcessWithContext(ctx, int32(pid))
+	if err != nil {
+		return pid
+	}
+	if argv, err := proc.CmdlineSliceWithContext(ctx); err == nil && IsServeArgv(argv) {
+		return pid
+	}
+	children, err := proc.ChildrenWithContext(ctx)
+	if err != nil {
+		return pid
+	}
+	for _, child := range children {
+		if argv, err := child.CmdlineSliceWithContext(ctx); err == nil && IsServeArgv(argv) {
+			return int(child.Pid)
+		}
+	}
+	return pid
 }
 
 // restoreEnvironments sets every bound session's environment on a restarted

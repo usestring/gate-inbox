@@ -662,6 +662,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return model, tea.Batch(leave, attach)
 		case action == keymap.NewSession:
 			return m.startNewSession()
+		case action == keymap.ReviewsTab:
+			return m, m.toggleReviewsTab()
 		case action == keymap.CopySessionID:
 			return m.copySessionID(sess)
 		case action == keymap.CopyJev:

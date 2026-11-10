@@ -200,12 +200,8 @@ func TestDecideSuggestsARule(t *testing.T) {
 		"make -j4":                  "Bash(make:*)",
 		"go test ./...":             "Bash(go test:*)",
 		"git push && rm x":          "",
-		"ls":                        "",
 	} {
 		d := Decide(env, bashReq(cwd, command))
-		if command == "ls" {
-			continue // allowed on the fast path; no suggestion is read
-		}
 		if d.Suggestion != want {
 			t.Errorf("%q suggests %q, want %q", command, d.Suggestion, want)
 		}

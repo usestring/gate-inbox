@@ -11,7 +11,8 @@
 //  2. The operator's Claude Code permission rules (managed, user and project
 //     settings): a deny anywhere beats an ask anywhere, which beats an allow.
 //  3. The merge gate, for a gh pr merge: the standing merge authority allows
-//     it or the call asks; nothing below may allow it.
+//     it. Otherwise only a grant or an allow rule can; the fast path never
+//     does.
 //  4. Board grants in force for the session, and standing grants, read on
 //     every call so a new one applies on the next call with no restart.
 //  5. Allow rules from the settings files.

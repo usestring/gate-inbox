@@ -12,6 +12,9 @@
 // without it.
 
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const bin = process.env.GATE_INBOX_BIN ?? "";
@@ -99,8 +102,132 @@ function endedInError(messages: unknown): boolean {
   return false;
 }
 
+// The board's MCP server, under the name Claude Code knows it by. Pi turns
+// every character of a tool name other than letters, digits and _ into _,
+// so its tools reach the model as mcp__gate_inbox__*; the steering names
+// them by their bare names (report_status, rename), which read the same in
+// both.
+const mcpServer = "gate-inbox";
+const renameTool = `mcp__${mcpServer.replace(/[^A-Za-z0-9_]/g, "_")}__rename`;
+
+type McpServerConfig = Parameters<ExtensionAPI["registerMcpServer"]>[1];
+
+// mcpConfigFile is the launch's MCP config for this session (Go:
+// piext.MCPConfigEnv), in the mcpServers shape Claude Code reads: the
+// shared server with this session's caller token, or a server of its own.
+const mcpConfigFile = process.env.GATE_INBOX_MCP_CONFIG ?? "";
+
+// boardServerConfig turns the launch's mcpServers entry into what
+// pi.registerMcpServer takes. The shapes match but for the timeout, which
+// Claude Code reads in milliseconds and pi in seconds. Every tool is
+// declared to the model directly, as Claude Code declares them.
+function boardServerConfig(): McpServerConfig {
+  const parsed = JSON.parse(readFileSync(mcpConfigFile, "utf8")) as {
+    mcpServers?: Record<string, Record<string, unknown>>;
+  };
+  const entry = parsed.mcpServers?.[mcpServer];
+  if (!entry) throw new Error(`${mcpConfigFile} has no ${mcpServer} server`);
+  const config: Record<string, unknown> = {
+    exposure: "direct",
+    description: "Gate Inbox board: sessions, status, permissions",
+  };
+  if (typeof entry.url === "string") {
+    config.url = entry.url;
+    config.headers = entry.headers;
+    if (typeof entry.timeout === "number") config.timeout = Math.ceil(entry.timeout / 1000);
+  } else {
+    config.command = entry.command;
+    config.args = entry.args;
+    config.env = entry.env;
+  }
+  return config as McpServerConfig;
+}
+
+// overridingConfigs names the pi config files that define a server under
+// the board's name. Pi lets a file-configured server win over one an
+// extension registers, and counts - and _ as the same character, so such an
+// entry would silently take the board's tools over.
+function overridingConfigs(cwd: string): string[] {
+  const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+  const same = (name: string) => name.replace(/-/g, "_") === mcpServer.replace(/-/g, "_");
+  const found: string[] = [];
+  for (const file of [join(agentDir, "mcp.json"), join(cwd, ".pi", "mcp.json")]) {
+    try {
+      const parsed = JSON.parse(readFileSync(file, "utf8")) as { mcpServers?: Record<string, unknown> };
+      if (Object.keys(parsed.mcpServers ?? {}).some(same)) found.push(file);
+    } catch {
+      // No file, or one pi will report itself.
+    }
+  }
+  return found;
+}
+
+// boardTools gives the session the board's MCP tools and standing
+// instructions, and keeps the session's name and the board row's in step.
+// Its registration is for this run only; nothing is written to ~/.pi.
+function boardTools(pi: ExtensionAPI) {
+  let registerError = "";
+  if (mcpConfigFile) {
+    try {
+      pi.registerMcpServer(mcpServer, boardServerConfig());
+    } catch (err) {
+      registerError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  // Fetched once a session: the text is the board's, fixed for the build.
+  let steering = "";
+  // The name last mirrored either way, so the change pi raises for a name
+  // the extension set is not sent back as a rename of its own.
+  let mirrored: string | undefined;
+
+  pi.on("session_start", async (_event, ctx) => {
+    if (registerError) {
+      ctx.ui.notify(`Gate Inbox: the board's MCP tools are not registered: ${registerError}`, "error");
+    }
+    const overrides = overridingConfigs(ctx.cwd);
+    if (overrides.length > 0) {
+      ctx.ui.notify(
+        `Gate Inbox: ${overrides.join(" and ")} defines a "${mcpServer}" MCP server, which overrides the board's; this session's board tools come from that entry.`,
+        "warning",
+      );
+      await runHook("mcp_override", { sources: overrides });
+    }
+    mirrored = pi.getSessionName();
+    if (!steering) {
+      const answer = (await runHook("steering", {})) as { steering?: unknown } | undefined;
+      if (typeof answer?.steering === "string") steering = answer.steering;
+    }
+  });
+
+  // A section rather than a rewritten prompt: pi patches only a section
+  // that changed, so the model's cached prefix survives every turn after
+  // the first.
+  pi.on("before_agent_start", async (event) => {
+    if (steering) event.systemPromptOptions.sections[mcpServer] = steering;
+  });
+
+  // The board's rename names the row; the session's own name follows it,
+  // so pi's session list and the board agree.
+  pi.on("tool_result", async (event) => {
+    if (event.toolName !== renameTool || event.isError) return;
+    const name = typeof event.input?.name === "string" ? event.input.name.trim() : "";
+    if (!name || name === mirrored) return;
+    mirrored = name;
+    pi.setSessionName(name);
+  });
+
+  // Pi's own /name renames the board row too.
+  pi.on("session_info_changed", async (event) => {
+    if (!event.name || event.name === mirrored) return;
+    mirrored = event.name;
+    await runHook("session_info_changed", { name: event.name });
+  });
+}
+
 export default function gateInbox(pi: ExtensionAPI) {
   if (!bin || !statusFile) return;
+  boardTools(pi);
 
   pi.on("session_start", async (event, ctx) => {
     await report("session_start", { reason: event.reason, cwd: ctx.cwd, session_id: ctx.sessionManager.getSessionId() });

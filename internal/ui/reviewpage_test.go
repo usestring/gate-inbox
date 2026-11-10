@@ -64,6 +64,48 @@ func TestFilesTabDrawsEachThreadUnderItsLine(t *testing.T) {
 	}
 }
 
+func TestFilesTabMarksOldDraftsStaleWithoutReattachingThem(t *testing.T) {
+	detail := &forge.PRDetail{HeadSHA: "new", Files: []forge.PRFile{
+		{Path: "a.go", Patch: "@@ -1,2 +1,2 @@\n-gone\n+replacement\n end of file\n"},
+		{Path: "b.go", Patch: "@@ -0,0 +1 @@\n+next file\n"},
+	}}
+	body := filesLines(detail, []store.ReviewDraft{
+		{ID: 1, HeadSHA: "old", Path: "a.go", Side: "RIGHT", Line: 1, State: store.DraftKept, Body: "old comment"},
+		{ID: 2, HeadSHA: "new", Path: "a.go", Side: "RIGHT", Line: 1, State: store.DraftKept, Body: "new comment"},
+		{ID: 3, HeadSHA: "old", Path: "removed.go", Side: "RIGHT", Line: 1, State: store.DraftProposed, Body: "removed file comment"},
+	}, 1, 100)
+	text := make([]string, len(body.lines))
+	end := -1
+	for i, line := range body.lines {
+		var b strings.Builder
+		for _, span := range line {
+			b.WriteString(span.Text)
+		}
+		text[i] = strings.TrimSpace(b.String())
+		if strings.HasSuffix(text[i], "end of file") {
+			end = i
+		}
+	}
+	old, current, removed := body.drafts[1], body.drafts[2], body.drafts[3]
+	if end < 0 || !(0 < current && current < end && end < old && old < body.starts[1] && body.starts[1] < removed) {
+		t.Fatalf("drafts should be inline only on their own commit:\n%s", strings.Join(text, "\n"))
+	}
+	for _, check := range []struct {
+		row  int
+		want string
+	}{
+		{body.starts[0], "1 stale draft"},
+		{current, "draft · agent · kept"},
+		{old - 1, "From an earlier commit: line 1, left out of the review"},
+		{old, "draft · stale · agent · selected · kept"},
+		{removed, "draft · stale · agent · proposed"},
+	} {
+		if !strings.Contains(text[check.row], check.want) {
+			t.Errorf("row %d = %q, want %q", check.row, text[check.row], check.want)
+		}
+	}
+}
+
 // A review carries only what the operator kept, and only where GitHub will
 // take it: a kept draft whose line left the diff would fail the whole review.
 func TestSubmittedReviewCarriesKeptDraftsOnTheDiff(t *testing.T) {

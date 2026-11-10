@@ -206,6 +206,30 @@ func (r *runtime) stopCaller(id string) (store.Session, error) {
 		if err := r.reach(target); err != nil {
 			return target, err
 		}
+		owned, err := r.paneAncestor(target)
+		if err != nil {
+			return target, err
+		}
+		if !owned {
+			sharedCodex, err := sharedCodexAncestor()
+			if err != nil {
+				return store.Session{}, err
+			}
+			sharedOpencode, err := r.sharedOpencodeAncestor()
+			if err != nil {
+				return store.Session{}, err
+			}
+			if sharedCodex || sharedOpencode {
+				return target, nil
+			}
+			caller, err := r.stopCaller("")
+			if err == nil {
+				return caller, nil
+			}
+			if !errors.Is(err, ErrUnmanagedCaller) {
+				return store.Session{}, err
+			}
+		}
 		return target, nil
 	}
 	rows, err := r.store.ListSessions(true)

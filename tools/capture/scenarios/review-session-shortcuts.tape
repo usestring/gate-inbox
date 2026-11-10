@@ -1,11 +1,9 @@
-Sleep 8s
-Type "/"
-Type "claude"
+Sleep 3s
+Type "n"
 Sleep 1500ms
+Type "claude"
 Enter
-Sleep 1s
-Enter
-Sleep 2s
+Sleep 8s
 Screenshot {{SHOTS}}/01-focused-session.png
 Sleep 1s
 

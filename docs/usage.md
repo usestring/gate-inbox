@@ -585,7 +585,7 @@ Auto mode never denies. It is never asked about a call that a deny or ask rule, 
 - a failed request, or one slower than 8 seconds;
 - three failures in a row, which also pause auto mode for five minutes.
 
-It is on by default. Turn it off for every pi session with **Pi auto mode (JEV)** on the JEV card in Settings, or for one pi tool with `auto_mode = "off"` in its `[tools.<name>]` table.
+It is on by default. Turn it off for every pi session with **Pi auto mode** on the JEV card in Settings, or for one pi tool with `auto_mode = "off"` in its `[tools.<name>]` table.
 
 A status is a reading of a screen, and a reading can be wrong. When a session has read `working` or `starting` for longer than `stale_status_after` (default two hours) while nothing on its screen has changed, its row adds a red `stale` beside the label. A turn that is really running paints — output scrolls, a spinner turns, a timer ticks — so a label that has held over a still screen that long is more likely a misread than a long turn. The label itself is left as read; triage treats the row as a session at rest and offers it up so you can look. Any change on the screen, or to the status, clears the flag and starts the clock again. The clock starts when the manager first sees the screen, so after a restart a stale label takes the full threshold to be flagged again.
 

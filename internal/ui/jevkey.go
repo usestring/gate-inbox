@@ -251,7 +251,7 @@ func (m *Model) viewJevSettings() string {
 	if m.settings.piAutoMode {
 		piState = "on"
 	}
-	body.WriteString("\n" + marker(jevRowPiAutoMode) + padRight(valueStyle.Render("Pi auto mode (JEV)"), settingsLabelColumn) +
+	body.WriteString("\n" + marker(jevRowPiAutoMode) + padRight(valueStyle.Render("Pi auto mode"), settingsLabelColumn) +
 		subtleStyle.Render("◂ ") + valueStyle.Render(piState) + subtleStyle.Render(" ▸"))
 	access, ok := m.jevAccess()
 	if ok {

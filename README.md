@@ -141,7 +141,8 @@ selected agent for builds and one-off commands.
 
 | Key | Action |
 |-----|--------|
-| `n` / `ctrl+n` | New session, quick or with the full form |
+| `n` / `ctrl+n` | New session, quick or with the full form, also from the Reviews queue |
+| `ctrl+]` | Switch between Sessions and Reviews, including from a focused session |
 | `space` | Hotkey menu: send a snippet to the selected session |
 | `enter` | Focus the session; `ctrl+q` returns to the list |
 | `i` | Triage queue; `\` hides the list for a full-width drain |

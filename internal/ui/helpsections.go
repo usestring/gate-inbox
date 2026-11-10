@@ -203,6 +203,7 @@ func helpSections() []helpSection {
 			bound(focus, keymap.ToggleRail, "hide / show the list beside the pane; the pane takes the columns"),
 			bound(focus, keymap.Archive, "focused: kill it, asking first; in triage, on into the queue"),
 			bound(focus, keymap.NewSession, "new session in this group (a chord: letters reach the agent)"),
+			bound(focus, keymap.ReviewsTab, "switch to the Reviews tab"),
 			bound(focus, keymap.PreviewPageUp, "scroll a page up"),
 			bound(focus, keymap.PreviewPageDown, "scroll a page down"),
 			bound(focus, keymap.CopySessionID, "copy the agent's session id"),

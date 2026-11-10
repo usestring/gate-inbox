@@ -495,9 +495,13 @@ func (m *Model) toggleReviewsTab() tea.Cmd {
 	}
 	m.triageStartupEnter = false
 	if !m.reviewsTab {
+		var cmd tea.Cmd
+		if m.mode == modeFocus {
+			cmd = m.leaveFocus()
+		}
 		m.reviewsTab = true
 		m.triageResume = false
-		return nil
+		return cmd
 	}
 	return m.leaveReviewsTab(true)
 }
@@ -519,6 +523,7 @@ var reviewsTabAllows = map[keymap.Action]bool{
 	keymap.Quit: true, keymap.Settings: true, keymap.Help: true,
 	keymap.QuickActions: true, keymap.Triage: true, keymap.ReviewsTab: true,
 	keymap.IngestReviews: true, keymap.LegendPeek: true,
+	keymap.NewSession: true, keymap.NewSessionForm: true,
 }
 
 // reviewsTabKey answers a key while the Reviews tab is up. Its own keys come

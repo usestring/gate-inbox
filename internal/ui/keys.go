@@ -561,7 +561,10 @@ func (m *Model) jumpCursor(delta int) tea.Cmd {
 	if len(m.rows) == 0 {
 		return nil
 	}
-	return m.settleCursor(m.edgeCursor(delta))
+	from := m.cursor
+	cmd := m.settleCursor(m.edgeCursor(delta))
+	m.reportCursor(from)
+	return cmd
 }
 
 // moveCursor shifts the selection and schedules a debounced preview
@@ -571,7 +574,10 @@ func (m *Model) moveCursor(delta int) tea.Cmd {
 	if len(m.rows) == 0 {
 		return nil
 	}
-	return m.settleCursor(m.stepCursor(m.cursor, delta))
+	from := m.cursor
+	cmd := m.settleCursor(m.stepCursor(m.cursor, delta))
+	m.reportCursor(from)
+	return cmd
 }
 
 // settleCursor puts the selection on a row and schedules the preview that

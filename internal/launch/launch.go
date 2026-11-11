@@ -23,6 +23,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/piext"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
@@ -496,6 +497,13 @@ func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config
 	}
 	if err := manager.SweepNameResults(time.Now()); err != nil {
 		return "", nil, err
+	}
+	// A session kept out of the key directory is shown only the files there
+	// that exist when it starts, so the public key its hook checks seals with
+	// has to exist first. A launch from inside such a session cannot mint it,
+	// and it already sees one if the board made one before it started.
+	if err := parentseal.EnsurePublicKey(manager.ConfigDir()); err != nil {
+		logging.Warn("could not make the board's seal key before a launch", "session", id, logging.Err(err))
 	}
 	if hooks.FileStatus(tool.StatusSource) {
 		if err := manager.Remove(id); err != nil {

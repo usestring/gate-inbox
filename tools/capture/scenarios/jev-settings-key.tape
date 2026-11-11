@@ -7,6 +7,7 @@ Up
 Up
 Up
 Up
+Up
 Sleep 1s
 Screenshot {{SHOTS}}/01-settings-jev-row.png
 Sleep 1s

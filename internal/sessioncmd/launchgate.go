@@ -26,7 +26,7 @@ import (
 // the operator ends up with sessions nobody asked for. So while a session
 // with no parent -- the one the operator talks to -- has a voiced message as
 // its user's latest turn, it launches only on the user's own words: either the
-// JEV classifier is confident that turn tells it to launch a session, or the
+// Clef classifier is confident that turn tells it to launch a session, or the
 // agent puts the launch Approval question to its user and they answer
 // LaunchOption. Either is spent once, on one launch that starts. A turn the operator
 // typed launches as it always has. Children are not gated: their parent was,
@@ -42,7 +42,7 @@ const LaunchOption = "Launch new session"
 
 const declineLaunchOption = "Don't launch"
 
-// launchJevThreshold is how sure JEV must be before a launch skips the
+// launchJevThreshold is how sure Clef must be before a launch skips the
 // question. It is stricter than the board's copy suggestion because a miss
 // here starts an agent the user never asked for.
 const launchJevThreshold = 0.90
@@ -210,12 +210,12 @@ func (s *Sessions) userTurns(runtime *runtime, caller store.Session) ([]search.M
 	return messages, err == nil
 }
 
-// jevAskedLaunch asks JEV whether the caller's user just told it to launch a
-// session. No key, no transcript, or any failure is a no: the question is
-// the fallback, never the launch.
+// jevAskedLaunch asks Clef whether the caller's user just told it to launch a
+// session. Missing configuration, an unreadable transcript, or a failed
+// request leaves the manual launch question in place.
 func (s *Sessions) jevAskedLaunch(runtime *runtime, caller store.Session) bool {
-	key := jev.Key(s.configDir)
-	if key == "" {
+	endpoint, key := jev.Endpoint(), jev.Key(s.configDir)
+	if endpoint == "" || key == "" {
 		return false
 	}
 	messages, ok := s.userTurns(runtime, caller)
@@ -228,7 +228,7 @@ func (s *Sessions) jevAskedLaunch(runtime *runtime, caller store.Session) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), launchJevTimeout)
 	defer cancel()
-	answers, ok := jev.AskNoul(ctx, jev.HTTPClient, jev.Endpoint, key, state, map[string]string{"asked_launch": launchJevQuestion})
+	answers, ok := jev.AskNoul(ctx, jev.HTTPClient, endpoint, key, state, map[string]string{"asked_launch": launchJevQuestion})
 	return ok && answers["asked_launch"] >= launchJevThreshold
 }
 

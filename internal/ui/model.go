@@ -148,7 +148,7 @@ type Model struct {
 	restartFlagErr string
 	jevAutoSuggest bool
 	// jevSavedKey is the Cloudflare key pasted in Settings → Clef, read once
-	// at startup; CLEF_API_KEY still wins over it (see jevKey).
+	// at startup; WORKERS_API_KEY still wins over it (see jevKey).
 	jevSavedKey    string
 	jevFinishCheck bool
 	jevFinish      jevFinishState

@@ -14,6 +14,7 @@ import (
 
 	"charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
@@ -36,8 +37,8 @@ func TestRecentSubmissionAutocompleteExcludesCurrentTurn(t *testing.T) {
 }
 
 func TestAutoSuggestIsOffAndNeverTargetsNewSessions(t *testing.T) {
-	t.Setenv("CLEF_API_KEY", "test-key")
-	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
+	t.Setenv(jevKeyEnv, "test-key")
+	t.Setenv(jev.URLEnv, "https://worker.example")
 	m := buildModel(t)
 	createSession(t, m, "existing", t.TempDir(), "")
 	m.selectSessionRow(t, "existing")
@@ -105,8 +106,8 @@ func TestAutoSuggestIsOffAndNeverTargetsNewSessions(t *testing.T) {
 }
 
 func TestAutoSuggestWaitsForAssistantAndIgnoresStaleReply(t *testing.T) {
-	t.Setenv("CLEF_API_KEY", "test-key")
-	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
+	t.Setenv(jevKeyEnv, "test-key")
+	t.Setenv(jev.URLEnv, "https://worker.example")
 	m := buildModel(t)
 	createSession(t, m, "existing", t.TempDir(), "")
 	m.selectSessionRow(t, "existing")
@@ -154,14 +155,20 @@ func TestJevRankingBoundsPayloadAndHonorsNone(t *testing.T) {
 	choice.Store("c2")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any
-		if r.Header.Get("Authorization") != "Bearer test-key" {
-			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		if r.Method != http.MethodPost || r.URL.Path != "/models" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("X-Authorization") != "test-key" || r.Header.Get("Authorization") != "" {
+			t.Error("request did not use Worker authentication")
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Error(err)
 		}
+		if request["model"] != jev.WorkerModel {
+			t.Errorf("Worker model = %v", request["model"])
+		}
 		requests <- request
-		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": map[string]any{"model": jevModel, "answers": map[string]any{
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"model": jev.Model, "answers": map[string]any{
 			"next": map[string]any{"type": "choice", "choice": choice.Load().(string)},
 		}}})
 	}))
@@ -177,11 +184,14 @@ func TestJevRankingBoundsPayloadAndHonorsNone(t *testing.T) {
 	if len(input.Candidates) != 8 || len(input.Messages) != 4 {
 		t.Fatalf("payload sizes = %d candidates, %d messages", len(input.Candidates), len(input.Messages))
 	}
-	got := rankNextSubmissions(context.Background(), server.Client(), server.URL, "test-key", input)
+	got := rankNextSubmissions(context.Background(), server.Client(), server.URL+"/models", "test-key", input)
 	if !slices.Equal(got, []string{input.Candidates[1]}) {
 		t.Fatalf("ranked suggestion = %q", got)
 	}
-	request := <-requests
+	request := (<-requests)["input"].(map[string]any)
+	if request["model"] != jev.Model {
+		t.Fatalf("Clef input model = %v", request["model"])
+	}
 	state := request["state"].(map[string]any)
 	for _, raw := range state["messages"].([]any) {
 		if n := len([]rune(raw.(map[string]any)["text"].(string))); n > 500 {
@@ -195,8 +205,8 @@ func TestJevRankingBoundsPayloadAndHonorsNone(t *testing.T) {
 	input.Messages = append([]suggestMessage{{Role: "user", Text: strings.Repeat("x", 600)}}, input.Messages...)
 	input.Candidates = append(input.Candidates, "Add one more item", "Add the final item")
 	input.Draft = strings.Repeat("x", 2200)
-	_ = rankNextSubmissions(context.Background(), server.Client(), server.URL, "test-key", input)
-	request = <-requests
+	_ = rankNextSubmissions(context.Background(), server.Client(), server.URL+"/models", "test-key", input)
+	request = (<-requests)["input"].(map[string]any)
 	state = request["state"].(map[string]any)
 	if len(state["messages"].([]any)) != 4 || len([]rune(state["draft"].(string))) != 2000 {
 		t.Fatalf("oversized input escaped request bounds: %#v", state)
@@ -206,7 +216,7 @@ func TestJevRankingBoundsPayloadAndHonorsNone(t *testing.T) {
 		t.Fatalf("oversized input sent %d choices", len(criteria))
 	}
 	choice.Store("none")
-	if got := rankNextSubmissions(context.Background(), server.Client(), server.URL, "test-key", input); len(got) != 0 {
+	if got := rankNextSubmissions(context.Background(), server.Client(), server.URL+"/models", "test-key", input); len(got) != 0 {
 		t.Fatalf("none returned %q", got)
 	}
 	<-requests

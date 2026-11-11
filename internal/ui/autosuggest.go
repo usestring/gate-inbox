@@ -4,8 +4,6 @@ package ui
 
 import (
 	"context"
-	"encoding/json"
-	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -17,8 +15,6 @@ import (
 )
 
 const (
-	jevEndpoint       = jev.Endpoint
-	jevModel          = jev.Model
 	autoSuggestDelay  = 500 * time.Millisecond
 	autoSuggestLimit  = 8
 	autoSuggestMinLen = 12
@@ -138,63 +134,13 @@ func rankNextSubmissions(ctx context.Context, client *http.Client, endpoint, key
 // askJev posts one choice question to Clef and returns the index of the
 // chosen candidate, or -1 for "none" and for any failed request.
 func askJev(ctx context.Context, client *http.Client, endpoint, key string, state any, instructions, none string, candidates []string) int {
-	endpoint = jev.ResolveEndpoint(endpoint)
-	if endpoint == "" || key == "" {
-		return -1
-	}
 	criteria := map[string]string{"none": none}
 	for i, candidate := range candidates {
 		criteria["c"+string(rune('1'+i))] = candidate
 	}
-	body, err := json.Marshal(struct {
-		Model     string `json:"model"`
-		State     any    `json:"state"`
-		Questions any    `json:"questions"`
-	}{
-		Model: jevModel,
-		State: state,
-		Questions: map[string]any{"next": map[string]any{
-			"type":         "choice",
-			"instructions": instructions,
-			"criteria":     criteria,
-		}},
-	})
-	if err != nil {
-		return -1
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
-	if err != nil {
-		return -1
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+key)
-	resp, err := client.Do(req)
-	if err != nil {
-		return -1
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return -1
-	}
-	var envelope struct {
-		Success bool `json:"success"`
-		Result  struct {
-			Model   string `json:"model"`
-			Answers map[string]struct {
-				Type   string `json:"type"`
-				Choice string `json:"choice"`
-			} `json:"answers"`
-		} `json:"result"`
-	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&envelope) != nil || !envelope.Success || envelope.Result.Model != jevModel {
-		return -1
-	}
-	answer := envelope.Result.Answers["next"]
-	if answer.Type != "choice" {
-		return -1
-	}
+	answer := jev.AskChoice(ctx, client, endpoint, key, state, instructions, criteria)
 	for i := range candidates {
-		if answer.Choice == "c"+string(rune('1'+i)) {
+		if answer == "c"+string(rune('1'+i)) {
 			return i
 		}
 	}
@@ -202,7 +148,7 @@ func askJev(ctx context.Context, client *http.Client, endpoint, key string, stat
 }
 
 func (m *Model) suggestIdentity() (string, bool) {
-	if !m.jevAutoSuggest || !m.quick.active || m.conversation == nil || m.jevAPIKey() == "" {
+	if !m.jevAutoSuggest || !m.quick.active || m.conversation == nil || !m.jevConfigured() {
 		return "", false
 	}
 	entry, ok := m.selectedRow()
@@ -239,12 +185,12 @@ func (m *Model) runAutoSuggestion(seq int) tea.Cmd {
 	if len(input.Candidates) == 0 {
 		return nil
 	}
-	key := m.jevAPIKey()
+	endpoint, key := m.jevConfig()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()
 		return autoSuggestResultMsg{seq: seq, identity: identity,
-			suggestions: rankNextSubmissions(ctx, jevHTTPClient, jevEndpoint, key, input)}
+			suggestions: rankNextSubmissions(ctx, jevHTTPClient, endpoint, key, input)}
 	}
 }
 

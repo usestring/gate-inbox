@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/jev"
 )
 
 const testJevKey = "fake-jev-key-for-tests-WXYZ"
@@ -34,6 +35,7 @@ func pasteJevKey(t *testing.T, m *Model, value string) {
 }
 
 func TestJevKeyComesFromEnvFirst(t *testing.T) {
+	t.Setenv(jev.URLEnv, "https://worker.example")
 	t.Setenv(jevKeyEnv, "")
 	m := buildModel(t)
 	if key, source := m.jevKey(); key != "" || source != jevKeyNone {
@@ -58,6 +60,7 @@ func TestJevKeyComesFromEnvFirst(t *testing.T) {
 }
 
 func TestJevKeyPastePersistsMaskedAndPrivate(t *testing.T) {
+	t.Setenv(jev.URLEnv, "https://worker.example")
 	t.Setenv(jevKeyEnv, "")
 	m := buildModel(t)
 	openJevSettings(t, m)
@@ -88,8 +91,8 @@ func TestJevKeyPastePersistsMaskedAndPrivate(t *testing.T) {
 	restarted := buildModel(t)
 	restarted.hooks = m.hooks
 	restarted.loadJevKey()
-	if restarted.jevAPIKey() != testJevKey {
-		t.Fatalf("saved key not loaded on restart: %q", restarted.jevAPIKey())
+	if _, key := restarted.jevConfig(); key != testJevKey {
+		t.Fatalf("saved key not loaded on restart: %q", key)
 	}
 
 	m.handleSettingsKey(key("x"))
@@ -187,7 +190,8 @@ func TestEveryExperimentTogglesAndPersists(t *testing.T) {
 	}
 }
 
-func TestJevFeaturesStayOffWithASavedKeyUntilEnabled(t *testing.T) {
+func TestJevFeaturesRequireAnEnabledExperimentAndWorker(t *testing.T) {
+	t.Setenv(jev.URLEnv, "")
 	t.Setenv(jevKeyEnv, "")
 	m := newSessionJevModel(t)
 	m.jevSavedKey = testJevKey
@@ -195,6 +199,10 @@ func TestJevFeaturesStayOffWithASavedKeyUntilEnabled(t *testing.T) {
 		t.Fatal("a saved key alone queued a Clef request with the experiment off")
 	}
 	m.jevAutoSuggest = true
+	if cmd := m.schedulePromptJev(); cmd != nil {
+		t.Fatal("a saved key queued a request without a Worker URL")
+	}
+	t.Setenv(jev.URLEnv, "https://worker.example")
 	if cmd := m.schedulePromptJev(); cmd == nil {
 		t.Fatal("a saved key with Clef on did not queue a request")
 	}

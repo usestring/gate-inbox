@@ -227,12 +227,12 @@ func jevEvalInts(name string, fallback []int) []int {
 func TestJevFinishEval(t *testing.T) {
 	outDir := os.Getenv("JEV_FINISH_EVAL")
 	if outDir == "" {
-		t.Skip("set JEV_FINISH_EVAL to an output directory to run against live JEV")
+		t.Skip("set JEV_FINISH_EVAL to an output directory to run against Clef")
 	}
 	configDir := os.Getenv("JEV_EVAL_CONFIG")
-	key := jev.Key(configDir)
-	if key == "" {
-		t.Skip("no Cloudflare key")
+	endpoint, key := jev.Endpoint(), jev.Key(configDir)
+	if endpoint == "" || key == "" {
+		t.Skip("no Workers AI connection configured")
 	}
 	if err := os.MkdirAll(outDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -289,7 +289,7 @@ func TestJevFinishEval(t *testing.T) {
 				state := jevEvalTurns(j.c.msgs, j.v.Turns, j.v.Chars)
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				start := time.Now()
-				answers, ok := askJevNoul(ctx, jevHTTPClient, jevEndpoint, key, map[string]any{"messages": state}, map[string]string{
+				answers, ok := askJevNoul(ctx, jevHTTPClient, endpoint, key, map[string]any{"messages": state}, map[string]string{
 					"finished":       jevEvalQuestions[j.v.Question],
 					"missing_chrome": jevMissingChromeQuestion,
 				})

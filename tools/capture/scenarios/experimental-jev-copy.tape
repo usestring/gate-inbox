@@ -1,5 +1,5 @@
 # Run with --no-seed --foreign jev-copy. The copy key asks Clef for real, so it
-# needs CLEF_API_KEY and CLEF_ACCOUNT_ID, and it writes this machine's
+# needs WORKERS_AI_URL and WORKERS_API_KEY, and it writes this machine's
 # clipboard with the fixture's text. Clef can answer after the first press's
 # status has cleared, so the still is a second press, copying from the picks
 # the first one kept.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/promptsnips"
 )
 
@@ -36,8 +37,8 @@ func newSessionJevModel(t *testing.T) *Model {
 }
 
 func TestNewSessionJevNeedsBothTogglesKeyAndChoices(t *testing.T) {
-	t.Setenv("CLEF_API_KEY", "test-key")
-	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
+	t.Setenv(jevKeyEnv, "test-key")
+	t.Setenv(jev.URLEnv, "https://worker.example")
 	m := newSessionJevModel(t)
 	if cmd := m.schedulePromptJev(); cmd != nil {
 		t.Fatal("Clef Auto Suggest off still queued a request")
@@ -48,12 +49,12 @@ func TestNewSessionJevNeedsBothTogglesKeyAndChoices(t *testing.T) {
 		t.Fatal("Prompt suggestions off still queued a request")
 	}
 	m.promptSuggest = true
-	t.Setenv("CLEF_API_KEY", "")
+	t.Setenv(jevKeyEnv, "")
 	if cmd := m.schedulePromptJev(); cmd != nil {
 		t.Fatal("missing key still queued a request")
 	}
-	t.Setenv("CLEF_API_KEY", "test-key")
-	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
+	t.Setenv(jevKeyEnv, "test-key")
+	t.Setenv(jev.URLEnv, "https://worker.example")
 	m.form.prompt.input.SetValue("Review the pull")
 	if cmd := m.schedulePromptJev(); cmd != nil {
 		t.Fatal("a single candidate was sent for ranking")
@@ -72,8 +73,8 @@ func TestNewSessionJevNeedsBothTogglesKeyAndChoices(t *testing.T) {
 }
 
 func TestNewSessionJevPickLeadsAndStaysEditable(t *testing.T) {
-	t.Setenv("CLEF_API_KEY", "test-key")
-	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
+	t.Setenv(jevKeyEnv, "test-key")
+	t.Setenv(jev.URLEnv, "https://worker.example")
 	m := newSessionJevModel(t)
 	m.jevAutoSuggest = true
 	m.schedulePromptJev()
@@ -106,8 +107,8 @@ func TestNewSessionJevPickLeadsAndStaysEditable(t *testing.T) {
 }
 
 func TestNewSessionJevSchedulesAfterAsyncTextPaste(t *testing.T) {
-	t.Setenv("CLEF_API_KEY", "test-key")
-	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
+	t.Setenv(jevKeyEnv, "test-key")
+	t.Setenv(jev.URLEnv, "https://worker.example")
 	m := newSessionJevModel(t)
 	m.jevAutoSuggest = true
 	m.form.prompt.input.SetValue("")
@@ -168,15 +169,15 @@ func TestNewSessionJevPayloadIsBounded(t *testing.T) {
 			t.Error(err)
 		}
 		requests <- request
-		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": map[string]any{"model": jevModel, "answers": map[string]any{
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"model": jev.Model, "answers": map[string]any{
 			"next": map[string]any{"type": "choice", "choice": choice},
 		}}})
 	}))
 	defer server.Close()
-	if got := rankNewSessionPrompts(context.Background(), server.Client(), server.URL, "test-key", draft, sent); got != 2 {
+	if got := rankNewSessionPrompts(context.Background(), server.Client(), server.URL+"/models", "test-key", draft, sent); got != 2 {
 		t.Fatalf("ranked index = %d", got)
 	}
-	request := <-requests
+	request := (<-requests)["input"].(map[string]any)
 	state := request["state"].(map[string]any)
 	if len(state) != 1 || state["draft"] != "Review item" {
 		t.Fatalf("state sent more than the draft: %#v", state)
@@ -185,7 +186,7 @@ func TestNewSessionJevPayloadIsBounded(t *testing.T) {
 		t.Fatalf("criteria contains %d choices", len(criteria))
 	}
 	choice = "none"
-	if got := rankNewSessionPrompts(context.Background(), server.Client(), server.URL, "test-key", draft, sent); got != -1 {
+	if got := rankNewSessionPrompts(context.Background(), server.Client(), server.URL+"/models", "test-key", draft, sent); got != -1 {
 		t.Fatalf("none ranked index %d", got)
 	}
 	<-requests

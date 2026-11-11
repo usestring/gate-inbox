@@ -23,8 +23,8 @@ import (
 // the key again on the same turn walks through the rest in the order the
 // agent wrote them, so one message's steps come off in sequence.
 //
-// Which text is offered and how JEV's answers become picks belongs to the
-// autocopy package, which carries the evals; this file only asks JEV and
+// Which text is offered and how Clef's answers become picks belongs to the
+// autocopy package, which carries the evals; this file only asks Clef and
 // drives the clipboard.
 //
 // Nothing is read or sent until the key is pressed, and nothing is written
@@ -34,7 +34,7 @@ const jevCopySetting = "experimental_jev_copy"
 
 const jevCopyTimeout = 6 * time.Second
 
-// jevCopyState is what the copy key remembers between presses: the picks JEV
+// jevCopyState is what the copy key remembers between presses: the picks Clef
 // made from one turn and which of them goes on the clipboard next. turn names
 // the turn they came from, so a press on another row or a later turn reads
 // afresh while a press on the same turn costs no call.
@@ -84,12 +84,12 @@ func latestAssistantText(messages []search.Message) string {
 	return ""
 }
 
-// askJevCopy asks JEV every question plan carries in one call and returns its
+// askJevCopy asks Clef every question plan carries in one call and returns its
 // picks, with adjacent draft paragraphs kept together so the clipboard holds
-// the reply rather than its pieces. ok is false when JEV did not answer them all.
-func askJevCopy(ctx context.Context, key string, plan *autocopy.Plan) ([]string, bool) {
+// the reply rather than its pieces. ok is false when Clef did not answer them all.
+func askJevCopy(ctx context.Context, endpoint, key string, plan *autocopy.Plan) ([]string, bool) {
 	input := plan.Input()
-	answers, ok := askJevNoul(ctx, jevHTTPClient, jevEndpoint, key,
+	answers, ok := askJevNoul(ctx, jevHTTPClient, endpoint, key,
 		map[string]any{"message": input.Message}, input.Questions)
 	if !ok {
 		return nil, false
@@ -112,7 +112,7 @@ func (m *Model) copySelectedWithJev() (tea.Model, tea.Cmd) {
 }
 
 // copyWithJev puts the next pick from sess's latest turn on the clipboard,
-// first reading that turn and asking JEV, off the event loop, when the picks
+// first reading that turn and asking Clef, off the event loop, when the picks
 // on hand came from another one.
 func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 	if !m.jevCopyOn || m.jevCopy.busy || m.jevCopy.copying {
@@ -126,9 +126,9 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 		}
 		return m, m.copyNextPick()
 	}
-	key, _ := m.jevKey()
-	if key == "" {
-		m.errBar.text = "Clef copy needs CLEF_ACCOUNT_ID and a Cloudflare token (Settings → Clef, or CLEF_API_KEY)"
+	endpoint, key := m.jevConfig()
+	if endpoint == "" || key == "" {
+		m.errBar.text = "Set up Workers AI for Clef copy (Settings → Clef)"
 		return m, nil
 	}
 	if m.conversation == nil {
@@ -162,7 +162,7 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), jevCopyTimeout)
 		defer cancel()
-		texts, ok := askJevCopy(ctx, key, plan)
+		texts, ok := askJevCopy(ctx, endpoint, key, plan)
 		switch {
 		case !ok:
 			msg.note = "Clef did not answer; nothing copied"

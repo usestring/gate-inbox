@@ -57,11 +57,11 @@ func promptJevIdentity(draft string, matches []promptsnips.Snippet) string {
 }
 
 // promptJevInput is the request the New Session prompt would make now. It
-// needs both Prompt suggestions and Clef Auto Suggest on and a key, and at
-// least two candidates, since ranking one discloses it for nothing.
+// needs both Prompt suggestions and Clef Auto Suggest on, a Workers AI
+// connection, and at least two candidates, since ranking one discloses it for nothing.
 func (m *Model) promptJevInput() (identity, draft string, texts []string, matches []promptsnips.Snippet, ok bool) {
 	if !m.promptSuggest || !m.jevAutoSuggest || m.mode != modeForm || m.form.focus != fieldPrompt ||
-		len(m.form.prompt.attachments) > 0 || m.jevAPIKey() == "" {
+		len(m.form.prompt.attachments) > 0 || !m.jevConfigured() {
 		return "", "", nil, nil, false
 	}
 	value := m.form.prompt.input.Value()
@@ -93,12 +93,12 @@ func (m *Model) runPromptJev(seq int) tea.Cmd {
 	if !ok || seq != m.promptJev.seq || identity != m.promptJev.identity {
 		return nil
 	}
-	key := m.jevAPIKey()
+	endpoint, key := m.jevConfig()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()
 		msg := promptJevResultMsg{seq: seq, identity: identity}
-		if i := rankNewSessionPrompts(ctx, jevHTTPClient, jevEndpoint, key, draft, texts); i >= 0 {
+		if i := rankNewSessionPrompts(ctx, jevHTTPClient, endpoint, key, draft, texts); i >= 0 {
 			msg.choice = matches[i].Key
 		}
 		return msg

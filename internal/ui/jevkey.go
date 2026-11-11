@@ -38,7 +38,7 @@ func writeJevKey(configDir, key string) error {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(dir, ".clef-*")
+	file, err := os.CreateTemp(dir, ".workers-ai-*")
 	if err != nil {
 		return err
 	}
@@ -65,8 +65,7 @@ func removeJevKey(configDir string) error {
 	return err
 }
 
-// jevKey is the key Clef requests use. CLEF_API_KEY wins over a saved
-// key, the way every other credential here reads the environment first.
+// jevKey reads the Worker key and its source for the Settings card.
 func (m *Model) jevKey() (string, jevKeySource) {
 	if key := strings.TrimSpace(os.Getenv(jevKeyEnv)); key != "" {
 		return key, jevKeyFromEnv
@@ -77,9 +76,14 @@ func (m *Model) jevKey() (string, jevKeySource) {
 	return "", jevKeyNone
 }
 
-func (m *Model) jevAPIKey() string {
-	key, _ := m.jevKey()
-	return key
+func (m *Model) jevConfig() (endpoint, key string) {
+	key, _ = m.jevKey()
+	return jev.Endpoint(), key
+}
+
+func (m *Model) jevConfigured() bool {
+	endpoint, key := m.jevConfig()
+	return endpoint != "" && key != ""
 }
 
 // maskJevKey shows the last four characters of a key long enough that four
@@ -93,6 +97,9 @@ func maskJevKey(key string) string {
 }
 
 func (m *Model) jevAccess() (string, bool) {
+	if jev.Endpoint() == "" {
+		return "no access: set " + jev.URLEnv + " to your Worker URL", false
+	}
 	key, source := m.jevKey()
 	switch source {
 	case jevKeyFromEnv:
@@ -100,13 +107,16 @@ func (m *Model) jevAccess() (string, bool) {
 	case jevKeySaved:
 		return "access: saved key " + maskJevKey(key), true
 	}
-	return "no access: paste a key or set " + jevKeyEnv, false
+	return "no access: paste a Worker key or set " + jevKeyEnv, false
 }
 
 func (m *Model) jevSettingsSummary() string {
 	state := "off"
 	if m.settings.jevAutoSuggest {
 		state = "on"
+	}
+	if jev.Endpoint() == "" {
+		return state + " · no Worker URL"
 	}
 	switch _, source := m.jevKey(); source {
 	case jevKeyFromEnv:
@@ -120,7 +130,7 @@ func (m *Model) jevSettingsSummary() string {
 func (m *Model) loadJevKey() {
 	key, err := readJevKey(m.configDir())
 	if err != nil {
-		m.errBar.text = "reading the saved Clef key: " + err.Error()
+		m.errBar.text = "reading the saved Worker key: " + err.Error()
 	}
 	m.jevSavedKey = key
 }
@@ -162,7 +172,7 @@ func (m *Model) handleJevSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x", "delete", "backspace":
 		if m.settings.jevCursor == 1 && m.jevSavedKey != "" {
 			if err := removeJevKey(m.configDir()); err != nil {
-				m.errBar.text = "removing the saved Clef key: " + err.Error()
+				m.errBar.text = "removing the saved Worker key: " + err.Error()
 				return m, nil
 			}
 			m.jevSavedKey = ""
@@ -180,7 +190,7 @@ func (m *Model) saveJevKey(value string) {
 		return
 	}
 	if err := writeJevKey(m.configDir(), key); err != nil {
-		m.errBar.text = "saving the Clef key: " + err.Error()
+		m.errBar.text = "saving the Worker key: " + err.Error()
 		return
 	}
 	m.jevSavedKey = key
@@ -209,7 +219,7 @@ func (m *Model) viewJevSettings() string {
 	var body strings.Builder
 	body.WriteString(marker(0) + padRight(valueStyle.Render("Clef Auto Suggest"), settingsLabelColumn) +
 		subtleStyle.Render("◂ ") + valueStyle.Render(state) + subtleStyle.Render(" ▸") + "\n")
-	body.WriteString(marker(1) + padRight(valueStyle.Render("API key"), settingsLabelColumn))
+	body.WriteString(marker(1) + padRight(valueStyle.Render("Worker key"), settingsLabelColumn))
 	hint := [][2]string{{"↑↓", "field"}, {"←→/↵", "toggle"}, {"esc", "back"}}
 	switch {
 	case m.settings.jevPasting:
@@ -233,9 +243,8 @@ func (m *Model) viewJevSettings() string {
 		access = mutedStyle.Render("✗ " + access)
 	}
 	body.WriteString("\n\n" + access + "\n\n" + mutedStyle.Render(
-		"Suggests replies and ranks New Session prompts through Cloudflare.\n"+
-			"Set CLEF_ACCOUNT_ID for your Cloudflare account.\n"+
-			jevKeyEnv+" wins over a saved key; the saved key is kept\n"+
-			"0600 beside Gate Inbox's channel keys, which sessions cannot read."))
+		"Set "+jev.URLEnv+" to your HTTPS Worker origin.\n"+
+			"Use the existing key for that Worker. "+jevKeyEnv+"\n"+
+			"takes precedence over the key saved here."))
 	return m.cardFlex("▣ Clef", body.String(), hint)
 }

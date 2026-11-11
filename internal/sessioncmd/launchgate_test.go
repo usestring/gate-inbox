@@ -2,10 +2,16 @@ package sessioncmd
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -57,6 +63,43 @@ func TestTopLevelLaunchSkipsTheQuestionWhenTheUserAskedForIt(t *testing.T) {
 	var needed *LaunchApprovalNeeded
 	if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "probe-two"}); !errors.As(err, &needed) {
 		t.Fatalf("second launch on one request: err = %v", err)
+	}
+}
+
+func TestVoiceLaunchClassifierUsesTheWorker(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" || r.Header.Get("X-Authorization") != "fake-worker-key" {
+			t.Error("launch classifier did not use the configured Worker")
+		}
+		_, _ = w.Write([]byte(`[{"model":"clef","answers":{"asked_launch":{"type":"noul","noul":0.95}}}]`))
+	}))
+	defer server.Close()
+	oldClient := jev.HTTPClient
+	jev.HTTPClient = server.Client()
+	t.Cleanup(func() { jev.HTTPClient = oldClient })
+	t.Setenv(jev.URLEnv, server.URL)
+	t.Setenv(jev.KeyEnv, "")
+
+	configDir := t.TempDir()
+	s := &Sessions{commands: commands{configDir: configDir}, claudeHome: t.TempDir()}
+	tr := &transcript{}
+	tr.add(map[string]any{"type": "user", "message": map[string]any{
+		"role": "user", "content": "Launch a new session for the retry fix.",
+	}})
+	tr.write(t, s.claudeHome, "conv-voice")
+	caller := store.Session{ID: "test", Tool: "claude", AgentSessionID: "conv-voice"}
+	r := &runtime{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}}}
+	if s.jevAskedLaunch(r, caller) {
+		t.Fatal("voice launch was confirmed without a Worker key")
+	}
+	if err := os.MkdirAll(filepath.Dir(jev.KeyPath(configDir)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jev.KeyPath(configDir), []byte("fake-worker-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !s.jevAskedLaunch(r, caller) {
+		t.Fatal("voice launch did not accept a confident answer using the saved Worker key")
 	}
 }
 

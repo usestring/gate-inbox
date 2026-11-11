@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -47,21 +48,25 @@ func TestAskJevFinishSendsBothQuestionsInOneCall(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		if r.Header.Get("Authorization") != "Bearer key" {
-			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		if r.Header.Get("X-Authorization") != "key" || r.Header.Get("Authorization") != "" {
+			t.Error("request did not use Worker authentication")
 		}
 		var body struct {
-			Model     string                    `json:"model"`
-			State     map[string]any            `json:"state"`
-			Questions map[string]map[string]any `json:"questions"`
+			Model string
+			Input struct {
+				Model     string
+				State     map[string]any
+				Questions map[string]map[string]any
+			}
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
-		if body.Model != jevModel || body.Questions["finished"]["type"] != "noul" || body.Questions["missing_chrome"]["type"] != "noul" {
+		if body.Model != jev.WorkerModel || body.Input.Model != jev.Model ||
+			body.Input.Questions["finished"]["type"] != "noul" || body.Input.Questions["missing_chrome"]["type"] != "noul" {
 			t.Errorf("request = %+v", body)
 		}
-		_, _ = w.Write([]byte(`{"success":true,"result":{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.1},"missing_chrome":{"type":"noul","noul":0.9}}}}`))
+		_, _ = w.Write([]byte(`[{"model":"` + jev.Model + `","answers":{"finished":{"type":"noul","noul":0.1},"missing_chrome":{"type":"noul","noul":0.9}}}]`))
 	}))
 	defer server.Close()
 
@@ -73,7 +78,7 @@ func TestAskJevFinishSendsBothQuestionsInOneCall(t *testing.T) {
 
 func TestAskJevFinishRejectsAPartialAnswer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"success":true,"result":{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.1}}}}`))
+		_, _ = w.Write([]byte(`[{"model":"` + jev.Model + `","answers":{"finished":{"type":"noul","noul":0.1}}}]`))
 	}))
 	defer server.Close()
 	if _, ok := askJevFinish(context.Background(), server.Client(), server.URL, "key", []suggestMessage{{Role: "user", Text: "x"}}); ok {
@@ -234,8 +239,8 @@ type jevFinishTransport func(*http.Request) (*http.Response, error)
 func (f jevFinishTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestJevFinishUsesAnIndependentLocator(t *testing.T) {
-	t.Setenv("CLEF_API_KEY", "test-key")
-	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
+	t.Setenv(jevKeyEnv, "test-key")
+	t.Setenv(jev.URLEnv, "https://worker.example")
 	home := t.TempDir()
 	locator := search.NewLocator(home, "")
 	sess := store.Session{ID: "finished", Tool: "claude", Status: status.Finished, AgentSessionID: "conversation"}
@@ -253,7 +258,7 @@ func TestJevFinishUsesAnIndependentLocator(t *testing.T) {
 	t.Cleanup(func() { jevHTTPClient = previous })
 	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
-			`{"success":true,"result":{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.1},"missing_chrome":{"type":"noul","noul":0.9}}}}`))}, nil
+			`[{"model":"` + jev.Model + `","answers":{"finished":{"type":"noul","noul":0.1},"missing_chrome":{"type":"noul","noul":0.9}}}]`))}, nil
 	})}
 	m := &Model{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}},
 		sessions: []store.Session{sess}, jevFinishCheck: true, conversation: &conversationView{locator: locator},
@@ -279,8 +284,8 @@ func TestJevFinishUsesAnIndependentLocator(t *testing.T) {
 }
 
 func TestJevFinishAsksOnceForTheSameTurns(t *testing.T) {
-	t.Setenv("CLEF_API_KEY", "test-key")
-	t.Setenv("CLEF_ACCOUNT_ID", "test-account")
+	t.Setenv(jevKeyEnv, "test-key")
+	t.Setenv(jev.URLEnv, "https://worker.example")
 	home := t.TempDir()
 	sess := store.Session{ID: "finished", Tool: "claude", Status: status.Finished, AgentSessionID: "conversation",
 		LastStatusAt: time.Now()}
@@ -297,7 +302,7 @@ func TestJevFinishAsksOnceForTheSameTurns(t *testing.T) {
 	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
 		calls++
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
-			`{"success":true,"result":{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.4},"missing_chrome":{"type":"noul","noul":0.1}}}}`))}, nil
+			`[{"model":"` + jev.Model + `","answers":{"finished":{"type":"noul","noul":0.4},"missing_chrome":{"type":"noul","noul":0.1}}}]`))}, nil
 	})}
 	m := &Model{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}},
 		sessions: []store.Session{sess}, jevFinishCheck: true,

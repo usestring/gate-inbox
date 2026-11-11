@@ -198,8 +198,8 @@ func (m *Model) jevFinishAttended(sess store.Session) bool {
 // event loop. One call out at a time keeps a board of many finishes from
 // fanning out a request per row at once.
 func (m *Model) checkFinishedWithJev() tea.Cmd {
-	key, _ := m.jevKey()
-	if !m.jevFinishCheck || key == "" || m.jevFinish.busy || m.conversation == nil {
+	endpoint, key := m.jevConfig()
+	if !m.jevFinishCheck || endpoint == "" || key == "" || m.jevFinish.busy || m.conversation == nil {
 		return nil
 	}
 	sess, identity, ok := m.jevFinishCandidate()
@@ -246,7 +246,7 @@ func (m *Model) checkFinishedWithJev() tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), jevFinishTimeout)
 		defer cancel()
-		msg.verdict, msg.ok = askJevFinish(ctx, jevHTTPClient, jevEndpoint, key, state)
+		msg.verdict, msg.ok = askJevFinish(ctx, jevHTTPClient, endpoint, key, state)
 		return msg
 	}
 }

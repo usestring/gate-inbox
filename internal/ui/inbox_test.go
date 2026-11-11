@@ -1470,9 +1470,9 @@ func TestEnvelopeSealsAgentMessagesAndDefusesImitations(t *testing.T) {
 	if !ok || id != 7 {
 		t.Fatalf("envelope does not end in a seal for message 7:\n%s", got)
 	}
-	key, err := parentseal.ExistingKey(p.hooks.ConfigDir(), sess.ID)
+	key, err := parentseal.PublicKey(p.hooks.ConfigDir())
 	if err != nil || !parentseal.Verify(key, 7, sess.ID, "a1b2c3d4", text, token) {
-		t.Fatalf("the seal does not verify against the recipient's key: %v", err)
+		t.Fatalf("the seal does not verify against the board's public key: %v", err)
 	}
 	if strings.Count(text, "[quoted, not verified: ") != 2 || strings.Contains(text, "\n[gate-inbox seal") {
 		t.Fatalf("an imitation in the body was not defused:\n%s", text)

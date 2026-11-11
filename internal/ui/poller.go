@@ -2317,9 +2317,9 @@ func (p *poller) seal(sess store.Session, msg store.InboxMessage, text string) s
 	if p.hooks == nil {
 		return text
 	}
-	key, err := parentseal.Key(p.hooks.ConfigDir(), sess.ID)
+	key, err := parentseal.SigningKey(p.hooks.ConfigDir())
 	if err != nil {
-		logging.Warn("could not mint a session's sealing key", "session", sess.ID, logging.Err(err))
+		logging.Warn("could not read or mint the seal key", "session", sess.ID, logging.Err(err))
 		return text
 	}
 	return parentseal.Seal(key, msg.ID, sess.ID, msg.SenderID, text)

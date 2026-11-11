@@ -3,6 +3,7 @@ package sessioncmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -58,7 +59,7 @@ func (f *channelFixture) deliver(t *testing.T, sender, recipient, body string) (
 	fence := "----CROSS-SESSION-MESSAGE-" + sender + "-ABCDEFGH----"
 	text := fmt.Sprintf("[gate-inbox] From agent %q (session %s).\n\n%s\n%s\n%s", sender, sender, fence,
 		parentseal.Neutralise(body), fence)
-	key, err := parentseal.Key(f.configDir, recipient)
+	key, err := parentseal.SigningKey(f.configDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +140,31 @@ func TestPromptHookRefusesEveryoneElse(t *testing.T) {
 		if !strings.Contains(note, c.want) || strings.Contains(note, parentVerdict) || attested {
 			t.Errorf("%s: note = %q; want %q and no parent authority", name, note, c.want)
 		}
+	}
+}
+
+// A confined session sees the board's public seal key and nothing else in the
+// key directory, which is all the check needs. One that cannot see even that
+// is told the seal could not be checked, never that its parent's text was
+// altered.
+func TestPromptHookNeedsOnlyThePublicKey(t *testing.T) {
+	f := newChannelFixture(t)
+	_, first := f.deliver(t, "parent01", "child001", "Go.")
+	_, second := f.deliver(t, "parent01", "child001", "Go again.")
+	keyDir := parentseal.KeyDir(f.configDir)
+	if err := os.Remove(filepath.Join(keyDir, "seal.key")); err != nil {
+		t.Fatal(err)
+	}
+	if note, _ := f.submit(t, "child001", first); !strings.Contains(note, parentVerdict) {
+		t.Fatalf("with only the public key: %q", note)
+	}
+	if err := os.RemoveAll(keyDir); err != nil {
+		t.Fatal(err)
+	}
+	note, _ := f.submit(t, "child001", second)
+	if !strings.Contains(note, failVerdict) || !strings.Contains(note, "could not be checked") ||
+		strings.Contains(note, "altered") {
+		t.Fatalf("with no key visible: %q; want an unchecked seal, not tampering", note)
 	}
 }
 

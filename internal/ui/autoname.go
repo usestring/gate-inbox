@@ -384,7 +384,7 @@ func newConvoIndex() *convo.Index {
 	// OPENCODE_DB overrides are honoured here exactly as in history
 	// search. A location that does not exist simply contributes no
 	// conversations.
-	return convo.New(claude, opencode.DBPath())
+	return convo.New(claude, opencode.DBPath()).WithPi(convo.PiSessionsDir())
 }
 
 // applyRenames puts the names a pass chose onto the rows the rail draws from,

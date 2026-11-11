@@ -1800,3 +1800,9 @@ command = ""
 shell = true
 default_status = "idle"
 `
+
+// IsPiTool reports whether the tool named name runs pi: its block is
+// [tools.pi] or it keeps its conversations in pi's session store.
+func IsPiTool(tools map[string]Tool, name string) bool {
+	return name == "pi" || tools[name].SessionStore == "pi"
+}

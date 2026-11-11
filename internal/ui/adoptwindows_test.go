@@ -702,3 +702,26 @@ func TestUntitledAdoptedRowsQueueNothingWhenAskIsOff(t *testing.T) {
 		}
 	}
 }
+
+// A tool named from the outside (skip_rename_directive: opencode, pi) is
+// named by the sweep from its own session title, so an untitled adopted pane
+// of it is never typed a rename request.
+func TestUntitledAdoptedRowsOfOutsideNamedToolsQueueNothing(t *testing.T) {
+	dir := t.TempDir()
+	socket := windowFixture(t, "main", 2, dir)
+	st := newFixtureStore(t)
+	run := newFixtureRun(t, st, socket)
+	run.namedOutside = map[string]bool{"claude": true}
+	if taken, err := run.take(adopt.Panes(socket), adopt.NewProcTable()); err != nil || taken != 2 {
+		t.Fatalf("take = %d, %v", taken, err)
+	}
+	rows, err := st.ListSessions(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.NameSource != store.SourceDerived || len(row.PendingInputs) != 0 {
+			t.Fatalf("row %q: source %q, pending %v", row.Name, row.NameSource, row.PendingInputs)
+		}
+	}
+}

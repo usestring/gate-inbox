@@ -547,10 +547,18 @@ func (s *Sessions) parkOrphan(p *parkPass, id string) {
 // conversationInPane reads the conversation the agent in a pane holds, and
 // the directory it holds it in, off the agent's own process. Claude Code
 // writes a per-process session file naming both; a process match is an
-// identity. Other tools fall back to the pane's directory and no id, which
+// identity. For pi it is the newest session pi keeps for the pane's
+// directory (convo.PiConversationInPane says why the process cannot tell).
+// Other tools fall back to the pane's directory and no id, which
 // reviveWarning then reports.
 func (s *Sessions) conversationInPane(p *parkPass, tool string, pid int, fallbackCwd string) (convID, cwd string) {
 	cwd = fallbackCwd
+	if pid != 0 && config.IsPiTool(p.runtime.cfg.Tools, tool) {
+		if id, convCwd, ok := convo.PiConversationInPane(convo.PiSessionsDir(), fallbackCwd); ok {
+			return id, convCwd
+		}
+		return "", cwd
+	}
 	if tool != "claude" || pid == 0 {
 		return "", cwd
 	}

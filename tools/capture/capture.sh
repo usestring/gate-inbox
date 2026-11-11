@@ -396,6 +396,7 @@ mkdir -p "$launcher_dir"
   printf 'cd %q || exit 1\n' "$project"
   printf 'exec env -u TMUX -u TMUX_PANE -u GATE_INBOX_SESSION_ID'
   printf ' -u LINEAR_API_KEY -u GITHUB_TOKEN -u GH_TOKEN -u OPENCODE_DB'
+  printf ' -u TYPESAFE_API_KEY -u WORKERS_API_KEY -u WORKERS_AI_URL'
   printf ' -u SSH_CONNECTION -u SSH_CLIENT -u SSH_TTY GATE_INBOX_DEVICE=capture'
   printf ' HOME=%q XDG_CONFIG_HOME=%q XDG_DATA_HOME=%q' "$fake_home" "$fake_home/.config" "$fake_home/.local/share"
   printf ' XDG_STATE_HOME=%q XDG_CACHE_HOME=%q' "$fake_home/.local/state" "$fake_home/.cache"

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/promptsnips"
 )
 
@@ -169,7 +170,7 @@ func TestNewSessionJevPayloadIsBounded(t *testing.T) {
 		}})
 	}))
 	defer server.Close()
-	if got := rankNewSessionPrompts(context.Background(), server.Client(), server.URL, "test-key", draft, sent); got != 2 {
+	if got := rankNewSessionPrompts(context.Background(), classifier.JEV, server.Client(), server.URL, "test-key", draft, sent); got != 2 {
 		t.Fatalf("ranked index = %d", got)
 	}
 	request := <-requests
@@ -181,7 +182,7 @@ func TestNewSessionJevPayloadIsBounded(t *testing.T) {
 		t.Fatalf("criteria contains %d choices", len(criteria))
 	}
 	choice = "none"
-	if got := rankNewSessionPrompts(context.Background(), server.Client(), server.URL, "test-key", draft, sent); got != -1 {
+	if got := rankNewSessionPrompts(context.Background(), classifier.JEV, server.Client(), server.URL, "test-key", draft, sent); got != -1 {
 		t.Fatalf("none ranked index %d", got)
 	}
 	<-requests

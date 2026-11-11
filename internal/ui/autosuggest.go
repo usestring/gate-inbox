@@ -4,27 +4,25 @@ package ui
 
 import (
 	"context"
-	"encoding/json"
-	"io"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/usestring/gate-inbox/internal/jev"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/search"
 )
 
 const (
-	jevEndpoint       = jev.Endpoint
-	jevModel          = jev.Model
+	jevEndpoint       = classifier.JEVEndpoint
+	jevModel          = classifier.JEVModel
 	autoSuggestDelay  = 500 * time.Millisecond
 	autoSuggestLimit  = 8
 	autoSuggestMinLen = 12
 )
 
-var jevHTTPClient = jev.HTTPClient
+var jevHTTPClient = classifier.HTTPClient
 
 type suggestMessage struct {
 	Role string `json:"role"`
@@ -107,7 +105,7 @@ func newSuggestInput(messages []search.Message, draft string) suggestInput {
 	return input
 }
 
-func rankNextSubmissions(ctx context.Context, client *http.Client, endpoint, key string, input suggestInput) []string {
+func rankNextSubmissions(ctx context.Context, provider classifier.Provider, client *http.Client, endpoint, key string, input suggestInput) []string {
 	if key == "" || len(input.Candidates) == 0 {
 		return nil
 	}
@@ -124,7 +122,7 @@ func rankNextSubmissions(ctx context.Context, client *http.Client, endpoint, key
 			return nil
 		}
 	}
-	choice := askJev(ctx, client, endpoint, key,
+	choice := askJev(ctx, provider, client, endpoint, key,
 		map[string]any{"messages": input.Messages, "draft": input.Draft},
 		"Choose the candidate that would be the most useful next user submission to the existing session after its latest assistant message. Choose none if these are old instructions that should not be repeated or the draft already says something better.",
 		"None of these is a useful next user submission for this active session.",
@@ -135,59 +133,16 @@ func rankNextSubmissions(ctx context.Context, client *http.Client, endpoint, key
 	return []string{input.Candidates[choice]}
 }
 
-// askJev posts one choice question to JEV and returns the index of the
+// askJev posts one choice question to the classifier and returns the index of the
 // chosen candidate, or -1 for "none" and for any failed request.
-func askJev(ctx context.Context, client *http.Client, endpoint, key string, state any, instructions, none string, candidates []string) int {
+func askJev(ctx context.Context, provider classifier.Provider, client *http.Client, endpoint, key string, state any, instructions, none string, candidates []string) int {
 	criteria := map[string]string{"none": none}
 	for i, candidate := range candidates {
 		criteria["c"+string(rune('1'+i))] = candidate
 	}
-	body, err := json.Marshal(struct {
-		Model     string `json:"model"`
-		State     any    `json:"state"`
-		Questions any    `json:"questions"`
-	}{
-		Model: jevModel,
-		State: state,
-		Questions: map[string]any{"next": map[string]any{
-			"type":         "choice",
-			"instructions": instructions,
-			"criteria":     criteria,
-		}},
-	})
-	if err != nil {
-		return -1
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
-	if err != nil {
-		return -1
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+key)
-	resp, err := client.Do(req)
-	if err != nil {
-		return -1
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return -1
-	}
-	var reply struct {
-		Model   string `json:"model"`
-		Answers map[string]struct {
-			Type   string `json:"type"`
-			Choice string `json:"choice"`
-		} `json:"answers"`
-	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&reply) != nil || reply.Model != jevModel {
-		return -1
-	}
-	answer := reply.Answers["next"]
-	if answer.Type != "choice" {
-		return -1
-	}
+	choice := provider.AskChoice(ctx, client, endpoint, key, state, instructions, criteria)
 	for i := range candidates {
-		if answer.Choice == "c"+string(rune('1'+i)) {
+		if choice == "c"+string(rune('1'+i)) {
 			return i
 		}
 	}
@@ -233,11 +188,13 @@ func (m *Model) runAutoSuggestion(seq int) tea.Cmd {
 		return nil
 	}
 	key := m.jevAPIKey()
+	provider := m.classifierProvider()
+	endpoint := provider.Endpoint()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()
 		return autoSuggestResultMsg{seq: seq, identity: identity,
-			suggestions: rankNextSubmissions(ctx, jevHTTPClient, jevEndpoint, key, input)}
+			suggestions: rankNextSubmissions(ctx, provider, jevHTTPClient, endpoint, key, input)}
 	}
 }
 

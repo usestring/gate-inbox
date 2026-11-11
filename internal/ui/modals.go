@@ -537,7 +537,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
 		row(settingsFieldClaudeSetup, "claude code setup", claudeSetupLabel(m.cfg.ClaudeCode.SetupOn(), m.settings.claudeSetup)) + "\n" +
-		actionRow(settingsFieldJev, "JEV", m.jevSettingsSummary()) + "\n" +
+		actionRow(settingsFieldJev, "Classifier", m.jevSettingsSummary()) + "\n" +
 		actionRow(settingsFieldExperimental, "experimental", "features (default off)") + "\n" +
 		actionRow(settingsFieldSnippets, "snippets", "edit quick replies") + "\n" +
 		actionRow(settingsFieldRestartFlags, "restart flags", "edit restart flag presets") + "\n" +
@@ -548,7 +548,7 @@ func (m *Model) viewSettings() string {
 	hint := [][2]string{{"↑↓", "field"}, {"←→", "change"}, {"↵/esc", "save"}}
 	switch m.settings.field {
 	case settingsFieldJev:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "JEV key and switch"}, {"esc", "save"}}
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "classifier provider and key"}, {"esc", "save"}}
 	case settingsFieldExperimental:
 		hint = [][2]string{{"↑↓", "field"}, {"↵", "experimental features"}, {"esc", "save"}}
 	case settingsFieldSnippets:

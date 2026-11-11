@@ -8,23 +8,24 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/autocopy"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-// JEV copy acts when the operator presses its key. It reads the latest
+// Smart copy acts when the operator presses its key. It reads the latest
 // assistant message of the session the key was pressed on, picks out the
 // text an operator might lift from it -- drafts, fenced blocks, code spans and
-// links -- and asks JEV which of them the agent left for the operator to use
+// links -- and asks the classifier which of them the agent left for the operator to use
 // themselves: a command to run in their own terminal, a link to open, a value
 // to paste into a form. The first pick goes on the clipboard, and pressing
 // the key again on the same turn walks through the rest in the order the
 // agent wrote them, so one message's steps come off in sequence.
 //
-// Which text is offered and how JEV's answers become picks belongs to the
-// autocopy package, which carries the evals; this file only asks JEV and
+// Which text is offered and how the classifier's answers become picks belongs to the
+// autocopy package, which carries the evals; this file only asks the classifier and
 // drives the clipboard.
 //
 // Nothing is read or sent until the key is pressed, and nothing is written
@@ -34,7 +35,7 @@ const jevCopySetting = "experimental_jev_copy"
 
 const jevCopyTimeout = 6 * time.Second
 
-// jevCopyState is what the copy key remembers between presses: the picks JEV
+// jevCopyState is what the copy key remembers between presses: the picks the classifier
 // made from one turn and which of them goes on the clipboard next. turn names
 // the turn they came from, so a press on another row or a later turn reads
 // afresh while a press on the same turn costs no call.
@@ -84,12 +85,12 @@ func latestAssistantText(messages []search.Message) string {
 	return ""
 }
 
-// askJevCopy asks JEV every question plan carries in one call and returns its
+// askJevCopy asks the classifier every question plan carries in one call and returns its
 // picks, with adjacent draft paragraphs kept together so the clipboard holds
-// the reply rather than its pieces. ok is false when JEV did not answer them all.
-func askJevCopy(ctx context.Context, key string, plan *autocopy.Plan) ([]string, bool) {
+// the reply rather than its pieces. ok is false when the classifier did not answer them all.
+func askJevCopy(ctx context.Context, provider classifier.Provider, key string, plan *autocopy.Plan) ([]string, bool) {
 	input := plan.Input()
-	answers, ok := askJevNoul(ctx, jevHTTPClient, jevEndpoint, key,
+	answers, ok := askJevNoul(ctx, provider, jevHTTPClient, provider.Endpoint(), key,
 		map[string]any{"message": input.Message}, input.Questions)
 	if !ok {
 		return nil, false
@@ -112,7 +113,7 @@ func (m *Model) copySelectedWithJev() (tea.Model, tea.Cmd) {
 }
 
 // copyWithJev puts the next pick from sess's latest turn on the clipboard,
-// first reading that turn and asking JEV, off the event loop, when the picks
+// first reading that turn and asking the classifier, off the event loop, when the picks
 // on hand came from another one.
 func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 	if !m.jevCopyOn || m.jevCopy.busy || m.jevCopy.copying {
@@ -126,9 +127,10 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 		}
 		return m, m.copyNextPick()
 	}
-	key, _ := m.jevKey()
+	key := m.jevAPIKey()
+	provider := m.classifierProvider()
 	if key == "" {
-		m.errBar.text = "JEV copy needs a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY)"
+		m.errBar.text = "Copy needs a configured provider (Settings → Classifier)"
 		return m, nil
 	}
 	if m.conversation == nil {
@@ -140,7 +142,7 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 	database := opencodeDBPath()
 	from := m.displayName(sess)
 	generation := m.jevCopy.generation
-	m.reportDone("JEV is reading " + from + "'s last message")
+	m.reportDone(provider.Name() + " is reading " + from + "'s last message")
 	return m, func() tea.Msg {
 		msg := jevCopyResultMsg{generation: generation, turn: turn, from: from}
 		target, found := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
@@ -162,12 +164,12 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), jevCopyTimeout)
 		defer cancel()
-		texts, ok := askJevCopy(ctx, key, plan)
+		texts, ok := askJevCopy(ctx, provider, key, plan)
 		switch {
 		case !ok:
-			msg.note = "JEV did not answer; nothing copied"
+			msg.note = provider.Name() + " did not answer; nothing copied"
 		case len(texts) == 0:
-			msg.note = "JEV found nothing in " + from + "'s last message left for you to copy"
+			msg.note = provider.Name() + " found nothing in " + from + "'s last message left for you to copy"
 		}
 		msg.texts, msg.ok = texts, ok
 		return msg

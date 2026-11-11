@@ -1106,7 +1106,7 @@ func TestSessionTokenMetersFollowSelectionAndUsage(t *testing.T) {
 	if got := draw(); !strings.Contains(got, "25%") || !strings.Contains(got, "50.0k/200.0k") {
 		t.Fatalf("missing usage: %s", got)
 	}
-	if got := ansi.Strip(m.computerBrief(40)); !strings.Contains(got, "tok 50.0k") {
+	if got := ansi.Strip(m.computerBrief(64)); !strings.Contains(got, "tok 50.0k") {
 		t.Fatalf("compact tokens missing: %s", got)
 	}
 	c.usage.Tokens = 100000

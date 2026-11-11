@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -65,7 +66,7 @@ func TestAskJevFinishSendsBothQuestionsInOneCall(t *testing.T) {
 	}))
 	defer server.Close()
 
-	v, ok := askJevFinish(context.Background(), server.Client(), server.URL, "key", []suggestMessage{{Role: "assistant", Text: "Chrome tools are not available"}})
+	v, ok := askJevFinish(context.Background(), classifier.JEV, server.Client(), server.URL, "key", []suggestMessage{{Role: "assistant", Text: "Chrome tools are not available"}})
 	if !ok || calls != 1 || v.finished != 0.1 || v.missingChrome != 0.9 {
 		t.Fatalf("verdict = %+v ok = %v calls = %d", v, ok, calls)
 	}
@@ -76,7 +77,7 @@ func TestAskJevFinishRejectsAPartialAnswer(t *testing.T) {
 		_, _ = w.Write([]byte(`{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.1}}}`))
 	}))
 	defer server.Close()
-	if _, ok := askJevFinish(context.Background(), server.Client(), server.URL, "key", []suggestMessage{{Role: "user", Text: "x"}}); ok {
+	if _, ok := askJevFinish(context.Background(), classifier.JEV, server.Client(), server.URL, "key", []suggestMessage{{Role: "user", Text: "x"}}); ok {
 		t.Fatal("an answer missing missing_chrome must not be read as a verdict")
 	}
 }

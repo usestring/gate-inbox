@@ -157,7 +157,10 @@ func (s *Sessions) answerAll(sessionID, targetID string, answers []QuestionAnswe
 		return AnsweredQuestion{}, err
 	}
 	if driver, ok := answerDriverFor(target.Tool); ok {
-		return driver.answer(runtime, s, target, raw, answers, submit, guard, "parent", caller.ID)
+		answered, err := driver.answer(runtime, s, target, raw, answers, submit, guard, "parent", caller.ID)
+		if !errors.Is(err, errAskShaped) {
+			return answered, err
+		}
 	}
 	questions := dialog.Questions(raw, s.asked(target))
 	if len(questions) == 0 {

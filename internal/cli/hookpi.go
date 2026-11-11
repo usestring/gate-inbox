@@ -44,6 +44,14 @@ func piBoardHook(verb string, in io.Reader, out io.Writer, sessionID, configDir 
 			logBoardWarning(configDir, "a pi config defines its own gate-inbox MCP server, which overrides the board's",
 				"session", sessionID, "sources", p.Sources)
 		}
+	case "ask_resolved":
+		// Pi keeps no transcript the board reads, so nothing else says an
+		// AskUserQuestion dialog has closed: without this its saved call
+		// would read as a question still standing.
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<16))
+		if err == nil {
+			sessioncmd.AskResolvedHook(configDir, sessionID, payload)
+		}
 	default:
 		return false
 	}

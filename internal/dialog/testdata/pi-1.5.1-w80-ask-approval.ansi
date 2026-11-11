@@ -1,0 +1,24 @@
+
+ [3m[38;5;103mLet me construct the AskUserQuestion call with these exact parameters.[0m
+
+[48;5;235m
+ [1m[38;5;253mAskUserQuestion[0m[48;5;235m [38;5;109mquestions=[{"question":"May I delete the directory
+[39m [38;5;109m/tmp/sample-9000/scratchxxxxxx/w/cache?","head...[39m
+
+
+[49m───────────────────────────────────────────────────────────────────────────────
+ ☐ Approval
+
+May I delete the directory /tmp/sample-9000/scratchxxxxxx/w/cache?
+
+❯ 1. Approve
+     Delete it
+  2. Deny
+     Keep it
+  3. Type something.
+───────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+[38;5;102m/tmp/sample-9000/scratchxxxxxx/w[39m
+[38;5;102m↑10 ↓286 R10k W3.2k CH75.8% $0.006 6.8%/200k (auto)    claude-haiku-4-5 • medium

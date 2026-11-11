@@ -140,15 +140,14 @@ func (m *Model) handleJevSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg.String() {
-	case "up", "k", "down", "j":
-		m.settings.jevCursor = 1 - m.settings.jevCursor
+	case "up", "k":
+		m.settings.jevCursor = (m.settings.jevCursor + jevRows - 1) % jevRows
+	case "down", "j":
+		m.settings.jevCursor = (m.settings.jevCursor + 1) % jevRows
 	case "left", "right", "h", "l", "space":
-		if m.settings.jevCursor == 0 {
-			m.settings.jevAutoSuggest = !m.settings.jevAutoSuggest
-		}
+		m.toggleJevRow()
 	case "enter":
-		if m.settings.jevCursor == 0 {
-			m.settings.jevAutoSuggest = !m.settings.jevAutoSuggest
+		if m.toggleJevRow() {
 			return m, nil
 		}
 		input := textinput.New()
@@ -160,7 +159,7 @@ func (m *Model) handleJevSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settings.jevInput = input
 		m.settings.jevPasting = true
 	case "x", "delete", "backspace":
-		if m.settings.jevCursor == 1 && m.jevSavedKey != "" {
+		if m.settings.jevCursor == jevRowKey && m.jevSavedKey != "" {
 			if err := removeJevKey(m.configDir()); err != nil {
 				m.errBar.text = "removing the saved JEV key: " + err.Error()
 				return m, nil
@@ -171,6 +170,28 @@ func (m *Model) handleJevSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settings.jevPanel = false
 	}
 	return m, nil
+}
+
+// The JEV card's rows, in order.
+const (
+	jevRowAutoSuggest = iota
+	jevRowKey
+	jevRowPiAutoMode
+	jevRows
+)
+
+// toggleJevRow flips the switch the cursor is on, and reports whether it was
+// on one.
+func (m *Model) toggleJevRow() bool {
+	switch m.settings.jevCursor {
+	case jevRowAutoSuggest:
+		m.settings.jevAutoSuggest = !m.settings.jevAutoSuggest
+	case jevRowPiAutoMode:
+		m.settings.piAutoMode = !m.settings.piAutoMode
+	default:
+		return false
+	}
+	return true
 }
 
 func (m *Model) saveJevKey(value string) {
@@ -217,15 +238,21 @@ func (m *Model) viewJevSettings() string {
 		hint = [][2]string{{"↵", "save key"}, {"esc", "cancel"}}
 	case m.jevSavedKey != "":
 		body.WriteString(mutedStyle.Render("saved " + maskJevKey(m.jevSavedKey)))
-		if m.settings.jevCursor == 1 {
+		if m.settings.jevCursor == jevRowKey {
 			hint = [][2]string{{"↑↓", "field"}, {"↵", "replace key"}, {"x", "remove key"}, {"esc", "back"}}
 		}
 	default:
 		body.WriteString(keyStyle.Render("↵") + mutedStyle.Render(" paste a key"))
-		if m.settings.jevCursor == 1 {
+		if m.settings.jevCursor == jevRowKey {
 			hint = [][2]string{{"↑↓", "field"}, {"↵", "paste key"}, {"esc", "back"}}
 		}
 	}
+	piState := "off"
+	if m.settings.piAutoMode {
+		piState = "on"
+	}
+	body.WriteString("\n" + marker(jevRowPiAutoMode) + padRight(valueStyle.Render("Pi auto mode"), settingsLabelColumn) +
+		subtleStyle.Render("◂ ") + valueStyle.Render(piState) + subtleStyle.Render(" ▸"))
 	access, ok := m.jevAccess()
 	if ok {
 		access = valueStyle.Render("✓ " + access)
@@ -235,6 +262,8 @@ func (m *Model) viewJevSettings() string {
 	body.WriteString("\n\n" + access + "\n\n" + mutedStyle.Render(
 		"Suggests replies and ranks New Session prompts through TypeSafe.\n"+
 			jevKeyEnv+" wins over a saved key; the saved key is kept\n"+
-			"0600 beside Gate Inbox's channel keys, which sessions cannot read."))
+			"0600 beside Gate Inbox's channel keys, which sessions cannot read.\n"+
+			"Pi auto mode lets JEV run a pi call no rule decides; each one\n"+
+			"it is unsure of asks. Sends the call and the user's turns."))
 	return m.cardFlex("▣ JEV", body.String(), hint)
 }

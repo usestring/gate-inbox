@@ -207,8 +207,12 @@ type Tool struct {
 	// MCP picks how the Gate Inbox MCP server is registered into this
 	// tool's sessions: "claude", "codex", "opencode" or "none".
 	// Empty uses the tool's config key when it names a known style.
-	MCP            string `toml:"mcp"`
-	StatusSource   string `toml:"status_source"`
+	MCP          string `toml:"mcp"`
+	StatusSource string `toml:"status_source"`
+	// AutoMode = "off" stops a pi-hooks tool's undecided calls going to the
+	// JEV classifier (package piauto), whatever the board setting says;
+	// they ask instead.
+	AutoMode       string `toml:"auto_mode"`
 	DefaultStatus  string `toml:"default_status"`
 	ActivityCutoff string `toml:"activity_cutoff"`
 	// InputLine is the marker a tool draws at the start of the row its

@@ -23,8 +23,8 @@ const (
 	// of after the next poll.
 	Starting = "starting"
 	// Background is a session whose turn has ended with only a shell,
-	// monitor or task left running behind it: nothing is on screen and
-	// nothing spends tokens, but Claude wakes itself when that work ends.
+	// monitor or task left running behind it: the agent is at rest and may
+	// resume when that work ends.
 	// The pane reads it as working; the poller settles it here through
 	// SettleBackground.
 	Background = "background"
@@ -331,8 +331,8 @@ func (tr toolRules) isBusy(pane string) bool {
 	return busy
 }
 
-// busyText is the line isBusy found, wrap and all, or "" for a busy line
-// read from the footer below the content region.
+// busyText is the line isBusy found, including a wrapped line or a footer
+// below the content region.
 func (tr toolRules) busyText(pane string) (string, bool) {
 	if tr.busyLine == nil {
 		return "", false
@@ -343,7 +343,7 @@ func (tr toolRules) busyText(pane string) (string, bool) {
 	}
 	_, footer, _ := strings.Cut(pane[len(region):], "\n")
 	if tr.busyLine.MatchString(footer) {
-		return "", true
+		return footer, true
 	}
 	lines := strings.Split(region, "\n")
 	for i, line := range lines {
@@ -365,8 +365,10 @@ func (tr toolRules) busyText(pane string) (string, bool) {
 // the turn: "✻ Baked for 26s · done 15:14 · 1 shell still running".
 var stillRunningTail = regexp.MustCompile(`· \d+ [^·]*still running\b`)
 
+var openCodeShellFooter = regexp.MustCompile(`↓ \d+ shells?\b`)
+
 // BackgroundRest is the status the pane would read if the "still running"
-// tail on its newest turn-end summary were gone, and whether that tail is
+// tail or terminal footer were gone, and whether that background work is
 // the only thing keeping it working. A wait line for background agents or
 // workflows is not such a tail: those spend tokens while they run. The
 // caller decides when a tail has gone on long enough to stop believing it;
@@ -381,7 +383,26 @@ func (e *Engine) BackgroundRest(tool, pane string) (string, bool) {
 		return "", false
 	}
 	line, busy := tr.busyText(pane)
-	if !busy || !tr.turnEnd.MatchString(line) || !stillRunningTail.MatchString(line) {
+	if !busy {
+		return "", false
+	}
+	if tool == "codex" {
+		lines := strings.Split(pane, "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			if tr.busyLine.MatchString(lines[i]) {
+				lines[i] = ""
+				break
+			}
+		}
+		return tr.turnState(strings.Join(lines, "\n"))
+	}
+	if tool == "opencode" {
+		if !openCodeShellFooter.MatchString(line) || strings.Contains(line, "subagent") {
+			return "", false
+		}
+		return tr.turnState(pane)
+	}
+	if !tr.turnEnd.MatchString(line) || !stillRunningTail.MatchString(line) {
 		return "", false
 	}
 	state, ok := tr.turnState(pane)
@@ -397,16 +418,18 @@ func (e *Engine) BackgroundRest(tool, pane string) (string, bool) {
 // wait loops nothing would end, or shells that had already died.
 const BackgroundTailTrust = 2 * time.Hour
 
-// SettleBackground is what a pane working on a "still running" tail alone
-// reads as: Background while the tail is believed, and BackgroundRest once it
-// has outlived BackgroundTailTrust by quiet, which reports how long since the
-// conversation was last written. A quiet that cannot be read keeps the tail
-// believed. ok is false when the pane is working on anything else. quiet is
-// only asked when the pane is working on a tail alone.
+// SettleBackground is what a pane working on background shells alone
+// reads as: Background for a live terminal footer or a believed Claude tail.
+// Claude tails expire after BackgroundTailTrust of transcript quiet; an
+// unreadable age keeps the tail believed. Other work leaves ok false.
 func SettleBackground(e *Engine, tool, pane string, quiet func() (time.Duration, bool)) (string, bool) {
 	rest, ok := e.BackgroundRest(tool, pane)
 	if !ok {
 		return "", false
+	}
+	// Terminal footers redraw as work ends; Claude's transcript-age heuristic does not apply.
+	if tool == "codex" || tool == "opencode" {
+		return Background, true
 	}
 	if age, known := quiet(); !known || age < BackgroundTailTrust {
 		return Background, true

@@ -101,6 +101,13 @@ type Tool struct {
 	// and exits on the add_dir_flag the divert hands it. Its trust dialog is
 	// then a waiting dialog like any other, relayed to the spawner.
 	LaunchInPlace bool `toml:"launch_in_place"`
+	// TrustFlag is the flag that settles the CLI's project-trust question
+	// for one launch (pi "--approve"). A spawn carries it when the spawning
+	// session vouches for the directory: the directory lies in the caller's
+	// own tree, or is a worktree of the caller's repository, such as one a
+	// manager made for its child. The pane then opens there, past the
+	// dialog. Any other launch gets the dialog, read as waiting.
+	TrustFlag string `toml:"trust_flag"`
 	// ModelFlag launches a session on a chosen model rather than the CLI's
 	// own default (claude/codex/opencode "--model <name>"). Left unset, this
 	// tool has no way to be told, and a session asking for a model on it is
@@ -974,6 +981,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	user.SkipRenameDirective = user.SkipRenameDirective || def.SkipRenameDirective
 	user.TypeAhead = user.TypeAhead || def.TypeAhead
 	user.LaunchInPlace = user.LaunchInPlace || def.LaunchInPlace
+	fill(&user.TrustFlag, def.TrustFlag)
 	fill(&user.MCP, def.MCP)
 	fill(&user.StatusSource, def.StatusSource)
 	fill(&user.DefaultStatus, def.DefaultStatus)

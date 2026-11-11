@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -678,7 +679,11 @@ var ensureShared = func(configDir string) (string, error) {
 // runs the opencode-attach verb first, which writes the session's binding
 // into that directory and may start the shared server, so the verb runs
 // unconfined and confines the TUI it execs (app's runOpencodeAttach).
-func confine(configDir, style, command string) (string, error) {
+//
+// The session keeps read-only sight of the two files there that are its own
+// to read (sessionFiles); one that does not exist when it starts stays
+// absent.
+func confine(configDir, style, id, command string) (string, error) {
 	keyDir := parentseal.KeyDir(configDir)
 	refused := func(err error) error {
 		return fmt.Errorf("it has no way to keep itself out of Gate Inbox's key directory (%s), "+
@@ -692,7 +697,7 @@ func confine(configDir, style, command string) (string, error) {
 		return command, nil
 	}
 	run := []string{"/bin/sh", "-c", command}
-	argv, err := keyconfine.Argv(keyDir, nil, run)
+	argv, err := keyconfine.Argv(keyDir, sessionFiles(configDir, id), run)
 	if err != nil {
 		return "", refused(err)
 	}
@@ -704,6 +709,21 @@ func confine(configDir, style, command string) (string, error) {
 		quoted[i] = tmux.ShellQuote(arg)
 	}
 	return strings.Join(quoted, " "), nil
+}
+
+// sealPublicKey is the public half of the board's seal key under the key
+// directory. A session's prompt hook checks every seal Gate Inbox puts on a
+// message to it with that key, and needs nothing else there to do it.
+const sealPublicKey = "seal.pub"
+
+// sessionFiles are the key directory's files a confined session reads
+// itself: the board's public seal key, and the session's own config for the
+// shared MCP server, which carries its own caller token and no other
+// session's. A pi session reads that config in its extension, which runs
+// inside the confinement. The caller key every token is made from stays
+// hidden, so the session can act as itself and nobody else.
+func sessionFiles(configDir, id string) []string {
+	return []string{filepath.Join(parentseal.KeyDir(configDir), sealPublicKey), mcpshared.ClaudeConfigPath(configDir, id)}
 }
 
 // resolveAccount reads an account's token, replaced in tests so a launch
@@ -772,7 +792,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return "", nil, err
 	}
 	if tool.StatusSource != hooks.StatusSourceClaude {
-		command, err = confine(manager.ConfigDir(), style, command)
+		command, err = confine(manager.ConfigDir(), style, id, command)
 		if err != nil {
 			return "", nil, fmt.Errorf("%s cannot be launched: %w", toolName, err)
 		}

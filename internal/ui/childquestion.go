@@ -10,6 +10,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/notify"
 	"github.com/usestring/gate-inbox/internal/relayask"
@@ -85,7 +86,7 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 	if err != nil || !ok {
 		return err
 	}
-	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess))
+	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess), p.piPermissionFile(sess))
 	if p.childDialogs == nil {
 		p.childDialogs = map[string]*childDialogRelay{}
 	}
@@ -149,7 +150,7 @@ func (p *poller) relayChildQuestion(sess store.Session, newStatus, pane string) 
 	if err != nil || !ok {
 		return err
 	}
-	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess))
+	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess), p.piPermissionFile(sess))
 	return p.sendChildDialog(sess, parent, &childDialogRelay{key: key}, body, urgent, time.Now())
 }
 
@@ -213,6 +214,9 @@ func (p *poller) pingOperator(sess, parent store.Session, why string) {
 // childDialogBody is the relay for whatever sess's pane is holding, a key
 // that names the dialog regardless of where its cursor is or what is ticked,
 // and whether it cannot wait for the parent's next pause.
+//
+// saved are the files the session's hooks keep its pending call in: the
+// ask-pending file, then the pi permission dialog's.
 func childDialogBody(sess store.Session, pane string, saved ...string) (body, key string, urgent bool) {
 	target := childAskTarget(sess)
 	if len(saved) > 0 {
@@ -233,7 +237,13 @@ func childDialogBody(sess store.Session, pane string, saved ...string) (body, ke
 			"q:" + textfmt.Fingerprint(id.String()), traits.Expires > 0
 	}
 	if screen, ok := dialog.ReadScreenFor(sess.Tool, pane); ok {
-		screen = screen.WithExact(childPendingStrings(sess)...)
+		exact := childPendingStrings(sess)
+		if len(saved) > 1 {
+			if pending, ok := hooks.ReadPiPermissionFile(saved[1]); ok {
+				exact = append(exact, pending.Block)
+			}
+		}
+		screen = screen.WithExact(exact...)
 		about := relayask.Screen{Child: sess.Name, Description: childPendingDescription(sess)}
 		return childScreenMessage(sess, screen) + relayask.Line(relayask.ForScreen(screen, about), sess.ID),
 			"s:" + textfmt.Fingerprint(screen.Identity()), false
@@ -321,6 +331,15 @@ func (p *poller) pendingAskFile(sess store.Session) string {
 		return ""
 	}
 	return p.hooks.PendingAskFile(sess.ID)
+}
+
+// piPermissionFile is where sess's pi extension keeps the call its
+// permission dialog asks about, or "" for a poller with no hooks manager.
+func (p *poller) piPermissionFile(sess store.Session) string {
+	if p.hooks == nil {
+		return ""
+	}
+	return p.hooks.PiPermissionFile(sess.ID)
 }
 
 // childQuestionsMessage is every question of the dialog in the child's words

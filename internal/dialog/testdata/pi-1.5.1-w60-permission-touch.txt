@@ -1,0 +1,30 @@
+ pane-w60.txt"
+
+ If it's refused, I should not retry. Then I should reply
+ with just the word "ONE".
+
+ Let me make this bash call now.
+
+
+ $ touch
+ a-rather-long-file-name-so-the-command-wraps-on-a-narrow-p
+ ane-w60.txt
+
+
+───────────────────────────────────────────────────────────
+ Bash command
+
+ │ touch a-rather-long-file-name-so-the-command-wraps-on-a
+ │ -narrow-pane-w60.txt
+
+ Gate Inbox asks because no rule or grant allows it
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for: Bash(touch a-rather-lon
+      g-file-name-so-the-command-wraps-on-a-narrow-pane-w60
+      .txt:*)
+   3. No, and tell pi what to do differently
+
+ Enter to confirm · Esc to cancel
+/tmp/sample-9000/w
+↑2.2k ↓203 $0.003 1.2%/200k (auto)  claude-haiku-4-5 • mediu

@@ -33,8 +33,8 @@ func (s *Sessions) relayAskOn(target store.Session, raw string) *RelayAsk {
 		return nil
 	}
 	about := relayask.Screen{Child: target.Name}
+	screen = screen.WithExact(s.pendingToolStrings(target)...)
 	if path := s.transcriptOf(target); path != "" {
-		screen = screen.WithExact(convo.PendingToolStrings(path)...)
 		about.Description = convo.PendingToolDescription(path)
 	}
 	return relayask.ForScreen(screen, about)

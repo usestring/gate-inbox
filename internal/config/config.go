@@ -229,11 +229,18 @@ type Tool struct {
 	// has no head of a prompt to find and is forwarded to the pane forever,
 	// which is what kept Left from leaving an opencode session. Left unset,
 	// the cutoff is used, so tools that need no distinction say nothing.
-	InputLine    string `toml:"input_line"`
-	TurnEnd      string `toml:"turn_end"`
-	ChromeLine   string `toml:"chrome_line"`
-	BlockedLine  string `toml:"blocked_line"`
-	TrailingNote string `toml:"trailing_note"`
+	InputLine string `toml:"input_line"`
+	// InputBetweenRules says the composer is the rows between the last two
+	// chrome_line rules on screen, for a tool that draws no prompt marker at
+	// all. pi frames its editor with a rule above and below and leaves an
+	// empty one a bare blank row with the caret in column 0, so nothing
+	// input_line could match is there. Without this, Left never finds the
+	// head of a prompt and stays with the pane.
+	InputBetweenRules bool   `toml:"input_between_rules"`
+	TurnEnd           string `toml:"turn_end"`
+	ChromeLine        string `toml:"chrome_line"`
+	BlockedLine       string `toml:"blocked_line"`
+	TrailingNote      string `toml:"trailing_note"`
 	// BusyLine marks work that outlives the turn which started it, such as
 	// background agents and shells. Matching it in the newest turn keeps a
 	// turn-end summary from resolving to finished while that work runs.
@@ -981,6 +988,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	user.SkipRenameDirective = user.SkipRenameDirective || def.SkipRenameDirective
 	user.TypeAhead = user.TypeAhead || def.TypeAhead
 	user.LaunchInPlace = user.LaunchInPlace || def.LaunchInPlace
+	user.InputBetweenRules = user.InputBetweenRules || def.InputBetweenRules
 	fill(&user.TrustFlag, def.TrustFlag)
 	fill(&user.MCP, def.MCP)
 	fill(&user.StatusSource, def.StatusSource)

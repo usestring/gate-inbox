@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/config"
 )
 
@@ -64,6 +65,7 @@ type toolRules struct {
 	limitLine      *matcher
 	scrolledLine   *matcher
 	jumpToBottom   string
+	betweenRules   bool
 	rules          []rule
 }
 
@@ -82,7 +84,7 @@ func NewEngine(cfg config.Config) (*Engine, error) {
 		if def == "" {
 			def = Idle
 		}
-		tr := toolRules{defaultStatus: def, typeAhead: tool.TypeAhead, jumpToBottom: tool.JumpToBottomKey, rules: compiled}
+		tr := toolRules{defaultStatus: def, typeAhead: tool.TypeAhead, jumpToBottom: tool.JumpToBottomKey, betweenRules: tool.InputBetweenRules, rules: compiled}
 		optional := []struct {
 			pattern string
 			target  **matcher
@@ -641,6 +643,42 @@ func (e *Engine) InputPrefix(tool, row string) (string, bool) {
 		return "", false
 	}
 	return row[:indent+loc[1]], true
+}
+
+// ComposerBetweenRules reports, for a tool with input_between_rules, whether
+// row y of rows is a line of its composer: below a chrome_line rule, above
+// another, and with no rule under that one, so it is the last pair on screen
+// and not a separator quoted in the transcript. top is the rule above. Rows
+// are matched stripped of styling.
+func (e *Engine) ComposerBetweenRules(tool string, rows []string, y int) (top int, ok bool) {
+	tr, known := e.tools[tool]
+	if !known || !tr.betweenRules || tr.chromeLine == nil || y < 0 || y >= len(rows) {
+		return 0, false
+	}
+	isRule := func(i int) bool {
+		return tr.chromeLine.MatchString(strings.TrimRight(ansi.Strip(rows[i]), " \t"))
+	}
+	if isRule(y) {
+		return 0, false
+	}
+	top = -1
+	for i := y - 1; i >= 0; i-- {
+		if isRule(i) {
+			top = i
+			break
+		}
+	}
+	bottom := -1
+	for i := y + 1; i < len(rows); i++ {
+		if !isRule(i) {
+			continue
+		}
+		if bottom >= 0 {
+			return 0, false
+		}
+		bottom = i
+	}
+	return top, top >= 0 && bottom >= 0
 }
 
 func (tr toolRules) activityRegion(pane string) (string, bool) {

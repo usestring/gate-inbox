@@ -225,12 +225,30 @@ func (m *Model) caretAtInputStart(sessID, tool string) bool {
 	row, caretX := ansi.Strip(rows[y]), m.pane.cursor.x
 	prefix, ok := m.engine.InputPrefix(tool, row)
 	if !ok {
-		return false
+		return m.caretAtBareComposerStart(tool, rows, y, caretX)
 	}
 	if textBeforeCaret(m.engine, tool, row, caretX) || caretX < textfmt.Width(prefix) {
 		return false
 	}
 	return m.composerAboveIsBlank(tool, rows, y)
+}
+
+// caretAtBareComposerStart is caretAtInputStart for a composer with no marker
+// (input_between_rules): the caret's row lies between the last two rules,
+// nothing is written to its left, and the composer rows above it are blank.
+// The last check is what keeps Left with the pane at the head of a second
+// line of a message.
+func (m *Model) caretAtBareComposerStart(tool string, rows []string, y, caretX int) bool {
+	top, ok := m.engine.ComposerBetweenRules(tool, rows, y)
+	if !ok || status.TextBetweenCells(ansi.Strip(rows[y]), 0, caretX) {
+		return false
+	}
+	for i := top + 1; i < y; i++ {
+		if strings.TrimSpace(ansi.Strip(rows[i])) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // composerAboveIsBlank reports whether the rows of the composer above the

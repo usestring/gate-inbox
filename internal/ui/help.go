@@ -376,6 +376,9 @@ func legendGlyph(key string) string {
 // the rows that carry one. A pull request or ticket glyph names no status,
 // so it falls through to the accent.
 func legendMarkStatus(key string) (string, bool) {
+	if key == "◒ "+statusLabel(status.Background) {
+		return status.Background, true
+	}
 	fields := strings.Fields(key)
 	if len(fields) == 0 {
 		return "", false

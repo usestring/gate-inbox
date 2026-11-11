@@ -105,3 +105,27 @@ func TestBackgroundRestReadsAWrappedShellTail(t *testing.T) {
 		t.Fatalf("BackgroundRest = %q, %v; want finished, true", got, ok)
 	}
 }
+
+func TestOpenCodeShellFooterSettlesWithoutHidingSubagents(t *testing.T) {
+	engine := defaultEngine(t)
+	pane := "     done\n     Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s\n  ┃\n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go\n  ╹▀▀▀▀\n   ~/repo   ↓ 1 shell · 13.3K (1%)  ctrl+p commands"
+	for _, tc := range []struct {
+		name, pane string
+		background bool
+	}{
+		{"shell only", pane, true},
+		{"subagent", strings.Replace(pane, "1 shell", "1 subagent", 1), false},
+		{"mixed", strings.Replace(pane, "1 shell", "1 shell ↓ 1 subagent", 1), false},
+		{"drained", strings.Replace(pane, "↓ 1 shell", "", 1), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := SettleBackground(engine, "opencode", tc.pane, func() (time.Duration, bool) {
+				t.Fatal("OpenCode must not read a Claude transcript age")
+				return 0, false
+			})
+			if ok != tc.background || ok && got != Background {
+				t.Fatalf("SettleBackground = %q, %v; background = %v", got, ok, tc.background)
+			}
+		})
+	}
+}

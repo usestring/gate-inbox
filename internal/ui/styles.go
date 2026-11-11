@@ -172,6 +172,8 @@ func statusLabel(s string) string {
 		return "starting up"
 	case status.Delegating:
 		return "waiting on sessions"
+	case status.Background:
+		return "background shell"
 	case status.Pending:
 		return "pending (offline)"
 	}

@@ -25,7 +25,7 @@ func piMsg(id, parent, role string, content any) string {
 
 func piText(text string) []map[string]any { return []map[string]any{{"type": "text", "text": text}} }
 
-const piHeader = `{"type":"session","version":3,"id":"b73eebb3-c24b-4147-b675-9d3d584a47fb","timestamp":"2026-11-10T11:00:37.733Z","cwd":"/srv/project"}`
+const piHeader = `{"type":"session","version":3,"id":"bbbbbbbb-cccc-4444-8888-dddddddddddd","timestamp":"2026-11-10T11:00:37.733Z","cwd":"/srv/project"}`
 
 func piEntryIDs(t *testing.T, lines []string) []string {
 	t.Helper()

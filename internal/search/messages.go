@@ -120,6 +120,11 @@ func parseMessage(line []byte, tool string) (Message, bool) {
 			return Message{}, false
 		}
 		envelope = row.Payload
+	case ToolPi:
+		if row.Type != "message" {
+			return Message{}, false
+		}
+		envelope = row.Message
 	default:
 		return Message{}, false
 	}

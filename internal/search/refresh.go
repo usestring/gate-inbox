@@ -19,7 +19,7 @@ import (
 type Target struct {
 	// Key is the board's session id, which is what a hit reports.
 	Key string
-	// Tool selects the transcript format: ToolClaude, ToolCodex, ToolOpenCode,
+	// Tool selects the transcript format: ToolClaude, ToolCodex, ToolOpenCode, ToolPi,
 	// or any other name for the generic reader.
 	Tool string
 	// Path is the transcript file. Empty for opencode, which keeps its

@@ -201,3 +201,53 @@ func appendLines(t *testing.T, path string, lines ...string) {
 	later := time.Now().Add(2 * time.Second)
 	_ = os.Chtimes(path, later, later)
 }
+
+// read_session's delta over a pi session: prompts, the prose of each turn,
+// and tool results by call id, from a cursor forward.
+func TestSincePiReadsTheConversationForward(t *testing.T) {
+	_, path := installPiFixture(t, t.TempDir())
+	first, err := SincePi(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Prompts) != 1 || !strings.HasPrefix(first.Prompts[0], "Use the bash tool to run: echo zebra-quokka-42") {
+		t.Errorf("Prompts = %q", first.Prompts)
+	}
+	if first.LastTurn() != "the marker is printed" {
+		t.Errorf("LastTurn = %q", first.LastTurn())
+	}
+	if len(first.Results) != 1 || first.Results[0].ToolUseID == "" {
+		t.Errorf("Results = %+v", first.Results)
+	}
+	appendLines(t, path, `{"type":"message","id":"c3","parentId":"5dbe7db9","timestamp":"2026-11-10T11:02:02.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hm"},{"type":"text","text":"All done."}],"timestamp":2}}`)
+	next, err := SincePi(path, first.Next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Prompts) != 0 || len(next.Turns) != 1 || next.Turns[0] != "All done." || next.Rewound {
+		t.Errorf("next = %+v", next)
+	}
+}
+
+// A filtered copy written beside a session file is not a conversation.
+func TestPiCopiesBesideASessionAreNotConversations(t *testing.T) {
+	cwd := t.TempDir()
+	root, path := installPiFixture(t, cwd)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+".handover.jsonl", raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ix := New("", "").WithPi(root)
+	if err := ix.Refresh([]string{cwd}); err != nil {
+		t.Fatal(err)
+	}
+	if got := ix.Conversations(); len(got) != 1 || got[0].TranscriptPath != path {
+		t.Errorf("conversations = %+v", got)
+	}
+	if newest, _, ok := PiNewestFor(root, cwd); !ok || newest != path {
+		t.Errorf("newest = %q %v", newest, ok)
+	}
+}

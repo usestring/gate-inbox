@@ -4,6 +4,7 @@ package sessioncmd
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
@@ -266,7 +267,7 @@ func (s *Sessions) filterForHandover(transcript migrate.Transcript) (migrate.Tra
 	if transcript.Kind == "" || transcript.Path == "" {
 		return transcript, "", nil
 	}
-	dst := transcript.Path + ".handover.jsonl"
+	dst := copyPath(transcript, transcript.Path+".handover.jsonl")
 	stats, filtered, err := filterTranscript(transcript, dst, handover.DefaultOptions())
 	if !filtered {
 		return transcript, "", nil
@@ -281,6 +282,19 @@ func (s *Sessions) filterForHandover(transcript migrate.Transcript) (migrate.Tra
 	return transcript, stats.Note(), nil
 }
 
+// copyPath is where a filtered copy of transcript goes when dst is asked for.
+// A pi copy beside the session file keeps dst's name without its ".jsonl":
+// pi takes the newest *.jsonl in that folder whose header names the
+// directory as the conversation to continue (pi --continue, the revive
+// command), and a copy carries the source's header, so a copy named *.jsonl
+// there is the conversation a revive would resume.
+func copyPath(transcript migrate.Transcript, dst string) string {
+	if transcript.Kind != "pi" || !strings.HasSuffix(dst, ".jsonl") || filepath.Dir(dst) != filepath.Dir(transcript.Path) {
+		return dst
+	}
+	return strings.TrimSuffix(dst, ".jsonl")
+}
+
 // filterTranscript writes the handover filter's copy of transcript to dst.
 // filtered is false for a layout the filter cannot read, and then nothing is
 // written.
@@ -290,6 +304,8 @@ func filterTranscript(transcript migrate.Transcript, dst string, opts handover.O
 		stats, err = handover.Claude(transcript.Path, dst, opts)
 	case "codex":
 		stats, err = handover.Codex(transcript.Path, dst, opts)
+	case "pi":
+		stats, err = handover.Pi(transcript.Path, dst, opts)
 	default:
 		return handover.Stats{}, false, nil
 	}

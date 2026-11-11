@@ -1546,7 +1546,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 	pane = strings.TrimRight(ansi.Strip(pane), "\r\n")
 	noteSpawnerRead(runtime, sessionID, target)
 
-	cursor, delta, note, readable := s.readDelta(target, since)
+	cursor, delta, note, readable := s.readDelta(target, since, runtime.cfg.Tools)
 	screen = SessionScreen{
 		Session: runtime.sessionInfo(target, running, target.ID == sessionID),
 		Cursor:  cursor,

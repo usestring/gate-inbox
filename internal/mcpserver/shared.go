@@ -15,6 +15,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
+	"github.com/usestring/gate-inbox/internal/piauto"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -84,6 +85,9 @@ type sharedServer struct {
 	extensions []extension.Extension
 
 	mu sync.Mutex
+	// auto is pi's auto-mode classifier, one for the board, so its circuit
+	// breaker and notices span every session.
+	auto *piauto.Classifier
 	// servers holds one MCP server per tool profile, built on first use.
 	// The tool schemas are the bulk of a server's memory, so they are held
 	// once per profile for the whole board rather than once per session.
@@ -109,7 +113,23 @@ func (s *sharedServer) handler() http.Handler {
 	})
 	mcpHandler := mcp.NewStreamableHTTPHandler(s.serverFor, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	mux.Handle(mcpshared.MCPPath, s.authorized(mcpHandler))
+	// Pi's auto mode asks here, so the TypeSafe key is read in this process
+	// and never in pi's process tree.
+	mux.Handle(piauto.Path, s.authorized(piauto.Handler(s.configDir, CallerHeader, s.classifier())))
 	return mux
+}
+
+// jevEndpointEnv points pi's auto mode at another classifier endpoint, for a
+// rig's stub; unset, it asks TypeSafe.
+const jevEndpointEnv = "GATE_INBOX_JEV_ENDPOINT"
+
+func (s *sharedServer) classifier() *piauto.Classifier {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.auto == nil {
+		s.auto = piauto.NewClassifier(os.Getenv(jevEndpointEnv))
+	}
+	return s.auto
 }
 
 // authorized serves only a request that proves its caller, so a process

@@ -486,6 +486,11 @@ type Model struct {
 	// manager that can never answer the question behaves as it always did.
 	visible     bool
 	themeDevice string
+	// attachedID is the session attached full screen, from the attach until
+	// it detaches back to the board, and lastView what the board last told
+	// its extensions about where the operator is. See viewreport.go.
+	attachedID string
+	lastView   viewReport
 	// ownPane and ownSocket are the tmux pane the manager is drawing in, from
 	// the environment tmux sets inside a pane. Empty when it is not running
 	// under tmux at all, which is what makes the visibility read optional.
@@ -2934,6 +2939,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refreshPromptSnips()
 
 	case attachDoneMsg:
+		m.attachedID = ""
 		m.tmux.AttachDone(msg.sessID)
 		// An agent that repainted the terminal background for itself leaves
 		// it on ours; the resume's WindowSizeMsg skips its own sync when the

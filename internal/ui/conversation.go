@@ -215,8 +215,11 @@ func (c *conversationView) wrapped(width int) []string {
 	var groups []convoGroup
 	for _, message := range c.messages {
 		label, style := "Assistant", sectionStyle
-		if message.Role == "user" {
+		switch message.Role {
+		case "user":
 			label, style = "You", userStyle
+		case "error":
+			label, style = "Error", userStyle
 		}
 		if n := len(groups); n > 0 && groups[n-1].role == message.Role {
 			groups[n-1].texts = append(groups[n-1].texts, message.Text)
@@ -345,6 +348,9 @@ func (m *Model) conversationBody(width int) []string {
 // are the wrapped cache.
 func (m *Model) withQuestionCard(rows []string, width, height int) []string {
 	card := m.previewQuestions(width, height)
+	if len(card) == 0 {
+		card = m.previewSingleClaudeQuestion(width, height)
+	}
 	if len(card) == 0 {
 		return rows
 	}

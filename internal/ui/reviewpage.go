@@ -39,9 +39,10 @@ const (
 
 // prDetailMsg carries a fetched pull request back to the loop.
 type prDetailMsg struct {
-	key    string
-	detail *forge.PRDetail
-	health forge.Health
+	key          string
+	previousHead string
+	detail       *forge.PRDetail
+	health       forge.Health
 }
 
 // prPage is the pull request the review page has open, and where on it the
@@ -86,7 +87,9 @@ func (m *Model) openPullRequest(r store.ReviewRequest) tea.Cmd {
 
 // closePullRequest goes back from the page to the selected ask.
 func (m *Model) closePullRequest() {
-	m.reviewsPR().page = nil
+	if m.reviewsPage != nil {
+		m.reviewsPage.page = nil
+	}
 }
 
 // fetchPullRequest asks GitHub for the pull request off the loop. again
@@ -102,9 +105,10 @@ func (m *Model) fetchPullRequest(r store.ReviewRequest, again bool) tea.Cmd {
 	}
 	cache.fetching[key] = true
 	repo, number := r.Repo, r.Number
+	previousHead := m.reviewHead(r)
 	return func() tea.Msg {
 		detail, health := forge.NewGitHub().PullRequestDetail(repo, number)
-		return prDetailMsg{key: key, detail: detail, health: health}
+		return prDetailMsg{key: key, previousHead: previousHead, detail: detail, health: health}
 	}
 }
 
@@ -130,8 +134,30 @@ func (m *Model) finishPullRequest(msg prDetailMsg) (tea.Model, tea.Cmd) {
 	if cache.details == nil {
 		cache.details = map[string]*forge.PRDetail{}
 	}
-	cache.details[msg.key] = msg.detail
 	delete(cache.failed, msg.key)
+	detail := msg.detail
+	if detail.HeadSHA == "" {
+		cache.details[msg.key] = detail
+		return m, nil
+	}
+	r := store.ReviewRequest{Repo: detail.Repo, Number: detail.Number, HeadSHA: detail.HeadSHA}
+	cache.details[prDetailKey(r)] = detail
+	if detail.HeadSHA != msg.previousHead {
+		err := m.store.UpdateReviewHead(r.Repo, r.Number, msg.previousHead, detail.HeadSHA)
+		if err == nil {
+			err = m.reloadReviewRequests()
+		}
+		if err != nil {
+			m.errBar.text = "review queue: " + err.Error()
+			return m, nil
+		}
+	}
+	if page := m.reviewPage(); page != nil && page.key() == msg.key {
+		page.review.HeadSHA = m.reviewHead(r)
+		// The queue may have advanced during the fetch. Never cache the
+		// answer under a head it did not describe.
+		return m, m.fetchPullRequest(page.review, false)
+	}
 	return m, nil
 }
 
@@ -172,11 +198,7 @@ func (m *Model) handleReviewPageKey(action keymap.Action, bound bool) (tea.Model
 	case keymap.ReviewOpen:
 		return m, openLink(page.review.URL + [...]string{"", "/files", "/checks"}[page.tab])
 	case keymap.ReviewStart:
-		r := page.review
-		if detail := view.cache.details[page.key()]; detail != nil && detail.HeadSHA != "" {
-			r.HeadSHA = detail.HeadSHA
-		}
-		return m.startReview(r)
+		return m.startReview(page.review)
 	case keymap.ReviewDismiss:
 		r := page.review
 		m.closePullRequest()
@@ -243,6 +265,11 @@ func (v *reviewsView) renderPage(width, height int) [][]Span {
 	key := page.key()
 	detail := v.cache.details[key]
 	out := prHeader(page.review, detail, page.tab)
+	if label, tone := v.m.reviewSessionLabel(page.review); label == staleBriefingLabel {
+		hint := v.m.pressTo(keymap.ContextReviewPage, keymap.ReviewStart, "refresh briefing")
+		out[len(out)-1] = []Span{{Text: "PR updated · " + hint, Tone: tone}}
+		out = append(out, nil)
+	}
 	if page.compose != nil {
 		out = out[:min(len(out), max(height-4, 0))]
 		out = append(out, page.compose.lines(width, max(height-len(out)-1, 1))...)
@@ -410,9 +437,9 @@ type filesBody struct {
 
 // filesLines is the Files changed tab: each file's header and its diff with
 // both line numbers in the gutter, and each review thread and draft drawn
-// under the line it is on. A thread or draft whose line is no longer in the
-// diff is listed at the end of its file, as GitHub folds an outdated one, and
-// one whose file has left the diff is listed after every file.
+// under the line it is on. Outdated threads and drafts from an earlier
+// commit or a line off the diff go at the end of their file. If the file has
+// left the diff, they go after every file.
 func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int64, width int) filesBody {
 	body := filesBody{drafts: map[int64]int{}, targets: map[int]store.ReviewDraft{}}
 	byPath := map[string][]forge.ReviewThread{}
@@ -428,7 +455,7 @@ func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int
 	}
 	putDraft := func(d store.ReviewDraft) {
 		body.drafts[d.ID] = len(body.lines)
-		body.lines = append(body.lines, draftLines(d, d.ID == selected, width)...)
+		body.lines = append(body.lines, draftLines(d, d.ID == selected, d.HeadSHA != detail.HeadSHA, width)...)
 	}
 	for i, f := range detail.Files {
 		if i > 0 {
@@ -439,13 +466,23 @@ func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int
 		if f.Previous != "" && f.Previous != f.Path {
 			name = f.Previous + " → " + f.Path
 		}
-		body.lines = append(body.lines, []Span{
+		threads, fileDrafts := byPath[f.Path], draftsByPath[f.Path]
+		header := []Span{
 			{Text: name, Tone: ToneAccent, Bold: true},
 			{Text: "  +" + strconv.Itoa(f.Additions), Tone: ToneGood},
 			{Text: " -" + strconv.Itoa(f.Deletions), Tone: ToneBad},
 			{Text: "  " + f.Status, Tone: ToneMuted},
-		})
-		threads, fileDrafts := byPath[f.Path], draftsByPath[f.Path]
+		}
+		stale := 0
+		for _, d := range fileDrafts {
+			if d.HeadSHA != detail.HeadSHA {
+				stale++
+			}
+		}
+		if stale > 0 {
+			header = append(header, Span{Text: " · " + countOf(stale, "stale draft"), Tone: ToneWarn})
+		}
+		body.lines = append(body.lines, header)
 		delete(byPath, f.Path)
 		delete(draftsByPath, f.Path)
 		placed := make([]bool, len(threads))
@@ -466,7 +503,7 @@ func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int
 				}
 			}
 			for j, d := range fileDrafts {
-				if !placedDraft[j] && onLine(d.Side, d.Line, line) {
+				if !placedDraft[j] && d.HeadSHA == detail.HeadSHA && onLine(d.Side, d.Line, line) {
 					placedDraft[j] = true
 					putDraft(d)
 				}
@@ -484,7 +521,11 @@ func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int
 		}
 		for j, d := range fileDrafts {
 			if !placedDraft[j] {
-				body.lines = append(body.lines, []Span{{Text: "  Not on a line of this diff: line " + strconv.Itoa(d.Line) + ", left out of the review", Tone: ToneMuted}})
+				label := "Not on a line of this diff"
+				if d.HeadSHA != detail.HeadSHA {
+					label = "From an earlier commit"
+				}
+				body.lines = append(body.lines, []Span{{Text: "  " + label + ": line " + strconv.Itoa(d.Line) + ", left out of the review", Tone: ToneMuted}})
 				putDraft(d)
 			}
 		}

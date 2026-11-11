@@ -740,3 +740,39 @@ func TestOpenCodeBackgroundFooterDoesNotReadComposerOrOldTurns(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexFailureWithoutErrorKeyword(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := cfg.Tools["codex"]
+	for i := range tool.Rules {
+		if tool.Rules[i].State == Errored {
+			tool.Rules[i].Pattern = `(?im)^\s*■.*\berror\b`
+		}
+	}
+	cfg.Tools["codex"] = tool
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := "■ {\"detail\":\"Bad Request\"}\n\n"
+	prompt := "› Ask Codex to do anything\n  model · ~/project"
+	cases := []struct{ name, pane, want string }{
+		{"failed first turn", failure + prompt, Errored},
+		{"failed after a completed turn", "• Previous answer.\n  Worked for 1m 2s · 12:44\n\n› Continue.\n\n" + failure + prompt, Errored},
+		{"failed retry", failure + "› Retry.\n\n" + failure + prompt, Errored},
+		{"working retry", failure + "› Retry.\n\n• Working (1s • esc to interrupt)\n\n" + prompt, Working},
+		{"successful retry", failure + "› Retry.\n\n• Recovered.\n  Worked for 2s · 12:45\n\n" + prompt, Finished},
+		{"draft is not a failure", "› ■ {\"detail\":\"Bad Request\"}\n  model · ~/project", Idle},
+		{"quoted failure in reply", "• The terminal showed:\n  ■ {\"detail\":\"Bad Request\"}\n\n• Recovered.\n  Worked for 2s · 12:45\n\n" + prompt, Finished},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, _ := engine.Match("codex", tc.pane); got != tc.want {
+				t.Fatalf("Match() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

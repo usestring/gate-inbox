@@ -237,6 +237,8 @@ type BoardObserver interface {
 	// sizing each session's sizing tier as the pass held it.
 	Pass(at time.Time, sessions []store.Session, groupTiers map[string]priority.Tier, sizing map[string]store.Sizing)
 	Operator(input extension.OperatorInput)
+	// View is the operator moving about the board, on the update loop.
+	View(event extension.ViewEvent)
 }
 
 // StatusPins is the statuses board extensions hold the sessions they

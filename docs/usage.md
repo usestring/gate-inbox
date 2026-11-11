@@ -92,6 +92,9 @@ With auto-proceed enabled, a confirmed submission also opens the next session wh
 
 An agent can set the same flag for a session from its shell or its MCP tools: `gate-inbox mute <session-id>` mutes, `gate-inbox mute <session-id> --off` unmutes, and the MCP `mute_session` tool takes the same `muted` argument. The board picks the change up on its next poll, and the key and the command write the same field.
 
+If Claude Code is waiting on a question, select its row to read the question and choices in the
+preview. Open the session to answer.
+
 ### Draining full-width
 
 Triage plus two keys is the whole drain. `i` turns triage on and opens the head of the queue,
@@ -146,7 +149,7 @@ Each ask is stored once. Fetching it again refreshes its title, size and checks 
 | Key | Action |
 |-----|--------|
 | `enter` | Open the pull request |
-| `s` | Start a review session on the pull request, or land in the one already running |
+| `s` | Open or start a review session, or refresh a stale briefing |
 | `o` | Open the pull request on GitHub |
 | `x` | Dismiss it; a new ask on it queues it again |
 | `P` | Fetch new reviews |
@@ -168,7 +171,7 @@ Each ask is stored once. Fetching it again refreshes its title, size and checks 
 | `c` | Comment on the marked line |
 | `y` / `d` / `e` | Keep, drop or edit the selected draft |
 | `a` / `r` / `C` | Approve, request changes, or submit as a comment |
-| `s` | Start a review session on it |
+| `s` | Open or start a review session, or refresh a stale briefing |
 | `o` | Open this tab on GitHub |
 | `x` | Dismiss it and go back to the queue |
 | `P` | Fetch it again |
@@ -176,13 +179,17 @@ Each ask is stored once. Fetching it again refreshes its title, size and checks 
 
 A failed fetch says why on the page and leaves the header drawn from the queued ask; `P` tries again.
 
-The review is written on the Files changed tab. The review session drafts each finding with the `review_comment` tool instead of posting it, and each draft is drawn under its line, marked as the agent's and as proposed. `]` and `[` walk the drafts; `y` keeps the selected one, `d` drops it, and `e` rewrites it, which keeps it too. `c` comments on the line marked `▸`, the first diff line in view, and your comment starts kept. A draft whose line is no longer on the diff is listed under its file and left out of the review.
+The review is written on the Files changed tab. The review session drafts each finding with the `review_comment` tool instead of posting it, and each draft is drawn under its line, marked as the agent's and as proposed. `]` and `[` walk the drafts; `y` keeps the selected one, `d` drops it, and `e` rewrites it, which keeps it too. `c` comments on the line marked `▸`, the first diff line in view, and your comment starts kept. Drafts from an earlier commit are marked stale. They appear at the end of their file rather than beside a line on the new diff, and are left out of the review along with drafts whose line is no longer on the diff.
 
 `a`, `r` and `C` open the review's summary above the diff, saying how many kept drafts go with it. `enter` submits one review to GitHub with the kept drafts as its inline comments, pinned to the head commit the page shows, so a push since then fails the review rather than placing comments on lines that moved. Once GitHub accepts it the ask leaves the queue. In a text box `alt+enter` starts a new line and `esc` cancels. Long text scrolls to keep the typing cursor visible; `↑`/`↓` and page keys scroll through it, while `home`/`end` show its beginning or end. Typing or pasting returns to the cursor.
 
 A review session starts with the `prompt` below, where `{repo}`, `{number}`, `{head}` and `{url}` are filled in. It uses the configured CLI, model and directory, falling back to the default tool and the root group's directory.
 
-With `prepare` on, which is the default, each fetch also starts a review session in the background for every pull request waiting without one, so the briefing is written before you open it. It starts at most five per fetch, oldest ask first, and the status bar says how many it started and how many are left for the next fetch. A prepared ask stays new until you open it. Its entry reads `preparing briefing` while the agent works and `briefing ready` once it rests. `s` lands in that session rather than starting another. A prepared session that died is replaced on the next fetch. The default prompt asks for a briefing that covers what the change does, every unresolved review thread and why it is still unaddressed, whether it merges cleanly, which checks are pending or failing and why, and a recommendation. It reads with `gh` and `git` only, then waits for your questions.
+With `prepare` on, which is the default, each fetch also starts a review session in the background for every pull request waiting without one, so the briefing is written before you open it. It starts at most five per fetch, oldest ask first, and the status bar says how many it started and how many are left for the next fetch. A prepared ask stays new until you open it. Its entry reads `preparing briefing` while the agent works and `briefing ready` once it rests. `s` lands in that session rather than starting another. A prepared session that died is replaced on the next fetch.
+
+If a queue or PR page fetch finds a different head commit, the old briefing is marked `briefing stale`. Press `s` to start a briefing for the new commit. The old session stays in Sessions so you can refer back to it. Only the newly linked review session can add drafts for that review; existing drafts keep their original commit.
+
+The default prompt asks for a briefing that covers what the change does, every unresolved review thread and why it is still unaddressed, whether it merges cleanly, which checks are pending or failing and why, and a recommendation. It reads with `gh` and `git` only, then waits for your questions.
 
 ```toml
 [integrations.reviews]

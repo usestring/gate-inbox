@@ -338,3 +338,19 @@ func TestConversationScrollDropsHoverExpansion(t *testing.T) {
 		t.Fatal("scroll kept the hovered expansion under a still pointer")
 	}
 }
+
+func TestConversationKeepsLatestFailureVisible(t *testing.T) {
+	for _, compact := range []bool{false, true} {
+		c := conversationView{dirty: true, compact: compact, hovered: -1, messages: []search.Message{
+			{Role: "assistant", Text: strings.Repeat("Earlier progress.\n", 12)},
+			{Role: "error", Text: `{"detail":"Bad Request"}`},
+		}}
+		plain := ansi.Strip(strings.Join(c.wrapped(60), "\n"))
+		if !strings.Contains(plain, "╭ Error ") || !strings.Contains(plain, `{"detail":"Bad Request"}`) {
+			t.Fatalf("compact=%v: failure missing: %s", compact, plain)
+		}
+		if strings.LastIndex(plain, "Error") < strings.LastIndex(plain, "Assistant") {
+			t.Fatalf("failure is not the latest group: %s", plain)
+		}
+	}
+}

@@ -50,13 +50,22 @@ func (m *Model) markReviewsSeen() {
 
 // reviewsTriageKey is the Reviews tab's key in the triage order. In smart
 // triage it queues as one slot of its own on the newest pending ask's recency,
-// at the review rank and with no priority tier, since an ask carries none.
+// at the review rank, carrying the strongest waiting ask's priority.
 func (m *Model) reviewsTriageKey() triageKey {
 	key := triageKey{band: triageBandRest, priority: priority.Unset.Rank(), tier: triageRank(triageReview)}
 	if !m.reviewsWaiting() {
 		return key
 	}
 	key.band = triageBandWalkable
+	set := false
+	for _, r := range m.reviews {
+		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
+			if rank := m.reviewPriority(r).Rank(); !set || rank < key.priority {
+				key.priority = rank
+				set = true
+			}
+		}
+	}
 	if !m.smartTriage {
 		return key
 	}
@@ -66,7 +75,7 @@ func (m *Model) reviewsTriageKey() triageKey {
 		if at.IsZero() {
 			at = r.CreatedAt
 		}
-		if r.State == store.ReviewPending && at.After(newest) {
+		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) && m.reviewPriority(r).Rank() == key.priority && at.After(newest) {
 			newest = at
 		}
 	}
@@ -109,8 +118,9 @@ func (m *Model) handOverReviews() (bool, tea.Cmd) {
 	next := -1
 	for i, r := range m.reviews {
 		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
-			next = i
-			break
+			if next < 0 || m.reviewPriority(r).Rank() < m.reviewPriority(m.reviews[next]).Rank() {
+				next = i
+			}
 		}
 	}
 	m.reviewsTab = true

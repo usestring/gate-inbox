@@ -240,6 +240,13 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 	if sess.Muted {
 		return false
 	}
+	if m.reviewQueue && sess.Status == status.Finished {
+		for _, r := range m.reviews {
+			if r.OriginSessionID == sess.ID && r.Open() {
+				return false
+			}
+		}
+	}
 	if m.needsPerson(sess) {
 		return true
 	}

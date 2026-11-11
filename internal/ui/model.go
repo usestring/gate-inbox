@@ -2722,9 +2722,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.refreshWork(), m.workTick())
 
 	case workLoadedMsg:
+		if msg.reviewsErr != nil {
+			m.errBar.text = "review queue: " + msg.reviewsErr.Error()
+		} else if m.reviewQueue {
+			if err := m.reloadReviewRequests(); err != nil {
+				m.errBar.text = "review queue: " + err.Error()
+			}
+		}
 		// Work that has just resolved is work the tree can hang rows off.
 		m.rebuildRows()
-		return m, nil
+		return m, m.triagePickupCmd()
 
 	case cliDetectMsg:
 		m.finishCLIDetect(msg)

@@ -121,6 +121,12 @@ func mcpForm(name string) string {
 // tool_call again, with its own name, and is decided there.
 var passThrough = map[string]bool{"codemode": true, "tool_search": true}
 
+// onlyAsks are tools that change nothing and only put a question to the
+// user. Claude Code never asks permission before them, and a dialog drawn in
+// front of a question would only ask the user twice; a deny or ask rule
+// naming one still decides it.
+var onlyAsks = map[string]bool{"AskUserQuestion": true}
+
 // Env is everything a decision reads beyond the call itself.
 type Env struct {
 	ConfigDir, SessionID string
@@ -186,6 +192,10 @@ func Decide(env Env, req Request) Decision {
 				return asking(d, call, fmt.Sprintf("the ask rule %s in the %s", rule, r.Source.Label))
 			}
 		}
+	}
+	if onlyAsks[tool] {
+		d.Decision, d.Reason = Allow, "it only asks the user"
+		return d
 	}
 	var mergeRefusal string
 	if merge := mergeCommand(call); merge != "" {

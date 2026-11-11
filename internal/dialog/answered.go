@@ -18,7 +18,6 @@ import (
 // It is the child's own record of what it took, so it is what an answer is
 // checked against once the dialog has closed.
 
-//
 // The board's pi extension prints the same record under its own name
 // ("User answered pi's questions:"), so a pi child's answer reads back the
 // same way.

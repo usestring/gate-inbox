@@ -116,10 +116,16 @@ jobs:
             go-test-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-
             go-test-${{ runner.os }}-${{ matrix.shard }}-
             go-test-${{ runner.os }}-
-      - name: Install tmux
+      # Every non-Claude launch runs under bubblewrap (internal/keyconfine) and
+      # is refused where it cannot, so tests that launch one need it working.
+      # Ubuntu 24.04 denies unprivileged user namespaces by default, which bwrap
+      # needs; the runner is a throwaway VM, so the restriction is lifted here.
+      - name: Install tmux and bubblewrap
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes tmux
+          sudo apt-get install --no-install-recommends --yes tmux bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --dev-bind / / --tmpfs /tmp -- /bin/true
       # Nearly every test that drives a pane skips itself when tmux is
       # missing, so without it the job would pass having run almost none of
       # the suite. The report job's skip check is the other half of that guard.

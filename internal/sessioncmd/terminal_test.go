@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/internal/keyconfine"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -19,6 +21,7 @@ import (
 )
 
 type terminalHarness struct {
+	configDir string
 	driver    *tmux.Driver
 	store     *store.Store
 	terminals *Terminals
@@ -67,9 +70,10 @@ default_status = "idle"
 		t.Fatalf("create caller row: %v", err)
 	}
 	h := &terminalHarness{
-		driver: driver,
-		store:  st,
-		caller: caller,
+		configDir: configDir,
+		driver:    driver,
+		store:     st,
+		caller:    caller,
 	}
 	h.terminals = newTerminals(configDir, MCPVocabulary(), func(string) (*tmux.Driver, error) { return driver, nil })
 	t.Cleanup(func() {
@@ -589,5 +593,46 @@ func TestTerminalsCreateUsesTheManagersPaneSize(t *testing.T) {
 	}
 	if width, height := paneWindowSize(t, h.driver, terminal.ID); width != 131 || height != 47 {
 		t.Fatalf("terminal pane = %dx%d, want 131x47", width, height)
+	}
+}
+
+// An agent drives the terminals it creates, so a terminal must not be a way
+// round the confinement its caller runs under: the shell cannot read the key
+// directory, and when it exits the pane ends rather than dropping to a shell
+// outside the confinement that the next send_terminal would reach.
+func TestAgentTerminalRunsConfinedAndEndsWithItsShell(t *testing.T) {
+	t.Parallel()
+	if err := keyconfine.Available(); err != nil {
+		t.Skipf("no confinement on this machine: %v", err)
+	}
+	h := newTerminalHarness(t)
+	keyDir := parentseal.KeyDir(h.configDir)
+	if err := os.MkdirAll(keyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(keyDir, "probe"), []byte("terminal-saw-the-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	created, err := h.terminals.Create(h.caller.ID, CreateTerminalOptions{})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := h.terminals.Send(h.caller.ID, created.ID, "cat "+filepath.Join(keyDir, "probe")+"; echo key-read-exit-$?", nil); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	screen := waitForTerminalOutput(t, h.terminals, h.caller.ID, created.ID, "key-read-exit-1")
+	if strings.Contains(screen.Output, "terminal-saw-the-key") {
+		t.Fatalf("the terminal read the key:\n%s", screen.Output)
+	}
+	if _, err := h.terminals.Send(h.caller.ID, created.ID, "exit", nil); err != nil {
+		t.Fatalf("Send exit: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for h.driver.Exists(created.ID) {
+		if time.Now().After(deadline) {
+			screen, _ := h.terminals.Read(h.caller.ID, created.ID)
+			t.Fatalf("the pane outlived its shell, so a later send reaches a shell outside the confinement:\n%s", screen.Output)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 }

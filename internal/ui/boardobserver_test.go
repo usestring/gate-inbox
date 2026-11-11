@@ -18,6 +18,7 @@ type recordingObserver struct {
 	moves  []recordedMove
 	passes [][]store.Session
 	inputs []extension.OperatorInput
+	views  []extension.ViewEvent
 }
 
 func (r *recordingObserver) Transition(id, from, to string, _ time.Time) {
@@ -30,6 +31,12 @@ func (r *recordingObserver) Pass(_ time.Time, sessions []store.Session, _ map[st
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.passes = append(r.passes, sessions)
+}
+
+func (r *recordingObserver) View(event extension.ViewEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.views = append(r.views, event)
 }
 
 func (r *recordingObserver) Operator(input extension.OperatorInput) {

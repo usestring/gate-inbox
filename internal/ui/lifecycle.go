@@ -112,6 +112,7 @@ func (m *Model) attachCmd(id string) tea.Cmd {
 		m.errBar.text = prepErr.Error()
 	}
 	since := time.Now()
+	m.attachedID = id
 	return tea.ExecProcess(m.tmux.AttachCommand(id), func(err error) tea.Msg {
 		return attachDoneMsg{sessID: id, since: since, err: err}
 	})

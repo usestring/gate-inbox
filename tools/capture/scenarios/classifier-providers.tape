@@ -1,3 +1,4 @@
+Hide
 Type "s"
 Sleep 2s
 Up
@@ -11,6 +12,7 @@ Up
 Sleep 1s
 Enter
 Sleep 1s
+Show
 Screenshot {{SHOTS}}/01-jev-default.png
 Down
 Enter

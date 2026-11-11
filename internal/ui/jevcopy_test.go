@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/usestring/autocopy"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -47,7 +48,7 @@ func TestAskJevCopyKeepsOnlyConfidentPicks(t *testing.T) {
 	})}
 	message := "Run `gcloud auth login`, then read `README.md`."
 	plan := autocopy.Prepare(message)
-	picked, ok := askJevCopy(t.Context(), "key", plan)
+	picked, ok := askJevCopy(t.Context(), classifier.JEV, "key", plan)
 	if !ok || !slices.Equal(picked, []string{"gcloud auth login"}) {
 		t.Fatalf("picked %q ok=%v", picked, ok)
 	}

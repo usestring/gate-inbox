@@ -17,6 +17,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -147,9 +148,11 @@ type Model struct {
 	restartFlags   restartpresets.Set
 	restartFlagErr string
 	jevAutoSuggest bool
-	// jevSavedKey is the TypeSafe key pasted in Settings → JEV, read once
+	classifier     classifier.Provider
+	// jevSavedKey is the TypeSafe key pasted in Settings → Classifier, read once
 	// at startup; TYPESAFE_API_KEY still wins over it (see jevKey).
 	jevSavedKey    string
+	clefSavedKey   string
 	jevFinishCheck bool
 	jevFinish      jevFinishState
 	jevCopyOn      bool

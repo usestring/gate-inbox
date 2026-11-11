@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/promptsnips"
 )
 
@@ -27,9 +28,9 @@ type promptJevResultMsg struct {
 	choice   string
 }
 
-// promptJevState is JEV's pick among the New Session suggestions for one
+// promptJevState is the classifier's pick among the New Session suggestions for one
 // draft. identity names the draft and candidate set the pick was asked for,
-// and choice is the chosen snippet's Key, empty until JEV answers.
+// and choice is the chosen snippet's Key, empty until the classifier answers.
 type promptJevState struct {
 	seq      int
 	identity string
@@ -57,7 +58,7 @@ func promptJevIdentity(draft string, matches []promptsnips.Snippet) string {
 }
 
 // promptJevInput is the request the New Session prompt would make now. It
-// needs both Prompt suggestions and JEV Auto Suggest on and a key, and at
+// needs both Prompt suggestions and Auto Suggest on and a key, and at
 // least two candidates, since ranking one discloses it for nothing.
 func (m *Model) promptJevInput() (identity, draft string, texts []string, matches []promptsnips.Snippet, ok bool) {
 	if !m.promptSuggest || !m.jevAutoSuggest || m.mode != modeForm || m.form.focus != fieldPrompt ||
@@ -94,19 +95,21 @@ func (m *Model) runPromptJev(seq int) tea.Cmd {
 		return nil
 	}
 	key := m.jevAPIKey()
+	provider := m.classifierProvider()
+	endpoint := provider.Endpoint()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()
 		msg := promptJevResultMsg{seq: seq, identity: identity}
-		if i := rankNewSessionPrompts(ctx, jevHTTPClient, jevEndpoint, key, draft, texts); i >= 0 {
+		if i := rankNewSessionPrompts(ctx, provider, jevHTTPClient, endpoint, key, draft, texts); i >= 0 {
 			msg.choice = matches[i].Key
 		}
 		return msg
 	}
 }
 
-func rankNewSessionPrompts(ctx context.Context, client *http.Client, endpoint, key, draft string, texts []string) int {
-	return askJev(ctx, client, endpoint, key, map[string]any{"draft": draft},
+func rankNewSessionPrompts(ctx context.Context, provider classifier.Provider, client *http.Client, endpoint, key, draft string, texts []string) int {
+	return askJev(ctx, provider, client, endpoint, key, map[string]any{"draft": draft},
 		"Choose the candidate that best completes the draft as the first prompt for a new coding agent session. Choose none if no candidate fits the draft.",
 		"None of these completes the draft.", texts)
 }

@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/convo"
-	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/migrate"
 	"github.com/usestring/gate-inbox/internal/opencode"
@@ -210,12 +210,17 @@ func (s *Sessions) userTurns(runtime *runtime, caller store.Session) ([]search.M
 	return messages, err == nil
 }
 
-// jevAskedLaunch asks JEV whether the caller's user just told it to launch a
-// session. No key, no transcript, or any failure is a no: the question is
-// the fallback, never the launch.
+// jevAskedLaunch asks the selected classifier whether the caller's user just
+// told it to launch a session. No key, no transcript, or any failure is a no:
+// the question is the fallback, never the launch.
 func (s *Sessions) jevAskedLaunch(runtime *runtime, caller store.Session) bool {
-	key := jev.Key(s.configDir)
-	if key == "" {
+	value, err := runtime.store.Setting(classifier.ProviderSetting)
+	if err != nil {
+		return false
+	}
+	provider := classifier.Parse(value)
+	key := provider.Key(s.configDir)
+	if key == "" || provider.Endpoint() == "" {
 		return false
 	}
 	messages, ok := s.userTurns(runtime, caller)
@@ -228,7 +233,7 @@ func (s *Sessions) jevAskedLaunch(runtime *runtime, caller store.Session) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), launchJevTimeout)
 	defer cancel()
-	answers, ok := jev.AskNoul(ctx, jev.HTTPClient, jev.Endpoint, key, state, map[string]string{"asked_launch": launchJevQuestion})
+	answers, ok := provider.AskNoul(ctx, classifier.HTTPClient, provider.Endpoint(), key, state, map[string]string{"asked_launch": launchJevQuestion})
 	return ok && answers["asked_launch"] >= launchJevThreshold
 }
 

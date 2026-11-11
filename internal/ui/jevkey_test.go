@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/classifier"
 )
 
 const testJevKey = "fake-jev-key-for-tests-WXYZ"
@@ -145,7 +146,7 @@ func TestJevCardToggleSharesTheExperiment(t *testing.T) {
 	m.openSettings()
 	m.settings.field = settingsFieldExperimental
 	m.handleSettingsKey(key("enter"))
-	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "> JEV Auto Suggest  ◂ on ▸") {
+	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "> Auto Suggest  ◂ on ▸") {
 		t.Fatalf("Experimental card disagrees with the JEV card:\n%s", card)
 	}
 }
@@ -218,5 +219,66 @@ func TestArchiveChordPreservesJevKeyInput(t *testing.T) {
 	}
 	if m.settings.jevInput.Value() != testJevKey {
 		t.Fatal("kill chord changed the entered API key")
+	}
+}
+
+func TestClassifierSwitchKeepsKeysPrivateAndSeparate(t *testing.T) {
+	t.Setenv("TYPESAFE_API_KEY", "")
+	t.Setenv("WORKERS_API_KEY", "")
+	t.Setenv("WORKERS_AI_URL", "https://worker.example")
+	m := buildModel(t)
+	openJevSettings(t, m)
+	pasteJevKey(t, m, testJevKey)
+	m.settings.jevCursor = 2
+	m.handleSettingsKey(key("right"))
+	if m.classifierProvider() != classifier.Clef || m.jevAPIKey() != "" {
+		t.Fatal("Clef reused the JEV key")
+	}
+	value, err := m.store.Setting(classifier.ProviderSetting)
+	if err != nil || classifier.Parse(value) != classifier.Clef {
+		t.Fatalf("selection not persisted: %q, %v", value, err)
+	}
+	clefKey := "fixture-clef-secret-ABCD"
+	pasteJevKey(t, m, clefKey)
+	if m.jevAPIKey() != clefKey {
+		t.Fatal("Clef did not use its own saved key")
+	}
+	card := ansi.Strip(m.viewSettings())
+	if strings.Contains(card, clefKey) || strings.Contains(card, testJevKey) {
+		t.Fatal("settings exposed a full credential")
+	}
+	info, err := os.Stat(classifier.Clef.KeyPath(m.configDir()))
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("Clef key permissions: %v %v", info, err)
+	}
+	m.handleSettingsKey(key("x"))
+	if m.clefSavedKey != "" {
+		t.Fatal("Clef key not removed")
+	}
+	if got, err := classifier.JEV.ReadSavedKey(m.configDir()); err != nil || got != testJevKey {
+		t.Fatalf("removing Clef changed JEV: %q %v", got, err)
+	}
+	m.settings.jevCursor = 2
+	m.handleSettingsKey(key("left"))
+	if m.jevAPIKey() != testJevKey {
+		t.Fatal("switching back lost JEV access")
+	}
+}
+
+func TestClassifierSwitchDiscardsPreviousProviderResults(t *testing.T) {
+	m := buildModel(t)
+	openJevSettings(t, m)
+	m.quick.suggestions = []string{"old provider pick"}
+	m.promptJev = promptJevState{seq: 1, choice: "old"}
+	m.jevCopy = jevCopyState{generation: 1, picks: []string{"old"}}
+	m.jevCopyOn = true
+	m.jevFinishCheck = true
+	m.settings.jevCursor = 2
+	m.handleSettingsKey(key("right"))
+	m.applyJevCopy(jevCopyResultMsg{generation: 1, ok: true, texts: []string{"stale"}})
+	m.applyPromptJev(promptJevResultMsg{seq: 1, choice: "stale"})
+	m.applyJevFinish(jevFinishResultMsg{generation: 0, ok: true, id: "old", digest: "stale"})
+	if len(m.quick.suggestions) != 0 || m.promptJev.choice != "" || len(m.jevCopy.picks) != 0 || len(m.jevFinish.asked) != 0 {
+		t.Fatal("previous provider result survived the switch")
 	}
 }

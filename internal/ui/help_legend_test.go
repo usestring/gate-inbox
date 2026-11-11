@@ -80,6 +80,9 @@ func TestLegendUsesItsOwnColors(t *testing.T) {
 	if !strings.Contains(legendBody, mark) {
 		t.Fatal("the legend does not tint the working mark in its status color")
 	}
+	if !strings.Contains(legendBody, statusTint(status.Background, "◒ background shell")) {
+		t.Fatal("the legend does not tint the background-shell mark in its status color")
+	}
 	if strings.Contains(keysBody, mark) {
 		t.Fatal("the key map tints a mark it no longer lists")
 	}

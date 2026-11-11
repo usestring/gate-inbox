@@ -175,13 +175,19 @@ type postBody struct {
 }
 
 func (s *Server) post(w http.ResponseWriter, r *http.Request) {
-	status, client, source := http.StatusOK, "", ""
+	status, client, source, reason := http.StatusOK, "", "", ""
 	defer func() {
-		// The message text is never logged.
-		s.log.Info("inbox post", "remote", r.RemoteAddr, "client", client, "source", source, "status", status)
+		// The message text is never logged. A rejection logs the error the
+		// client was sent, which is a fixed message, so the operator can
+		// tell an empty dictation from a malformed body without the client.
+		attrs := []any{"remote", r.RemoteAddr, "client", client, "source", source, "status", status}
+		if reason != "" {
+			attrs = append(attrs, "reason", reason)
+		}
+		s.log.Info("inbox post", attrs...)
 	}()
 	fail := func(code int, message string) {
-		status = code
+		status, reason = code, message
 		reply(w, code, errorBody(message))
 	}
 
@@ -272,7 +278,7 @@ func (s *Server) post(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		release()
 		s.log.Error("inbox spawn failed", "client", client, "source", source, "err", err)
-		status = http.StatusBadGateway
+		status, reason = http.StatusBadGateway, "spawn failed"
 		reply(w, status, map[string]any{"error": "spawn failed", "detail": err.Error()})
 		return
 	}

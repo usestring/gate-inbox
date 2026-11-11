@@ -35,5 +35,3 @@ Down
 Left
 Sleep 1s
 Screenshot {{SHOTS}}/06-jev-key-preserved.png
-Escape
-Sleep 1s

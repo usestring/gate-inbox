@@ -65,7 +65,7 @@ func TestPiExtensionMessagesAreSystemText(t *testing.T) {
 // found, and its opening prompt reads back.
 func TestPiRowIsSearchable(t *testing.T) {
 	root := t.TempDir()
-	const id = "b73eebb3-c24b-4147-b675-9d3d584a47fb"
+	const id = "bbbbbbbb-cccc-4444-8888-dddddddddddd"
 	path := filepath.Join(root, "--srv-project--", "2026-11-10T11-00-37-733Z_"+id+".jsonl")
 	raw, err := os.ReadFile(piFixture)
 	if err != nil {

@@ -12,7 +12,7 @@ import (
 // with --session-id: one bash turn, then /name typed while it ran, so the
 // session_info entry sits between the prompt and the reply.
 const (
-	piFixtureID  = "b73eebb3-c24b-4147-b675-9d3d584a47fb"
+	piFixtureID  = "bbbbbbbb-cccc-4444-8888-dddddddddddd"
 	piFixtureCwd = "/srv/project"
 )
 

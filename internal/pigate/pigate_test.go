@@ -193,6 +193,23 @@ func TestDecideMergeGate(t *testing.T) {
 	}
 }
 
+// AskUserQuestion changes nothing, so it runs without a dialog, as in Claude
+// Code, unless a deny or ask rule names it.
+func TestDecideLetsAQuestionToTheUserThroughUnlessARuleNamesIt(t *testing.T) {
+	cwd := t.TempDir()
+	ask := Request{ToolName: "AskUserQuestion", ToolInput: map[string]any{"questions": []any{}}, Cwd: cwd}
+	for list, want := range map[string]string{"": Allow, "deny": Deny, "ask": Ask} {
+		lists := map[string][]string{}
+		if list != "" {
+			lists[list] = []string{"AskUserQuestion"}
+		}
+		env := Env{Rules: sources(t, cwd, map[string]map[string][]string{"user settings": lists}), Grants: []grant.Grant{}}
+		if d := Decide(env, ask); d.Decision != want {
+			t.Errorf("%q rule: %+v, want %s", list, d, want)
+		}
+	}
+}
+
 // Pi spells the board's mcp__gate-inbox__ tools mcp__gate_inbox__; a rule or
 // grant in either spelling matches a call in either.
 func TestDecideMatchesEitherSpellingOfAnMCPServer(t *testing.T) {

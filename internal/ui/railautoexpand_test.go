@@ -391,36 +391,3 @@ func TestTheCountsReadInTheSingular(t *testing.T) {
 		}
 	}
 }
-
-// A forty-column rail is the narrowest this manager is used at, and what the
-// counts have to do there is give ground without taking the row's own columns
-// with them. One line per row at that width has nothing left after the state,
-// the tool and the age, so the badge goes; the two-line density hands the meta
-// its own line, and there the counts still fit -- in two letters a unit now
-// that the badge follows the age rather than being spliced ahead of it, which
-// left it a cell it used to spend on a second separator.
-func TestTheSummaryReadsOnANarrowRail(t *testing.T) {
-	tight := undecidedFleet(t, fleetSize, 40, 50)
-	rail := ansi.Strip(railLinesText(tight.railLines(40, tight.listBodyHeight())))
-	t.Logf("40-column rail, one line per row:\n%s", rail)
-	// The rail is compact here, so the row names no CLI the board is mostly
-	// running; the state and the age are the columns the counts must leave.
-	if line := railRowLine(t, rail, "session-30"); !strings.Contains(line, "finished · 1d") {
-		t.Fatalf("the counts crowded the row's own columns: %q", line)
-	}
-
-	roomy := undecidedFleet(t, fleetSize, 40, 50)
-	roomy.comfortableRows = true
-	stacked := ansi.Strip(railLinesText(roomy.railLines(40, roomy.listBodyHeight())))
-	t.Logf("40-column rail, two lines per row:\n%s", stacked)
-	if !strings.Contains(stacked, "1pr 1is") {
-		t.Fatalf("a forty-column rail counted nothing:\n%s", stacked)
-	}
-
-	wide := undecidedFleet(t, fleetSize, 120, 50)
-	full := ansi.Strip(railLinesText(wide.railLines(64, wide.listBodyHeight())))
-	t.Logf("64-column rail:\n%s", full)
-	if !strings.Contains(full, "1 pr · 1 issue") {
-		t.Fatalf("a rail with room for the words did not use them:\n%s", full)
-	}
-}

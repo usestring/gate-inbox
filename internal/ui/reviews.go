@@ -167,7 +167,7 @@ func (m *Model) finishReviews(msg reviewsMsg) (tea.Model, tea.Cmd) {
 		m.errBar.text = prepErr.Error()
 	}
 	m.rebuildRows()
-	return m, nil
+	return m, m.triagePickupCmd()
 }
 
 // prepareLimit caps how many review sessions one fetch starts, so a long
@@ -336,11 +336,13 @@ func (m *Model) reviewsTabBar(width int) string {
 		reviews += " (" + strconv.Itoa(pending) + ")"
 	}
 	bar := spaces(railInset) + tab("Sessions", !m.reviewsTab) + subtleText(" │ ") + tab(reviews, m.reviewsTab)
-	hint := ""
-	if key := m.tightCap(keymap.ContextList, keymap.ReviewsTab); key != "" {
-		hint = subtleText(key + " switch")
+	hint := normalizeTriageContent(m.triageContent)
+	if key := m.tightCap(keymap.ContextList, keymap.TriageContent); key != "" {
+		hint = key + " " + hint
 	}
-	return paint(rowColumns(bar, hint, width-railGutter), width, panelHex())
+	available := width - railGutter
+	bar = textfmt.TruncateWidth(bar, max(available-textfmt.Width(hint)-2, 0), "…")
+	return paint(rowColumns(bar, subtleText(hint), available), width, panelHex())
 }
 
 // reviewLines is how many rail lines one ask takes.
@@ -549,7 +551,7 @@ func (m *Model) leaveReviewsTab(advance bool) tea.Cmd {
 var reviewsTabAllows = map[keymap.Action]bool{
 	keymap.Quit: true, keymap.Settings: true, keymap.Help: true,
 	keymap.QuickActions: true, keymap.Triage: true, keymap.ReviewsTab: true,
-	keymap.IngestReviews: true, keymap.LegendPeek: true,
+	keymap.IngestReviews: true, keymap.TriageContent: true, keymap.LegendPeek: true,
 	keymap.NewSession: true, keymap.NewSessionForm: true,
 }
 

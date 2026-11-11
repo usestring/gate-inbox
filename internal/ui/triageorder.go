@@ -80,6 +80,9 @@ func triageOrderLabel(order string) string {
 // order. It narrows the walk, never the rail: a session out of rotation
 // keeps its row and its place, and opening it by hand works as before.
 func (m *Model) inTriageRotation(sess store.Session) bool {
+	if !m.inTriageContent(sess) {
+		return false
+	}
 	if m.isChoreRest(sess) && !m.triageKeepAlives {
 		return false
 	}

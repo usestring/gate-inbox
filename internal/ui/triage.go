@@ -750,13 +750,15 @@ func isSubagent(sess store.Session) bool {
 // waiting or finished while the first pass is walked joins it where the rail
 // sorts it, rather than stranding the operator on the list.
 //
-// It fires only for sessions needing a person, never for idle ones: a newly
-// idle session can wait for the next explicit pass, while a question or a
-// finished turn is what the drain exists to answer. With nothing to pick up
-// the drain stays open, so a still later arrival is picked up instead.
+// It fires only for work needing a person: a new review ask, a question or a
+// finished turn. A newly idle session can wait for the next explicit pass.
+// With nothing to pick up the drain stays open, so a later arrival is picked up.
 func (m *Model) triagePickupCmd() tea.Cmd {
-	if !m.triageResume || !m.triage || m.mode != modeList {
+	if !m.triageResume || !m.triage || m.mode != modeList || m.onReviewsTab() {
 		return nil
+	}
+	if _, ready := m.reviewsSlot(nil); ready {
+		return m.enterTriageHead()
 	}
 	for _, row := range m.rows {
 		if !row.entersAs() || !m.triageHandable(row, "", nil) || !m.needsPerson(row.sess) || !m.inTriageRotation(row.sess) {

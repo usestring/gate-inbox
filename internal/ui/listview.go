@@ -1442,6 +1442,7 @@ func (m *Model) jumpTints(number string) bool {
 type meterKey struct {
 	gen        int
 	width      int
+	sessions   int
 	snap       sysstat.Snapshot
 	net        netStats
 	hasContext bool
@@ -1449,11 +1450,11 @@ type meterKey struct {
 	headroom   string
 }
 
-// computerLines is the machine block docked at the rail's foot: a label
-// and one thin meter per resource.
+// computerLines is the summary docked at the rail's foot: the session count,
+// selected context, and one thin meter per machine resource.
 func (m *Model) computerLines(width int) []string {
 	usage, hasContext := m.selectedTokenUsage()
-	key := meterKey{gen: renderGen, width: width, snap: m.snap, net: m.net, hasContext: hasContext, usage: usage, headroom: m.headroomKey()}
+	key := meterKey{gen: renderGen, width: width, sessions: len(m.visibleSessions()), snap: m.snap, net: m.net, hasContext: hasContext, usage: usage, headroom: m.headroomKey()}
 	if m.meterMemoOK && m.meterMemoKey == key {
 		return m.meterMemo
 	}
@@ -1488,7 +1489,7 @@ func (m *Model) buildComputerLines(width int) []string {
 		return render(label, percent, extra, gauge(percent, barWidth, false))
 	}
 
-	var lines []string
+	lines := []string{pad + labelStyle.Render("sessions ") + valueStyle.Render(strconv.Itoa(len(m.visibleSessions()))), ""}
 	if usage, ok := m.selectedTokenUsage(); ok {
 		lines = append(lines, pad+subtleStyle.Render("context"))
 		line := pad + labelStyle.Width(7).Render("tokens")
@@ -1568,9 +1569,8 @@ func humanTokens(n int) string {
 	return fmt.Sprint(n)
 }
 
-// computerBrief is the machine block folded to one line for a rail too short
-// to dock the full block: the three readings that decide whether the machine
-// has room for another agent, without the gauges, temps or network.
+// computerBrief folds the summary to one line for a short rail, keeping the
+// session count before the machine readings and selected context.
 func (m *Model) computerBrief(width int) string {
 	snap := m.snap
 	sep := subtleStyle.Render(" · ")
@@ -1580,7 +1580,8 @@ func (m *Model) computerBrief(width int) string {
 		}
 		return labelStyle.Render(label+" ") + valueStyle.Render(fmt.Sprintf("%.0f%%", percent))
 	}
-	line := reading("cpu", snap.CPUPercent, snap.CPUOK) + sep + reading("mem", snap.MemPercent, snap.MemOK)
+	line := labelStyle.Render("sessions ") + valueStyle.Render(strconv.Itoa(len(m.visibleSessions()))) + sep +
+		reading("cpu", snap.CPUPercent, snap.CPUOK) + sep + reading("mem", snap.MemPercent, snap.MemOK)
 	if usage, ok := m.selectedTokenUsage(); ok {
 		tokens := "n/a"
 		if usage.Known {
@@ -1592,7 +1593,7 @@ func (m *Model) computerBrief(width int) string {
 	if disk := reading("disk", snap.DiskPercent, snap.DiskOK); textfmt.Width(line)+textfmt.Width(sep)+textfmt.Width(disk)+railInset <= width {
 		line += sep + disk
 	}
-	return spaces(railInset) + line
+	return spaces(railInset) + textfmt.TruncateWidth(line, width-railInset, "…")
 }
 
 func tempReadings(snap sysstat.Snapshot) string {

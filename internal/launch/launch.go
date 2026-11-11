@@ -20,6 +20,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/keyconfine"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -270,11 +271,19 @@ func SkipPermissionsRidesConfig(toolName string, tool config.Tool) bool {
 	return tool.SkipPermissionsFlag == "" && mcpreg.Style(toolName, tool.MCP) == "opencode"
 }
 
+// SkipPermissionsRidesExtension reports whether a tool's permission prompts
+// are turned off by the board's own extension in it rather than a flag: pi,
+// whose extension (internal/piext) is the thing that asks, and stops asking
+// when the launch sets envname.SkipPermissions.
+func SkipPermissionsRidesExtension(tool config.Tool) bool {
+	return tool.SkipPermissionsFlag == "" && tool.StatusSource == hooks.StatusSourcePi
+}
+
 // SkipsPermissions reports whether a session on the tool can be launched
-// with its permission prompts off: through its flag, or through its
-// generated config.
+// with its permission prompts off: through its flag, its generated config,
+// or the board's extension in it.
 func SkipsPermissions(toolName string, tool config.Tool) bool {
-	return tool.SkipPermissionsFlag != "" || SkipPermissionsRidesConfig(toolName, tool)
+	return tool.SkipPermissionsFlag != "" || SkipPermissionsRidesConfig(toolName, tool) || SkipPermissionsRidesExtension(tool)
 }
 
 // Assemble resolves a session's first prompt into a launch plan. A prompt
@@ -421,7 +430,7 @@ func WithAddDir(tool config.Tool, command, workdir string) string {
 // without it would stop on every prompt the operator turned off, and look
 // like it obeyed until the first one.
 func WithSkipPermissions(toolName string, tool config.Tool, command string, skip bool) (string, error) {
-	if !skip || SkipPermissionsRidesConfig(toolName, tool) {
+	if !skip || SkipPermissionsRidesConfig(toolName, tool) || SkipPermissionsRidesExtension(tool) {
 		return command, nil
 	}
 	if tool.SkipPermissionsFlag == "" {
@@ -536,9 +545,10 @@ var parentEnvBlocklist = map[string]bool{
 	"TERM":       true,
 	"CLAUDECODE": true, "CLAUDE_CODE_SESSION_ID": true, "CLAUDE_CODE_CHILD_SESSION": true,
 	"CLAUDE_CODE_SESSION_ATTENDED": true, "CLAUDE_PID": true, "CLAUDE_EFFORT": true,
-	"AI_AGENT":          true,
-	hooks.EnvStatusFile: true,
-	hooks.EnvExitFile:   true,
+	"AI_AGENT":              true,
+	hooks.EnvStatusFile:     true,
+	hooks.EnvExitFile:       true,
+	envname.SkipPermissions: true,
 }
 
 // inheritParentEnv carries the operator's own shell environment into a
@@ -775,7 +785,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return "", nil, err
 	}
 	if tool.StatusSource == hooks.StatusSourcePi {
-		if command, env, err = withPiExtension(manager, command, env, id, write); err != nil {
+		if command, env, err = withPiExtension(manager, command, env, id, skip, write); err != nil {
 			return "", nil, err
 		}
 	}
@@ -836,7 +846,11 @@ func terminalShell(command string) string {
 // extension is written under the hooks dir with a content-stamped name, so
 // this build's launch loads this build's extension and never one an older
 // build left there; nothing is written to ~/.pi.
-func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id string, write bool) (string, map[string]string, error) {
+//
+// A skip-permissions launch tells the extension through the environment,
+// since pi has no flag for it; the variable is always set so a launch
+// without skip states that too.
+func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id string, skip, write bool) (string, map[string]string, error) {
 	path := piext.Path(manager.Dir())
 	if write {
 		var err error
@@ -845,5 +859,9 @@ func withPiExtension(manager *hooks.Manager, command string, env map[string]stri
 		}
 	}
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)
+	env[envname.SkipPermissions] = ""
+	if skip {
+		env[envname.SkipPermissions] = "1"
+	}
 	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
 }

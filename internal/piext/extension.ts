@@ -24,6 +24,10 @@ import { Type } from "typebox";
 
 const bin = process.env.GATE_INBOX_BIN ?? "";
 const statusFile = process.env.GATE_INBOX_STATUS_FILE ?? "";
+// skipPermissions is a launch with its permission prompts off. Every gate in
+// this extension stops asking under it; what still holds is what never asks:
+// the sandbox around bash, and the OS confinement around the whole session.
+const skipPermissions = process.env.GATE_INBOX_SKIP_PERMISSIONS === "1";
 
 // hookTimeoutMs bounds one hook call. A hook that hangs must never hold pi
 // up: the call is killed and answers undefined, as a failed one does.
@@ -149,7 +153,8 @@ export default function gateInbox(pi: ExtensionAPI) {
 // load, or bubblewrap or socat is missing, every command asks first and
 // says why. A command the model asks to run outside the sandbox
 // (dangerouslyDisableSandbox) asks too. Only `[tools.pi] sandbox = "off"` in
-// the board's config runs commands unsandboxed without asking.
+// the board's config runs commands unsandboxed without asking, or a launch
+// with permissions skipped, which still runs every other command sandboxed.
 
 type SandboxManagerLike = {
   isSupportedPlatform(): boolean;
@@ -259,7 +264,7 @@ function sandboxedBash(pi: ExtensionAPI) {
         operations = sandboxedOperations(state, local);
       } else if (state.mode !== "off") {
         const why = state.mode === "unavailable" ? `sandbox unavailable: ${state.reason}` : "requested by the model";
-        if (!(await askToRunUnsandboxed(ctx, why, input.command, signal))) {
+        if (!skipPermissions && !(await askToRunUnsandboxed(ctx, why, input.command, signal))) {
           throw new Error(`Not run: the user did not allow it outside the sandbox (${why}).`);
         }
       }

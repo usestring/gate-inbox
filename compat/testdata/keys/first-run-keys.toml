@@ -156,6 +156,7 @@
 # cursor_up      = ["up", "k"]  # move up (cannot be unbound)
 # cursor_down    = ["down", "j"]  # move down (cannot be unbound)
 # review_view    = ["enter"]  # open the pull request (cannot be unbound)
+# review_author  = ["f"]  # ask the originating session
 # review_start   = ["s"]  # start the review
 # review_open    = ["o"]  # open on GitHub
 # review_dismiss = ["x"]  # dismiss
@@ -184,6 +185,7 @@
 # review_approve         = ["a"]  # approve
 # review_request_changes = ["r"]  # request changes
 # review_comment_only    = ["C", "shift+c"]  # submit as a comment
+# review_author          = ["f"]  # ask the originating session
 # review_start           = ["s"]  # start the review
 # review_open            = ["o"]  # open on GitHub
 # review_dismiss         = ["x"]  # dismiss

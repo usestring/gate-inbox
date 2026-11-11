@@ -1125,9 +1125,13 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 			} else if dialog.HasReader(sess.Tool) {
 				_, answerableWait[sess.ID] = dialog.ReadQuestions(sess.Tool, childPane[sess.ID], nil)
 			}
-			if answerableWait[sess.ID] &&
-				asksForApproval(sess.Tool, childPane[sess.ID], asks.PendingQuestions(childAskTarget(sess))) {
-				answerableWait[sess.ID] = false
+			if answerableWait[sess.ID] {
+				// A pi child's call is only in the file its ask-pending hook saved.
+				target := childAskTarget(sess)
+				target.PendingAskFile = p.pendingAskFile(sess)
+				if asksForApproval(sess.Tool, childPane[sess.ID], asks.PendingQuestions(target)) {
+					answerableWait[sess.ID] = false
+				}
 			}
 		}
 		if newStatus != sess.Status {

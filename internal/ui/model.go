@@ -1013,10 +1013,12 @@ type settingsState struct {
 	jevAutoSuggest     bool
 	jevFinishCheck     bool
 	jevCopyOn          bool
-	promptSuggest      bool
-	reviewQueue        bool
-	ciFeedback         bool
-	arrowsStay         bool
+	// piAutoMode is pi's auto mode (package piauto) as the JEV card holds it.
+	piAutoMode    bool
+	promptSuggest bool
+	reviewQueue   bool
+	ciFeedback    bool
+	arrowsStay    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool

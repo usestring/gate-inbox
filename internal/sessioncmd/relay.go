@@ -76,11 +76,21 @@ func (g *answerGuard) pendingStrings() []string {
 	if g == nil {
 		return nil
 	}
-	path := g.sessions.transcriptOf(g.target)
-	if path == "" {
-		return nil
+	return g.sessions.pendingToolStrings(g.target)
+}
+
+// pendingToolStrings is what target's one unresolved tool call was given:
+// from its transcript, and from the call its pi extension's permission dialog
+// is asking about.
+func (s *Sessions) pendingToolStrings(target store.Session) []string {
+	var out []string
+	if path := s.transcriptOf(target); path != "" {
+		out = convo.PendingToolStrings(path)
 	}
-	return convo.PendingToolStrings(path)
+	if pending, ok := hooks.NewManager(s.configDir).ReadPiPermission(target.ID); ok {
+		out = append(out, pending.Block)
+	}
+	return out
 }
 
 // recorder reads the child's own record of the answers its pending call

@@ -20,6 +20,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
@@ -814,5 +815,17 @@ func withPiExtension(manager *hooks.Manager, command string, env map[string]stri
 	}
 	env[piext.PluginDirEnv] = pluginDir
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)
+	// The board's TypeSafe key is the board's own: it asks the classifier
+	// from its own process. Pi has no sandbox, so a key anywhere in its pane
+	// is its model's to read, including the copy the tmux server holds from
+	// the operator's environment; withheld, it reaches no process there.
+	env[jev.KeyEnv] = tmux.Withheld
+	if write && id != "" {
+		// The extension's hook asks auto mode (package piauto) on the board's
+		// shared server, proving its session with the caller token, whose key
+		// a board with no Claude session yet has not minted. Without it auto
+		// mode only asks, so a failure here is not a failed launch.
+		_, _ = parentseal.CallerToken(manager.ConfigDir(), id)
+	}
 	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
 }

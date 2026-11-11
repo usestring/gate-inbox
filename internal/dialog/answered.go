@@ -18,7 +18,20 @@ import (
 // It is the child's own record of what it took, so it is what an answer is
 // checked against once the dialog has closed.
 
-const answeredHeader = "User answered Claude's questions:"
+//
+// The board's pi extension prints the same record under its own name
+// ("User answered pi's questions:"), so a pi child's answer reads back the
+// same way.
+var answeredHeaders = []string{"User answered Claude's questions:", "User answered pi's questions:"}
+
+func isAnsweredHeader(text string) bool {
+	for _, header := range answeredHeaders {
+		if strings.HasSuffix(text, header) {
+			return true
+		}
+	}
+	return false
+}
 
 // Claude Code wraps at spaces, and breaks a word only when the word is wider
 // than the whole text column: at 40 columns a path comes out as "/tmp/s" over
@@ -98,7 +111,7 @@ func ParseAnswered(pane string) [][]ReviewAnswer {
 		if i > 0 {
 			joined = continuation(lines[i-1], line, width)
 		}
-		if strings.HasSuffix(text, answeredHeader) {
+		if isAnsweredHeader(text) {
 			flushBlock()
 			reading = true
 			continue

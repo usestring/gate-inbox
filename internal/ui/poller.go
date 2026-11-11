@@ -775,6 +775,15 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	// A CLI or MCP process can relaunch an adopted row as managed while
+	// this board still has its old pane registered.
+	for _, sess := range sessions {
+		if sess.TmuxPaneID == "" {
+			if _, adopted := p.tmux.AdoptedTarget(sess.ID); adopted {
+				p.tmux.Release(sess.ID)
+			}
+		}
+	}
 	p.setHistoryTargets(p.historyTargets(sessions))
 	phases.list = lap(&mark)
 

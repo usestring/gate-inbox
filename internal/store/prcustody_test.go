@@ -108,6 +108,67 @@ func TestPRCustodyReplacementAndLateEvidence(t *testing.T) {
 	}
 }
 
+func TestPRCustodySurvivesIntermediatePurge(t *testing.T) {
+	for _, deleteChild := range []bool{false, true} {
+		name := "Delete"
+		if deleteChild {
+			name = "DeleteChild"
+		}
+		t.Run(name, func(t *testing.T) {
+			st := newTestStore(t)
+			for _, id := range []string{"parent", "original", "current"} {
+				sess := sample(id, "")
+				if id == "original" {
+					sess.ParentID = "parent"
+				}
+				if err := st.CreateSession(sess); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := st.RecordOpenedPRs("original", []string{custodyURL}, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.ReplaceSession(sample("middle", ""), "original", "", func() error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.CompleteMigration("middle", "current"); err != nil {
+				t.Fatal(err)
+			}
+			legacy := "https://github.com/o/r/pull/2"
+			if _, err := st.db.Exec(`INSERT INTO session_prs(session_id,url,first_seen) VALUES('middle',?,?)`, legacy, time.Now().UnixMilli()); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			if deleteChild {
+				err = st.DeleteChild("middle", "parent", func() error { return nil })
+			} else {
+				err = st.Delete("middle")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			custodyOwner(t, st, custodyURL, "current")
+			custodyOwner(t, st, legacy, "current")
+			late := "https://github.com/o/r/pull/3"
+			if err := st.RecordOpenedPRs("original", []string{late}, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			custodyOwner(t, st, late, "current")
+			if err := st.Delete("original"); err != nil {
+				t.Fatal(err)
+			}
+			urls, err := st.OpenedPRs("current")
+			if err != nil || !reflect.DeepEqual(urls, []string{custodyURL, legacy, late}) {
+				t.Fatalf("retained PR evidence = %v, %v", urls, err)
+			}
+			receipt, err := st.EnqueuePRFeedback(custodyURL, "after-purge", "current", "feedback", []string{"claude"}, func(Session) (bool, error) { return true, nil }, time.Now())
+			if err != nil || receipt.Status != "accepted" || receipt.SessionID != "current" {
+				t.Fatalf("feedback after purge = %+v, %v", receipt, err)
+			}
+		})
+	}
+}
+
 func TestPRCustodyFailsClosedOnBrokenLineage(t *testing.T) {
 	for _, tc := range []struct {
 		name, changes string

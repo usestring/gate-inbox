@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -82,7 +83,23 @@ GROUP BY url ORDER BY MIN(first_seen), url`, sessionID)
 }
 
 func deleteOpenedPRs(tx *sql.Tx, sessionID string) error {
-	_, err := tx.Exec(`DELETE FROM session_prs WHERE session_id = ?`, sessionID)
+	var successor string
+	err := tx.QueryRow(`SELECT replaced_by FROM sessions WHERE id = ?`, sessionID).Scan(&successor)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("session %s: %w", sessionID, ErrSessionGone)
+	}
+	if err != nil {
+		return err
+	}
+	if successor != "" {
+		if err := copyOpenedPRs(tx, sessionID, successor); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE sessions SET replaced_by = ? WHERE replaced_by = ?`, successor, sessionID); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(`DELETE FROM session_prs WHERE session_id = ?`, sessionID)
 	return err
 }
 

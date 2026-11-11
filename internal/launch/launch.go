@@ -784,6 +784,8 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 // the session's caller token in the key dir, as a claude launch's is; or,
 // with the shared server off or unreachable, a config that starts a server of
 // the session's own. Only the path rides the environment, never the token.
+// It names the board's plugin directory too (piext.PluginDirEnv), whose
+// skills and commands the extension offers in pi.
 func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id, profile, sharedConfig string, write bool) (string, map[string]string, error) {
 	path := piext.Path(manager.Dir())
 	if write {
@@ -800,6 +802,17 @@ func withPiExtension(manager *hooks.Manager, command string, env map[string]stri
 		}
 	}
 	env[piext.MCPConfigEnv] = mcpConfig
+	// The board's skills and slash commands, from the plugin a claude
+	// launch loads with --plugin-dir, so both CLIs read one copy.
+	plugin := claudeplugin.Path
+	if write {
+		plugin = claudeplugin.Ensure
+	}
+	pluginDir, err := plugin(manager.ConfigDir())
+	if err != nil {
+		return "", nil, err
+	}
+	env[piext.PluginDirEnv] = pluginDir
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)
 	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
 }

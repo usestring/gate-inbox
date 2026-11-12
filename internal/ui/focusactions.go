@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/usestring/gate-inbox/internal/clipboard"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -62,4 +63,33 @@ var writeClipboard = clipboard.WriteText
 type sessionIDCopiedMsg struct {
 	id  string
 	err error
+}
+
+// boardActionsFromFocus are the list actions a focused pane answers by
+// leaving for the board and running them there, the way attach already
+// does. They are board-wide or about the row the pane is, so leaving first
+// is what the operator would have done by hand; see the catalog's focus
+// table for the keys and why each one is safe to take from the agent.
+var boardActionsFromFocus = map[keymap.Action]bool{
+	keymap.Triage:        true,
+	keymap.Search:        true,
+	keymap.QuickActions:  true,
+	keymap.Settings:      true,
+	keymap.NewGroup:      true,
+	keymap.NewTerminal:   true,
+	keymap.ReviveAll:     true,
+	keymap.IngestReviews: true,
+	keymap.UndoArchive:   true,
+	keymap.RenameSelf:    true,
+}
+
+// runBoardActionFromFocus leaves the pane and runs action as the list
+// would. The leave comes first so an action that opens a screen or a queue
+// of its own -- triage focusing its first session -- opens it from the
+// board rather than underneath the pane just left.
+func (m *Model) runBoardActionFromFocus(action keymap.Action, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	leave := m.leaveFocus()
+	press, _ := msg.(tea.KeyPressMsg)
+	model, cmd := m.runListAction(action, press)
+	return model, tea.Batch(leave, cmd)
 }

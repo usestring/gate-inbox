@@ -35,10 +35,10 @@ func pressKey(t *testing.T, m *Model, msg tea.KeyPressMsg) {
 	}
 }
 
-func instantKey() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'n', Text: "n"} }
+func instantKey() tea.KeyPressMsg { return key("ctrl+n") }
 func enterKey() tea.KeyPressMsg   { return tea.KeyPressMsg{Code: tea.KeyEnter} }
 
-// instantSpawn is the whole new-session gesture: n, which asks which agent,
+// instantSpawn is the whole new-session gesture: ctrl+n, which asks which agent,
 // and enter, which accepts the CLI the box opened on. Every test that used to
 // press n alone means this.
 func instantSpawn(t *testing.T, m *Model) {
@@ -50,7 +50,7 @@ func instantSpawn(t *testing.T, m *Model) {
 	pressKey(t, m, enterKey())
 }
 
-func advancedKey() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl} }
+func advancedKey() tea.KeyPressMsg { return key("ctrl+alt+n") }
 
 func TestNSpawnsASessionAskingOnlyWhichAgent(t *testing.T) {
 	m := buildModel(t)

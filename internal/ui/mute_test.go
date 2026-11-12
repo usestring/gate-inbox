@@ -88,7 +88,7 @@ func TestDismissMutesAWaitingSessionAndPressingItAgainRestoresIt(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, _ := m.handleKey(key("."))
+	updated, _ := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if m.mode != modeList {
 		t.Fatalf(`"." left the list in mode %v`, m.mode)
@@ -100,7 +100,7 @@ func TestDismissMutesAWaitingSessionAndPressingItAgainRestoresIt(t *testing.T) {
 		t.Fatalf("a muted row carries no mark:\n%s", rail)
 	}
 
-	updated, _ = m.handleKey(key("."))
+	updated, _ = m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if m.isMuted(sessionNamed(t, m, "ask")) {
 		t.Fatal(`a second "." did not un-mute the row`)
@@ -118,7 +118,7 @@ func TestDismissStillAcksAFinishedSession(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "done")
 
-	updated, _ := m.handleKey(key("."))
+	updated, _ := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	sess, err := m.store.Get(sessionNamed(t, m, "done").ID)
 	if err != nil {
@@ -137,13 +137,13 @@ func TestEnteringTriageClearsTheLastDrainsMutes(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.selectSessionRow(t, "ask")
-	updated, _ := m.handleKey(key("."))
+	updated, _ := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if len(m.muted) != 1 {
 		t.Fatalf("setup did not mute: %v", m.muted)
 	}
 
-	updated, cmd := m.handleKey(key("i"))
+	updated, cmd := m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -242,7 +242,7 @@ func TestSkipKeyEntersTheQueueFromTheList(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, cmd := m.handleKey(key("."))
+	updated, cmd := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -267,7 +267,7 @@ func TestSkipKeyStaysOnTheListOutsideTriage(t *testing.T) {
 	m.selectSessionRow(t, "ask")
 	before := m.cursor
 
-	updated, cmd := m.handleKey(key("."))
+	updated, cmd := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -289,7 +289,7 @@ func TestSkipKeyOnTheListSaysWhenTheQueueIsDrained(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, cmd := m.handleKey(key("."))
+	updated, cmd := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -321,7 +321,7 @@ func TestSkipKeyAcksAFinishedSessionAndMovesOn(t *testing.T) {
 	}
 	m.selectSessionRow(t, "done")
 
-	updated, cmd := m.handleKey(key("."))
+	updated, cmd := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -351,7 +351,7 @@ func TestSkipKeyFromARowOffTheQueue(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "busy")
 
-	updated, cmd := m.handleKey(key("."))
+	updated, cmd := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)

@@ -215,7 +215,7 @@ func TestLimitSwitchSubscriptionAndMigrationShortcuts(t *testing.T) {
 	if m.mode != modeAccount {
 		t.Fatal("subscription shortcut did not open review")
 	}
-	if action, _ := m.km().Action(keymap.ContextList, "M"); action != keymap.Mute {
+	if action, _ := m.km().Action(keymap.ContextList, "ctrl+m"); action != keymap.Mute {
 		t.Fatal("migration took the mute shortcut")
 	}
 }

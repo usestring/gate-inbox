@@ -102,17 +102,17 @@ func TestCtrlHOpensAndClosesTheKeyMap(t *testing.T) {
 	}
 }
 
-// H opens the full key map and closes the screen it opened.
+// ctrl+h opens the full key map and closes the screen it opened.
 func TestHOpensAndClosesTheKeyMap(t *testing.T) {
 	m := buildModel(t)
-	m.handleKey(runeKey("H"))
+	m.handleKey(runeKey("ctrl+h"))
 	if m.mode != modeHelp {
-		t.Fatalf("H left the board in mode %v, want the key map", m.mode)
+		t.Fatalf("ctrl+h left the board in mode %v, want the key map", m.mode)
 	}
 	m.handleHelpKey(namedKey(tea.KeyEnter))
-	m.handleHelpKey(runeKey("H"))
+	m.handleHelpKey(runeKey("ctrl+h"))
 	if m.mode == modeHelp {
-		t.Fatal("H did not close the key map it opened")
+		t.Fatal("ctrl+h did not close the key map it opened")
 	}
 }
 
@@ -125,7 +125,7 @@ func TestARefusedOverrideIsReportedAndFallsBack(t *testing.T) {
 	if len(m.keyProblems) == 0 {
 		t.Fatal("binding onto the ± snippet key was accepted")
 	}
-	if got := m.km().Key(keymap.ContextList, keymap.NewGroup); got != "g" {
+	if got := m.km().Key(keymap.ContextList, keymap.NewGroup); got != "ctrl+alt+g" {
 		t.Fatalf("new_group fell back to %q", got)
 	}
 	m.mode = modeHelp
@@ -144,7 +144,7 @@ func TestABrokenKeyFileLeavesTheDefaultsWorking(t *testing.T) {
 	if len(m.keyProblems) == 0 {
 		t.Fatal("a broken file was read without complaint")
 	}
-	if got := m.km().Key(keymap.ContextList, keymap.NewSession); got != "n" {
+	if got := m.km().Key(keymap.ContextList, keymap.NewSession); got != "ctrl+n" {
 		t.Fatalf("new_session is on %q after a broken file", got)
 	}
 }

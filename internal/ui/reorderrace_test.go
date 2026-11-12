@@ -16,9 +16,9 @@ func visibleSessionIDs(m *Model) []string {
 	return ids
 }
 
-func pressReorder(t *testing.T, m *Model, key rune) *Model {
+func pressReorder(t *testing.T, m *Model, code rune) *Model {
 	t.Helper()
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: key, Text: string(key)})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: code, Mod: tea.ModShift})
 	return updated.(*Model)
 }
 
@@ -36,7 +36,7 @@ func TestReorderSurvivesAStalePollListing(t *testing.T) {
 	m.selectSessionRow(t, "name-c")
 
 	stale := m.refreshCmd()()
-	m = pressReorder(t, m, 'K')
+	m = pressReorder(t, m, tea.KeyUp)
 	updated, _ := m.Update(stale)
 	m = updated.(*Model)
 	if got, want := visibleSessionIDs(m), []string{"a", "c", "b"}; !slices.Equal(got, want) {
@@ -46,7 +46,7 @@ func TestReorderSurvivesAStalePollListing(t *testing.T) {
 		t.Fatalf("cursor should stay on the moved row, got %+v", sess)
 	}
 
-	m = pressReorder(t, m, 'K')
+	m = pressReorder(t, m, tea.KeyUp)
 	if got, want := listSessionIDs(t, m.store), []string{"c", "a", "b"}; !slices.Equal(got, want) {
 		t.Fatalf("stored order after a second K = %v want %v", got, want)
 	}
@@ -70,13 +70,13 @@ func TestGroupReorderSurvivesAStalePollListing(t *testing.T) {
 	m.selectGroupRow(t, "gamma")
 
 	stale := m.refreshCmd()()
-	m = pressReorder(t, m, 'K')
+	m = pressReorder(t, m, tea.KeyUp)
 	updated, _ := m.Update(stale)
 	m = updated.(*Model)
 	if got, want := m.groupRowPaths(), []string{"alpha", "gamma", "beta"}; !slices.Equal(got, want) {
 		t.Fatalf("group order after a stale poll = %v want %v", got, want)
 	}
-	m = pressReorder(t, m, 'K')
+	m = pressReorder(t, m, tea.KeyUp)
 	m.applyCmd(t, m.refreshCmd())
 	if got, want := m.groupRowPaths(), []string{"gamma", "alpha", "beta"}; !slices.Equal(got, want) {
 		t.Fatalf("group order after a second K and a fresh poll = %v want %v", got, want)

@@ -704,6 +704,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// conversation goes back to the terminal here, and one on the
 			// terminal goes back to the conversation the list was showing.
 			return m, m.toggleConversation()
+		case boardActionsFromFocus[action]:
+			return m.runBoardActionFromFocus(action, msg)
 		case action == keymap.ToggleChrome:
 			// The footer is the manager's own row, not the agent's: hiding
 			// it from here gives the pane the rows back without leaving

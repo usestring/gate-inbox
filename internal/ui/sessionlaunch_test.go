@@ -58,7 +58,13 @@ func TestAStaleRefreshKeepsALaunchListedWhileTmuxWasStartingIt(t *testing.T) {
 // pressRune sends one key through Update the way the terminal would.
 func (m *Model) pressRune(t *testing.T, r rune) {
 	t.Helper()
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	m.pressMsg(t, tea.KeyPressMsg{Code: r, Text: string(r)})
+}
+
+// pressMsg is pressRune for a press already built, such as a chord.
+func (m *Model) pressMsg(t *testing.T, msg tea.KeyPressMsg) {
+	t.Helper()
+	updated, cmd := m.Update(msg)
 	*m = *updated.(*Model)
 	if cmd != nil {
 		if msg := cmd(); msg != nil {
@@ -89,7 +95,7 @@ func TestAStaleRefreshDoesNotBringBackAnExpiredSession(t *testing.T) {
 	sess := m.sessionRows()[0]
 
 	m.selectSessionRow(t, sess.Name)
-	m.pressRune(t, 'x')
+	m.pressMsg(t, key("ctrl+x"))
 	m.pressRune(t, 'y')
 	m.applyCmd(t, expireArchives(m))
 	if _, err := m.store.Get(sess.ID); err == nil {
@@ -113,7 +119,7 @@ func TestAStaleRefreshDoesNotBringBackASessionJustArchived(t *testing.T) {
 	sess := m.sessionRows()[0]
 
 	m.selectSessionRow(t, sess.Name)
-	m.pressRune(t, 'x')
+	m.pressMsg(t, key("ctrl+x"))
 	m.pressRune(t, 'y')
 
 	updated, _ := m.Update(staleRefreshAfter(m))

@@ -56,7 +56,7 @@ func TestStartupMarksDeadRowsAndStaysOnTheList(t *testing.T) {
 		}
 	}
 	if !strings.Contains(m.errBar.text, "1 session stopped without you ending them") ||
-		!strings.Contains(m.errBar.text, "V revives") {
+		!strings.Contains(m.errBar.text, "ctrl+⌥v revives") {
 		t.Fatalf("notice = %q", m.errBar.text)
 	}
 }

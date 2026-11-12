@@ -195,8 +195,8 @@ func TestHotkeyMenuSendsTheSectionAndPlusMinusKeys(t *testing.T) {
 
 func TestHotkeyMenuSpaceAndEscClose(t *testing.T) {
 	for name, msg := range map[string]tea.KeyPressMsg{
-		"space": {Code: tea.KeySpace, Text: " "},
-		"esc":   {Code: tea.KeyEsc},
+		"ctrl+s": key("ctrl+s"),
+		"esc":    {Code: tea.KeyEsc},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := buildModel(t)
@@ -240,7 +240,7 @@ func TestHotkeyMenuDeadSessionSetsError(t *testing.T) {
 	m.selectSessionRow(t, "gone")
 
 	m = pressInMenu(t, m, letter('c'))
-	if m.errBar.text != "session is dead - press v to revive or restart in quick actions" {
+	if m.errBar.text != "session is dead - press ctrl+r to revive or restart in quick actions" {
 		t.Fatalf("err = %q", m.errBar.text)
 	}
 	if !m.quick.active {

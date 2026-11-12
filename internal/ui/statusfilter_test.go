@@ -67,7 +67,7 @@ func TestStatusFilterKeyKeepsAttentionSessions(t *testing.T) {
 	}
 	loadStoredRows(t, m)
 
-	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	updated, cmd := m.handleKey(key("ctrl+w"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -89,7 +89,7 @@ func TestStatusFilterKeyKeepsAttentionSessions(t *testing.T) {
 		t.Fatalf("rail badge should offer clearing the filter:\n%s", rail)
 	}
 
-	updated, cmd = m.handleKey(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	updated, cmd = m.handleKey(key("ctrl+w"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)

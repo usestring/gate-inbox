@@ -34,7 +34,7 @@ func TestTriageScopesToTheCursorsGroup(t *testing.T) {
 	seedTriageFleet(t, m)
 	m.selectSessionRow(t, "grinder")
 
-	updated, cmd := m.handleKey(key("i"))
+	updated, cmd := m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -61,7 +61,7 @@ func TestTriageScopeIncludesSubgroups(t *testing.T) {
 	seedNested(t, m, "s9", "nested-block", "alpha/deep", status.Waiting)
 	m.selectGroupRow(t, "alpha")
 
-	updated, cmd := m.handleKey(key("i"))
+	updated, cmd := m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -80,7 +80,7 @@ func TestTriageFromRootDrainsTheWholeFleet(t *testing.T) {
 	seedTriageFleet(t, m)
 	m.selectSessionRow(t, "reviewme")
 
-	updated, cmd := m.handleKey(key("i"))
+	updated, cmd := m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -102,7 +102,7 @@ func TestLeavingTriageClearsTheScope(t *testing.T) {
 	m.selectSessionRow(t, "crashed")
 
 	for range 2 {
-		updated, cmd := m.handleKey(key("i"))
+		updated, cmd := m.handleKey(key("ctrl+i"))
 		m = updated.(*Model)
 		if cmd != nil {
 			m.applyCmd(t, cmd)
@@ -126,7 +126,7 @@ func TestTriageAdvanceStopsAtTheScopeEdge(t *testing.T) {
 	seedTriageFleet(t, m)
 	m.selectSessionRow(t, "new-block")
 
-	updated, cmd := m.handleKey(key("i"))
+	updated, cmd := m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -222,7 +222,7 @@ func TestTriageDropsTheRootRow(t *testing.T) {
 	}
 	m.selectSessionRow(t, "grinder")
 
-	updated, cmd := m.handleKey(key("i"))
+	updated, cmd := m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -236,7 +236,7 @@ func TestTriageDropsTheRootRow(t *testing.T) {
 		t.Fatalf("the triage rail still paints a root row:\n%s", rail)
 	}
 	// Leaving triage is what puts the tree back, root included.
-	updated, cmd = m.handleKey(key("i"))
+	updated, cmd = m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)

@@ -403,7 +403,7 @@ func TestArchiveBindingUsesUnderlyingContext(t *testing.T) {
 		t.Run(screen, func(t *testing.T) {
 			m := focusedKillFleet(t, false)
 			m.selectSessionRow(t, "ask")
-			m.keys, _ = m.km().Rebind(keymap.ContextFocus, keymap.Archive, []string{"q"})
+			m.keys, _ = m.km().Rebind(keymap.ContextFocus, keymap.Archive, []string{"ctrl+alt+q"})
 			want := strings.HasPrefix(screen, "focus")
 			if want {
 				m.mode = modeFocus
@@ -425,7 +425,7 @@ func TestArchiveBindingUsesUnderlyingContext(t *testing.T) {
 				m.mode = modePanePicker
 			}
 			before := m.mode
-			_, _, handled := m.killFromAnywhere(tea.KeyPressMsg{Code: 'q', Text: "q"})
+			_, _, handled := m.killFromAnywhere(key("ctrl+alt+q"))
 			if handled != want {
 				t.Fatalf("handled=%v, want %v", handled, want)
 			}
@@ -435,8 +435,8 @@ func TestArchiveBindingUsesUnderlyingContext(t *testing.T) {
 		})
 	}
 	m := shotModel()
-	m.keys, _ = m.km().Rebind(keymap.ContextFocus, keymap.Archive, []string{"q"})
-	_, cmd := m.handleKey(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	m.keys, _ = m.km().Rebind(keymap.ContextFocus, keymap.Archive, []string{"ctrl+alt+q"})
+	_, cmd := m.handleKey(key("ctrl+alt+q"))
 	if cmd == nil {
 		t.Fatal("list quit returned no command")
 	}

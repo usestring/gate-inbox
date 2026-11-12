@@ -131,7 +131,7 @@ func TestWelcomeCardCountsAgentsAlreadyRunning(t *testing.T) {
 		t.Fatalf("the card should count the running agent:\n%s", body)
 	}
 	setMode(t, m, outsidePanesSetting, paneAdopt)
-	if body = ansi.Strip(m.viewWelcome()); !strings.Contains(body, "1 found in tmux and shown on the board as-is. a on one brings it in") {
+	if body = ansi.Strip(m.viewWelcome()); !strings.Contains(body, "1 found in tmux and shown on the board as-is. ctrl+⌥a on one brings it in") {
 		t.Fatalf("a kept pane should point at a:\n%s", body)
 	}
 }
@@ -163,6 +163,7 @@ func TestKeyMapOpensFromTheWelcomeCardAndComesBack(t *testing.T) {
 
 func TestWelcomeCardDrawsBothAnswers(t *testing.T) {
 	m := welcomeModel(t)
+	m.height = 100
 	m.maybeOpenWelcome()
 	body := ansi.Strip(m.viewWelcome())
 	for _, want := range []string{"Welcome to Gate Inbox", "get started", "start your first session now", "the five keys that matter"} {
@@ -240,7 +241,7 @@ func TestNarrowCardWrapsRatherThanTruncating(t *testing.T) {
 		t.Fatalf("something was truncated on a 56-column card:\n%s", body)
 	}
 	// The tail of a wrapped description, which a truncating card would drop.
-	if !strings.Contains(body, "cursor; it asks which agent") {
+	if !strings.Contains(body, "under the cursor; it asks") {
 		t.Fatalf("a wrapped description lost its continuation:\n%s", body)
 	}
 	for _, line := range strings.Split(body, "\n") {

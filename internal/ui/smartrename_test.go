@@ -15,12 +15,13 @@ import (
 )
 
 // keyR and keyAltR are the two bindings under test, pressed the way the
-// runtime delivers them. Every test here goes through handleKey rather than
+// runtime delivers them: keyR is rename_from_agent's default, ctrl+alt+r,
+// which r used to be, and the names stay the ones the tests grew up with. Every test here goes through handleKey rather than
 // calling the handler: the binding is the change, and the rename tests that
 // existed before this all called openRename directly, so nothing in the suite
 // would have noticed r being wired to something else entirely.
 var (
-	keyR = tea.KeyPressMsg{Code: 'r', Text: "r"}
+	keyR = tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl | tea.ModAlt}
 	// No Text on the alt press: a KeyPressMsg carrying Text reports that text
 	// as its String(), so a Text-carrying alt press arrives at the switch as
 	// plain "r" and would silently test the wrong binding.
@@ -402,8 +403,8 @@ func TestTheKeyMapShowsBothRenameKeys(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(rows["r"], "conversation") {
-		t.Errorf("r is documented as %q, which does not describe a smart rename", rows["r"])
+	if !strings.Contains(rows[keymap.Display("ctrl+alt+r")], "conversation") {
+		t.Errorf("ctrl+alt+r is documented as %q, which does not describe a smart rename", rows[keymap.Display("ctrl+alt+r")])
 	}
 	if rows[keymap.Display("alt+r")] == "" {
 		t.Error("the key map never mentions alt+r")

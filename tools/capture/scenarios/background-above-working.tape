@@ -1,14 +1,16 @@
 # A background row sorts above a working one in triage whatever their tiers:
 # the Codex row is working and raised to urgent, the Claude row rests on a
 # shell it left running, and the triage rail still puts the background row
-# first. Record with:
+# first. The opencode row is muted so triage focuses no pane. Record with:
 #
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/background-above-working.tape \
-#     --transcripts shells-wrapped,codex-working,finished --cols 110 --rows 24
+#     --transcripts shells-wrapped,codex-working --cols 110 --rows 24
 
 Sleep 5s
 Screenshot {{SHOTS}}/01-board.png
 Sleep 1s
+Type "M"
+Sleep 800ms
 Up
 Sleep 600ms
 Ctrl+P

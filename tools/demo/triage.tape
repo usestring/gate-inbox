@@ -64,7 +64,7 @@ Sleep 2s
 Ctrl+q
 Sleep 10s
 Show
-Sleep 2500ms
+Sleep 1200ms
 
 # ctrl+i turns the group into one queue: questions first, then by priority.
 # It opens the head of the queue, the urgent question.

@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -32,7 +31,7 @@ func TestToolFilterCyclesThroughHarnesses(t *testing.T) {
 	m := toolFilterFixture(t)
 	seen := map[string]bool{}
 	for range 5 {
-		updated, cmd := m.handleKey(tea.KeyPressMsg{Code: 'Y', Text: "Y"})
+		updated, cmd := m.handleKey(key("ctrl+y"))
 		m = updated.(*Model)
 		if cmd != nil {
 			m.applyCmd(t, cmd)
@@ -82,7 +81,7 @@ func TestToolFilterNarrowsTriage(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "codex-one")
 
-	updated, cmd := m.handleKey(key("i"))
+	updated, cmd := m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)

@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -59,7 +60,7 @@ func TestTriageRailOrdersByUrgencyThenOldest(t *testing.T) {
 		t.Fatalf("a folded group should hide new-block in normal mode:\n%s", got)
 	}
 
-	updated, cmd := m.handleKey(key("i"))
+	updated, cmd := m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -121,9 +122,9 @@ func TestTriageReorderKeyRefusesAndSaysWhy(t *testing.T) {
 	before := sessionNames(m)
 
 	m.selectSessionRow(t, "crashed")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'J', Text: "J"})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModShift})
 	m = updated.(*Model)
-	if !strings.Contains(m.errBar.text, "press i to leave triage") {
+	if !strings.Contains(m.errBar.text, "press "+m.cap(keymap.ContextList, keymap.Triage)+" to leave triage") {
 		t.Fatalf("reorder in triage said %q", m.errBar.text)
 	}
 	if got := sessionNames(m); !slices.Equal(got, before) {
@@ -561,9 +562,9 @@ func TestTriageWalkKeepsGoingPastSessionsWithSubmissionsInFlight(t *testing.T) {
 
 // An answer seen landing is still not news the board has polled: the row
 // reads the state it was answered in until a poll listed after the landing
-// is applied. The walk keeps going past it until then, so an answer sent from
-// the list to one row that lands while the operator works another is not
-// handed straight back to them.
+// reports the turn the answer started. The walk keeps going past it until
+// then, so an answer sent from the list to one row that lands while the
+// operator works another is not handed straight back to them.
 func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{
@@ -582,7 +583,8 @@ func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 		return m.rows[i].sess.Name
 	}
 	doneID := sessionID(t, m, "done")
-	m.landings = map[string]*pendingLanding{doneID: {gen: 1, probe: &landingProbe{}}}
+	done, _ := m.sessionByID(doneID)
+	m.landings = map[string]*pendingLanding{doneID: {gen: 1, probe: &landingProbe{}, sess: done}}
 	m.applyLandingCheck(landingCheckMsg{id: doneID, gen: 1, verdict: landingSeen})
 	if _, pending := m.landings[doneID]; pending {
 		t.Fatal("landing still pending after it was seen")
@@ -591,7 +593,7 @@ func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 		t.Fatalf("walk past a landed, unpolled row = %q, want calm", got)
 	}
 
-	landedAt := m.settling[doneID]
+	landedAt := m.settling[doneID].at
 	m.settleLandings(landedAt.Add(time.Millisecond), map[string]bool{doneID: true})
 	if got := next(sessionID(t, m, "ask")); got != "calm" {
 		t.Fatalf("walk after a poll that could not capture the landed row = %q, want calm", got)
@@ -604,10 +606,61 @@ func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 		t.Fatalf("walk after an older pass delivered late = %q, want calm", got)
 	}
 
+	// A pass past the landing that still reads the finish just answered has
+	// not seen the agent take it: the hooks report the new turn a beat
+	// later, and handing the row over now puts the operator in a session
+	// that is already at work.
 	m.settleLandings(landedAt.Add(2*time.Millisecond), nil)
-	if got := next(sessionID(t, m, "ask")); got != "done" {
-		t.Fatalf("walk after a poll past the landing = %q, want done", got)
+	if got := next(sessionID(t, m, "ask")); got != "calm" {
+		t.Fatalf("walk after a poll still reading the answered finish = %q, want calm", got)
 	}
+
+	// The turn the answer started has finished: that finish is news.
+	setSessionState(t, m, doneID, status.Finished, landedAt.Add(time.Second))
+	m.settleLandings(landedAt.Add(2*time.Second), nil)
+	if got := next(sessionID(t, m, "ask")); got != "done" {
+		t.Fatalf("walk after a poll past the new finish = %q, want done", got)
+	}
+}
+
+// A landed answer the board never sees start a turn does not hide the row
+// for the rest of the drain: past settleHold, whatever the board reads is
+// the session's own.
+func TestTriageLandedAnswerSettlesAfterTheHold(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"ask":  status.Waiting,
+		"done": status.Finished,
+	})
+	m.triage = true
+	m.rebuildRows()
+	doneID := sessionID(t, m, "done")
+	done, _ := m.sessionByID(doneID)
+	m.noteSettling(done, time.Now())
+	landedAt := m.settling[doneID].at
+
+	m.settleLandings(landedAt.Add(settleHold-time.Millisecond), nil)
+	if _, held := m.settling[doneID]; !held {
+		t.Fatal("the mark lapsed inside the hold with the answered finish still showing")
+	}
+	m.settleLandings(landedAt.Add(settleHold), nil)
+	if _, held := m.settling[doneID]; held {
+		t.Fatal("the mark outlived the hold")
+	}
+}
+
+// setSessionState puts the board's row for id in st since at, as a poll
+// reading it would.
+func setSessionState(t *testing.T, m *Model, id, st string, at time.Time) {
+	t.Helper()
+	for i := range m.sessions {
+		if m.sessions[i].ID == id {
+			m.sessions[i].Status, m.sessions[i].LastStatusAt = st, at
+			m.rebuildRows()
+			return
+		}
+	}
+	t.Fatalf("session %s is not on the board", id)
 }
 
 // Sessions tied on status and priority queue by the deadlines extensions

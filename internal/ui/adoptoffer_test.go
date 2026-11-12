@@ -36,7 +36,7 @@ func TestTheToastsKeyBringsTheNewPaneIn(t *testing.T) {
 	socket, pane := adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
 	m.applyCmd(t, nil)
 	m.noteAdopted(adoptedMsg{taken: 1, ids: []string{"byhand"}})
-	if !strings.Contains(m.errBar.text, "byhand, started outside the board, is on it as-is · a brings it in · o leaves it out") {
+	if !strings.Contains(m.errBar.text, "byhand, started outside the board, is on it as-is · ctrl+⌥a brings it in · ctrl+o leaves it out") {
 		t.Fatalf("toast = %q", m.errBar.text)
 	}
 	// The toast outlives the couple of polls an ordinary notice gets.
@@ -47,7 +47,7 @@ func TestTheToastsKeyBringsTheNewPaneIn(t *testing.T) {
 		t.Fatal("the toast was gone before its keys could be pressed")
 	}
 	m.selectSessionRow(t, "mine")
-	pressKey(t, m, key("a"))
+	pressKey(t, m, key("ctrl+alt+a"))
 	if foreignPaneAlive(t, socket, pane) || !m.tmux.Exists("byhand") {
 		t.Fatal("a on the toast did not bring the named pane in")
 	}
@@ -64,7 +64,7 @@ func TestTheToastsOtherKeyLeavesThePaneOut(t *testing.T) {
 	socket, pane := adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
 	m.applyCmd(t, nil)
 	m.noteAdopted(adoptedMsg{taken: 1, ids: []string{"byhand"}})
-	pressKey(t, m, key("o"))
+	pressKey(t, m, key("ctrl+o"))
 	if !foreignPaneAlive(t, socket, pane) {
 		t.Fatal("o ended the pane")
 	}
@@ -81,14 +81,14 @@ func TestBringInActsOnTheSelectedAdoptedRow(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "mine", t.TempDir(), "")
 	m.selectSessionRow(t, "mine")
-	pressKey(t, m, key("a"))
+	pressKey(t, m, key("ctrl+alt+a"))
 	if !strings.Contains(m.errBar.text, "already a board session") {
 		t.Fatalf("a on a board session said %q", m.errBar.text)
 	}
 	socket, pane := adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
 	m.applyCmd(t, nil)
 	m.selectSessionRow(t, "byhand")
-	pressKey(t, m, key("a"))
+	pressKey(t, m, key("ctrl+alt+a"))
 	if foreignPaneAlive(t, socket, pane) || !m.tmux.Exists("byhand") {
 		t.Fatal("a did not bring the selected pane in")
 	}
@@ -104,14 +104,14 @@ func TestRestartsOfAnAdoptedPaneOfferToBringItIn(t *testing.T) {
 	m.selectSessionRow(t, "byhand")
 
 	m.restartSelected()
-	if m.mode == modeConfirmDelete || !strings.Contains(m.errBar.text, "a brings it in") {
+	if m.mode == modeConfirmDelete || !strings.Contains(m.errBar.text, "ctrl+⌥a brings it in") {
 		t.Fatalf("restart on an adopted pane: mode %v, %q", m.mode, m.errBar.text)
 	}
-	if err := m.killSession(sessionNamed(t, m, "byhand")); err == nil || !strings.Contains(err.Error(), "a brings it in") {
+	if err := m.killSession(sessionNamed(t, m, "byhand")); err == nil || !strings.Contains(err.Error(), "ctrl+⌥a brings it in") {
 		t.Fatalf("killSession refused with %v", err)
 	}
 
-	pressKey(t, m, key("v"))
+	pressKey(t, m, key("ctrl+r"))
 	if m.mode != modeConfirmDelete || !strings.Contains(m.confirm.label, "bring byhand into the board?") {
 		t.Fatalf("v on an adopted pane: mode %v, %q", m.mode, m.confirm.label)
 	}

@@ -495,18 +495,58 @@ func footModel(t *testing.T) *Model {
 	return m
 }
 
+// key builds the press a catalog key name stands for: a bare rune, a named
+// key, or a chord such as "ctrl+x", "ctrl+alt+n", "alt+." or "shift+up". A
+// chord carries no text, so it resolves through keyName to the same name the
+// catalog binds it under.
 func key(s string) tea.KeyPressMsg {
-	switch s {
-	case "enter":
-		return tea.KeyPressMsg{Code: tea.KeyEnter}
-	case "esc":
-		return tea.KeyPressMsg{Code: tea.KeyEscape}
-	case "down":
-		return tea.KeyPressMsg{Code: tea.KeyDown}
-	case "up":
-		return tea.KeyPressMsg{Code: tea.KeyUp}
+	var mod tea.KeyMod
+	rest := s
+	for {
+		prefix, tail, ok := strings.Cut(rest, "+")
+		if !ok || tail == "" {
+			break
+		}
+		switch prefix {
+		case "ctrl":
+			mod |= tea.ModCtrl
+		case "alt":
+			mod |= tea.ModAlt
+		case "shift":
+			mod |= tea.ModShift
+		default:
+			ok = false
+		}
+		if !ok {
+			break
+		}
+		rest = tail
+	}
+	if code, ok := namedKeyCodes[rest]; ok {
+		return tea.KeyPressMsg{Code: code, Mod: mod}
+	}
+	if mod != 0 {
+		return tea.KeyPressMsg{Code: []rune(rest)[0], Mod: mod}
 	}
 	return tea.KeyPressMsg{Code: []rune(s)[0], Text: s}
+}
+
+var namedKeyCodes = map[string]rune{
+	"enter":     tea.KeyEnter,
+	"esc":       tea.KeyEscape,
+	"down":      tea.KeyDown,
+	"up":        tea.KeyUp,
+	"left":      tea.KeyLeft,
+	"right":     tea.KeyRight,
+	"tab":       tea.KeyTab,
+	"space":     tea.KeySpace,
+	"pgup":      tea.KeyPgUp,
+	"pgdown":    tea.KeyPgDown,
+	"home":      tea.KeyHome,
+	"end":       tea.KeyEnd,
+	"backspace": tea.KeyBackspace,
+	"delete":    tea.KeyDelete,
+	"f3":        tea.KeyF3,
 }
 
 // resizeNow runs the resize pass a test wants finished before it looks at

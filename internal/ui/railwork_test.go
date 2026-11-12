@@ -616,7 +616,7 @@ func TestRestoreAllReachesThroughArtifactRows(t *testing.T) {
 	for _, cursor := range artifacts {
 		m.cursor = cursor
 		m.errBar.text = ""
-		m.handleKey(tea.KeyPressMsg{Code: 'D', Text: "D"})
+		m.handleKey(key("alt+d"))
 		if got := m.errBar.text; got != "no dead sessions to restore" {
 			t.Fatalf("restore all on an artifact returned %q, want the restore handler's empty-view notice", got)
 		}

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 // focusRow puts the cursor on a named session and focuses it, the two keys
@@ -276,22 +278,23 @@ func TestTheFooterNamesLastPaneOnlyOnceItWorks(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
 	createSession(t, m, "alpha", dir, "")
-	if legendHasPair(m.viewLegend(), "l") {
+	lastPane := m.tightCap(keymap.ContextList, keymap.LastPane)
+	if legendHasPair(m.viewLegend(), lastPane) {
 		t.Error("the footer named l with nothing behind it")
 	}
-	if !legendHasPair(m.defaultRowLegend(), "l") {
-		t.Error("the default row did not name l with nothing behind it")
+	if !legendHasPair(m.defaultRowLegend(), lastPane) {
+		t.Error("the default row did not name last pane with nothing behind it")
 	}
 	createSession(t, m, "beta", dir, "")
 	focusRow(t, m, "alpha")
 	m.leaveFocusForFixture(t)
 	focusRow(t, m, "beta")
 	m.leaveFocusForFixture(t)
-	if !legendHasPair(m.viewLegend(), "l") {
-		t.Error("the footer did not name l once history existed")
+	if !legendHasPair(m.viewLegend(), lastPane) {
+		t.Error("the footer did not name last pane once history existed")
 	}
-	if !legendHasPair(m.defaultRowLegend(), "l") {
-		t.Error("the default row did not name l once history existed")
+	if !legendHasPair(m.defaultRowLegend(), lastPane) {
+		t.Error("the default row did not name last pane once history existed")
 	}
 }
 

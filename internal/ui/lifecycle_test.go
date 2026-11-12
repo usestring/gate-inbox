@@ -344,7 +344,7 @@ func TestDotAcknowledgesOnlyCurrentFinishedStatus(t *testing.T) {
 			m.rebuildRows()
 			m.selectSessionRow(t, "alert-me")
 
-			m.handleKey(tea.KeyPressMsg{Code: '.', Text: "."})
+			m.handleKey(key("alt+."))
 			got, err := m.store.Get(sess.ID)
 			if err != nil {
 				t.Fatalf("get: %v", err)
@@ -375,7 +375,7 @@ func TestDotKeepsArchivedFinishedStatus(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "kept")
 
-	m.handleKey(tea.KeyPressMsg{Code: '.', Text: "."})
+	m.handleKey(key("alt+."))
 	got, err := m.store.Get(sess.ID)
 	if err != nil {
 		t.Fatalf("get: %v", err)

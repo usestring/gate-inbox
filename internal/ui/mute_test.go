@@ -54,6 +54,42 @@ func TestTriageAdvanceNeverHandsBackASessionAlreadyDrained(t *testing.T) {
 	}
 }
 
+// Auto-proceed's mute is keyed to the answer landing, and the poll after the
+// landing often still reads the state just answered: the agent's hooks report
+// the new turn a beat later. The mute holds through that poll, so the next
+// handover cannot put the operator back in a session already at work, and
+// lapses once the board shows the turn.
+func TestLandedMuteHoldsUntilTheBoardSeesTheTurn(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{"done": status.Finished})
+	id := sessionID(t, m, "done")
+	done, _ := m.sessionByID(id)
+	landed := time.Now()
+	m.muteUntilSeen(done, landed)
+
+	m.statusesAsOf = landed.Add(time.Second)
+	if !m.isMuted(done) {
+		t.Fatal("a poll still reading the answered finish lifted the mute")
+	}
+	// Leaving acknowledged the finish: the same turn, seen.
+	acked := done
+	acked.Status, acked.Acked = status.Idle, true
+	if !m.isMuted(acked) {
+		t.Fatal("acknowledging the answered finish lifted the mute")
+	}
+	working := done
+	working.Status, working.LastStatusAt = status.Working, landed.Add(500*time.Millisecond)
+	if m.isMuted(working) {
+		t.Fatal("the mute outlived the turn the answer started")
+	}
+
+	m.muteUntilSeen(done, landed)
+	m.statusesAsOf = landed.Add(settleHold)
+	if m.isMuted(done) {
+		t.Fatal("the mute outlived the hold with no turn ever seen")
+	}
+}
+
 // A mute is memory of one pass, not a property of the session: the moment
 // the agent says something new the row is back in the queue.
 func TestMuteLapsesWhenTheSessionMovesOn(t *testing.T) {
@@ -88,7 +124,7 @@ func TestDismissMutesAWaitingSessionAndPressingItAgainRestoresIt(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, _ := m.handleKey(key("."))
+	updated, _ := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if m.mode != modeList {
 		t.Fatalf(`"." left the list in mode %v`, m.mode)
@@ -100,7 +136,7 @@ func TestDismissMutesAWaitingSessionAndPressingItAgainRestoresIt(t *testing.T) {
 		t.Fatalf("a muted row carries no mark:\n%s", rail)
 	}
 
-	updated, _ = m.handleKey(key("."))
+	updated, _ = m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if m.isMuted(sessionNamed(t, m, "ask")) {
 		t.Fatal(`a second "." did not un-mute the row`)
@@ -118,7 +154,7 @@ func TestDismissStillAcksAFinishedSession(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "done")
 
-	updated, _ := m.handleKey(key("."))
+	updated, _ := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	sess, err := m.store.Get(sessionNamed(t, m, "done").ID)
 	if err != nil {
@@ -137,13 +173,13 @@ func TestEnteringTriageClearsTheLastDrainsMutes(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.selectSessionRow(t, "ask")
-	updated, _ := m.handleKey(key("."))
+	updated, _ := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if len(m.muted) != 1 {
 		t.Fatalf("setup did not mute: %v", m.muted)
 	}
 
-	updated, cmd := m.handleKey(key("i"))
+	updated, cmd := m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -242,7 +278,7 @@ func TestSkipKeyEntersTheQueueFromTheList(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, cmd := m.handleKey(key("."))
+	updated, cmd := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -267,7 +303,7 @@ func TestSkipKeyStaysOnTheListOutsideTriage(t *testing.T) {
 	m.selectSessionRow(t, "ask")
 	before := m.cursor
 
-	updated, cmd := m.handleKey(key("."))
+	updated, cmd := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -289,7 +325,7 @@ func TestSkipKeyOnTheListSaysWhenTheQueueIsDrained(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, cmd := m.handleKey(key("."))
+	updated, cmd := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -321,7 +357,7 @@ func TestSkipKeyAcksAFinishedSessionAndMovesOn(t *testing.T) {
 	}
 	m.selectSessionRow(t, "done")
 
-	updated, cmd := m.handleKey(key("."))
+	updated, cmd := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -351,7 +387,7 @@ func TestSkipKeyFromARowOffTheQueue(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "busy")
 
-	updated, cmd := m.handleKey(key("."))
+	updated, cmd := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)

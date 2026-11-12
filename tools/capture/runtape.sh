@@ -50,13 +50,13 @@ printf 'Type "clear && gib-cap-launch"\nEnter\nSleep 8s\n'
 # welcome screen drops it — which used to feed the seeding keys to a screen
 # that was still up. First run opens on the welcome screen; Enter dismisses it.
 printf 'Enter\nSleep 3s\n'
-# Seed a board worth looking at. "n" is the one-question spawn — type the
+# Seed a board worth looking at. ctrl+n is the one-question spawn — type the
 # CLI, Enter creates — which is the only seeding path that survives being
-# driven blind: the ctrl+n form has seven rows, and an Enter that lands on
+# driven blind: the ctrl+alt+n form has seven rows, and an Enter that lands on
 # the wrong one advances instead of creating. Creating focuses the new
 # session, so ctrl+q returns to the list.
 for tool in "$@"; do
-  printf 'Type "n"\nSleep 1500ms\n'
+  printf 'Ctrl+n\nSleep 1500ms\n'
   printf 'Type "%s"\nSleep 800ms\n' "$tool"
   printf 'Enter\nSleep 6s\n'
   printf 'Ctrl+q\nSleep 2s\n'

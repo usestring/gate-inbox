@@ -30,15 +30,51 @@ type muteMark struct {
 	// settle, when set, keys the mute to an answer seen landing at that
 	// instant instead of to the state. The state the session was left in is
 	// stale by then -- the answer moved it on and the board has not polled
-	// since -- so the mute holds only until a poll listed after the landing
-	// has been applied, and whatever that poll reports is the session's own
-	// news. Held to the state, a session whose answer changed nothing the
-	// poller sees would stay muted for the rest of the drain.
+	// since -- so the mute holds until a poll listed after the landing shows
+	// the turn the answer started, and whatever the board reports from then
+	// is the session's own news. See answerSettled.
 	settle time.Time
 }
 
-// muteUntilSeen silences sess until the board has polled it after at, the
-// moment its answer was seen landing.
+// settleHold caps how long an answer seen landing keeps a session off the
+// walk while the board still reads the state it was answered in. Held to the
+// state alone, a session whose answer changed nothing the poller sees would
+// stay muted for the rest of the drain.
+const settleHold = 30 * time.Second
+
+// answerSettled reports whether the board has caught up with an answer seen
+// landing at landed on sess, which was in state st since at when it was
+// answered: a poll listed after the landing reports the turn the answer
+// started, or settleHold has passed without one.
+//
+// A poll listed after the landing is not enough on its own. The agent's
+// hooks and transcript report the new turn a beat after it takes the answer,
+// so the first such poll often still reads the finish or question just
+// answered, and a drain trusting it handed the operator straight back into
+// the session they had left, by then at work.
+func answerSettled(sess store.Session, st string, at, landed, asOf time.Time) bool {
+	if !asOf.After(landed) {
+		return false
+	}
+	return turnSeen(sess, st, at) || !asOf.Before(landed.Add(settleHold))
+}
+
+// turnSeen is whether sess has moved on from state st entered at at.
+// Acknowledging a finish turns it idle under the same LastStatusAt; that is
+// the finish answered, seen, not a turn after it.
+func turnSeen(sess store.Session, st string, at time.Time) bool {
+	if sess.LastStatusAt.After(at) {
+		return true
+	}
+	if sess.Status == st {
+		return false
+	}
+	acked := st == status.Finished && sess.Status == status.Idle && sess.Acked
+	return !acked
+}
+
+// muteUntilSeen silences sess until the board has seen the turn the answer
+// seen landing at at started; see answerSettled.
 func (m *Model) muteUntilSeen(sess store.Session, at time.Time) {
 	if m.muted == nil {
 		m.muted = map[string]muteMark{}
@@ -72,7 +108,7 @@ func (m *Model) isMuted(sess store.Session) bool {
 		return false
 	}
 	if !mark.settle.IsZero() {
-		if !m.statusesAsOf.After(mark.settle) {
+		if !answerSettled(sess, mark.status, mark.at, mark.settle, m.statusesAsOf) {
 			return true
 		}
 		delete(m.muted, sess.ID)

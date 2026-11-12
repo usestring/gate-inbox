@@ -39,7 +39,7 @@ func TestPriorityLiftsAheadOfLowerTiers(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 
 	want := []string{"old-block", "new-block", "reviewme", "napping", "grinder", "booting", "gone", "crashed"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
@@ -63,7 +63,7 @@ func TestGroupPriorityCoversTheSubtree(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 
 	want := []string{"new-block", "old-block", "reviewme", "napping", "grinder", "booting", "gone", "crashed"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
@@ -117,7 +117,7 @@ func TestPriorityKeyCyclesTheSession(t *testing.T) {
 
 	for _, want := range []priority.Tier{priority.Urgent, priority.High, priority.Medium, priority.Low, priority.Unset} {
 		m.selectSessionRow(t, "napping")
-		pressKey(t, m, key("p"))
+		pressKey(t, m, key("ctrl+p"))
 		got, err := m.store.Get(id)
 		if err != nil {
 			t.Fatal(err)
@@ -159,7 +159,7 @@ func TestTiersOrderTheQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 
 	// A high working session waits below an untiered idle one and a low
 	// question, while still leading the other sessions that cannot take input.
@@ -200,7 +200,7 @@ func TestPriorityKeyTogglesTheGroupAndRefusesRoot(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
 	m.selectGroupRow(t, "alpha")
-	pressKey(t, m, key("p"))
+	pressKey(t, m, key("ctrl+p"))
 	groups, err := m.store.Groups()
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func TestPriorityKeyTogglesTheGroupAndRefusesRoot(t *testing.T) {
 	}
 
 	m.selectGroupRow(t, rootGroup)
-	pressKey(t, m, key("p"))
+	pressKey(t, m, key("ctrl+p"))
 	if m.errBar.text == "" {
 		t.Fatal("p on root said nothing")
 	}
@@ -245,7 +245,7 @@ func TestARaisedTierStaysBehindAQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 
 	if got, want := sessionNames(m), []string{"ask", "done", "rest", "broke"}; !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
@@ -277,7 +277,7 @@ func TestNegativePrioritiesSortBelowDefault(t *testing.T) {
 		}
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 	names := sessionNames(m)
 	if slices.Index(names, "old-block") >= slices.Index(names, "new-block") {
 		t.Fatalf("negative priority sorts before default: %v", names)
@@ -334,7 +334,7 @@ func TestMediumPriorityJumpsTheTriageRing(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 	row, ok := m.nextTriageInput(sessionID(t, m, "reviewme"), nil)
 	if !ok || m.rows[row].sess.ID != id {
 		t.Fatal("positive priority did not jump the default sessions")

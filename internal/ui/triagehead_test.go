@@ -61,7 +61,7 @@ func TestKillingFromTheListInTriageEntersTheQueue(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "zap")
 
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	updated, _ := m.handleKey(key("ctrl+x"))
 	m = confirmKill(t, updated.(*Model))
 
 	if m.mode != modeFocus {
@@ -78,7 +78,7 @@ func TestKillingFromTheListOutsideTriageStaysOnTheList(t *testing.T) {
 	m := queuedKillFleet(t)
 	m.selectSessionRow(t, "zap")
 
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	updated, _ := m.handleKey(key("ctrl+x"))
 	m = confirmKill(t, updated.(*Model))
 
 	if m.mode != modeList {

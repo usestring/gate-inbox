@@ -92,7 +92,7 @@ func TestBoardReportsTheActionsTheOperatorRuns(t *testing.T) {
 	m.selectSessionRow(t, "first")
 	first := m.cursorSessionID()
 
-	m.Update(runeKey("/"))
+	m.Update(runeKey("ctrl+f"))
 	m.Update(runeKey("x"))
 	m.Update(namedKey(tea.KeyEscape))
 	m.applyCmd(t, m.clearSearch())

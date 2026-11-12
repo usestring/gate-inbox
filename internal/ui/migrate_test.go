@@ -290,7 +290,7 @@ func TestMigrationPairReordersTogetherInNormalAndFilteredViews(t *testing.T) {
 	}
 	assertRows("before,source,replacement,after")
 	m.selectSessionRow(t, "keep-replacement")
-	m.handleKey(tea.KeyPressMsg{Code: 'K', Text: "K"})
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModShift})
 	assertRows("source,replacement,before,after")
 	selected, _ := m.selected()
 	if selected.ID != "replacement" {
@@ -298,7 +298,7 @@ func TestMigrationPairReordersTogetherInNormalAndFilteredViews(t *testing.T) {
 	}
 	m.search = "keep"
 	m.rebuildRows()
-	m.handleKey(tea.KeyPressMsg{Code: 'J', Text: "J"})
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModShift})
 	assertRows("before,replacement,after")
 	m.search = ""
 	loadStoredRows(t, m)

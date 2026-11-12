@@ -324,7 +324,14 @@ type triageKey struct {
 	// above it can leave the question unreached for as long as the urgent
 	// work keeps finishing.
 	asking bool
-	score  float64
+	// pastBackground is a session ranked below status.Background: working,
+	// starting, hibernating or dead. It sorts under every other row of its
+	// band whatever their priority: a background shell or a delegating parent
+	// has ended its turn and wakes on its own, while a session mid-turn is the
+	// one place triage must never walk anybody into, so an urgent grinder must
+	// not sit above a low monitor. Past that line priority orders as before.
+	pastBackground bool
+	score          float64
 }
 
 func (k triageKey) before(o triageKey) bool {
@@ -339,6 +346,9 @@ func (k triageKey) before(o triageKey) bool {
 	}
 	if k.asking != o.asking {
 		return k.asking
+	}
+	if k.pastBackground != o.pastBackground {
+		return !k.pastBackground
 	}
 	if k.priority != o.priority {
 		return k.priority < o.priority
@@ -357,6 +367,7 @@ func (m *Model) triageKeyOf(sess store.Session, now time.Time) triageKey {
 		band: triageBandRest, priority: m.tierOf(sess).Rank(),
 		tier: m.triageRankOf(sess), errored: m.triageStateOf(sess) == status.Errored,
 	}
+	key.pastBackground = key.tier > triageRank(status.Background)
 	if sess.Muted {
 		key.band = triageBandMuted
 		return key

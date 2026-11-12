@@ -732,8 +732,8 @@ func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool
 	// from. The walk keeps going past it the way it walks past a muted row,
 	// whatever its mark. A refused or timed-out answer lapses the skip with
 	// the landing; a seen one holds it until a poll listed after the landing
-	// has been applied, since until then the row still reads the state the
-	// answer moved it on from. See landing.go.
+	// shows the turn it started, since until then the row still reads the
+	// state the answer moved it on from. See landing.go and answerSettled.
 	if _, pending := m.landings[row.sess.ID]; pending {
 		return false
 	}

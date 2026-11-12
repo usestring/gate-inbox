@@ -421,11 +421,13 @@ func TestAutoProceedStaysPutOnAScrolledBackPane(t *testing.T) {
 	}
 }
 
-// A mute keyed to the landing holds until a poll listed after it has been
-// applied, and then lapses whatever the session reads: the poll is the
-// session's own news, and a mute that outlived it would hide the session for
-// the rest of the drain.
-func TestLandedMuteLapsesWithTheFirstPollAfterIt(t *testing.T) {
+// A mute keyed to the landing holds through a poll listed after it that still
+// reads the question just answered: the agent has taken the answer and its
+// hooks have not said so yet, so handing the row over puts the operator in a
+// session already at work. It lapses after settleHold whatever the session
+// reads, so a turn the board never sees cannot hide it for the rest of the
+// drain.
+func TestLandedMuteHoldsUntilTheTurnOrTheHold(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
 	m = pressEnter(m)
@@ -446,8 +448,13 @@ func TestLandedMuteLapsesWithTheFirstPollAfterIt(t *testing.T) {
 	}
 	updated, _ = m.Update(refreshMsg{sessions: m.sessions, listedAt: mark.settle.Add(time.Millisecond)})
 	m = updated.(*Model)
+	if !m.isMuted(ask) {
+		t.Fatal("a poll still reading the answered question lifted the mute")
+	}
+	updated, _ = m.Update(refreshMsg{sessions: m.sessions, listedAt: mark.settle.Add(settleHold)})
+	m = updated.(*Model)
 	if m.isMuted(ask) {
-		t.Fatal("the mute outlived the first poll after the landing, though the session still reads waiting")
+		t.Fatal("the mute outlived the hold, though no turn was ever seen")
 	}
 }
 

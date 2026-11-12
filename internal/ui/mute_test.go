@@ -54,6 +54,42 @@ func TestTriageAdvanceNeverHandsBackASessionAlreadyDrained(t *testing.T) {
 	}
 }
 
+// Auto-proceed's mute is keyed to the answer landing, and the poll after the
+// landing often still reads the state just answered: the agent's hooks report
+// the new turn a beat later. The mute holds through that poll, so the next
+// handover cannot put the operator back in a session already at work, and
+// lapses once the board shows the turn.
+func TestLandedMuteHoldsUntilTheBoardSeesTheTurn(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{"done": status.Finished})
+	id := sessionID(t, m, "done")
+	done, _ := m.sessionByID(id)
+	landed := time.Now()
+	m.muteUntilSeen(done, landed)
+
+	m.statusesAsOf = landed.Add(time.Second)
+	if !m.isMuted(done) {
+		t.Fatal("a poll still reading the answered finish lifted the mute")
+	}
+	// Leaving acknowledged the finish: the same turn, seen.
+	acked := done
+	acked.Status, acked.Acked = status.Idle, true
+	if !m.isMuted(acked) {
+		t.Fatal("acknowledging the answered finish lifted the mute")
+	}
+	working := done
+	working.Status, working.LastStatusAt = status.Working, landed.Add(500*time.Millisecond)
+	if m.isMuted(working) {
+		t.Fatal("the mute outlived the turn the answer started")
+	}
+
+	m.muteUntilSeen(done, landed)
+	m.statusesAsOf = landed.Add(settleHold)
+	if m.isMuted(done) {
+		t.Fatal("the mute outlived the hold with no turn ever seen")
+	}
+}
+
 // A mute is memory of one pass, not a property of the session: the moment
 // the agent says something new the row is back in the queue.
 func TestMuteLapsesWhenTheSessionMovesOn(t *testing.T) {

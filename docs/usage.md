@@ -17,7 +17,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | Key | Action |
 |-----|--------|
 | `n` | New session with one question, which agent, in a box already holding the CLI you last spawned — then no form, no name, no prompt, in the group under the cursor. Type over the box to pick another — `terminal` among them, for a plain shell — `←→` to cycle, `esc` to back out. Settings → CLIs sets which appear and their order. **new session agent** can use `last used`, `default tool`, or `auto`. Auto asks the build's extension which enabled CLI to start, is offered only when it can answer, and opens the ordinary picker when it does not. When the extension reports quota, the box lists each CLI's quota left and when it resets, and marks the CLI auto would start with "(auto)". |
-| `ctrl+n` | New session, asking first (tool, name, directory, optional starting prompt, group picker). The card opens on the tool: type to pick a CLI by name, or arrow through the matches — `terminal` among them, for a plain shell with no prompt or model. `n` is the fast path for this same form; inside a focused session only `ctrl+n` works, because plain letters there go to the agent |
+| `ctrl+n` | New session, asking first (tool, name, directory, optional starting prompt, group picker). The card opens on the tool: type to pick a CLI by name, or arrow through the matches — `terminal` among them, for a plain shell with no prompt or model. From the quick New Session picker, `ctrl+n` opens More options with the selected agent; inside a focused session only `ctrl+n` works, because plain letters there go to the agent |
 | `T` | New terminal tab: a shell under the selected agent, or in the selected group |
 | `g` | New group (name, parent, start, default path). `start` set to `always at path` pins the path: every session an agent spawns into the group, or into a group below it, starts there, and a deeper directory it asked for is handed to it as a change-directory step. An agent opts one launch out with `create_session`'s `directory_reason`. The rail marks a pinned group's dir `pinned`. Outside the board, `gate-inbox create-group <path> --directory <dir> --pin` (or `create_group` with `pin`) creates one pinned, and `gate-inbox pin-group <path> [--off]` pins or unpins an existing one |
 | `enter` | Focus session in place (keys go to the agent, list stays) / fold group. An archived session has no live pane to focus, so the row offers attach and `u` instead |
@@ -281,7 +281,19 @@ Inside a session every `ctrl` combination reaches the program running there, `ct
 
 ## Sessions in their own checkout
 
-Gate Inbox does not create git worktrees. A session that should edit a checkout of its own is given one: make the worktree with the repository's own tooling first, then spawn the session with that path as its directory (`spawn --directory`, `directory` on the MCP `create_session` tool, or the path field of the New Session form). The board treats it as any other directory: nothing follows a rename, and deleting the session leaves the checkout where it is.
+In the New Session form (`ctrl+n`), set the directory to a checkout of your repository and press
+`F2` to list its existing worktrees by branch and path. The checkout containing the form directory
+is marked current. Type to filter by branch or path, use the arrow keys to highlight a match, and
+press `enter` to fill the directory field. `esc` returns to the form without changing the directory.
+The picker requires Git 2.36 or newer.
+
+The form keeps the group's default directory. If your last New Session in that repository used a
+different checkout and it still exists, the form shows its branch and path below the directory.
+Press `F4` to fill the directory with that checkout, then `enter` when you're ready to launch.
+
+Create worktrees with your repository's own tooling first. You can also enter the path directly,
+use `spawn --directory`, or set `directory` on the MCP `create_session` tool. The board treats the
+checkout as any other directory: nothing follows a rename, and deleting the session leaves it in place.
 
 ## Killing and reviving sessions
 

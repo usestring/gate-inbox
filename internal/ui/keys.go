@@ -336,7 +336,7 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 	case keymap.NewSession:
 		return m.startNewSession()
 	case keymap.NewSessionForm:
-		m.openForm()
+		return m, m.openForm()
 	case keymap.NewGroup:
 		m.openGroupForm()
 	case keymap.Fork:

@@ -8,17 +8,21 @@
 </p>
 
 <p align="center">
-  A terminal board for running and triaging many AI coding-agent sessions in tmux.
+  One priority queue for every coding agent waiting on you. Answer one, and the next comes up on its own.
 </p>
 
-![Spawning two agents, watching their status, then answering the one that is waiting from the triage queue](docs/demo/core-loop.gif)
+![Triage working through four agents in priority order: the urgent question first, then the next question, then a high-priority finished session, each answer advancing the queue on its own](docs/demo/triage.gif)
 
-<p align="center"><em>Spawn two agents, watch their status, answer the waiting one from the triage queue, and it hands over the next.</em></p>
+<p align="center"><em><code>ctrl+i</code> opens the queue at its head. Each answer hands that session back to its agent and brings up the next.</em></p>
 
-Gate Inbox puts every coding agent on your machine in one list with live status, so the session
-that is blocked on you is visible without hunting through terminal tabs. Claude Code, Codex and
-OpenCode v2 work out of the box and run side by side, each in its own tmux session. Any other CLI
-can be added as a `[tools.<name>]` block in the config.
+Gate Inbox turns the coding agents on your machine into one queue. Every session that needs you, whether
+it is stopped on a question, finished, or idle, is lined up by priority and state. `ctrl+i` opens
+the head of the queue, and answering it advances to the next one, so you work through the queue
+without picking the next session or hunting through terminal tabs. Mark a session urgent, high, medium or
+low with `ctrl+p` and it moves to that place in the queue.
+
+Claude Code, Codex and OpenCode v2 work out of the box and run side by side, each in its own tmux
+session. Any other CLI can be added as a `[tools.<name>]` block in the config.
 
 It is a thin layer over the CLIs you already have. Each session launches your installed tool as-is,
 so your login, config files, MCP servers and every feature the tool ships carry over unchanged.
@@ -38,8 +42,9 @@ Gate Inbox reads the panes; it does not sit between you and the model.
    relaunched on the same conversation as a board session. `ctrl+o` leaves it off the board. What a
    pane kept as-is misses is [below](#kept-as-is-or-relaunched); settings (`ctrl+alt+s`) has "outside
    panes" to take them over once idle without asking.
-4. **The loop.** `ctrl+n` starts an agent, `enter` focuses it, `ctrl+q` comes back to the list, `ctrl+i`
-   walks everything waiting on you, and `ctrl+h` shows every key.
+4. **The loop.** `ctrl+n` starts an agent, `ctrl+p` sets its priority, `ctrl+i` works through the queue
+   of everything waiting on you, `enter` focuses one session, `ctrl+q` comes back to the list, and
+   `ctrl+h` shows every key.
 5. **Leaving and coming back.** `ctrl+alt+q` quits and the agents keep running. When you start it again,
    the board offers back only the sessions that *died* (a reboot, tmux restarting, a crash),
    never the ones you ended yourself. [Stop using it](#stop-using-it) covers stopping for good.
@@ -80,14 +85,18 @@ gate-inbox
 
 1. `ctrl+n` starts an agent in the group under the cursor and focuses it. Type the task.
 2. `ctrl+q` goes back to the list. Each row shows its status as the agent works.
-3. `ctrl+i` opens the triage queue, starting with the session that has waited longest.
-4. Answer it. The queue hands you the next one.
+3. `ctrl+i` opens the queue at its head: questions first, then by priority.
+4. Answer it. The queue advances to the next one on its own.
 5. `ctrl+h` shows every key for the current screen, and `ctrl+alt+s` opens settings.
 
 Sessions live in tmux, so quitting the board leaves them running. Start `gate-inbox` again and it
 picks them back up.
 
 ## The core loop
+
+![Spawning two agents, watching their status, then answering the one that is waiting from the queue](docs/demo/core-loop.gif)
+
+<p align="center"><em>Spawn two agents, watch their status, and answer the one waiting from the queue.</em></p>
 
 **Spawn.** `ctrl+n` starts a session in the selected group. `ctrl+alt+n` opens the full form (tool, name,
 directory, first prompt, group). Agents name their own sessions after the task.
@@ -110,15 +119,19 @@ detail. Focus mode uses the terminal by default; F3 switches between conversatio
 remembers the choice. Shell sessions always show the terminal. `ctrl+w` filters the list
 to what needs attention, and `ctrl+f` searches names, titles, groups, statuses and what the sessions have said.
 
-**Triage.** `ctrl+i` flattens the groups into one queue ordered by what needs a person: waiting first,
-then finished, then errored, longest-blocked first inside each. Picking an option in a dialog, or
-sending a reply, hands that session back to its agent and opens the next one. `ctrl+q` moves on
-without answering, and `ctrl+\` stops triage. `alt+\` puts the list away for a full-width drain,
-and `alt+,` hides the key hints.
+**Work the queue.** `ctrl+i` flattens the group under the cursor into one queue and opens its head.
+A session stopped on a question comes first unless it is marked low priority. After that, a higher
+priority goes ahead of a lower one, and within one priority a question goes ahead of a finished
+session, which goes ahead of an idle one. Sessions still working wait below everything ready for
+you. Picking an option in a dialog, or sending a reply, hands that session back to its agent and
+advances the queue to the next one. A session that becomes ready while you work joins the queue in
+place, and when the group is empty the queue widens to the rest of the board. `ctrl+q` skips one
+without answering, and `ctrl+\` stops. `alt+\` puts the list away for full-width work, and `alt+,`
+hides the key hints. `triage order` in Settings switches to priority first, oldest first, or
+questions only; [`docs/usage.md`](docs/usage.md#walking-the-queue) has the full ordering.
 
-![Triage draining four agents full-width: each answer hands the session back and the next one that needs input comes up on its own](docs/demo/triage.gif)
-
-<p align="center"><em>Triage with the list put away. Answer one session and the next that needs you comes up on its own.</em></p>
+**Set priority.** `ctrl+p` steps a session or group through urgent, high, medium, low and none,
+from the list or from inside the session. `ctrl+m` mutes a session to keep it out of the queue.
 
 **Switch subscriptions or agents.** Select a session and press `alt+a` to switch its subscription,
 or `ctrl+t` to move its conversation to another CLI. When a session hits a usage limit and a

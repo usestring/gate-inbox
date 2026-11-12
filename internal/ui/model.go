@@ -770,10 +770,10 @@ type Model struct {
 	// handoverTrace is the Enter handover whose next frame is still to be
 	// timed; see handOverOnEnter.
 	handoverTrace handoverTrace
-	// settling are the sessions whose answer has been seen landing, by the
-	// instant it was, until a poll listed after that has been applied: the
-	// row still shows the state the answer moved it on from. See triage.go.
-	settling map[string]time.Time
+	// settling are the sessions whose answer has been seen landing, until a
+	// poll listed after that shows the turn it started: the row still shows
+	// the state the answer moved it on from. See landing.go.
+	settling map[string]settleMark
 	// statusesAsOf is when the newest applied poll pass listed its sessions:
 	// every status on the board is at least that fresh. A mute keyed to an
 	// answer landing lapses once it passes the landing; see mute.go.

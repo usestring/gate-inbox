@@ -1150,6 +1150,9 @@ func TestAssembleCarriesTheDirectiveOverAPastedImagePath(t *testing.T) {
 // of being refused by Claude Code's two-minute countdown; a plain tool is
 // left alone, and an operator's own setting stands.
 func TestEnvironmentKeepsAClaudePermissionPromptStanding(t *testing.T) {
+	// A run from inside a managed claude inherits the variable; start unset.
+	t.Setenv(KeepPromptsEnv, "")
+	os.Unsetenv(KeepPromptsEnv)
 	manager := hooks.NewManager(t.TempDir())
 	hooked := config.Tool{Command: "cat", StatusSource: hooks.StatusSourceClaude, MCP: "claude"}
 	_, env, err := Environment(manager, "hooked", hooked, hooked.Command, "abcd1234", "", "", false, nil)

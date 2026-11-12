@@ -5,7 +5,8 @@
 #   tools/demo/record.sh tools/demo/core-loop.tape
 #
 # record.sh has launched the board, hidden, on a scratch home. Every session
-# runs fake-agent.sh, so nothing here reaches a model.
+# runs fake-agent.sh, so nothing here reaches a model. ctrl+v is the demo's alias
+# for ctrl+i, which vhs sends as tab (see record.sh).
 
 # Let the board negotiate the keyboard protocol before the first key, then put
 # the cursor on the project group so new sessions land there. Searching for it
@@ -23,9 +24,9 @@ Sleep 1s
 Show
 Sleep 1s
 
-# n starts an agent in the group under the cursor and focuses it; the task is
+# ctrl+n starts an agent in the group under the cursor and focuses it; the task is
 # typed straight into its prompt. ctrl+q comes back to the list.
-Type "n"
+Ctrl+n
 Sleep 2500ms
 Type "fix the flaky login test"
 Sleep 600ms
@@ -34,7 +35,7 @@ Sleep 3s
 Ctrl+q
 Sleep 1500ms
 
-Type "n"
+Ctrl+n
 Sleep 2500ms
 Type "update the install steps in the README"
 Sleep 600ms
@@ -46,8 +47,8 @@ Ctrl+q
 # working, then finished for one and waiting on a question for the other.
 Sleep 7s
 
-# i turns the list into a queue, longest-blocked first, and opens its head.
-Type "i"
+# ctrl+i turns the list into a queue, questions first, and opens its head.
+Ctrl+v
 Sleep 3s
 
 # Answering the question hands the session back to its agent and opens the
@@ -55,8 +56,8 @@ Sleep 3s
 Type "1"
 Sleep 4s
 
-# ctrl+\ stops triage and i goes back to the groups, both sessions settled.
+# ctrl+\ stops triage and ctrl+i goes back to the groups, both sessions settled.
 Ctrl+\
 Sleep 1500ms
-Type "i"
+Ctrl+v
 Sleep 4s

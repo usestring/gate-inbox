@@ -192,7 +192,7 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	keys.Write([]byte("R"))
 	time.Sleep(300 * time.Millisecond)
 	drawn := len(out.String())
-	keys.Write([]byte("w"))
+	keys.Write([]byte("\x17")) // ctrl+w
 	deadline = time.Now().Add(20 * time.Second)
 	for !strings.Contains(ansi.Strip(out.String()[drawn:]), "noop head c41d0001") {
 		if time.Now().After(deadline) {

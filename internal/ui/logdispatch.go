@@ -105,6 +105,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyLogged {
 		snap = m.snapshotDispatch(key)
 	}
+	if isKey {
+		m.reportKey(key)
+	}
 	model, cmd := m.update(msg)
 	m.reportView()
 	// The new-session box opens from many paths; whichever opened it, the

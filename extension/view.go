@@ -28,23 +28,60 @@ type ViewEvent struct {
 	// row.
 	SessionID string
 	// Rows is how many rows a ViewCursor event moved the cursor, negative
-	// for up. It is zero on ViewChanged.
+	// for up. It is zero on every other kind.
 	Rows int
-	At   time.Time
+	// Triage is whether the board is in triage, listing only the sessions
+	// waiting on the operator, longest-waiting first.
+	Triage bool
+	// Filtered is whether a search is narrowing the list, while it is typed
+	// or after it is kept.
+	Filtered bool
+	// Action is what a ViewAction ran: a key map action, by the name an
+	// operator's key file binds it under, such as "archive" or "search", or
+	// ActionSnippet. It is empty on every other kind.
+	Action string
+	// Snippet is the menu key of the snippet an ActionSnippet sent, such as
+	// "y". It is the key, never the snippet's text or label.
+	Snippet string
+	// Via is how a ViewAction was asked for.
+	Via ViewVia
+	At  time.Time
 }
 
 // ViewKind says what a ViewEvent reports.
 type ViewKind string
 
 const (
-	// ViewChanged is Visible, Place or SessionID having changed. The first
-	// event a subscriber sees after the board starts is one, so it knows
-	// where the operator is before anything moves.
+	// ViewChanged is Visible, Place, SessionID, Triage or Filtered having
+	// changed. The first event a subscriber sees after the board starts is
+	// one, so it knows where the operator is before anything moves.
 	ViewChanged ViewKind = "changed"
 	// ViewCursor is the operator moving the list's cursor with a key.
 	// Moves the board makes itself, such as landing on a session it just
 	// created, are not reported.
 	ViewCursor ViewKind = "cursor"
+	// ViewAction is the operator running a board action: a key bound to
+	// one, a snippet, or a pick from the quick actions palette. It is
+	// reported when the key is pressed, whether or not the action could run
+	// on the row it was pressed on. The keys that move the cursor are
+	// reported as ViewCursor instead, and a key that reaches a session or a
+	// text field, or is typed into a search, is not reported at all.
+	ViewAction ViewKind = "action"
+)
+
+// ActionSnippet is the Action of a snippet sent from the board.
+const ActionSnippet = "snippet"
+
+// ViewVia is how the operator asked for a ViewAction.
+type ViewVia string
+
+const (
+	// ViaKey is a key bound to the action, or a snippet's own key.
+	ViaKey ViewVia = "key"
+	// ViaMenu is a snippet picked in the hotkey menu.
+	ViaMenu ViewVia = "menu"
+	// ViaPalette is an action picked in the quick actions palette.
+	ViaPalette ViewVia = "palette"
 )
 
 // ViewPlace is where on the board the operator is.

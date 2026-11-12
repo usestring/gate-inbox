@@ -1,6 +1,9 @@
 package tmux
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // A directory name is its occupant's to choose, line breaks included. What
 // follows one must not read as a pane line: here it claims a session that
@@ -52,7 +55,12 @@ func TestOnlyThePathScanReadsDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanPanesWithPaths: %v", err)
 	}
-	if _, ok := scan.PIDs[id]; !ok || scan.Paths[id] != "/tmp" {
+	// tmux reports the directory with links resolved, which on macOS is not /tmp.
+	tmp, err := filepath.EvalSymlinks("/tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := scan.PIDs[id]; !ok || scan.Paths[id] != tmp {
 		t.Errorf("ScanPanesWithPaths = pids %v, paths %v; want the pane live in /tmp", scan.PIDs, scan.Paths)
 	}
 }

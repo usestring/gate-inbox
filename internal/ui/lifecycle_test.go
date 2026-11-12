@@ -1868,9 +1868,14 @@ func TestArchiveAgentConfirmNamesExtraTerminals(t *testing.T) {
 // adoptedRow plants a session the manager did not start: a pane on somebody
 // else's tmux server, reached the way adoption leaves it — a store row
 // carrying the pane's location and a driver that resolves the id to it.
+//
+// The pane is a shell with its agent as a child, the tree the poller reads
+// as a live agent. A bare "cat" is that tree only where /bin/sh forks it:
+// bash execs a lone command, which leaves a tree of one, and the poller then
+// takes the agent for dead and deletes its status file.
 func adoptedRow(t *testing.T, m *Model, name, group string) (id, socket, pane string) {
 	t.Helper()
-	socket, pane = uiForeignServer(t, "cat")
+	socket, pane = uiForeignServer(t, "cat; :")
 	id = "adopted" + name
 	if err := m.store.CreateSession(store.Session{
 		ID:           id,

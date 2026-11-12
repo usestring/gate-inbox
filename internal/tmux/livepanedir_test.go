@@ -1,6 +1,9 @@
 package tmux
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // LivePaneDir answers Exists and PaneCurrentPath together, so it has to give
 // Exists's answer in the case Exists works hardest for: an adopted pane that
@@ -19,12 +22,17 @@ func TestLivePaneDirAgreesWithExists(t *testing.T) {
 	if out, err := tmuxOn(socket, "kill-pane", "-t", panes[0]).CombinedOutput(); err != nil {
 		t.Fatalf("kill-pane: %v: %s", err, out)
 	}
+	// tmux reports the directory with links resolved, which on macOS is not /tmp.
+	tmp, err := filepath.EvalSymlinks("/tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []struct {
 		id, dir string
 		live    bool
 	}{
-		{managed, "/tmp", true},
-		{open, "/tmp", true},
+		{managed, tmp, true},
+		{open, tmp, true},
 		{closed, "", false},
 		{uniqueID("never"), "", false},
 	} {

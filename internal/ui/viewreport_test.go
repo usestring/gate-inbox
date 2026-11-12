@@ -6,6 +6,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/keymap"
+	"github.com/usestring/gate-inbox/internal/snippets"
 )
 
 func (r *recordingObserver) viewEvents() []extension.ViewEvent {
@@ -75,5 +77,69 @@ func TestBoardReportsWhereTheOperatorIs(t *testing.T) {
 	}
 	if kinds[4] != (seen{extension.ViewChanged, extension.ViewList, "", 0}) {
 		t.Errorf("leave = %+v", kinds[4])
+	}
+}
+
+// Extensions hear each action the operator asks for, by key, snippet or
+// palette, with whether triage or a search was on, and nothing for the keys
+// that move the cursor or are typed into the search.
+func TestBoardReportsTheActionsTheOperatorRuns(t *testing.T) {
+	m := buildModel(t)
+	launchNamed(t, m, "first")
+	m.snips = snippets.Set{Snippets: snippets.Defaults()}
+	observer := &recordingObserver{}
+	m.ObserveBoard(observer)
+	m.selectSessionRow(t, "first")
+	first := m.cursorSessionID()
+
+	m.Update(runeKey("/"))
+	m.Update(runeKey("x"))
+	m.Update(namedKey(tea.KeyEscape))
+	m.applyCmd(t, m.clearSearch())
+	m.selectSessionRow(t, "first")
+	m.openQuickMode()
+	m.Update(runeKey("y"))
+	m.quick.active = false
+	m.triage = true
+	m.Update(nil)
+	_, cmd := m.runQuickAction(quickActionEntry{action: keymap.Mute})
+	m.applyCmd(t, cmd)
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+
+	type seen struct {
+		action, snippet string
+		via             extension.ViewVia
+		triage, filter  bool
+		session         string
+	}
+	var actions []seen
+	filtered, triaged := false, false
+	for _, e := range observer.viewEvents() {
+		switch e.Kind {
+		case extension.ViewAction:
+			actions = append(actions, seen{e.Action, e.Snippet, e.Via, e.Triage, e.Filtered, e.SessionID})
+		case extension.ViewChanged:
+			filtered = filtered || e.Filtered
+			triaged = triaged || e.Triage
+		}
+	}
+	if len(actions) == 3 {
+		actions[2].session = "" // triage lists only what waits, so the row may be gone
+	}
+	want := []seen{
+		{"search", "", extension.ViaKey, false, false, first},
+		{extension.ActionSnippet, "y", extension.ViaMenu, false, false, first},
+		{"mute", "", extension.ViaPalette, true, false, ""},
+	}
+	if len(actions) != len(want) {
+		t.Fatalf("actions = %+v, want %+v", actions, want)
+	}
+	for i := range want {
+		if actions[i] != want[i] {
+			t.Errorf("action %d = %+v, want %+v", i, actions[i], want[i])
+		}
+	}
+	if !filtered || !triaged {
+		t.Errorf("ViewChanged reported search %v and triage %v, want both", filtered, triaged)
 	}
 }

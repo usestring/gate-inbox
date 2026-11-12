@@ -11,6 +11,7 @@ import (
 	"github.com/junegunn/fzf/src/algo"
 	"github.com/junegunn/fzf/src/util"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/keymap"
 )
@@ -207,6 +208,7 @@ func (m *Model) handleQuickActionsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 func (m *Model) runQuickAction(entry quickActionEntry) (tea.Model, tea.Cmd) {
 	m.mode = modeList
 	m.rememberQuickAction(entry.action)
+	m.reportAction(string(entry.action), "", extension.ViaPalette)
 	m.errBar.text = ""
 	model, cmd := m.dispatchQuickAction(entry.action)
 	if m.errBar.text == "" {

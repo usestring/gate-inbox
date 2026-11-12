@@ -26,6 +26,11 @@ Sleep 1s
 Escape
 Sleep 1500ms
 
+# Up to the claude row: the opencode one opens on a banner naming its log.
+Type "k"
+Sleep 500ms
+Type "k"
+Sleep 500ms
 Enter
 Sleep 2s
 Screenshot {{SHOTS}}/04-focused-session.png

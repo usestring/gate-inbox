@@ -355,6 +355,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.unmuteAllListed()
 	case keymap.CopyJev:
 		return m.copySelectedWithJev()
+	case keymap.RunJev:
+		return m.runSelectedWithJev()
 	case keymap.ReviveAll:
 		return m.reviveAllDead()
 	case keymap.SwitchAccount:

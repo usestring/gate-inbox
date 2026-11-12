@@ -3,6 +3,9 @@ package ui
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -30,6 +33,13 @@ import (
 //
 // Nothing is read or sent until the key is pressed, and nothing is written
 // to the clipboard except on that key.
+//
+// The run key reads the same turn the same way, in the same call, but keeps
+// only the one-line commands the classifier is confident the agent left for
+// the operator to run, and types the next of them into the session as
+// "! <command>" with Enter, which Claude Code, Codex and OpenCode take as a
+// shell command run in the session. It does not wrap: once every command has
+// gone out, pressing again sends nothing, so no command runs twice by accident.
 
 const jevCopySetting = "experimental_jev_copy"
 
@@ -48,6 +58,10 @@ type jevCopyState struct {
 	picks      []string
 	note       string
 	next       int
+	// commands are the picks the run key sends, and ran how many of them it
+	// has sent for this turn.
+	commands []string
+	ran      int
 }
 
 type jevCopyResultMsg struct {
@@ -55,7 +69,10 @@ type jevCopyResultMsg struct {
 	turn       string
 	from       string
 	texts      []string
+	commands   []string
 	ok         bool
+	// run names the session the run key was pressed on, empty for the copy key.
+	run string
 	// note says why there is nothing to copy when texts is empty.
 	note string
 }
@@ -87,16 +104,62 @@ func latestAssistantText(messages []search.Message) string {
 
 // askJevCopy asks the classifier every question plan carries in one call and returns its
 // picks, with adjacent draft paragraphs kept together so the clipboard holds
-// the reply rather than its pieces. ok is false when the classifier did not answer them all.
-func askJevCopy(ctx context.Context, provider classifier.Provider, key string, plan *autocopy.Plan) ([]string, bool) {
+// the reply rather than its pieces, and the commands among them the run key may
+// send. ok is false when the classifier did not answer them all.
+func askJevCopy(ctx context.Context, provider classifier.Provider, key string, plan *autocopy.Plan) (picks, commands []string, ok bool) {
 	input := plan.Input()
 	answers, ok := askJevNoul(ctx, provider, jevHTTPClient, provider.Endpoint(), key,
 		map[string]any{"message": input.Message}, input.Questions)
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
 	picks, err := plan.Select(answers)
-	return picks, err == nil
+	if err != nil {
+		return nil, nil, false
+	}
+	return picks, runnableCommands(input.Questions, answers), true
+}
+
+// jevRunQuestion opens autocopy's per-candidate command question ("c1", "c2",
+// ...), which quotes the candidate after it. autocopy does not export which
+// candidate a question asks about, so the run key reads it back from here; a
+// test pins the wording so an autocopy upgrade that changes it fails loudly
+// instead of leaving the key with nothing to run.
+const jevRunQuestion = "Is this text a command supplied for the user to run? Text: "
+
+// runnableCommands are the candidates the classifier answered the command
+// question for at the copy threshold, in the order the agent wrote them. A
+// command is held to the stricter copy threshold rather than autocopy's
+// command one because this key runs it rather than copying it. A command
+// spanning lines is left out, since the prompt would take its first newline
+// as Enter, and a leading "!" the agent already wrote is dropped so the key
+// does not send "! ! cmd".
+func runnableCommands(questions map[string]string, answers map[string]float64) []string {
+	type numbered struct {
+		index int
+		text  string
+	}
+	var found []numbered
+	for name, question := range questions {
+		index, err := strconv.Atoi(strings.TrimPrefix(name, "c"))
+		if !strings.HasPrefix(name, "c") || err != nil || !strings.HasPrefix(question, jevRunQuestion) {
+			continue
+		}
+		if answers[name] < autocopy.Threshold {
+			continue
+		}
+		text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(question, jevRunQuestion)), "!"))
+		if text == "" || strings.ContainsAny(text, "\r\n") {
+			continue
+		}
+		found = append(found, numbered{index, text})
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].index < found[j].index })
+	commands := make([]string, len(found))
+	for i, command := range found {
+		commands[i] = command.text
+	}
+	return commands
 }
 
 func jevCopyIdentity(sess store.Session) string {
@@ -110,6 +173,15 @@ func (m *Model) copySelectedWithJev() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m.copyWithJev(sess)
+}
+
+// runSelectedWithJev runs the run key on the list's selected row.
+func (m *Model) runSelectedWithJev() (tea.Model, tea.Cmd) {
+	sess, ok := m.selected()
+	if !ok || sess.Archived {
+		return m, nil
+	}
+	return m.runWithJev(sess)
 }
 
 // copyWithJev puts the next pick from sess's latest turn on the clipboard,
@@ -127,6 +199,27 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 		}
 		return m, m.copyNextPick()
 	}
+	return m.readJevTurn(sess, turn, "")
+}
+
+// runWithJev types the next command from sess's latest turn into sess, first
+// reading that turn the way the copy key does when what is on hand came from
+// another one.
+func (m *Model) runWithJev(sess store.Session) (tea.Model, tea.Cmd) {
+	if !m.jevCopyOn || m.jevCopy.busy {
+		return m, nil
+	}
+	turn := jevCopyIdentity(sess)
+	if turn == m.jevCopy.turn {
+		return m, m.runNextCommand(sess)
+	}
+	return m.readJevTurn(sess, turn, sess.ID)
+}
+
+// readJevTurn reads sess's latest turn and asks the classifier about it off the
+// event loop. run is the session to send the first command to once it lands,
+// or empty to copy the first pick instead.
+func (m *Model) readJevTurn(sess store.Session, turn, run string) (tea.Model, tea.Cmd) {
 	key := m.jevAPIKey()
 	provider := m.classifierProvider()
 	if key == "" {
@@ -144,7 +237,7 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 	generation := m.jevCopy.generation
 	m.reportDone(provider.Name() + " is reading " + from + "'s last message")
 	return m, func() tea.Msg {
-		msg := jevCopyResultMsg{generation: generation, turn: turn, from: from}
+		msg := jevCopyResultMsg{generation: generation, turn: turn, from: from, run: run}
 		target, found := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
 		if !found {
 			msg.note = "no conversation found for " + from
@@ -164,14 +257,14 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), jevCopyTimeout)
 		defer cancel()
-		texts, ok := askJevCopy(ctx, provider, key, plan)
+		texts, commands, ok := askJevCopy(ctx, provider, key, plan)
 		switch {
 		case !ok:
 			msg.note = provider.Name() + " did not answer; nothing copied"
 		case len(texts) == 0:
 			msg.note = provider.Name() + " found nothing in " + from + "'s last message left for you to copy"
 		}
-		msg.texts, msg.ok = texts, ok
+		msg.texts, msg.commands, msg.ok = texts, commands, ok
 		return msg
 	}
 }
@@ -183,7 +276,22 @@ func (m *Model) applyJevCopy(msg jevCopyResultMsg) tea.Cmd {
 	}
 	if msg.ok || len(msg.texts) > 0 {
 		m.jevCopy.turn, m.jevCopy.from, m.jevCopy.picks, m.jevCopy.next = msg.turn, msg.from, msg.texts, 0
+		m.jevCopy.commands, m.jevCopy.ran = msg.commands, 0
 		m.jevCopy.note = msg.note
+	}
+	if msg.run != "" {
+		sess, ok := m.sessionByID(msg.run)
+		if !ok || jevCopyIdentity(sess) != msg.turn {
+			// The row went away or moved on while the classifier read it:
+			// what it found is for a turn the operator is no longer looking at.
+			m.errBar.text = msg.from + " moved on while it was read; nothing sent"
+			return nil
+		}
+		if !msg.ok && len(msg.texts) == 0 {
+			m.errBar.text = msg.note
+			return nil
+		}
+		return m.runNextCommand(sess)
 	}
 	if len(msg.texts) == 0 {
 		m.errBar.text = msg.note
@@ -191,6 +299,59 @@ func (m *Model) applyJevCopy(msg jevCopyResultMsg) tea.Cmd {
 	}
 	logging.Info("jev copy", "from", msg.from, "picks", len(msg.texts))
 	return m.copyNextPick()
+}
+
+// runNextCommand types the next command the classifier found in sess's
+// latest turn into sess, with Enter. Unlike the copy key it stops after the
+// last rather than wrapping, so pressing again never runs a command twice.
+func (m *Model) runNextCommand(sess store.Session) tea.Cmd {
+	from := m.jevCopy.from
+	switch {
+	case len(m.jevCopy.commands) == 0:
+		m.errBar.text = "nothing in " + from + "'s last message left for you to run"
+		return nil
+	case m.jevCopy.ran >= len(m.jevCopy.commands):
+		m.errBar.text = fmt.Sprintf("already sent all %d commands from %s's last message", len(m.jevCopy.commands), from)
+		return nil
+	}
+	index := m.jevCopy.ran
+	command := m.jevCopy.commands[index]
+	quoted := `"! ` + command + `"`
+	if len(m.jevCopy.commands) > 1 {
+		quoted += fmt.Sprintf(" (%d of %d)", index+1, len(m.jevCopy.commands))
+	}
+	cmd, sent := sendJevCommand(m, sess, "! "+command, quoted)
+	if sent {
+		// Only a command that went out is spent; a refused one is the
+		// next press's to send once the pane can take it.
+		m.jevCopy.ran++
+		logging.Info("jev run", "from", from, "index", index+1, "total", len(m.jevCopy.commands))
+	}
+	return cmd
+}
+
+// sendJevCommand types a command line into sess and presses Enter through
+// the send a snippet takes, and reports whether it went out. It refuses
+// before that send can do anything else with the line: a parked row would be
+// revived to take it, and a question dialog would take it as the answer.
+// Tests swap it to see what would have been typed.
+var sendJevCommand = func(m *Model, sess store.Session, text, quoted string) (tea.Cmd, bool) {
+	switch {
+	case sess.Archived:
+		m.errBar.text = m.displayName(sess) + " is archived — " + m.pressTo(keymap.ContextList, keymap.Restore, "restore it first")
+		return nil, false
+	case m.isShell(sess.Tool):
+		m.errBar.text = shellPromptHint(sess.Name)
+		return nil, false
+	case !m.tmux.Exists(sess.ID):
+		m.errBar.text = m.deadSessionHint()
+		return nil, false
+	}
+	if hold, _ := m.dialogHold(sess); hold != "" {
+		m.errBar.text = hold
+		return nil, false
+	}
+	return m.sendSentence(sess, text, quoted, true, false), true
 }
 
 // copyNextPick writes the next pick to the clipboard, wrapping to the first

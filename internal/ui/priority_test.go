@@ -479,3 +479,23 @@ func TestCreditErrorCannotJumpWaitingOrFinishedWork(t *testing.T) {
 		})
 	}
 }
+
+// A background shell has ended its turn and wakes on its own; a working
+// session is mid-turn. Whatever their tiers, the rail puts the background
+// session first.
+func TestBackgroundSortsAboveWorkingWhateverItsTier(t *testing.T) {
+	for _, smart := range []bool{false, true} {
+		t.Run(fmt.Sprintf("smart=%v", smart), func(t *testing.T) {
+			grinder := smartSess("grinder", status.Working, time.Minute)
+			grinder.Priority = priority.Urgent
+			monitor := smartSess("monitor", status.Background, time.Hour)
+			monitor.Priority = priority.Low
+			m := smartFleet(t, grinder, monitor, smartSess("done", status.Finished, 2*time.Hour))
+			m.smartTriage = smart
+			m.rebuildRows()
+			if got, want := sessionNames(m), []string{"done", "monitor", "grinder"}; !slices.Equal(got, want) {
+				t.Fatalf("rail = %v, want %v", got, want)
+			}
+		})
+	}
+}

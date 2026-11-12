@@ -599,6 +599,9 @@ type Model struct {
 	// package-level in currentGlyphs, which every paint reads; this is the
 	// model's copy of the choice so the settings panel can round-trip it.
 	glyphs string
+	// rowDetail is whether session rows spell their state and CLI out or
+	// leave them to marks. See rowdetail.go.
+	rowDetail string
 	// listSort is the persisted order the board's sessions are shown in
 	// within each group. See listsort.go.
 	listSort string
@@ -1011,6 +1014,7 @@ type settingsState struct {
 	sidebar          string
 	palette          string
 	glyphs           string
+	rowDetail        string
 	archiveConfirm   string
 	deleteConfirm    string
 	restartConfirm   string
@@ -1065,6 +1069,7 @@ const (
 	settingsFieldSidebar
 	settingsFieldPalette
 	settingsFieldGlyphs
+	settingsFieldRowDetail
 	settingsFieldArchiveConfirm
 	settingsFieldDeleteConfirm
 	settingsFieldRestartConfirm
@@ -1425,6 +1430,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		sidebar:          storedSidebar(st, cfg.Board.Sidebar),
 		palette:          storedPalette(st),
 		glyphs:           storedGlyphs(st),
+		rowDetail:        storedRowDetail(st),
 		archiveConfirm:   storedArchiveConfirm(st),
 		deleteConfirm:    storedConfirmAsk(st, deleteConfirmSetting),
 		restartConfirm:   storedConfirmAsk(st, restartConfirmSetting),

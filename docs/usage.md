@@ -43,7 +43,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can. A row left in the archive is deleted for good after 7 days |
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `space` / `ctrl+s` | Hotkey menu: send one of your snippets to the selected session (`ctrl+s` also opens it inside a focused session) |
-| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, experimental features, snippets, restart flags, CLIs, report a bug, suggest a change, and the version row that updates in place) |
+| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, row detail, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, experimental features, snippets, restart flags, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `w` | Filter to sessions that need attention (`waiting`, stuck, `finished`, `errored`); press again to show all |
 | `Y` | Filter to one CLI's sessions (`claude`, `codex`, `opencode`, …), cycling through the harnesses on the board; press through to show all. Applies in the list and in triage |
 | `tab` | Enter the next session that needs you, wherever it is in the list. One key per state (waiting, finished, errored, idle, working) ships unbound — rebind one from the key map (`h`), or run it from quick actions (`:`) |
@@ -655,6 +655,8 @@ It is a palette transform rather than a second set of styles, so it reaches ever
 Each session wears one mark for its state, and by default those are geometric shapes — `◆` waiting, `●` finished, `✕` errored, and so on. They are chosen for font coverage before legibility: a phone or an iPad resolves a glyph its font has no cell for as a `?`, or out of the colour emoji font at double width, which shunts the rest of the row sideways.
 
 The cost is that a shape only carries state to somebody who has learned it, and colour does most of the work — which leaves nothing on a terminal drawing none. Settings (`s`) has a `status marks` row that switches to an emoji set that names each state instead of ranking it. It is opt-in rather than the default because turning it on is a claim about your terminal's font that only you can make; the picker shows the marks as you step it, so you can see whether your terminal draws them before saving. Every emoji mark is the same width as every other, so the column stays a column.
+
+Once the marks are familiar, the state word beside each row repeats what the tinted mark already says. The `row detail` row in Settings switches from `words` to `marks`: a row drops its state word, writes Claude, Codex and OpenCode as `CC`, `CX` and `OC` in each CLI's own colour, and a group's state rollup reads in marks instead of words. Other CLIs keep their names. Under the quiet colour setting the letters take the row's muted tint.
 
 ## Themes
 

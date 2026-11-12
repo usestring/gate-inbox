@@ -74,7 +74,7 @@ func TestReopenMarksLostSessionsAndTakesOutsidePanesOver(t *testing.T) {
 		t.Fatalf("the outside pane is not a board session now: %+v", got)
 	}
 
-	pressKey(t, m, key("V"))
+	pressKey(t, m, key("ctrl+alt+v"))
 	if !m.tmux.Exists("lost") {
 		t.Fatal("V did not resume the lost session")
 	}
@@ -133,7 +133,7 @@ func TestEachReopenSessionsSettingValue(t *testing.T) {
 		if m.mode != modeList || m.tmux.Exists("lost") || m.isDiedWhileClosed(row) {
 			t.Fatalf("never should neither mark nor resume, mode = %v", m.mode)
 		}
-		if !strings.Contains(m.errBar.text, "V revives") {
+		if !strings.Contains(m.errBar.text, "ctrl+⌥v revives") {
 			t.Fatalf("notice = %q, want one line pointing at V", m.errBar.text)
 		}
 	})
@@ -292,7 +292,7 @@ func TestAPaneAdoptedWhileRunningGetsOneLine(t *testing.T) {
 	}
 	setMode(t, m, outsidePanesSetting, paneAdopt)
 	m.noteAdopted(adoptedMsg{taken: 1, ids: []string{"later"}})
-	if m.mode != modeList || !strings.Contains(m.errBar.text, "a brings it in · o leaves it out") {
+	if m.mode != modeList || !strings.Contains(m.errBar.text, "ctrl+⌥a brings it in · ctrl+o leaves it out") {
 		t.Fatalf("mode = %v notice = %q", m.mode, m.errBar.text)
 	}
 }

@@ -289,20 +289,19 @@ func TestMirrorArrow(t *testing.T) {
 // pointing at the pane and its fold the other one; both prompt arrows bind
 // in focus, where only triage can use the one pointing away.
 func TestSideActionPerBinding(t *testing.T) {
-	press := func(code rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: code} }
 	for _, tc := range []struct {
 		name  string
 		ctx   keymap.Context
-		key   rune
+		key   tea.KeyPressMsg
 		right keymap.Action
 		left  keymap.Action
 	}{
-		{"focus → at the prompt", keymap.ContextFocus, tea.KeyRight, keymap.BackAtPrompt, keymap.BackAtPrompt},
-		{"focus ← at the prompt", keymap.ContextFocus, tea.KeyLeft, keymap.BackAtPrompt, keymap.BackAtPrompt},
-		{"list →", keymap.ContextList, tea.KeyRight, keymap.StepOut, keymap.StepIn},
-		{"list ←", keymap.ContextList, tea.KeyLeft, keymap.StepIn, keymap.StepOut},
-		{"list h stays help", keymap.ContextList, 'h', keymap.Help, keymap.Help},
-		{"list l stays last pane", keymap.ContextList, 'l', keymap.LastPane, keymap.LastPane},
+		{"focus → at the prompt", keymap.ContextFocus, key("right"), keymap.BackAtPrompt, keymap.BackAtPrompt},
+		{"focus ← at the prompt", keymap.ContextFocus, key("left"), keymap.BackAtPrompt, keymap.BackAtPrompt},
+		{"list →", keymap.ContextList, key("right"), keymap.StepOut, keymap.StepIn},
+		{"list ←", keymap.ContextList, key("left"), keymap.StepIn, keymap.StepOut},
+		{"list ctrl+h stays help", keymap.ContextList, key("ctrl+h"), keymap.Help, keymap.Help},
+		{"list ctrl+l stays last pane", keymap.ContextList, key("ctrl+l"), keymap.LastPane, keymap.LastPane},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, side := range []string{config.SidebarRight, config.SidebarLeft} {
@@ -311,7 +310,7 @@ func TestSideActionPerBinding(t *testing.T) {
 				if side == config.SidebarLeft {
 					want = tc.left
 				}
-				got, bound := m.sideAction(tc.ctx, press(tc.key))
+				got, bound := m.sideAction(tc.ctx, tc.key)
 				if !bound {
 					got = ""
 				}

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	_ "modernc.org/sqlite"
 )
 
@@ -65,7 +64,7 @@ func TestTriageKeyDoesNotWaitForTheDatabase(t *testing.T) {
 	holdTheWriteLock(t, dbPath)
 
 	started := time.Now()
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'i'})
+	updated, cmd := m.Update(key("ctrl+i"))
 	*m = *updated.(*Model)
 	painted := m.frame()
 	latency := time.Since(started)
@@ -93,7 +92,7 @@ func TestTheDeferredTriageWriteStillLands(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "one", t.TempDir(), "")
 
-	updated, _ := m.Update(tea.KeyPressMsg{Code: 'i'})
+	updated, _ := m.Update(key("ctrl+i"))
 	*m = *updated.(*Model)
 	if msg := m.persistTriage()(); msg != nil {
 		if err, isErr := msg.(errMsg); isErr {

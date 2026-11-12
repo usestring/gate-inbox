@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -59,7 +60,7 @@ func TestTriageRailOrdersByUrgencyThenOldest(t *testing.T) {
 		t.Fatalf("a folded group should hide new-block in normal mode:\n%s", got)
 	}
 
-	updated, cmd := m.handleKey(key("i"))
+	updated, cmd := m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -121,9 +122,9 @@ func TestTriageReorderKeyRefusesAndSaysWhy(t *testing.T) {
 	before := sessionNames(m)
 
 	m.selectSessionRow(t, "crashed")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'J', Text: "J"})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModShift})
 	m = updated.(*Model)
-	if !strings.Contains(m.errBar.text, "press i to leave triage") {
+	if !strings.Contains(m.errBar.text, "press "+m.cap(keymap.ContextList, keymap.Triage)+" to leave triage") {
 		t.Fatalf("reorder in triage said %q", m.errBar.text)
 	}
 	if got := sessionNames(m); !slices.Equal(got, before) {

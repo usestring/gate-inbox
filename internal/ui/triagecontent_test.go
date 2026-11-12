@@ -46,7 +46,7 @@ func TestTriageContentShortcutPersistsAndSwitchesTabs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, content := range []string{triageContentSessions, triageContentReviews, triageContentBoth} {
-		m.handleKey(tea.KeyPressMsg{Code: 'I', Text: "I"})
+		m.handleKey(key("alt+]"))
 		restored := New(m.cfg, m.store, m.tmux, m.engine, m.hooks, "test")
 		if restored.triageContent != content || restored.onReviewsTab() != (content == triageContentReviews) {
 			t.Fatalf("restored content = %q, reviews tab = %v for %s", restored.triageContent, restored.onReviewsTab(), content)

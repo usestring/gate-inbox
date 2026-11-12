@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/autocopy"
 	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/config"
@@ -48,9 +49,9 @@ func TestAskJevCopyKeepsOnlyConfidentPicks(t *testing.T) {
 	})}
 	message := "Run `gcloud auth login`, then read `README.md`."
 	plan := autocopy.Prepare(message)
-	picked, ok := askJevCopy(t.Context(), classifier.JEV, "key", plan)
-	if !ok || !slices.Equal(picked, []string{"gcloud auth login"}) {
-		t.Fatalf("picked %q ok=%v", picked, ok)
+	picked, commands, ok := askJevCopy(t.Context(), classifier.JEV, "key", plan)
+	if !ok || !slices.Equal(picked, []string{"gcloud auth login"}) || !slices.Equal(commands, []string{"gcloud auth login"}) {
+		t.Fatalf("picked %q commands %q ok=%v", picked, commands, ok)
 	}
 	if body.State.Message != message || len(body.Questions) != len(plan.Input().Questions) {
 		t.Fatalf("JEV was not sent the plan: message %q, %d questions", body.State.Message, len(body.Questions))
@@ -336,5 +337,92 @@ func TestCopyWithJevCopiesDraftWithoutItsCommentary(t *testing.T) {
 				t.Fatalf("calls=%d clipboard=%q", *calls, *wrote)
 			}
 		})
+	}
+}
+
+// pressRun presses the run key on sess, runs what it starts to the end, and
+// returns the lines it would have typed into the session.
+func pressRun(t *testing.T, m *Model, sess store.Session) []string {
+	t.Helper()
+	previous := sendJevCommand
+	t.Cleanup(func() { sendJevCommand = previous })
+	var typed []string
+	sendJevCommand = func(_ *Model, into store.Session, text, _ string) (tea.Cmd, bool) {
+		if into.ID != sess.ID {
+			t.Fatalf("typed into %q, want %q", into.ID, sess.ID)
+		}
+		typed = append(typed, text)
+		return nil, true
+	}
+	_, cmd := m.runWithJev(sess)
+	for cmd != nil {
+		msg, ok := cmd().(jevCopyResultMsg)
+		if !ok {
+			t.Fatalf("unexpected message %T", msg)
+		}
+		cmd = m.applyJevCopy(msg)
+	}
+	return typed
+}
+
+func TestRunWithJevTypesEachCommandOnceThenStops(t *testing.T) {
+	m, sess, calls := copyTurn(t, "Run `gcloud auth login`, then `! bun run deploy`, then open https://console.example.test/run.", 0.9, 0.95, 0.1)
+	m.sessions = []store.Session{sess}
+	stubClipboard(t, nil)
+	if got := pressRun(t, m, sess); !slices.Equal(got, []string{"! gcloud auth login"}) {
+		t.Fatalf("first press typed %q", got)
+	}
+	if got := pressRun(t, m, sess); !slices.Equal(got, []string{"! bun run deploy"}) {
+		t.Fatalf("second press typed %q", got)
+	}
+	if got := pressRun(t, m, sess); len(got) != 0 || !strings.Contains(m.errBar.text, "already sent all 2 commands") {
+		t.Fatalf("a third press typed %q, status %q", got, m.errBar.text)
+	}
+	if *calls != 1 {
+		t.Fatalf("the same turn was read %d times", *calls)
+	}
+	// The copy key shares that read and still walks its own picks.
+	wrote := stubClipboard(t, nil)
+	pressCopy(t, m, sess)
+	if *calls != 1 || !slices.Equal(*wrote, []string{"gcloud auth login"}) {
+		t.Fatalf("copy after run: calls %d, wrote %q", *calls, *wrote)
+	}
+}
+
+func TestRunWithJevSkipsWhatItIsNotSureOfAndMultilineBlocks(t *testing.T) {
+	m, sess, _ := copyTurn(t, "Maybe `make lint`.\n\n```sh\necho one\necho two\n```", 0.75, 0.99)
+	m.sessions = []store.Session{sess}
+	if got := pressRun(t, m, sess); len(got) != 0 || !strings.Contains(m.errBar.text, "left for you to run") {
+		t.Fatalf("typed %q, status %q", got, m.errBar.text)
+	}
+}
+
+func TestRunWithJevIsOffUntilEnabled(t *testing.T) {
+	m, sess, calls := copyTurn(t, "Run `gcloud auth login`.", 0.9)
+	m.jevCopyOn = false
+	if _, cmd := m.runWithJev(sess); cmd != nil || *calls != 0 {
+		t.Fatal("the run key acted with the experiment off")
+	}
+}
+
+// The run key reads which candidate a command question quotes from its
+// wording, which autocopy does not export; this fails if an upgrade changes it.
+func TestJevRunQuestionMatchesAutocopy(t *testing.T) {
+	questions := autocopy.Prepare("Run `example command`.").Input().Questions
+	if questions["c1"] != jevRunQuestion+"example command" {
+		t.Fatalf("autocopy's command question is now %q", questions["c1"])
+	}
+}
+
+func TestRunWithJevKeepsARefusedCommandForTheNextPress(t *testing.T) {
+	m, sess, _ := copyTurn(t, "Run `gcloud auth login`.", 0.9)
+	m.sessions = []store.Session{sess}
+	previous := sendJevCommand
+	t.Cleanup(func() { sendJevCommand = previous })
+	sendJevCommand = func(*Model, store.Session, string, string) (tea.Cmd, bool) { return nil, false }
+	_, cmd := m.runWithJev(sess)
+	m.applyJevCopy(cmd().(jevCopyResultMsg))
+	if got := pressRun(t, m, sess); !slices.Equal(got, []string{"! gcloud auth login"}) {
+		t.Fatalf("after a refused send the next press typed %q", got)
 	}
 }

@@ -74,6 +74,7 @@
 # leave_out           = ["o"]  # leave an outside pane off the board, still running
 # move                = ["m"]  # move it to a group
 # copy_jev            = ["'"]  # copy what JEV reads as left for you to copy
+# run_jev             = ["\""]  # run the next command JEV reads as left for you to run
 # show_all_work       = []  # show every pull request and ticket, not the first few
 # status_filter       = ["w"]  # filter to what needs attention
 # tool_filter         = ["Y"]  # filter to one CLI, or show all
@@ -117,6 +118,7 @@
 # reviews_tab         = ["ctrl+]"]  # switch to the Reviews tab
 # copy_session_id     = ["alt+/"]  # copy the agent's session id
 # copy_jev            = ["alt+'"]  # copy what JEV reads as left for you to copy
+# run_jev             = ["alt+\""]  # run the next command JEV reads as left for you to run
 # last_pane           = ["alt+;"]  # back to the previous pane; again walks further back
 # jump_pane           = ["ctrl+g"]  # find a pane by name and focus it
 # leave_at_prompt     = ["right", "left"]  # at a prompt edge, leave; in triage Right advances a finished one

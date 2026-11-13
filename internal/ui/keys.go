@@ -359,6 +359,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.runSelectedWithJev()
 	case keymap.ReviveAll:
 		return m.reviveAllDead()
+	case keymap.WakeAll:
+		return m.wakeAllHibernated()
 	case keymap.SwitchAccount:
 		return m, m.openAccountSwitch()
 	case keymap.Restart:

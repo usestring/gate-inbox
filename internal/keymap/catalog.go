@@ -51,6 +51,7 @@ const (
 
 	Revive        Action = "revive"
 	ReviveAll     Action = "revive_all"
+	WakeAll       Action = "wake_all"
 	SwitchAccount Action = "switch_account"
 	Restart       Action = "restart"
 	RestartWith   Action = "restart_with"
@@ -212,6 +213,7 @@ var Catalog = []Binding{
 
 	{ContextList, Revive, []string{"ctrl+r"}, "revive it, or restart a live one on its own conversation", false},
 	{ContextList, ReviveAll, []string{"ctrl+alt+v"}, "revive every dead session", false},
+	{ContextList, WakeAll, []string{"ctrl+alt+w"}, "wake every hibernated session listed", false},
 	{ContextList, IngestReviews, []string{"ctrl+alt+p"}, "fetch reviews asked of you on GitHub", false},
 	{ContextList, ReviewsTab, []string{"ctrl+]"}, "switch between the Sessions and Reviews tabs", false},
 	{ContextList, SwitchAccount, []string{"alt+a"}, "switch its account: restarts it on its own conversation", false},
@@ -342,6 +344,7 @@ var Catalog = []Binding{
 	{ContextFocus, NewGroup, []string{"ctrl+alt+g"}, "new group", false},
 	{ContextFocus, NewTerminal, []string{"ctrl+alt+t"}, "new terminal tab", false},
 	{ContextFocus, ReviveAll, []string{"ctrl+alt+v"}, "revive every dead session", false},
+	{ContextFocus, WakeAll, []string{"ctrl+alt+w"}, "wake every hibernated session listed", false},
 	{ContextFocus, IngestReviews, []string{"ctrl+alt+p"}, "fetch reviews asked of you on GitHub", false},
 	{ContextFocus, UndoArchive, []string{"ctrl+alt+u"}, "bring back what the last kill filed away", false},
 	{ContextFocus, RenameSelf, []string{"ctrl+alt+r"}, "rename it after its conversation", false},

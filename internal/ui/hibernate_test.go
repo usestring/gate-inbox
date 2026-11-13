@@ -3,6 +3,8 @@ package ui
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -111,5 +113,56 @@ func TestAHibernatedRowShowsHibernatingAndTriageDemotesIt(t *testing.T) {
 	}
 	if triageRank(status.Hibernating) <= triageRank(status.Starting) {
 		t.Fatal("triage ranks a hibernated row above a starting one")
+	}
+}
+
+// Wake-all brings back every hibernated row in view at once and leaves a
+// row that really died for revive.
+func TestWakeAllWakesEveryHibernatedSessionAndNoDeadOne(t *testing.T) {
+	m := buildModel(t)
+	byName := map[string]store.Session{}
+	for _, name := range []string{"gone", "sleeper-one", "sleeper-two"} {
+		createSession(t, m, name, t.TempDir(), "")
+	}
+	for _, sess := range m.sessionRows() {
+		byName[sess.Name] = sess
+		if err := m.tmux.Kill(sess.ID); err != nil {
+			t.Fatalf("kill: %v", err)
+		}
+		if err := m.store.UpdateStatus(sess.ID, status.Dead); err != nil {
+			t.Fatalf("UpdateStatus: %v", err)
+		}
+	}
+	dead, first, second := byName["gone"], byName["sleeper-one"], byName["sleeper-two"]
+	m.hibernated = []string{first.ID, second.ID}
+	if err := m.store.AddHibernated(m.hibernated); err != nil {
+		t.Fatalf("AddHibernated: %v", err)
+	}
+	for i := range m.sessions {
+		m.sessions[i].Status = status.Dead
+	}
+	m.rebuildRows()
+
+	if !m.applies(keymap.ContextList, keymap.WakeAll, treeRow{}) {
+		t.Fatal("wake-all does not apply with hibernated rows listed")
+	}
+	m.runListAction(keymap.WakeAll, tea.KeyPressMsg{})
+
+	for _, sess := range []store.Session{first, second} {
+		if !m.tmux.Exists(sess.ID) {
+			t.Fatalf("wake-all did not wake %s; err bar %q", sess.Name, m.errBar.text)
+		}
+		if still, _ := m.store.IsHibernated(sess.ID); still {
+			t.Fatalf("%s is still marked hibernated", sess.Name)
+		}
+	}
+	if m.tmux.Exists(dead.ID) {
+		t.Fatal("wake-all revived a session hibernate never stopped")
+	}
+	if len(m.hibernated) != 0 {
+		t.Fatalf("m.hibernated = %v, want empty", m.hibernated)
+	}
+	if m.applies(keymap.ContextList, keymap.WakeAll, treeRow{}) {
+		t.Fatal("wake-all still applies with nothing hibernated")
 	}
 }

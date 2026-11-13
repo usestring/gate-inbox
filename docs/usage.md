@@ -21,9 +21,9 @@ with an enhanced keyboard protocol (Ghostty, kitty, WezTerm, iTerm2 with CSI u);
 terminal sends them as `tab`, `enter` and `ctrl+_`. Inside a focused session the board's own chords
 work too and leave the pane for the board: `ctrl+i` triage, `ctrl+f` search, `ctrl+k` quick
 actions, `ctrl+alt+s` settings, `ctrl+alt+g` new group, `ctrl+alt+t` new terminal, `ctrl+alt+v`
-revive all, `ctrl+alt+p` fetch reviews, `ctrl+alt+u` undo archive and `ctrl+alt+r` rename. Keys
-an agent CLI relies on (`ctrl+r`, `ctrl+o`, `ctrl+w`, `ctrl+u`, `ctrl+e`, `ctrl+t`) still reach
-the agent there.
+revive all, `ctrl+alt+w` wake all hibernated, `ctrl+alt+p` fetch reviews, `ctrl+alt+u` undo
+archive and `ctrl+alt+r` rename. Keys an agent CLI relies on (`ctrl+r`, `ctrl+o`, `ctrl+w`,
+`ctrl+u`, `ctrl+e`, `ctrl+t`) still reach the agent there.
 
 | Key | Action |
 |-----|--------|
@@ -581,7 +581,7 @@ Each session's tmux pane is polled (default every 2s) to derive a status:
 
 `delegating` is never read off a pane. It is laid over a `finished` or `idle` session that still has children it spawned starting, working, waiting or delegating themselves, or a child's rest notice not yet typed into its prompt, and it ends once the last of those results has landed. Triage and `ctrl+w` do not hand a delegating session over as done; it rises only when a child needs you, the same way any parent does. The MCP tools report it too: `list_sessions` can filter on it, `wait_for_session` does not count it as stopped unless `until` names it, and `cleanup_children` leaves it by default.
 
-`hibernating` is never read off a pane either. Hibernation (`gate-inbox hibernate`, or `hibernate_after` in the config) stops a session at rest to give its memory back, and the store keeps the row dead, but the board and the MCP tools lay `hibernating` over it so it never reads as one that crashed or was killed. It wakes on its own conversation, as a revive would, when anything is sent to it (`send_session`, `send_children`, a child's report or question, a line typed on the board) or when you enter or focus it; the message waits in its queue and goes in once the agent is at its prompt. Triage hands it over last, after every other unmuted session, errored ones included; it does not count as waiting on you. `list_sessions` can filter on it, and `wait_for_session` counts it as stopped.
+`hibernating` is never read off a pane either. Hibernation (`gate-inbox hibernate`, or `hibernate_after` in the config) stops a session at rest to give its memory back, and the store keeps the row dead, but the board and the MCP tools lay `hibernating` over it so it never reads as one that crashed or was killed. It wakes on its own conversation, as a revive would, when anything is sent to it (`send_session`, `send_children`, a child's report or question, a line typed on the board) or when you enter or focus it; the message waits in its queue and goes in once the agent is at its prompt. `ctrl+alt+w` wakes every hibernated session in view at once and leaves sessions that really died for `ctrl+alt+v`. Triage hands it over last, after every other unmuted session, errored ones included; it does not count as waiting on you. `list_sessions` can filter on it, and `wait_for_session` counts it as stopped.
 
 Every row carries its mark, and each state has its own color from the active theme, so a glance down the rail tells you who needs you. The key map (`ctrl+h`) keeps bindings; its legend (`l` from the key map) lists the marks in those same colors.
 

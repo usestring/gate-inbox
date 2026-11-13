@@ -141,9 +141,7 @@ func (e *Engine) Match(tool, pane string) (string, bool) {
 		return Errored, true
 	}
 	if tool == "codex" && !e.ViewportDisplaced(tool, pane) {
-		failures := tr
-		failures.limitLine = codexFailureLine
-		if len(failures.limitLines(pane)) != 0 {
+		if codexFailed(tr, pane) {
 			return Errored, true
 		}
 	}
@@ -209,6 +207,20 @@ func (e *Engine) LimitBanner(tool, pane string) string {
 }
 
 var codexFailureLine = &matcher{re: regexp.MustCompile(`(?m)^[ \t]*■[ \t]+\S`)}
+
+// codexInterruptLine is the ■ row Codex draws when the operator presses Esc
+// ("■ Conversation interrupted - tell the model what to do differently"). It
+// wears the failure marker, but it is a turn stopped on purpose and waiting on
+// the operator, not a failure.
+var codexInterruptLine = regexp.MustCompile(`^[ \t]*■[ \t]+Conversation interrupted\b`)
+
+// codexFailed reports whether the newest ■ banner on a Codex pane is a
+// failure rather than the operator's own interrupt.
+func codexFailed(tr toolRules, pane string) bool {
+	tr.limitLine = codexFailureLine
+	lines := tr.limitLines(pane)
+	return len(lines) != 0 && !codexInterruptLine.MatchString(lines[0])
+}
 
 var codexCapacityLine = &matcher{re: regexp.MustCompile(`(?m)^[ \t]*■[ \t]+The selected model is at capacity\b`)}
 

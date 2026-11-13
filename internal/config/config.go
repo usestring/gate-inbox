@@ -918,6 +918,11 @@ const codexErroredReconnectOnly = `(?im)^\s*■(?:.*\berror\b| (?:Automatic reco
 
 const codexWorkingNoHints = `(?m)^[ \t]*(?:• )?[^\n]*\([\dhms. ]+ [•·] esc to interrupt\)(?: · [^\n]*)?[ \t]*\n(?:[ \t]+└[^\n]*\n(?:[ \t]{4}[^\n]*\n)*)?[ \t\n]*\z`
 
+// claudeErroredIndented is the Claude errored rule shipped before indented
+// tool output stopped counting. A config carrying it verbatim takes the
+// current rule.
+const claudeErroredIndented = `(?im)^\s*error:`
+
 // mergeTool returns user with any zero-value field filled from def.
 //
 // Shell is deliberately not among them. "terminal" is a plausible name for
@@ -1013,6 +1018,17 @@ func mergeTool(name string, user, def Tool) Tool {
 	if len(user.Rules) == 0 {
 		user.Rules = def.Rules
 	} else if name == "claude" {
+		for i, rule := range user.Rules {
+			if rule.State != "errored" || rule.Pattern != claudeErroredIndented {
+				continue
+			}
+			for _, current := range def.Rules {
+				if current.State == "errored" {
+					user.Rules[i] = current
+					break
+				}
+			}
+		}
 		upgradeBareEnterToConfirm(user.Rules, def.Rules)
 		upgradeOneLineAskRules(user.Rules, def.Rules)
 		user.Rules = withAskUserQuestionRules(user.Rules, def.Rules)
@@ -1579,7 +1595,11 @@ rules = [
   # "✳ Drizzling… (6s · thinking)" / "✽ Zigzagging… (3m 18s · ↓ 1.4k tokens)"
   { state = "working", pattern = "(?m)^[✻✳✶✽✢·✦✧+*] \\S+… \\(" },
   { state = "working", pattern = "esc to interrupt" },
-  { state = "errored", pattern = "(?im)^\\s*error:" },
+  # A fatal error the CLI prints itself starts at column zero. Claude indents
+  # everything it draws, tool output included, so an indented "error:" is a
+  # command's output ("     error: failed to push some refs"), not the agent
+  # failing.
+  { state = "errored", pattern = "(?im)^error:" },
 ]
 
 [tools.opencode]

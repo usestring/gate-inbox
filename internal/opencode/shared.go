@@ -315,12 +315,28 @@ func (s Server) alive(ctx context.Context) bool {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	resp, err := s.request(ctx, http.MethodGet, "/api/health", nil)
-	if err != nil {
-		return false
+	return s.answering(ctx)
+}
+
+// answering is whether the server answers its liveness probe. opencode
+// moved it from /api/health to /api/info, so a server either side of that
+// move is alive; only a 404 falls through, while a refusal or a server
+// error means this is not a server to hand sessions.
+func (s Server) answering(ctx context.Context) bool {
+	for _, path := range []string{"/api/info", "/api/health"} {
+		resp, err := s.request(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return true
+		}
+		if resp.StatusCode != http.StatusNotFound {
+			return false
+		}
 	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	return false
 }
 
 // supervising is pid a running supervisor of a shared server.

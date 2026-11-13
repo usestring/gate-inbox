@@ -539,6 +539,9 @@ type Model struct {
 	resizeSeq int
 
 	lastInteractionAt time.Time
+	// restartForUpgrade is set when the board quits to re-exec a newer build
+	// of itself. See selfupgrade.go.
+	restartForUpgrade bool
 	// focusActiveAt is when the focused pane was last typed into, and
 	// focusRepaintAt when it last repainted on its own. Together they decide
 	// its capture cadence -- see focusecho.go.
@@ -2251,13 +2254,17 @@ func (m *Model) publishPaneSize() {
 // handing over here.
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg.(type) {
-	case tea.KeyPressMsg, tea.KeyReleaseMsg, tea.MouseMsg, tea.PasteMsg:
+	// Keys typed while attached go to tmux, not here, so coming back from
+	// a session counts as the operator acting.
+	case tea.KeyPressMsg, tea.KeyReleaseMsg, tea.MouseMsg, tea.PasteMsg, attachDoneMsg:
 		m.lastInteractionAt = time.Now()
 	}
 	if m.updateExtension(msg) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
+	case BinaryUpgraded, upgradeRetry:
+		return m.restartWhenIdle()
 	case reviewsMsg:
 		return m.finishReviews(msg)
 	case reviewDraftsMsg:

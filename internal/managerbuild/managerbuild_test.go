@@ -166,7 +166,7 @@ func TestFingerprintComesFromProcSelfExe(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("no /proc on this platform")
 	}
-	if got, want := Fingerprint(), digestFile("/proc/self/exe"); got != want {
+	if got, want := Fingerprint(), DigestFile("/proc/self/exe"); got != want {
 		t.Fatalf("Fingerprint = %q, want the /proc/self/exe digest %q", got, want)
 	}
 }

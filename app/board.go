@@ -205,6 +205,7 @@ func runBoard(version string, registry *extension.Registry) error {
 
 	logging.Info("startup",
 		"version", version,
+		"revision", buildRevision(),
 		"home", dir,
 		"store", filepath.Join(dir, "state.db"),
 		"log", logger.Path(),
@@ -260,11 +261,16 @@ func runBoard(version string, registry *extension.Registry) error {
 	model.SetAutoDump(dumps.Trigger)
 	onHangup := dumps.OnHangup
 	beforeHangupExit.Store(&onHangup)
+	stopBinaryWatch := startBinaryWatch(program.Send)
 	_, runErr := program.Run()
+	stopBinaryWatch()
 	stopExtensions()
 	ui.ResetTerminalBackground()
 	logging.Info("shutdown", logging.Err(runErr),
 		"droppedLogLines", logger.Dropped(), "droppedTraces", tracing.Dropped())
+	if runErr == nil && model.RestartRequested() {
+		return errRestartBoard
+	}
 	return runErr
 }
 

@@ -10,6 +10,8 @@ Sessions run inside tmux (`gi_*` namespace), so they survive the manager quittin
 
 Agent sessions live on tmux's own default server, so `tmux ls` lists them and `tmux attach -t gi_<id>` drives one by hand. Because that server is yours as much as the manager's, the manager never writes a server-global option there, never unbinds a key, and claims `Ctrl+Q`, `Ctrl+\`, `Ctrl+R` and `F3` only when nothing has bound them already — a key you have bound yourself keeps doing what you told it, and the footer's tmux prefix followed by `d` still detaches. Set `tmux_socket` in `config.toml` (or `GATE_INBOX_TMUX_SOCKET`) to put them back on a private server, reachable as `tmux -L <socket> attach -t gi_<id>`.
 
+A running board picks up a rebuilt binary on its own. When a different build replaces the file it was started from, the board waits until it is on its list, not searching, and untouched for 30 seconds, then restarts itself in the same pane on the new build. Sessions keep running in tmux through the restart. `GATE_INBOX_NO_AUTO_RESTART=1` turns this off. The startup line in the log records the commit the board was built from (`revision`), since a local build reports its version only as `dev`.
+
 One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anchor`. The manager reads the whole board over a single tmux control-mode client per server, and a client has to be attached to some session — so it makes an idle one of its own rather than joining yours, which would put the manager in your session and let it move the window you are looking at. It runs nothing, and killing it costs nothing: the next poll puts it back. The manager removes it when it quits.
 
 ## Keys

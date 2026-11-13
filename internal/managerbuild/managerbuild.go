@@ -55,14 +55,15 @@ func digestSelf() string {
 		paths = append(paths, exe)
 	}
 	for _, path := range paths {
-		if sum := digestFile(path); sum != "" {
+		if sum := DigestFile(path); sum != "" {
 			return sum
 		}
 	}
 	return ""
 }
 
-func digestFile(path string) string {
+// DigestFile is the sha256 of the file at path, or "" when it cannot be read.
+func DigestFile(path string) string {
 	file, err := os.Open(path)
 	if err != nil {
 		return ""

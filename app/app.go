@@ -157,7 +157,11 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	tooldrivers.Use(driversOf(registry))
 
 	if len(args) == 0 {
-		return runBoard(version, registry)
+		err := runBoard(version, registry)
+		if errors.Is(err, errRestartBoard) {
+			return reexecBoard()
+		}
+		return err
 	}
 	switch args[0] {
 	case "help", "--help", "-h":

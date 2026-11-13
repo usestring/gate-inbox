@@ -772,12 +772,24 @@ func rewriteSettings(path string, create bool, edit func(raw []byte) ([]byte, er
 	return true, path, os.Rename(tmp.Name(), path)
 }
 
-// resolvedSettings is path after links, or path when it does not resolve.
+// resolvedSettings is path after links. A file not made yet resolves through
+// its nearest existing directory, so the name a register records before
+// creating the file is the one an unregister finds once it exists.
 func resolvedSettings(path string) string {
 	if target, err := filepath.EvalSymlinks(path); err == nil {
 		return target
 	}
-	return path
+	dir, rest := filepath.Dir(path), filepath.Base(path)
+	for {
+		if target, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(target, rest)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return path
+		}
+		dir, rest = parent, filepath.Join(filepath.Base(dir), rest)
+	}
 }
 
 // mergeSettings is raw with every hook command starting with mark taken out

@@ -179,6 +179,7 @@ func (m *Model) openSettings() {
 		sidebar:          normalizeSidebar(m.sidebar),
 		palette:          normalizePalette(m.palette),
 		glyphs:           normalizeGlyphs(m.glyphs),
+		rowDetail:        normalizeRowDetail(m.rowDetail),
 		archiveConfirm:   normalizeArchiveConfirm(m.archiveConfirm),
 		deleteConfirm:    normalizeConfirmAsk(m.deleteConfirm),
 		restartConfirm:   normalizeConfirmAsk(m.restartConfirm),
@@ -337,6 +338,9 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(glyphsSetting, normalizeGlyphs(m.settings.glyphs)); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(rowDetailSetting, normalizeRowDetail(m.settings.rowDetail)); err != nil {
+		m.errBar.text = err.Error()
+	}
 	if err := m.store.SetSetting(archiveConfirmSetting, normalizeArchiveConfirm(m.settings.archiveConfirm)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -448,6 +452,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.palette = normalizePalette(m.settings.palette)
 	m.glyphs = normalizeGlyphs(m.settings.glyphs)
 	applyGlyphSet(m.glyphs)
+	m.rowDetail = normalizeRowDetail(m.settings.rowDetail)
 	m.archiveConfirm = normalizeArchiveConfirm(m.settings.archiveConfirm)
 	m.deleteConfirm = normalizeConfirmAsk(m.settings.deleteConfirm)
 	m.restartConfirm = normalizeConfirmAsk(m.settings.restartConfirm)
@@ -642,6 +647,8 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		// the marks will be before the choice is saved.
 		m.settings.glyphs = glyphsModes[(index+step+len(glyphsModes))%len(glyphsModes)]
 		applyGlyphSet(m.settings.glyphs)
+	case settingsFieldRowDetail:
+		m.settings.rowDetail = cycleMode(rowDetailModes, normalizeRowDetail(m.settings.rowDetail), step)
 	case settingsFieldArchiveConfirm:
 		index := 0
 		for i, mode := range archiveConfirmModes {

@@ -380,6 +380,9 @@ func parentGroup(group string) string {
 // groupStatusBreakdown renders "2 working · 1 waiting" for the subtree,
 // each count tinted in its status color, skipping zero statuses.
 func (m *Model) groupStatusBreakdown(group string) string {
+	if m.rowMarks() {
+		return m.groupStatusGlyphs(group)
+	}
 	counts := m.groupStatusCounts(group)
 	var parts []string
 	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Hibernating, status.Dead} {

@@ -1141,10 +1141,20 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 		marks += " " + badge
 	}
 	state += marks
+	tool := metaText(" · " + sess.Tool)
+	if m.rowMarks() {
+		// The tinted mark ahead of the name already says the state, so the
+		// word goes and the CLI is written as its letters. See rowdetail.go.
+		state = strings.TrimPrefix(marks, " ")
+		tool = m.toolLabel(sess.Tool, metaText)
+		if state != "" {
+			tool = " " + tool
+		}
+	}
 	compact := m.compactRail()
 	label := state
 	if !compact || sess.Tool != m.commonTool {
-		state += metaText(" · " + sess.Tool)
+		state += tool
 	}
 	// An archived row is on a clock, and the clock is the one thing about it
 	// that is not recoverable by looking. It goes after the age, in the same
@@ -1157,6 +1167,9 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	}
 	if left := archiveTimeLeft(sess); left != "" {
 		trailing += " · " + left
+	}
+	if state == "" {
+		trailing = strings.TrimPrefix(trailing, " · ")
 	}
 	age := metaText(trailing)
 	meta := state + age
@@ -1172,6 +1185,9 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 		}
 		if !fits(meta) {
 			meta = label + age
+			if label == "" {
+				meta = metaText(strings.TrimPrefix(trailing, " · "))
+			}
 		}
 		if !fits(meta) {
 			meta = strings.TrimPrefix(marks+" ", " ") + metaText(strings.TrimPrefix(trailing, " · "))

@@ -40,9 +40,10 @@ func delegatingFleet(t *testing.T, m *Model, helper string) {
 	m.rebuildRows()
 }
 
-// A parent waiting on its helper has nothing for the operator until the
-// helper's result starts a real turn, so the drain leaves it out.
-func TestTriageLeavesADelegatingParentOut(t *testing.T) {
+// A delegating parent has ended its turn: what it wrote is the operator's to
+// read while its helper works, so the drain hands it over as the finish it
+// is -- oldest first -- and it is not what needsPerson calls a question.
+func TestTriageHandsOverADelegatingParent(t *testing.T) {
 	m := buildModel(t)
 	delegatingFleet(t, m, status.Working)
 
@@ -50,8 +51,8 @@ func TestTriageLeavesADelegatingParentOut(t *testing.T) {
 	if lead.Status != status.Delegating {
 		t.Fatalf("lead = %q, want delegating while its helper works", lead.Status)
 	}
-	if m.needsPerson(lead) || m.triageWalkable(lead) {
-		t.Fatal("a delegated parent is on the operator's queue")
+	if m.needsPerson(lead) || !m.triageWalkable(lead) {
+		t.Fatal("a delegated parent is not walkable, or reads as a question")
 	}
 	var handed []string
 	left := ""
@@ -65,18 +66,27 @@ func TestTriageLeavesADelegatingParentOut(t *testing.T) {
 		tried[left] = true
 		handed = append(handed, m.rows[i].sess.Name)
 	}
-	if want := []string{"done", "rest"}; !slices.Equal(handed, want) {
+	if want := []string{"lead", "done", "rest"}; !slices.Equal(handed, want) {
 		t.Fatalf("drain handed over %v, want %v", handed, want)
 	}
 }
 
-func TestTriageQueuesADelegatingParentAfterIdle(t *testing.T) {
-	m := buildModel(t)
-	delegatingFleet(t, m, status.Working)
-	names := sessionNames(m)
-	at := func(name string) int { return slices.Index(names, name) }
-	if !(at("done") < at("rest") && at("rest") < at("lead")) {
-		t.Fatalf("queue = %v, want done, rest, then the delegated lead", names)
+// Strict triage queues a delegating parent after idle, ahead of errored and
+// working; smart triage ranks it as the finish it is.
+func TestTriageQueuesADelegatingParentAsAnEndedTurn(t *testing.T) {
+	for _, smart := range []bool{false, true} {
+		m := buildModel(t)
+		m.smartTriage = smart
+		delegatingFleet(t, m, status.Working)
+		names := sessionNames(m)
+		at := func(name string) int { return slices.Index(names, name) }
+		ok := at("done") < at("rest") && at("rest") < at("lead")
+		if smart {
+			ok = at("lead") < at("done") && at("done") < at("rest")
+		}
+		if !ok {
+			t.Fatalf("smart=%v: queue = %v", smart, names)
+		}
 	}
 }
 
@@ -147,8 +157,10 @@ func TestDelegatedParentBecomesActionableWhenCompletionReportLands(t *testing.T)
 		if delivered {
 			want = status.Finished
 		}
-		if lead.Status != want || m.needsPerson(lead) != delivered || m.triageWalkable(lead) != delivered {
-			t.Fatalf("delivered=%v: lead=%+v, want %s, actionable only once delivered", delivered, lead, want)
+		// Delegating or finished, the parent's turn has ended and it is on
+		// the walk; only the plain finish reads as needing a person.
+		if lead.Status != want || m.needsPerson(lead) != delivered || !m.triageWalkable(lead) {
+			t.Fatalf("delivered=%v: lead=%+v, want %s, walkable, needing a person once delivered", delivered, lead, want)
 		}
 	}
 }

@@ -41,7 +41,7 @@ func TestPriorityLiftsAheadOfLowerTiers(t *testing.T) {
 	loadStoredRows(t, m)
 	pressKey(t, m, key("ctrl+i"))
 
-	want := []string{"old-block", "new-block", "reviewme", "napping", "grinder", "booting", "gone", "crashed"}
+	want := []string{"old-block", "new-block", "reviewme", "napping", "crashed", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -65,7 +65,7 @@ func TestGroupPriorityCoversTheSubtree(t *testing.T) {
 	loadStoredRows(t, m)
 	pressKey(t, m, key("ctrl+i"))
 
-	want := []string{"new-block", "old-block", "reviewme", "napping", "grinder", "booting", "gone", "crashed"}
+	want := []string{"new-block", "old-block", "reviewme", "napping", "crashed", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -161,9 +161,10 @@ func TestTiersOrderTheQueue(t *testing.T) {
 	loadStoredRows(t, m)
 	pressKey(t, m, key("ctrl+i"))
 
-	// A high working session waits below an untiered idle one and a low
-	// question, while still leading the other sessions that cannot take input.
-	want := []string{"new-block", "reviewme", "napping", "old-block", "grinder", "booting", "gone", "crashed"}
+	// A high working session waits below an untiered idle one, a low
+	// question and a failed turn, while still leading the other sessions
+	// that cannot take input: working is the bottom of the queue.
+	want := []string{"new-block", "reviewme", "napping", "old-block", "crashed", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -407,9 +408,10 @@ func TestAPriorityChangeFlashesTheRow(t *testing.T) {
 	}
 }
 
-// A background turn ended with a shell still running, which wakes it on its
-// own: whatever its tier, the drain leaves it for that next turn.
-func TestPriorityNeverHandsOverBackgroundTurns(t *testing.T) {
+// A background turn has ended -- its answer is on screen with a shell still
+// running behind it -- so whatever its tier the drain hands it over after the
+// question, and once it is back at work it is off the walk.
+func TestPriorityHandsOverBackgroundTurnsAfterAQuestion(t *testing.T) {
 	for _, smart := range []bool{false, true} {
 		for _, tier := range []priority.Tier{priority.Urgent, priority.High, priority.Medium, priority.Unset, priority.Low} {
 			t.Run(fmt.Sprintf("smart=%v/tier=%s", smart, tier.Label()), func(t *testing.T) {
@@ -418,8 +420,8 @@ func TestPriorityNeverHandsOverBackgroundTurns(t *testing.T) {
 				m := smartFleet(t, monitor, smartSess("ask", status.Waiting, time.Minute))
 				m.smartTriage = smart
 				m.rebuildRows()
-				if got := drainOrder(m); !slices.Equal(got, []string{"ask"}) {
-					t.Fatalf("drain = %v, want only the question", got)
+				if got := drainOrder(m); !slices.Equal(got, []string{"ask", "monitor"}) {
+					t.Fatalf("drain = %v, want the question, then the background turn", got)
 				}
 				for i := range m.sessions {
 					if m.sessions[i].ID == monitor.ID {
@@ -435,13 +437,14 @@ func TestPriorityNeverHandsOverBackgroundTurns(t *testing.T) {
 	}
 }
 
-func TestBackgroundTurnsStayOffTheDrainInSmartTriage(t *testing.T) {
+// Smart triage ranks an unseen background turn as the finish it is.
+func TestBackgroundTurnsAreFinishesInSmartTriage(t *testing.T) {
 	m := smartFleet(t,
 		smartSess("monitor", status.Background, time.Minute),
 		smartSess("idle", status.Idle, time.Hour),
 		smartSess("done", status.Finished, 2*time.Hour),
 	)
-	if got, want := drainOrder(m), []string{"done", "idle"}; !slices.Equal(got, want) {
+	if got, want := drainOrder(m), []string{"monitor", "done", "idle"}; !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want %v", got, want)
 	}
 	monitor := sessionNamed(t, m, "monitor")

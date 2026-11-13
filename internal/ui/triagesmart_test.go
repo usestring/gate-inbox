@@ -186,7 +186,7 @@ func TestSmartTriageDrainsInRailOrder(t *testing.T) {
 		smartSess("grinder", status.Working, time.Hour),
 	)
 	want := []string{"q-fresh", "q-old", "done-aged", "calm", "high"}
-	assertRail(t, m, "q-fresh", "q-old", "done-aged", "calm", "grinder", "high")
+	assertRail(t, m, "q-fresh", "q-old", "done-aged", "calm", "high", "grinder")
 	if got := drainOrder(m); !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want the rail's order %v", got, want)
 	}
@@ -212,9 +212,10 @@ func TestSmartTriageOnlyAnOperatorTurnMovesARow(t *testing.T) {
 	assertRail(t, m, "done-old", "done-new")
 }
 
-// A working parent is lifted to its child's key and queues on the child's
-// recency, not its own.
-func TestSmartTriageLiftsAParentByItsChildsScore(t *testing.T) {
+// A working parent cannot be entered, so a child's finish does not lift it:
+// the parent hears the result and takes it from there. It sits at the bottom
+// with the child drawn under it.
+func TestSmartTriageDoesNotLiftAWorkingParentOnAChildsFinish(t *testing.T) {
 	kid := smartSess("kid", status.Finished, 25*time.Minute)
 	kid.ParentID, kid.SpawnedBy = "lead", "lead"
 	m := smartFleet(t,
@@ -223,7 +224,7 @@ func TestSmartTriageLiftsAParentByItsChildsScore(t *testing.T) {
 		kid,
 		smartSess("done-young", status.Finished, 20*time.Minute),
 	)
-	assertRail(t, m, "done-young", "lead", "kid", "done-old")
+	assertRail(t, m, "done-young", "done-old", "lead", "kid")
 }
 
 // A finish the operator has looked at is acked and idle, and looking is not
@@ -339,7 +340,7 @@ func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
 	m := smartFleet(t, fleet...)
 	m.smartTriage = false
 	m.rebuildRows()
-	want := []string{"q-old", "q-fresh", "urgent-done", "done-aged", "lead", "kid", "calm", "seen", "broke"}
+	want := []string{"q-old", "q-fresh", "urgent-done", "done-aged", "calm", "seen", "broke", "lead", "kid"}
 	assertRail(t, m, want...)
 	if got, want := drainOrder(m), slices.DeleteFunc(slices.Clone(want), func(n string) bool { return n == "lead" || n == "kid" }); !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want %v", got, want)

@@ -162,8 +162,8 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 		// acknowledgement waits for the one act that does say it: leaving.
 		//
 		// Held whatever the status, not only when finished: the write is
-		// conditional on finished in the store and the next poll drops a
-		// hold on a session that is not, so holding costs nothing, while
+		// conditional on a finish in the store and the next poll drops a
+		// hold on a session not resting on one, so holding costs nothing, while
 		// writing here would put the drain's entry -- pressing "i" over a
 		// queue -- behind whichever poll pass owns the connection.
 		m.heldAckID = sess.ID
@@ -544,12 +544,21 @@ func (m *Model) dropHeldAckOnNewTurn() {
 		if sess.ID != m.heldAckID {
 			continue
 		}
-		if sess.Status != status.Finished {
+		if !acknowledgeable(sess) {
 			m.heldAckID = ""
 		}
 		return
 	}
 	m.heldAckID = ""
+}
+
+// acknowledgeable is a session resting on a turn the operator can mark seen: a
+// plain finish, or one that ended with a shell (background) or children
+// (delegating) still going behind it. The store writes the ack only on a
+// stored finish or background, so a delegating row over a plain idle rest
+// acknowledges nothing.
+func acknowledgeable(sess store.Session) bool {
+	return sess.Status == status.Finished || endedTurn(sess)
 }
 
 // releaseHeldAck spends the acknowledgement focusSelected held back. Every

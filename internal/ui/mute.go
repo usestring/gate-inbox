@@ -187,7 +187,7 @@ func (m *Model) dismissSelected() (tea.Model, tea.Cmd) {
 	if sess.Muted {
 		return m.setMuted(sess, false)
 	}
-	if sess.Status == status.Finished {
+	if acknowledgeable(sess) {
 		if err := m.store.AcknowledgeFinished(sess.ID); err != nil {
 			m.errBar.text = err.Error()
 			return m, nil
@@ -235,7 +235,7 @@ func (m *Model) skipSelected() (tea.Model, tea.Cmd) {
 		return m.dismissSelected()
 	}
 	m.errBar.text = ""
-	if sess.Status == status.Finished {
+	if acknowledgeable(sess) {
 		if err := m.store.AcknowledgeFinished(sess.ID); err != nil {
 			m.errBar.text = err.Error()
 			return m, nil

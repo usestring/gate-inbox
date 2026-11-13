@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"slices"
+
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -54,6 +56,13 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 	case keymap.ReviveAll:
 		for _, sess := range m.listedSessions() {
 			if !sess.Archived && sess.Status == status.Dead {
+				return true
+			}
+		}
+		return false
+	case keymap.WakeAll:
+		for _, sess := range m.searchedListedSessions() {
+			if !sess.Archived && slices.Contains(m.hibernated, sess.ID) {
 				return true
 			}
 		}

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -133,4 +134,57 @@ func (m *Model) wakeForFocus(sess store.Session) bool {
 	m.reportDone("woke " + m.displayName(sess) + " from hibernation on its conversation")
 	m.requestRefresh()
 	return true
+}
+
+// wakeAllHibernated wakes every hibernated session in the current view, each
+// on its own conversation, the way entering one does. A row that really died
+// is left alone: revive-all is for those. Like reviveMany it carries on past
+// a failure and names the first one.
+func (m *Model) wakeAllHibernated() (tea.Model, tea.Cmd) {
+	// The store's set rather than the last refresh, as isHibernated reads
+	// it, but once for the whole view instead of once per row.
+	hibernated, err := m.store.Hibernated()
+	if err != nil {
+		m.errBar.text = err.Error()
+		return m, nil
+	}
+	var woken []string
+	var firstErr string
+	for _, sess := range m.searchedListedSessions() {
+		if sess.Archived || !slices.Contains(hibernated, sess.ID) {
+			continue
+		}
+		if err := m.reviveSession(sess); err != nil {
+			if firstErr == "" {
+				firstErr = err.Error()
+			}
+			continue
+		}
+		woken = append(woken, sess.ID)
+	}
+	if len(woken) > 0 {
+		if err := m.store.RemoveHibernated(woken); err != nil {
+			logging.Warn("woken sessions still on the hibernated set", "sessions", woken, logging.Err(err))
+		}
+		// As in wakeForFocus: the rows read starting at once rather than dead
+		// off the hibernated set until the next refresh.
+		m.hibernated = slices.DeleteFunc(slices.Clone(m.hibernated), func(id string) bool { return slices.Contains(woken, id) })
+		for i := range m.sessions {
+			if slices.Contains(woken, m.sessions[i].ID) {
+				m.sessions[i].Status = status.Starting
+			}
+		}
+	}
+	switch {
+	case len(woken) == 0 && firstErr == "":
+		m.errBar.text = "no hibernated sessions to wake"
+	case firstErr != "":
+		m.errBar.text = fmt.Sprintf("woke %d, first error: %s", len(woken), firstErr)
+	default:
+		m.errBar.text = ""
+		m.reportDone(fmt.Sprintf("woke %d from hibernation", len(woken)))
+	}
+	m.rebuildRows()
+	m.requestRefresh()
+	return m, nil
 }

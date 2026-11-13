@@ -78,6 +78,7 @@ var boardActionsFromFocus = map[keymap.Action]bool{
 	keymap.NewGroup:      true,
 	keymap.NewTerminal:   true,
 	keymap.ReviveAll:     true,
+	keymap.WakeAll:       true,
 	keymap.IngestReviews: true,
 	keymap.UndoArchive:   true,
 	keymap.RenameSelf:    true,

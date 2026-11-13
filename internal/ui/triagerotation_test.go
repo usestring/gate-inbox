@@ -196,14 +196,14 @@ func TestChoreRestsOfReadsOnlyChoresAfterTheOperator(t *testing.T) {
 	}
 }
 
-// Dead and hibernated sessions are on the board but never handed over, and
-// never sort above a session that can take input.
-func TestTriageNeverHandsOverDeadOrHibernatedSessions(t *testing.T) {
+// Dead sessions are on the board but never handed over, and never sort above
+// a session that can take input.
+func TestTriageNeverHandsOverDeadSessions(t *testing.T) {
 	gone := smartSess("gone", status.Dead, time.Minute)
 	gone.Priority = priority.Urgent
 	m := smartFleet(t,
 		gone,
-		smartSess("hibernated", status.Dead, 2*time.Minute),
+		smartSess("also-gone", status.Dead, 2*time.Minute),
 		smartSess("ask", status.Waiting, 3*time.Hour),
 		smartSess("done", status.Finished, 4*time.Hour),
 	)
@@ -213,6 +213,34 @@ func TestTriageNeverHandsOverDeadOrHibernatedSessions(t *testing.T) {
 	rail := sessionNames(m)
 	if slices.Index(rail, "gone") < slices.Index(rail, "done") {
 		t.Fatalf("rail = %v, want dead rows under the live ones", rail)
+	}
+}
+
+// A hibernated session is resting work that still needs steering, so the
+// drain hands it over once everything awake is done -- after errored rows,
+// whatever its priority -- in smart triage and the strict order alike. A row
+// that really died stays off.
+func TestTriageHandsOverHibernatedSessionsLast(t *testing.T) {
+	for _, smart := range []bool{true, false} {
+		sleeper := smartSess("sleeper", status.Dead, time.Minute)
+		sleeper.Priority = priority.Urgent
+		m := smartFleet(t,
+			sleeper,
+			smartSess("gone", status.Dead, 2*time.Minute),
+			smartSess("broke", status.Errored, 3*time.Hour),
+			smartSess("ask", status.Waiting, 4*time.Hour),
+			smartSess("napping", status.Idle, 5*time.Hour),
+		)
+		m.smartTriage = smart
+		m.hibernated = []string{"sleeper"}
+		m.rebuildRows()
+		if got := drainOrder(m); !slices.Equal(got, []string{"ask", "napping", "broke", "sleeper"}) {
+			t.Fatalf("smart=%v: drain = %v, want the hibernated session last and the dead one skipped", smart, got)
+		}
+		sess, _ := m.sessionByID("sleeper")
+		if m.needsPerson(sess) {
+			t.Fatalf("smart=%v: a hibernated session counts as needing a person", smart)
+		}
 	}
 }
 

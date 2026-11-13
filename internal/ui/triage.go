@@ -117,6 +117,7 @@ var triageScoredTiers = []string{
 	status.Idle,
 	triageChoreRest,
 	status.Errored,
+	status.Hibernating,
 }
 
 // triageChoreRest is the state smart triage gives a session whose latest turn
@@ -225,9 +226,12 @@ func (m *Model) needsPerson(sess store.Session) bool {
 }
 
 // triageWalkable is what a drain will hand over at all: the sessions that
-// need a person and the idle ones. An idle session is not waiting on
-// anybody, so it does not count as attention, but it can be useful to hand
-// over in its turn. Working, starting, delegating, background and dead stay
+// need a person, the idle ones and the hibernated ones. An idle session is not
+// waiting on anybody, so it does not count as attention, but it can be useful
+// to hand over in its turn. A hibernated session is resting work nobody has
+// steered since it went to sleep: it comes last, after every other row (see
+// triageKey), and handing it over wakes it on its conversation (see
+// wakeForFocus). Working, starting, delegating, background and dead stay
 // off: a delegating or background session will take its next turn without
 // the operator, bar a working or starting label flagged stale (see stalestatus.go): entering a mid-turn session is the one thing triage must never do,
 // and a dead pane cannot be entered.
@@ -247,7 +251,8 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 	// idle one is: the screen under it has not moved in hours, so entering
 	// cannot interrupt a turn, and a person looking is the only way the
 	// misread gets noticed.
-	return (sess.Status == status.Idle || m.isStale(sess) || m.isChoreRest(sess)) && !m.ownedByExtension(sess.ID)
+	resting := sess.Status == status.Idle || m.isStale(sess) || m.isChoreRest(sess) || m.shownStatus(sess) == status.Hibernating
+	return resting && !m.ownedByExtension(sess.ID)
 }
 
 // triageLess sorts the queue into bands -- scored, walkable, the rest, muted
@@ -318,6 +323,10 @@ const (
 type triageKey struct {
 	band, priority, tier int
 	errored              bool
+	// hibernating is a session hibernate stopped. It sorts after every other
+	// unmuted row, errored ones included: handing it over relaunches it, so it
+	// is the drain's last stop once nothing awake is left to steer.
+	hibernating bool
 	// asking is a session stopped on a question or permission dialog. It
 	// leads every other unmuted row whatever their priority: the agent is
 	// stalled this second, and a queue that ranks a finished urgent session
@@ -337,6 +346,9 @@ type triageKey struct {
 func (k triageKey) before(o triageKey) bool {
 	if muted, oMuted := k.band == triageBandMuted, o.band == triageBandMuted; muted != oMuted {
 		return oMuted
+	}
+	if k.hibernating != o.hibernating {
+		return !k.hibernating
 	}
 	if k.errored != o.errored {
 		return !k.errored
@@ -366,6 +378,7 @@ func (m *Model) triageKeyOf(sess store.Session, now time.Time) triageKey {
 	key := triageKey{
 		band: triageBandRest, priority: m.tierOf(sess).Rank(),
 		tier: m.triageRankOf(sess), errored: m.triageStateOf(sess) == status.Errored,
+		hibernating: m.triageStateOf(sess) == status.Hibernating,
 	}
 	key.pastBackground = key.tier > triageRank(status.Background)
 	if sess.Muted {

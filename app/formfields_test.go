@@ -72,13 +72,13 @@ func TestExternalBuildAddsANewSessionFormField(t *testing.T) {
 	// by the running program, which is reading keys by then.
 	waitForDrawn(t, out, 0, "noop:dead", exited)
 
-	// ctrl+n opens the form on the CLI picker; typing picks envecho, up
+	// ctrl+alt+n opens the form on the CLI picker; typing picks envecho, up
 	// wraps onto the extension's field after the form's own, space turns
 	// it on, and enter launches. Each key waits for the frame the one
 	// before it drew. The board redraws only the cells that changed, so
 	// space's frame is the "n" of "on".
 	for _, step := range []struct{ key, drawn string }{
-		{"\x0e", "items ◂ off ▸"},
+		{"\x1b\x0e", "items ◂ off ▸"},
 		{"envecho", "[envecho]"},
 		{"\x1b[A", "❯ items"},
 		{" ", "n ▸"},

@@ -398,6 +398,20 @@ func startSupervisor(ctx context.Context, home, exe, bin, config string) (int, e
 	if err != nil || pid <= 0 {
 		return 0, fmt.Errorf("opencode: start shared server: no pid in %q", out)
 	}
+	// The shell reports the background pid as soon as it forks, possibly
+	// before that child has exec'd gate-inbox. Until it does, its argv is
+	// still the shell's, which awaitServer reads as a supervisor that has
+	// already exited. Wait for the exec rather than just the fork.
+	deadline := time.Now().Add(2 * time.Second)
+	for !supervising(ctx, pid) {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if time.Now().After(deadline) {
+			return 0, fmt.Errorf("opencode: start shared server: supervisor %d did not start; see %s", pid, logPath)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	return pid, nil
 }
 

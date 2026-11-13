@@ -1709,6 +1709,14 @@ func (p *poller) maybeSendPendingInput(sess store.Session, pane string, agentAli
 		if err == nil && sess.Tool == "opencode" {
 			err = p.tmux.SendKeys(sess.ID, "Enter")
 		}
+		if errors.Is(err, tmux.ErrPasteHeld) {
+			// Nothing reached the pane, so the input is still owed and goes
+			// out once the dialog in the way is answered.
+			if _, err := p.store.UnclaimPendingInput(sess.ID, input); err != nil {
+				return fmt.Errorf("requeue pending input for %s: %w", sess.Name, err)
+			}
+			return nil
+		}
 		if err != nil {
 			// The claim stands, so the next pass reconciles it the way it
 			// reconciles one left by a manager that died: the input is
@@ -1873,7 +1881,8 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 			return false, err
 		}
 	}
-	claimed, err := p.store.ClaimMessage(msg.ID, time.Now())
+	claimAt := time.Now()
+	claimed, err := p.store.ClaimMessage(msg.ID, claimAt)
 	if err != nil || !claimed {
 		p.releaseSend(key)
 		return false, errors.Join(err, p.restoreDraft(sess, draft))
@@ -1890,6 +1899,14 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 		// to opencode so other tools never see a double submit.
 		if err == nil && sess.Tool == "opencode" {
 			err = p.tmux.SendKeys(sess.ID, "Enter")
+		}
+		if errors.Is(err, tmux.ErrPasteHeld) {
+			// A dialog came up between the pass's capture and the paste.
+			// Nothing was typed, so the message goes back on the queue and
+			// is delivered after the dialog is answered, instead of filling
+			// the dialog's free-text row.
+			_, err := p.store.UnclaimMessage(msg.ID, claimAt)
+			return err
 		}
 		if err != nil {
 			return errors.Join(

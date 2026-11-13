@@ -959,9 +959,10 @@ func (d *Driver) SendText(id, text string) error {
 // The caller judged the pane from a capture taken before the paste, and an
 // agent mid-turn can put a dialog up in between. A dialog swallows the paste
 // and takes the Enter as its answer, ticking or picking whatever row its
-// cursor is on. So hold, when non-nil, is shown the pane once more just
-// before the Enter; reporting true leaves the Enter unpressed and submitted
-// gets ErrSubmitHeld.
+// cursor is on. So hold, when non-nil, is shown the pane twice. The first
+// look is just before the paste: reporting true pastes nothing and returns
+// ErrPasteHeld. The second is just before the Enter: reporting true leaves
+// the Enter unpressed and submitted gets ErrSubmitHeld.
 func (d *Driver) SendTextAsync(id, text string, hold func(pane string) bool, submitted func(error)) error {
 	submit, err := d.pasteHoldingSubmit(id, text, hold)
 	if err != nil {
@@ -1026,9 +1027,28 @@ func (d *Driver) pasteWindow() time.Duration {
 // something the Enter would have answered.
 var ErrSubmitHeld = errors.New("the pane put up a dialog before the paste was submitted, so Enter was not pressed")
 
+// ErrPasteHeld reports a paste that never went out, because the pane was
+// already showing something the paste would have landed in. Nothing reached
+// the pane, so the caller can leave the text queued and try again.
+//
+// The check before the Enter cannot cover this case. A question dialog with a
+// free-text row takes a paste as typing: Claude's AskUserQuestion moves its
+// cursor to "Type something." and fills that row with the text. Holding the
+// Enter afterwards leaves the dialog with a stranger's message in its answer
+// field. The caller's capture predates the paste by a whole poll pass, plus
+// any wait for the send ahead of it on this pane, and a session that queues
+// typed input mid-turn can raise its dialog anywhere in that gap.
+var ErrPasteHeld = errors.New("the pane was showing a dialog when the paste was due, so nothing was pasted")
+
 func (d *Driver) pasteHoldingSubmit(id, text string, hold func(pane string) bool) (func() error, error) {
 	done := d.claimPane(id)
 	before, baseline := d.capturePlain(id)
+	// Read after the claim, so the pane is checked as it is now rather than
+	// as it was before an earlier send to it settled.
+	if hold != nil && baseline == nil && hold(before) {
+		d.releasePane(id, done)
+		return nil, ErrPasteHeld
+	}
 	if err := d.paste(id, text); err != nil {
 		d.releasePane(id, done)
 		return nil, err

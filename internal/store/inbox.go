@@ -462,6 +462,21 @@ func (s *Store) ClaimMessage(id int64, at time.Time) (bool, error) {
 	return affected == 1, err
 }
 
+// UnclaimMessage gives back a claim whose paste never went out, so the
+// message is queued again exactly as it was. It touches only an undelivered
+// message still holding the claim stamped at claimedAt. A claim taken again
+// since then belongs to someone else.
+func (s *Store) UnclaimMessage(id int64, claimedAt time.Time) (bool, error) {
+	res, err := s.db.Exec(
+		`UPDATE session_inbox SET claimed_at = 0 WHERE id = ? AND claimed_at = ? AND delivered_at = 0`,
+		id, encodeTime(claimedAt))
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	return affected == 1, err
+}
+
 func (s *Store) MarkDelivered(id int64, at time.Time) error {
 	_, err := s.MarkDeliveredFirst(id, at)
 	return err

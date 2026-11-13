@@ -17,8 +17,11 @@ type reservationPath struct {
 var literalReservationDir = strings.NewReplacer("[", "[[]", "*", "[*]", "?", "[?]")
 
 func resolveReservationPath(dir, pattern string) reservationPath {
+	if filepath.IsAbs(dir) {
+		dir = canonicalPath(dir)
+	}
 	if filepath.IsAbs(pattern) {
-		path := filepath.Clean(pattern)
+		path := canonicalPath(filepath.Clean(pattern))
 		rel, err := filepath.Rel(dir, path)
 		if err != nil || !filepath.IsLocal(rel) {
 			return reservationPath{resolved: path, glob: path}
@@ -32,6 +35,26 @@ func resolveReservationPath(dir, pattern string) reservationPath {
 	return reservationPath{
 		resolved: filepath.Join(dir, pattern),
 		glob:     filepath.Join(literalReservationDir.Replace(filepath.Clean(dir)), pattern),
+	}
+}
+
+// canonicalPath is path with links resolved through its nearest existing
+// ancestor, so that one directory spelled two ways (macOS's symlinked temp
+// directory, or a symlinked checkout) gives one lease path: sessions record
+// their directory however they were started, and two in the same checkout
+// must see each other's leases. The components that do not exist, a glob's
+// wildcards among them, are kept as written.
+func canonicalPath(path string) string {
+	dir, rest := path, ""
+	for {
+		if target, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(target, rest)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return path
+		}
+		dir, rest = parent, filepath.Join(filepath.Base(dir), rest)
 	}
 }
 

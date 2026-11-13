@@ -211,9 +211,14 @@ var interpreters = map[string]bool{
 // unconditionally is what this replaced, and it made any argument whose
 // basename happened to match an identification: "ls /home/pi" adopted a plain
 // shell as a pi agent, and the manager eventually types into an adopted pane.
+//
+// A trailing ".exe" is ignored. Claude Code's native installer runs a binary
+// named claude.exe, so tmux reports the pane's command as "claude.exe" while
+// the tool is configured as "claude". Callers that see only that name,
+// without the process's argv, would otherwise never recognise the agent.
 func namesProgram(argv []string, program string) bool {
 	for _, line := range argv {
-		if filepath.Base(lineProgram(strings.Fields(line))) == program {
+		if strings.TrimSuffix(filepath.Base(lineProgram(strings.Fields(line))), ".exe") == program {
 			return true
 		}
 	}

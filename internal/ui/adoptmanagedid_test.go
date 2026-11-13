@@ -151,6 +151,9 @@ func TestKnownPaneTracksItsForegroundHarness(t *testing.T) {
 		{name: "exit after the scan", command: "codex", want: "codex", fresh: true},
 		{name: "executable shared by two blocks", command: "codex", want: "opencode", shared: true},
 		{name: "launch window closed", command: "codex", want: "opencode", launched: true},
+		// Claude Code's native binary is claude.exe, which is the name tmux
+		// reports; an agent relaunched in the pane must still clear the exit.
+		{name: "same harness under its native binary name", command: "opencode.exe", want: "opencode"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := newFixtureStore(t)

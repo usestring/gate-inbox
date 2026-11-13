@@ -38,7 +38,7 @@ func tools(ctx context.Context, configDir string) ([]extension.ToolInfo, error) 
 			Shell:      tool.Shell,
 			TakesModel: launch.TakesModel(name, tool),
 			Models:     slices.Clone(tool.Models),
-			HookStatus: tool.StatusSource == hooks.StatusSourceClaude,
+			HookStatus: hooks.FileStatus(tool.StatusSource),
 		})
 	}
 	return out, nil

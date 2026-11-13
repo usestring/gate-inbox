@@ -314,6 +314,9 @@ type Model struct {
 	// headroom is the build's last subscription quota summary per CLI,
 	// drawn under the machine meters. See headroom.go.
 	headroom map[string]string
+	// tokens is the selected session's context reading while its
+	// conversation is off screen. See tokenusage.go.
+	tokens tokenUsageRead
 	// workMemo holds one answer per session for the length of a frame or a
 	// rebuild, which is also the longest either treats a session's work as
 	// fixed. Nil outside both, which is when the tracker is free to move.
@@ -2472,6 +2475,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case conversationMsg:
 		m.applyConversation(msg)
 		return m, m.scheduleAutoSuggestion()
+	case tokenUsageMsg:
+		m.applyTokenUsage(msg)
+		return m, nil
 	case autoSuggestTickMsg:
 		return m, m.runAutoSuggestion(msg.seq)
 	case autoSuggestResultMsg:

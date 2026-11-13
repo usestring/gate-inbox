@@ -485,7 +485,7 @@ func (m *Model) sessionDetailLines(width int) []string {
 		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.LaunchTime()), factRoom, "…"))),
 	}
 	if id := strings.TrimSpace(sess.AgentSessionID); id != "" {
-		lines = append(lines, railFact(pad, "session", valueStyle.Render(textfmt.TruncateWidth(id, factRoom, "…"))))
+		lines = append(lines, wideFact(pad, "session id", valueStyle.Render(id), room)...)
 	}
 	if usage != "" {
 		lines = append(lines, railFact(pad, "usage", usage))
@@ -1458,7 +1458,6 @@ func (m *Model) jumpTints(number string) bool {
 type meterKey struct {
 	gen        int
 	width      int
-	sessions   int
 	snap       sysstat.Snapshot
 	net        netStats
 	hasContext bool
@@ -1466,11 +1465,11 @@ type meterKey struct {
 	headroom   string
 }
 
-// computerLines is the summary docked at the rail's foot: the session count,
-// selected context, and one thin meter per machine resource.
+// computerLines is the summary docked at the rail's foot: the selected
+// session's context, and one thin meter per machine resource.
 func (m *Model) computerLines(width int) []string {
 	usage, hasContext := m.selectedTokenUsage()
-	key := meterKey{gen: renderGen, width: width, sessions: len(m.visibleSessions()), snap: m.snap, net: m.net, hasContext: hasContext, usage: usage, headroom: m.headroomKey()}
+	key := meterKey{gen: renderGen, width: width, snap: m.snap, net: m.net, hasContext: hasContext, usage: usage, headroom: m.headroomKey()}
 	if m.meterMemoOK && m.meterMemoKey == key {
 		return m.meterMemo
 	}
@@ -1505,17 +1504,18 @@ func (m *Model) buildComputerLines(width int) []string {
 		return render(label, percent, extra, gauge(percent, barWidth, false))
 	}
 
-	lines := []string{pad + labelStyle.Render("sessions ") + valueStyle.Render(strconv.Itoa(len(m.visibleSessions()))), ""}
+	// The selected session's context window: how many tokens its last turn
+	// carried, against the model's window where the CLI reports one.
+	var lines []string
 	if usage, ok := m.selectedTokenUsage(); ok {
-		lines = append(lines, pad+subtleStyle.Render("context"))
-		line := pad + labelStyle.Width(7).Render("tokens")
+		line := pad + labelStyle.Width(8).Render("context")
 		if !usage.Known {
 			line += subtleStyle.Render("n/a")
 		} else if usage.Capacity > 0 {
 			percent := float64(usage.Tokens) / float64(usage.Capacity) * 100
 			line += gauge(percent, barWidth, false) + valueStyle.Render(fmt.Sprintf(" %3.0f%%", percent)) + subtleStyle.Render(" "+humanTokens(usage.Tokens)+"/"+humanTokens(usage.Capacity))
 		} else {
-			line += valueStyle.Render(humanTokens(usage.Tokens))
+			line += valueStyle.Render(humanTokens(usage.Tokens)) + subtleStyle.Render(" tokens")
 		}
 		lines = append(lines, line, "")
 	}
@@ -1569,10 +1569,14 @@ func (m *Model) selectedTokenUsage() (search.TokenUsage, bool) {
 	if c == nil {
 		return search.TokenUsage{}, false
 	}
-	if c.key != m.conversationIdentity(sess) {
-		return search.TokenUsage{}, true
+	key := m.conversationIdentity(sess)
+	if c.key == key {
+		return c.usage, true
 	}
-	return c.usage, true
+	if m.tokens.key == key {
+		return m.tokens.usage, true
+	}
+	return search.TokenUsage{}, true
 }
 
 func humanTokens(n int) string {
@@ -1585,8 +1589,8 @@ func humanTokens(n int) string {
 	return fmt.Sprint(n)
 }
 
-// computerBrief folds the summary to one line for a short rail, keeping the
-// session count before the machine readings and selected context.
+// computerBrief folds the summary to one line for a short rail: the machine
+// readings and the selected session's context.
 func (m *Model) computerBrief(width int) string {
 	snap := m.snap
 	sep := subtleStyle.Render(" · ")
@@ -1596,14 +1600,13 @@ func (m *Model) computerBrief(width int) string {
 		}
 		return labelStyle.Render(label+" ") + valueStyle.Render(fmt.Sprintf("%.0f%%", percent))
 	}
-	line := labelStyle.Render("sessions ") + valueStyle.Render(strconv.Itoa(len(m.visibleSessions()))) + sep +
-		reading("cpu", snap.CPUPercent, snap.CPUOK) + sep + reading("mem", snap.MemPercent, snap.MemOK)
+	line := reading("cpu", snap.CPUPercent, snap.CPUOK) + sep + reading("mem", snap.MemPercent, snap.MemOK)
 	if usage, ok := m.selectedTokenUsage(); ok {
 		tokens := "n/a"
 		if usage.Known {
 			tokens = humanTokens(usage.Tokens)
 		}
-		compact := labelStyle.Render("tok ") + valueStyle.Render(tokens)
+		compact := labelStyle.Render("ctx ") + valueStyle.Render(tokens)
 		return spaces(railInset) + textfmt.TruncateWidth(line+sep+compact, width-railInset, "…")
 	}
 	if disk := reading("disk", snap.DiskPercent, snap.DiskOK); textfmt.Width(line)+textfmt.Width(sep)+textfmt.Width(disk)+railInset <= width {

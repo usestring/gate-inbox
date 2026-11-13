@@ -1106,7 +1106,7 @@ func TestSessionTokenMetersFollowSelectionAndUsage(t *testing.T) {
 	if got := draw(); !strings.Contains(got, "25%") || !strings.Contains(got, "50.0k/200.0k") {
 		t.Fatalf("missing usage: %s", got)
 	}
-	if got := ansi.Strip(m.computerBrief(64)); !strings.Contains(got, "tok 50.0k") {
+	if got := ansi.Strip(m.computerBrief(64)); !strings.Contains(got, "ctx 50.0k") {
 		t.Fatalf("compact tokens missing: %s", got)
 	}
 	c.usage.Tokens = 100000
@@ -1123,7 +1123,24 @@ func TestSessionTokenMetersFollowSelectionAndUsage(t *testing.T) {
 		t.Fatalf("count without capacity missing: %s", got)
 	}
 	m.rows = nil
-	if got := draw(); strings.Contains(got, "tokens") {
-		t.Fatalf("tokens without selection: %s", got)
+	if got := draw(); strings.Contains(got, "context") {
+		t.Fatalf("context without selection: %s", got)
+	}
+}
+
+func TestContextLineReadsWhileConversationIsOffScreen(t *testing.T) {
+	m := drainFleet(t)
+	sess, _ := m.selected()
+	m.conversation.key = "another-session"
+	draw := func() string { return ansi.Strip(strings.Join(m.computerLines(40), "\n")) }
+	if got := draw(); !strings.Contains(got, "context") || !strings.Contains(got, "n/a") {
+		t.Fatalf("unread context should say n/a: %s", got)
+	}
+	m.applyTokenUsage(tokenUsageMsg{key: m.conversationIdentity(sess), stamp: "s", usage: search.TokenUsage{Tokens: 91000, Known: true}})
+	if got := draw(); !strings.Contains(got, "91.0k tokens") {
+		t.Fatalf("off-screen reading missing: %s", got)
+	}
+	if strings.Contains(draw(), "sessions") {
+		t.Fatalf("dock still counts sessions: %s", draw())
 	}
 }

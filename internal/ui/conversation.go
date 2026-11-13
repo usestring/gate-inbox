@@ -81,9 +81,28 @@ func (m *Model) conversationIdentity(sess store.Session) string {
 	return conversationKey(sess.ID, id)
 }
 
+// conversationTarget finds sess's transcript off the event loop. What it
+// reads from the model is taken now, on the loop.
+func (m *Model) conversationTarget(sess store.Session) func() (search.Target, bool) {
+	c := m.conversation
+	matched := c.targets[sess.ID]
+	locator := c.locator
+	tool := historyToolFormats(m.cfg)[sess.Tool]
+	if tool == "" {
+		tool = sess.Tool
+	}
+	return func() (search.Target, bool) {
+		target, ok := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
+		if !ok && sess.AgentSessionID == "" && sess.TmuxPaneID != "" && matched.AgentID != "" {
+			return matched, true
+		}
+		return target, ok
+	}
+}
+
 func (m *Model) readConversation() tea.Cmd {
 	if !m.showsConversation() {
-		return nil
+		return m.readTokenUsage()
 	}
 	sess, _ := m.selected()
 	c := m.conversation
@@ -97,13 +116,8 @@ func (m *Model) readConversation() tea.Cmd {
 	}
 	c.busy = true
 	c.pendingKey = key
-	matched := c.targets[sess.ID]
+	locate := m.conversationTarget(sess)
 	previousKey, previousStamp := c.key, c.stamp
-	locator := c.locator
-	tool := historyToolFormats(m.cfg)[sess.Tool]
-	if tool == "" {
-		tool = sess.Tool
-	}
 	database := opencodeDBPath()
 	replacement, superseded := m.supersededBy(sess)
 	return func() tea.Msg {
@@ -115,10 +129,7 @@ func (m *Model) readConversation() tea.Cmd {
 				msg.stoppedWhy = "conversation is running in " + replacement.Name
 			}
 		}
-		target, ok := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
-		if !ok && sess.AgentSessionID == "" && sess.TmuxPaneID != "" && matched.AgentID != "" {
-			target, ok = matched, true
-		}
+		target, ok := locate()
 		if !ok {
 			if sess.Status == status.Dead {
 				if sess.AgentSessionID == "" {

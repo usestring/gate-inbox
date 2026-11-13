@@ -250,11 +250,11 @@ func sameSet(a, b []string) bool {
 
 // The reported case: a parent waiting on a child's two-hour watch, kept warm
 // by the cache warden so its last turns are a keep-alive and "ok", showed on
-// the first triage tab with nothing to answer. A delegating or background
-// session has nothing for the operator until its next real turn: it is never
-// handed over, never counts as needing a person, and sorts under every
-// session that is ready, urgent or not, keep-alive or not.
-func TestTriageNeverHandsOverDelegatingOrBackgroundSessions(t *testing.T) {
+// the first triage tab with nothing to answer. That "ok" is a chore rest and
+// stays off the walk. A background turn with an answer of its own is a
+// finish: it is handed over after the questions, and neither counts as a
+// question.
+func TestTriageSkipsAKeptWarmDelegatingParentButHandsOverBackground(t *testing.T) {
 	parent := smartSess("delegating-parent", status.Delegating, time.Minute)
 	parent.Priority = priority.Urgent
 	m := smartFleet(t,
@@ -270,26 +270,24 @@ func TestTriageNeverHandsOverDelegatingOrBackgroundSessions(t *testing.T) {
 		"delegating-parent": {SenderID: store.OperatorVoicedSenderID("cache-warden"), Body: keepWarmBody, DeliveredAt: smartNow},
 	})
 	m.rebuildRows()
-	if got := drainOrder(m); !slices.Equal(got, []string{"ask-a", "ask-b", "done", "napping"}) {
-		t.Fatalf("drain = %v, want the ready sessions only, questions first", got)
+	if got := drainOrder(m); !slices.Equal(got, []string{"ask-a", "ask-b", "watching", "done", "napping"}) {
+		t.Fatalf("drain = %v, want questions, then the finishes, without the kept-warm parent", got)
 	}
 	for _, name := range []string{"delegating-parent", "watching"} {
 		sess, _ := m.sessionByID(name)
-		if m.needsPerson(sess) || m.triageWalkable(sess) {
-			t.Fatalf("%s counts as needing a person or walkable", name)
+		if m.needsPerson(sess) || m.triageWalkable(sess) != (name == "watching") {
+			t.Fatalf("%s: needs a person or walkability is wrong", name)
 		}
 	}
 	rail := sessionNames(m)
-	for _, name := range []string{"delegating-parent", "watching"} {
-		if slices.Index(rail, name) < slices.Index(rail, "napping") {
-			t.Fatalf("rail = %v, want %s under every ready session", rail, name)
-		}
+	if slices.Index(rail, "delegating-parent") < slices.Index(rail, "napping") {
+		t.Fatalf("rail = %v, want the kept-warm parent under every ready session", rail)
 	}
 	m.triagePickupCmd()
 	m.triageResume = true
 	if cmd := m.triagePickupCmd(); cmd != nil {
 		sess := m.rows[m.cursor].sess
-		if sess.Status == status.Delegating || sess.Status == status.Background {
+		if sess.Name == "delegating-parent" {
 			t.Fatalf("a drained queue picked %s back up", sess.Name)
 		}
 	}

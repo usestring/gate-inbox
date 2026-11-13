@@ -1114,7 +1114,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 						newStatus = pinned
 					}
 					// Any real transition re-arms the finished alert.
-					if sess.Acked && newStatus != status.Idle && newStatus != status.Finished {
+					// A background rest is the turn the operator already saw end,
+					// with a shell still running behind it.
+					if sess.Acked && newStatus != status.Idle && newStatus != status.Finished && newStatus != status.Background {
 						step = time.Now()
 						unacked := false
 						rowState = append(rowState, store.DerivedState{ID: sess.ID, Acked: &unacked})

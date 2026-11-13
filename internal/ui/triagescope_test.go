@@ -88,7 +88,7 @@ func TestTriageFromRootDrainsTheWholeFleet(t *testing.T) {
 	if m.triageScope != "" {
 		t.Fatalf("triage scope = %q want the whole fleet", m.triageScope)
 	}
-	want := []string{"old-block", "new-block", "reviewme", "napping", "grinder", "booting", "gone", "crashed"}
+	want := []string{"old-block", "new-block", "reviewme", "napping", "crashed", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage queue = %v want %v", got, want)
 	}

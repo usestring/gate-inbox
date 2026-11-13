@@ -20,14 +20,13 @@ import (
 // because the one thing triage must never do is walk somebody into a
 // session that is mid-turn.
 //
-// delegating and background sit with working, below every session that is
-// ready. A parent waiting on child results has nothing for the operator
-// until a result arrives and starts a real turn, and a session whose shell
-// is still running will wake on its own; neither is ever handed over. Until
-// they were ranked this way, a delegating parent that the cache warden kept
-// warm came round on every pass with only its "ok" to read. A child asking a
-// question still lifts the branch through the child's own rank, and the
-// parent relays it, as it does for a working parent.
+// delegating and background are turns that have ended: the agent wrote its
+// answer and is at rest, with children or a shell still going behind it. The
+// answer is the operator's to read now, and whatever is still running does
+// not make the session busy, so both sit with the resting states, ahead of
+// errored and far ahead of working. Smart triage ranks each as the finish it
+// lies over (see triageScoredState). A keep-alive's "ok" is still a chore
+// rest and stays out of the walk (see chorerest.go).
 //
 // triageReview is the Reviews tab's tier, and no session's: a pull request
 // somebody asked the operator to review is a person waiting on them, but not
@@ -48,10 +47,10 @@ var triageTiers = []string{
 	triageBlocked,
 	status.Finished,
 	status.Idle,
-	status.Pending,
-	status.Errored,
 	status.Delegating,
 	status.Background,
+	status.Pending,
+	status.Errored,
 	status.Working,
 	status.Starting,
 	status.Hibernating,
@@ -138,6 +137,15 @@ func (m *Model) triageScoredState(sess store.Session) string {
 	st := m.triageStateOf(sess)
 	if sess.Status == status.Idle && sess.Acked && m.extAttention[sess.ID].Rank.tier() == "" {
 		return triageFinishedSeen
+	}
+	// A turn that ended with children or a shell still going is a finish:
+	// what is still running behind it is not the operator's to wait on. Seen,
+	// it is a seen finish like any other.
+	if st == status.Background || st == status.Delegating {
+		if sess.Acked {
+			return triageFinishedSeen
+		}
+		return status.Finished
 	}
 	if !slices.Contains(triageScoredTiers, st) {
 		return status.Finished
@@ -228,13 +236,15 @@ func (m *Model) needsPerson(sess store.Session) bool {
 // triageWalkable is what a drain will hand over at all: the sessions that
 // need a person, the idle ones and the hibernated ones. An idle session is not
 // waiting on anybody, so it does not count as attention, but it can be useful
-// to hand over in its turn. A hibernated session is resting work nobody has
-// steered since it went to sleep: it comes last, after every other row (see
-// triageKey), and handing it over wakes it on its conversation (see
-// wakeForFocus). Working, starting, delegating, background and dead stay
-// off: a delegating or background session will take its next turn without
-// the operator, bar a working or starting label flagged stale (see stalestatus.go): entering a mid-turn session is the one thing triage must never do,
-// and a dead pane cannot be entered.
+// to hand over in its turn. A background or delegating session has ended its
+// turn: its answer is on screen with a shell or children still running behind
+// it, and that is the operator's to read. A hibernated session is resting
+// work nobody has steered since it went to sleep: it comes last, after every
+// other row (see triageKey), and handing it over wakes it on its conversation
+// (see wakeForFocus). Working, starting and dead stay off, bar a working or
+// starting label flagged stale (see stalestatus.go): entering a mid-turn
+// session is the one thing triage must never do, and a dead pane cannot be
+// entered.
 //
 // The rail paints this, the mute keys read it and the walk above filters on
 // it, so all three say the same thing about a row. A session an extension
@@ -251,8 +261,38 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 	// idle one is: the screen under it has not moved in hours, so entering
 	// cannot interrupt a turn, and a person looking is the only way the
 	// misread gets noticed.
-	resting := sess.Status == status.Idle || m.isStale(sess) || m.isChoreRest(sess) || m.shownStatus(sess) == status.Hibernating
+	resting := sess.Status == status.Idle || m.isStale(sess) || m.isChoreRest(sess) || m.shownStatus(sess) == status.Hibernating ||
+		m.endedTurnNews(sess)
 	return resting && !m.ownedByExtension(sess.ID)
+}
+
+// endedTurn is a session whose turn is over with work still going behind it:
+// a shell or monitor (background) or children (delegating). The agent is at
+// rest at its prompt, so entering it interrupts nothing.
+func endedTurn(sess store.Session) bool {
+	return sess.Status == status.Background || sess.Status == status.Delegating
+}
+
+// triageNews is whether a session holds something the operator has not seen:
+// what needsPerson names, or a turn that ended behind a shell or children and
+// has not been looked at. It is what a drain left open picks up.
+func (m *Model) triageNews(sess store.Session) bool {
+	if m.needsPerson(sess) {
+		return true
+	}
+	return m.endedTurnNews(sess) && !sess.Acked && !m.ownedByExtension(sess.ID)
+}
+
+// endedTurnNews is an ended turn with something of its own to read. A turn
+// that only answered a keep-alive wrote "ok", and a parent the cache warden
+// keeps warm came round on every pass with nothing else in it; that stays
+// off the walk the way any chore rest does. See chorerest.go.
+func (m *Model) endedTurnNews(sess store.Session) bool {
+	if !endedTurn(sess) {
+		return false
+	}
+	_, chore := m.choreRests[sess.ID]
+	return !chore
 }
 
 // triageLess sorts the queue into bands -- scored, walkable, the rest, muted
@@ -347,6 +387,14 @@ func (k triageKey) before(o triageKey) bool {
 	if muted, oMuted := k.band == triageBandMuted, o.band == triageBandMuted; muted != oMuted {
 		return oMuted
 	}
+	// A row the drain cannot hand over -- working, starting, dead -- sorts
+	// under every row it can, errored and hibernating ones included. Working
+	// is the lowest thing on the queue: the rail reads top down as what to do
+	// next, and a block of busy sessions above the work waiting on the
+	// operator is a queue that reads as if nothing were.
+	if rest, oRest := k.band == triageBandRest, o.band == triageBandRest; rest != oRest {
+		return oRest
+	}
 	if k.hibernating != o.hibernating {
 		return !k.hibernating
 	}
@@ -399,6 +447,11 @@ func (m *Model) triageKeyOf(sess store.Session, now time.Time) triageKey {
 	return key
 }
 
+// busyTurn is a state whose turn is still running.
+func busyTurn(st string) bool {
+	return st == status.Working || st == status.Starting
+}
+
 func (m *Model) sortTriage(sessions []store.Session) {
 	m.sortTriageWithChildren(sessions, nil)
 }
@@ -445,6 +498,15 @@ func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string
 			// is the operator setting that work aside, not a question waiting
 			// on them.
 			if kid.Muted {
+				continue
+			}
+			// A parent mid-turn cannot be handed over, and neither can its child
+			// while it lives: the parent is told the child's result and takes it
+			// from there. Lifting the working parent on a child's finish only put
+			// a row nobody can enter at the head of the rail. A question is
+			// different: the parent relays it, and the lift keeps it from
+			// sinking. So is an extension saying the child needs a person.
+			if busyTurn(m.triageStateOf(sess)) && m.triageStateOf(kid) != status.Waiting && !m.extAttention[kid.ID].NeedsPerson {
 				continue
 			}
 			k := m.triageKeyOf(kid, now)
@@ -785,7 +847,7 @@ func (m *Model) triagePickupCmd() tea.Cmd {
 		return m.enterTriageHead()
 	}
 	for _, row := range m.rows {
-		if !row.entersAs() || !m.triageHandable(row, "", nil) || !m.needsPerson(row.sess) || !m.inTriageRotation(row.sess) {
+		if !row.entersAs() || !m.triageHandable(row, "", nil) || !m.triageNews(row.sess) || !m.inTriageRotation(row.sess) {
 			continue
 		}
 		// The flag clears only on entry: a session that refuses to be

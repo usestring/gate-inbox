@@ -640,6 +640,7 @@ type Config struct {
 	Work           Work         `toml:"work"`
 	Integrations   Integrations `toml:"integrations"`
 	Hogs           Hogs         `toml:"hogs"`
+	AutoGroup      AutoGroup    `toml:"auto_group"`
 	ClaudeCode     ClaudeCode   `toml:"claude_code"`
 	Codex          Codex        `toml:"codex"`
 	OpenCode       OpenCode     `toml:"opencode"`
@@ -1820,3 +1821,11 @@ command = ""
 shell = true
 default_status = "idle"
 `
+
+// AutoGroup configures the Auto group experiment. Presets are group names
+// the classifier may start when a session fits one and no group exists for
+// it yet; they are hints, not the whole set, since a one-off project gets a
+// group of its own.
+type AutoGroup struct {
+	Presets []string `toml:"presets"`
+}

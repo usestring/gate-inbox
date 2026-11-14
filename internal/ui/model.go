@@ -157,6 +157,8 @@ type Model struct {
 	jevFinish      jevFinishState
 	jevCopyOn      bool
 	jevCopy        jevCopyState
+	autoGroupOn    bool
+	autoGroup      autoGroupState
 	// reviewQueue is the Review queue experiment: off, the ingest key
 	// refuses and the rail draws no Reviews tab.
 	reviewQueue    bool
@@ -1047,6 +1049,7 @@ type settingsState struct {
 	jevAutoSuggest     bool
 	jevFinishCheck     bool
 	jevCopyOn          bool
+	autoGroupOn        bool
 	promptSuggest      bool
 	reviewQueue        bool
 	ciFeedback         bool
@@ -1426,6 +1429,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		jevAutoSuggest:   storedJevAutoSuggest(st),
 		jevFinishCheck:   storedJevFinishCheck(st),
 		jevCopyOn:        storedJevCopy(st),
+		autoGroupOn:      storedAutoGroup(st),
 		reviewQueue:      reviewQueue,
 		promptSuggest:    storedPromptSuggestions(st),
 		comfortableRows:  storedComfortableRows(st),
@@ -2486,6 +2490,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case jevFinishResultMsg:
 		m.applyJevFinish(msg)
 		return m, nil
+	case autoGroupResultMsg:
+		m.applyAutoGroup(msg)
+		return m, nil
 	case jevCopyResultMsg:
 		return m, m.applyJevCopy(msg)
 	case jevCopiedMsg:
@@ -2621,7 +2628,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sweep := m.sweepExpiredArchives()
 		// Off the loop, so a busy tmux server delays a child's filing rather
 		// than the board's next frame. What it finds lands as childSweptMsg.
-		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.settleHibernated())
+		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.checkAutoGroup(), m.settleHibernated())
 		m.settleInstall()
 		m.rebuildRows()
 		if focusClosed {

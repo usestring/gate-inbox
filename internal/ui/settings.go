@@ -201,6 +201,7 @@ func (m *Model) openSettings() {
 		jevAutoSuggest:   m.jevAutoSuggest,
 		jevFinishCheck:   m.jevFinishCheck,
 		jevCopyOn:        m.jevCopyOn,
+		autoGroupOn:      m.autoGroupOn,
 		promptSuggest:    m.promptSuggest,
 		reviewQueue:      m.reviewQueue,
 		ciFeedback:       storedExperiment(m.store, store.CIFeedbackSetting),
@@ -419,6 +420,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	}
 	m.persistExperiments()
 	m.jevFinishCheck = m.settings.jevFinishCheck
+	m.autoGroupOn = m.settings.autoGroupOn
 	if m.jevCopyOn != m.settings.jevCopyOn {
 		// Either way, what JEV picked before the switch is dropped, and a
 		// read still in flight lands on a generation that no longer counts.

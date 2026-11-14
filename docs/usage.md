@@ -64,6 +64,9 @@ archive and `ctrl+alt+r` rename. Keys an agent CLI relies on (`ctrl+r`, `ctrl+o`
 | `ctrl+alt+p` | Fetch the pull request reviews asked of you on GitHub into the Reviews row (see [The review queue](#the-review-queue)) |
 | `ctrl+alt+q` | Quit (sessions keep running) |
 
+When Claude Code is waiting for permission, the preview shows the request and its choices if the
+board can read the prompt. Open the session to respond.
+
 Selecting a dead session previews its saved conversation without starting the agent. The preview
 shows why it stopped when evidence is available, its engine and conversation ID, and the original
 request when available. Scroll to review older messages; `F3` expands shortened messages. `ctrl+r`

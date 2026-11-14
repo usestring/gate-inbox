@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -131,7 +132,7 @@ func TestWelcomeCardCountsAgentsAlreadyRunning(t *testing.T) {
 		t.Fatalf("the card should count the running agent:\n%s", body)
 	}
 	setMode(t, m, outsidePanesSetting, paneAdopt)
-	if body = ansi.Strip(m.viewWelcome()); !strings.Contains(body, "1 found in tmux and shown on the board as-is. ctrl+⌥a on one brings it in") {
+	if body = ansi.Strip(m.viewWelcome()); !strings.Contains(body, "1 found in tmux and shown on the board as-is. "+keymap.Display("ctrl+alt+a")+" on one brings it in") {
 		t.Fatalf("a kept pane should point at a:\n%s", body)
 	}
 }

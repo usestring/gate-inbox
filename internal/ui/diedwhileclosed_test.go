@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -56,7 +57,7 @@ func TestStartupMarksDeadRowsAndStaysOnTheList(t *testing.T) {
 		}
 	}
 	if !strings.Contains(m.errBar.text, "1 session stopped without you ending them") ||
-		!strings.Contains(m.errBar.text, "ctrl+⌥v revives") {
+		!strings.Contains(m.errBar.text, keymap.Display("ctrl+alt+v")+" revives") {
 		t.Fatalf("notice = %q", m.errBar.text)
 	}
 }

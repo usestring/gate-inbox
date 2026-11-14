@@ -1,4 +1,4 @@
-48 commands and verbs
+50 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -494,3 +494,23 @@ exit 0
 usage: gate-inbox inbox serve [--listen <host:port>]
   -listen string
     	host:port to bind instead of [inbox] listen; keep it on loopback
+
+$ gate-inbox pr-owner -h
+exit 0
+--- stdout
+usage: gate-inbox pr-owner <canonical-url> [--json]
+  -json
+    	print the raw result as JSON instead of a sentence
+
+$ gate-inbox pr-feedback -h
+exit 0
+--- stdout
+usage: gate-inbox pr-feedback <canonical-url> --event-key <key> --expect-session-id <id> --message-file <path> [--json]
+  -event-key string
+    	durable event identity, 1-128 letters, digits, underscores or hyphens
+  -expect-session-id string
+    	resolved owner; a changed owner refuses a new delivery
+  -json
+    	print the raw result as JSON instead of a sentence
+  -message-file string
+    	UTF-8 feedback file, at most 8000 bytes

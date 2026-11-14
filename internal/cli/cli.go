@@ -53,6 +53,7 @@ func sections() []section {
 		prioritySection(),
 		sweepSection(),
 		inboxSection(),
+		prSection(),
 	}
 }
 

@@ -224,6 +224,31 @@ enabled = false
 enabled = false
 ```
 
+**PR custody for automation.** A confirmed replacement or account migration hands the original
+session's recorded pull requests to its successor. The original records remain, and ordinary
+restarts keep the same identity. Parallel migrations do not transfer custody until completed.
+
+`gate-inbox pr-owner https://github.com/owner/repo/pull/1 --json` returns `status` as `owned`,
+`none`, or `ambiguous`, with a lowercase `url`. An owned result has a flat `session_id`;
+an ambiguous result lists `session_ids`. Only recorded creation evidence and explicit handoffs
+count. The recipient must be a live, nonarchived agent. Broken lineage and an unavailable board
+are errors, never evidence that nobody owns the PR. GitHub owner/repository casing is ignored.
+
+To queue feedback, use `gate-inbox pr-feedback <url> --event-key <key>
+--expect-session-id <id> --message-file <path> --json`. Keys contain 1–128 letters, digits,
+underscores or hyphens; files contain 1–8000 bytes of UTF-8 text. The response contains `status`
+(`accepted` or `duplicate`), a positive integer `message_id`, `session_id`, `url`, and `event_key`.
+A new acceptance atomically checks the resolved owner and queues an ordinary noninterrupting
+system message. Approval and input guards still govern delivery. It never revives a session.
+
+Retry the same key and exact file after an uncertain response. Reusing a key for different
+content or another PR fails. Receipts survive restarts and handoffs; a duplicate reports the
+message's current recipient while its inbox row exists, otherwise its original accepted recipient.
+Acceptance does not promise delivery. Pending messages follow committed handoffs once; migration
+leaves messages already being delivered with the source. Receipts remain in the existing settings
+store without expiry so an old retry cannot silently enqueue again. A changed or ambiguous owner
+refuses new feedback; callers should defer on errors rather than infer permission to start work.
+
 Pages a session publishes hang under it too, below its pull requests and tickets. The board reads
 Claude artifacts from Claude Code's own `Artifact` tool itself, and only those the session's own
 publish call returned: a page it merely linked does not count. Pages hosted elsewhere arrive from

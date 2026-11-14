@@ -15,6 +15,8 @@ type Replacement struct {
 	Reservations int64
 }
 
+var ErrAlreadyReplaced = errors.New("the session already has a replacement")
+
 // ErrNotHeld is a CommitReplacement whose new row is no longer held under
 // the old one: somebody deleted, archived or moved it during the hold.
 var ErrNotHeld = errors.New("the replacement is no longer held under the session it replaces")
@@ -148,7 +150,11 @@ type seat struct {
 
 func seatOf(tx *sql.Tx, id string) (seat, error) {
 	var at seat
-	err := tx.QueryRow(`SELECT group_name, parent_id, sort_order FROM sessions WHERE id = ?`, id).Scan(&at.group, &at.parentID, &at.order)
+	var replaced string
+	err := tx.QueryRow(`SELECT group_name, parent_id, sort_order, replaced_by FROM sessions WHERE id = ?`, id).Scan(&at.group, &at.parentID, &at.order, &replaced)
+	if err == nil && replaced != "" {
+		return seat{}, fmt.Errorf("session %s: %w", id, ErrAlreadyReplaced)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return seat{}, fmt.Errorf("session %s: %w", id, err)
 	}
@@ -166,6 +172,9 @@ func takeSeat(tx *sql.Tx, newID, oldID string, at seat, snapshot string) (Replac
 	}
 	if _, err := tx.Exec(`UPDATE sessions SET group_name = ?, parent_id = ?, sort_order = ? WHERE id = ?`,
 		at.group, at.parentID, at.order+1, newID); err != nil {
+		return Replacement{}, err
+	}
+	if err := copyOpenedPRs(tx, oldID, newID); err != nil {
 		return Replacement{}, err
 	}
 	var moved Replacement

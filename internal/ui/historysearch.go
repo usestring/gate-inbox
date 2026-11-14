@@ -228,7 +228,7 @@ func (m *Model) scheduleHistorySearch() tea.Cmd {
 	}
 	m.historySeq++
 	seq := m.historySeq
-	if m.historyQueryText() == "" {
+	if m.historyQueryText() == "" || m.searchTitleOnly {
 		m.historyHits, m.historyQuery = nil, ""
 		return nil
 	}
@@ -240,7 +240,7 @@ func (m *Model) scheduleHistorySearch() tea.Cmd {
 func (m *Model) historySearchCmd() tea.Cmd {
 	index := m.history
 	query := m.historyQueryText()
-	if index == nil || query == "" {
+	if index == nil || query == "" || m.searchTitleOnly {
 		return nil
 	}
 	return func() tea.Msg {
@@ -272,7 +272,7 @@ func (m *Model) applyHistorySearch(msg historySearchMsg) {
 // index has answered that query.
 func (m *Model) historyHit(sess store.Session) (search.Hit, bool) {
 	query := m.historyQueryText()
-	if query == "" || m.historyQuery != query {
+	if query == "" || m.historyQuery != query || m.searchTitleOnly {
 		return search.Hit{}, false
 	}
 	hit, ok := m.historyHits[sess.ID]
@@ -299,23 +299,27 @@ func historyHitBadge(hit search.Hit) string {
 	return badge
 }
 
-// Relevance tiers of a row for the query on screen: the query in what the
-// row itself prints comes first, then fuzzy metadata matches, then what its
-// pane shows, then its transcript. Fuzzy matches use fzf's score.
-// Within the transcript tier the index's score orders rows,
-// most and most recent mentions first; ties keep the board's own order. A
-// parent carried along only to hold matching children ranks as its best
-// child does, so a family stays where its strongest member belongs.
+// Relevance tiers of a row for the query on screen: the session's title
+// (its name or generated title) comes first, then its transcript, then the
+// rest of what the row prints (tool, group, status, opening prompt), then
+// fuzzy metadata matches, then what its pane shows. Title and transcript
+// lead because those are what an operator searching for a session means;
+// the other fields match too broadly to outrank them. Fuzzy matches use
+// fzf's score, and within the transcript tier the index's score orders
+// rows, most and most recent mentions first; ties keep the board's own
+// order. A parent carried along only to hold matching children ranks as its
+// best child does, so a family stays where its strongest member belongs.
 type relevance struct {
 	tier  int
 	score float64
 }
 
 const (
-	tierMetadata = iota
+	tierTitle = iota
+	tierHistory
+	tierMetadata
 	tierFuzzyMetadata
 	tierPane
-	tierHistory
 	tierCarried
 )
 
@@ -327,6 +331,15 @@ func (a relevance) better(b relevance) bool {
 }
 
 func (m *Model) relevanceOf(sess store.Session, query string) relevance {
+	if m.matchesTitle(sess, query) {
+		return relevance{tierTitle, 0}
+	}
+	if m.searchTitleOnly {
+		return relevance{tierCarried, 0}
+	}
+	if hit, ok := m.historyHit(sess); ok {
+		return relevance{tierHistory, hit.Score}
+	}
 	if matchesLiteralMetadata(sess, m.sessionSummary(sess), query) {
 		return relevance{tierMetadata, 0}
 	}
@@ -335,9 +348,6 @@ func (m *Model) relevanceOf(sess store.Session, query string) relevance {
 	}
 	if search.Match(m.searchText[sess.ID], query) {
 		return relevance{tierPane, 0}
-	}
-	if hit, ok := m.historyHit(sess); ok {
-		return relevance{tierHistory, hit.Score}
 	}
 	return relevance{tierCarried, 0}
 }

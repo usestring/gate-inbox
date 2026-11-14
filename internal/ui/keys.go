@@ -958,6 +958,10 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.search = ""
 		m.rebuildRows()
 		return m, m.scheduleHistorySearch()
+	case "tab":
+		m.searchTitleOnly = !m.searchTitleOnly
+		m.rebuildRows()
+		return m, m.scheduleHistorySearch()
 	default:
 		if text := msg.Key().Text; text != "" {
 			m.search += text

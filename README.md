@@ -161,7 +161,7 @@ selected agent for builds and one-off commands.
 | `ctrl+i` | Triage queue; `\` hides the list for a full-width drain |
 | `ctrl+w` | Show only what needs attention |
 | `ctrl+y` | Show only one CLI's sessions, cycling through the harnesses on the board |
-| `ctrl+f` | Fuzzy search; `esc` closes the field, deleting the text clears it |
+| `ctrl+f` | Fuzzy search; `tab` in the field toggles title-only, `esc` closes the field, deleting the text clears it |
 | `ctrl+p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none. `ctrl+p` also works from a focused session, and the row flashes its new tier |
 | `ctrl+m` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
 | `ctrl+t` / `alt+a` | Move the conversation to another CLI / switch its subscription |

@@ -77,7 +77,7 @@ func helpSections() []helpSection {
 			listRow(keymap.NewSession, "new session here: asks the agent; new session form asks everything"),
 			listRow(keymap.Dismiss, "skip"),
 			listRow(keymap.Archive, "kill it: close the pane and file the row"),
-			listRow(keymap.Search, "fuzzy session search; esc closes, deleting text clears"),
+			listRow(keymap.Search, "fuzzy session search; tab toggles title-only, esc closes, deleting text clears"),
 			listRow(keymap.Triage, "triage: this group as one queue, head first"),
 			listRow(keymap.Settings, "settings"),
 			listRow(keymap.QuickActions, "quick actions: type what you want, ↵ runs it, and it shows the key"),

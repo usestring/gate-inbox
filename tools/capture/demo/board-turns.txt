@@ -1,0 +1,15 @@
+
+╭─ Claude Code ──────────────────────────────────────╮
+│ terraform-auto-runner                             │
+╰───────────────────────────────────────────────────╯
+❯ Set up a Terraform auto runner that plans on every pull request.
+● The runner plans each stack on a pull request and posts the plan as a comment.
+❯ lets close these all for now
+● Closed. The runner stays in place for the next stack.
+❯ [gate-inbox] From the "cache-warden" extension running on this board, not from the user, sent 2026-10-01 22:53.
+● ok
+❯ [gate-inbox] From the "cache-warden" extension running on this board, not from the user, sent 2026-10-02 00:31.
+● ok
+❯ [gate-inbox] From the "cache-warden" extension running on this board, not from the user, sent 2026-10-02 02:14.
+● ok
+❯

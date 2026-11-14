@@ -40,7 +40,7 @@ func TestFuzzySessionMetadata(t *testing.T) {
 	}
 }
 
-func TestFuzzySearchRanksTitleAndHistoryBeforeOtherMatches(t *testing.T) {
+func TestFuzzySearchRanksTitleFirstAndHistoryLast(t *testing.T) {
 	m := &Model{width: 120, height: 30, collapsed: map[string]bool{}}
 	m.sessions = []store.Session{
 		{ID: "history", Name: "archive"},
@@ -54,7 +54,7 @@ func TestFuzzySearchRanksTitleAndHistoryBeforeOtherMatches(t *testing.T) {
 	m.historyQuery = "gtin"
 	m.historyHits = map[string]search.Hit{"history": {Key: "history", Count: 1, Score: 1000}}
 	filterFor(m, "gtin")
-	want := []string{"s:literal", "s:history", "s:fuzzy", "s:tie", "s:loose", "s:pane"}
+	want := []string{"s:literal", "s:fuzzy", "s:tie", "s:loose", "s:pane", "s:history"}
 	if got := rowKeys(m); !slices.Equal(got, want) {
 		t.Fatalf("rows = %v, want %v", got, want)
 	}
@@ -68,8 +68,8 @@ func TestFuzzySearchDoesNotFuzzPaneOrTranscriptText(t *testing.T) {
 		t.Fatalf("an abbreviation must not match long pane or transcript text: %v", got)
 	}
 	runHistoryQuery(t, m, "db-*-07")
-	if got := sessionNames(m); !slices.Equal(got, []string{"quiet", "web-ui"}) {
-		t.Fatalf("wildcard search = %v, want [quiet web-ui]", got)
+	if got := sessionNames(m); !slices.Equal(got, []string{"web-ui", "quiet"}) {
+		t.Fatalf("wildcard search = %v, want [web-ui quiet]", got)
 	}
 }
 

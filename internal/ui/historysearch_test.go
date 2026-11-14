@@ -94,8 +94,8 @@ func TestHistorySearchFindsWhatASessionSaidAndBadgesIt(t *testing.T) {
 	}
 	runHistoryQuery(t, m, needle)
 	got := sessionNames(m)
-	if len(got) != 3 || got[0] != "db-primary-07-migration" || got[1] != "quiet" || got[2] != "web-ui" {
-		t.Fatalf("filter with history = %v want [db-primary-07-migration quiet web-ui]", got)
+	if len(got) != 3 || got[0] != "db-primary-07-migration" || got[1] != "web-ui" || got[2] != "quiet" {
+		t.Fatalf("filter with history = %v want [db-primary-07-migration web-ui quiet]", got)
 	}
 	rows := railTextAt(m, 70)
 	if row := rows[lineWith(t, rows, "migration")]; strings.Contains(row, "≡") {
@@ -172,7 +172,7 @@ func TestHistorySearchDebounceIgnoresSupersededTimers(t *testing.T) {
 }
 
 // The query rail is ranked: rows titled for the query first, then rows
-// that said it, most and most recently first, then rows showing it; the
+// showing it, then rows that said it, most and most recently first; the
 // badge carries the count. Rows the query does not tell apart keep the
 // board's order.
 func TestQueryRailRanksByRelevance(t *testing.T) {
@@ -192,7 +192,7 @@ func TestQueryRailRanksByRelevance(t *testing.T) {
 		{Key: "1", Count: 1, Score: 0.4},
 		{Key: "5", Count: 1, Score: 0.4},
 	}})
-	if got := sessionNames(m); fmt.Sprint(got) != "[delta-provider beta alpha epsilon gamma]" {
+	if got := sessionNames(m); fmt.Sprint(got) != "[delta-provider gamma beta alpha epsilon]" {
 		t.Fatalf("ranked rail = %v", got)
 	}
 	rows := railTextAt(m, 70)

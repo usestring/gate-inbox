@@ -24,11 +24,11 @@ import (
 // in relevance order with the right badges:
 //
 //	named       the query is in the row's title — no badge
+//	screen      the query is on the pane — ≡pane
 //	typed-now   typed in the newest turn, weight 1 at no distance
 //	chatty      three tool outputs in the newest turns, 3 × 0.3, decayed
 //	typed-ago   typed once, twenty turns back, weight 1 halved
 //	printed     one tool output in the newest turn, weight 0.3
-//	screen      the query is on the pane only — ≡pane, after every transcript hit
 func TestHistorySearchRankingEndToEnd(t *testing.T) {
 	m := buildModel(t)
 	claudeHome := t.TempDir()
@@ -131,7 +131,7 @@ func TestHistorySearchRankingEndToEnd(t *testing.T) {
 	_, cmd := m.Update(m.scheduleHistorySearch()())
 	m.applyCmd(t, cmd)
 
-	want := []string{"named-" + term, "typed-now", "chatty", "typed-ago", "printed", "screen"}
+	want := []string{"named-" + term, "screen", "typed-now", "chatty", "typed-ago", "printed"}
 	if got := sessionNames(m); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("rail = %v\nwant  %v", got, want)
 	}
@@ -173,7 +173,7 @@ func TestHistorySearchRankingEndToEnd(t *testing.T) {
 	}
 	f := filepath.Join(claudeHome, "projects", "-e2e", ids["typed-ago"]+".jsonl")
 	appendLine(t, f, jsonLine(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": term + " again, now"}}))
-	want = []string{"named-" + term, "typed-ago", "typed-now", "chatty", "printed", "screen"}
+	want = []string{"named-" + term, "screen", "typed-ago", "typed-now", "chatty", "printed"}
 	deadline = time.After(20 * time.Second)
 	for strings.Join(sessionNames(m), " ") != strings.Join(want, " ") {
 		select {

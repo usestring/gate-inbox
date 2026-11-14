@@ -300,14 +300,13 @@ func historyHitBadge(hit search.Hit) string {
 }
 
 // Relevance tiers of a row for the query on screen: the session's title
-// (its name or generated title) comes first, then its transcript, then the
-// rest of what the row prints (tool, group, status, opening prompt), then
-// fuzzy metadata matches, then what its pane shows. Title and transcript
-// lead because those are what an operator searching for a session means;
-// the other fields match too broadly to outrank them. Fuzzy matches use
-// fzf's score, and within the transcript tier the index's score orders
-// rows, most and most recent mentions first; ties keep the board's own
-// order. A parent carried along only to hold matching children ranks as its
+// (its name or generated title) comes first, then the rest of what the row
+// prints (tool, group, status, opening prompt), then fuzzy metadata matches,
+// then what its pane shows, then its transcript. The title leads because it
+// is what an operator searching for a session usually means; the transcript
+// trails because it mentions almost everything. Fuzzy matches use fzf's
+// score, and within the transcript tier the index's score orders rows, most
+// and most recent mentions first; ties keep the board's own order. A parent carried along only to hold matching children ranks as its
 // best child does, so a family stays where its strongest member belongs.
 type relevance struct {
 	tier  int
@@ -316,10 +315,10 @@ type relevance struct {
 
 const (
 	tierTitle = iota
-	tierHistory
 	tierMetadata
 	tierFuzzyMetadata
 	tierPane
+	tierHistory
 	tierCarried
 )
 
@@ -337,9 +336,6 @@ func (m *Model) relevanceOf(sess store.Session, query string) relevance {
 	if m.searchTitleOnly {
 		return relevance{tierCarried, 0}
 	}
-	if hit, ok := m.historyHit(sess); ok {
-		return relevance{tierHistory, hit.Score}
-	}
 	if matchesLiteralMetadata(sess, m.sessionSummary(sess), query) {
 		return relevance{tierMetadata, 0}
 	}
@@ -348,6 +344,9 @@ func (m *Model) relevanceOf(sess store.Session, query string) relevance {
 	}
 	if search.Match(m.searchText[sess.ID], query) {
 		return relevance{tierPane, 0}
+	}
+	if hit, ok := m.historyHit(sess); ok {
+		return relevance{tierHistory, hit.Score}
 	}
 	return relevance{tierCarried, 0}
 }

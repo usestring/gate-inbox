@@ -73,7 +73,7 @@ func TestTitleSearchIgnoresPaneAndTranscript(t *testing.T) {
 	m, _, _ := historyModel(t)
 	m.titles = map[string]string{"4": "Recover db-primary-07 replica"}
 	runHistoryQuery(t, m, "db-primary-07")
-	if got := sessionNames(m); !slices.Equal(got, []string{"db-primary-07-migration", "bystander", "quiet", "web-ui"}) {
+	if got := sessionNames(m); !slices.Equal(got, []string{"db-primary-07-migration", "bystander", "web-ui", "quiet"}) {
 		t.Fatalf("full search = %v", got)
 	}
 

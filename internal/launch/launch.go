@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,9 +21,11 @@ import (
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/keyconfine"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
@@ -666,6 +669,43 @@ var ensureShared = func(configDir string) (string, error) {
 	return mcpshared.Ensure(configDir, Executable(), sharedWait)
 }
 
+// confine runs a session's command with the board's key directory hidden from
+// it (keyconfine). Only a claude session launched with the board's settings
+// is kept out of that directory by the CLI itself, so every other launch goes
+// through here, and one that cannot be confined is refused.
+//
+// An opencode pane is the exception to the wrapping, not to the refusal: it
+// runs the opencode-attach verb first, which writes the session's binding
+// into that directory and may start the shared server, so the verb runs
+// unconfined and confines the TUI it execs (app's runOpencodeAttach).
+func confine(configDir, style, command string) (string, error) {
+	keyDir := parentseal.KeyDir(configDir)
+	refused := func(err error) error {
+		return fmt.Errorf("it has no way to keep itself out of Gate Inbox's key directory (%s), "+
+			"and it could not be confined: %w; install bubblewrap (Linux) so the board can hide that directory from it",
+			keyDir, err)
+	}
+	if style == "opencode" {
+		if err := keyconfine.Available(); err != nil {
+			return "", refused(err)
+		}
+		return command, nil
+	}
+	run := []string{"/bin/sh", "-c", command}
+	argv, err := keyconfine.Argv(keyDir, nil, run)
+	if err != nil {
+		return "", refused(err)
+	}
+	if slices.Equal(argv, run) {
+		return command, nil
+	}
+	quoted := make([]string, len(argv))
+	for i, arg := range argv {
+		quoted[i] = tmux.ShellQuote(arg)
+	}
+	return strings.Join(quoted, " "), nil
+}
+
 // resolveAccount reads an account's token, replaced in tests so a launch
 // plan never reaches a real secret store.
 var resolveAccount = accounts.Resolve
@@ -732,6 +772,10 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return "", nil, err
 	}
 	if tool.StatusSource != hooks.StatusSourceClaude {
+		command, err = confine(manager.ConfigDir(), style, command)
+		if err != nil {
+			return "", nil, fmt.Errorf("%s cannot be launched: %w", toolName, err)
+		}
 		return command, env, nil
 	}
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)

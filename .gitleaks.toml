@@ -46,3 +46,14 @@ condition = "AND"
 targetRules = ["generic-api-key"]
 commits = ["4ee48bfb42744ee28663a5ec413a2c2d4ed02c03"]
 paths = ['''^internal/mcpserver/caller_test\.go$''']
+
+# The pi sandbox bundles node-forge minified into one line, and its table of
+# PKCS#12 algorithm names (pbewithSHAAnd40BitRC2-CBC and kin) reads to the
+# generic rule as a key assignment. CI scans every branch, so the commit that
+# added the bundle on a feature branch fails the job for main too.
+[[allowlists]]
+description = "internal/piext bundled node-forge: PKCS#12 algorithm names"
+condition = "AND"
+targetRules = ["generic-api-key"]
+commits = ["af9d1491d8f7c7f3984b20005529ce135088b1fe"]
+paths = ['''^internal/piext/sandbox-runtime\.mjs$''']

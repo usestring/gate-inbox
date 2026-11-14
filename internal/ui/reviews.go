@@ -1,12 +1,12 @@
 package ui
 
-// The review queue: pull requests someone asked the operator to review on
-// GitHub, fetched on the ingest key and listed on a Reviews tab of the rail,
-// beside the Sessions tab.
+// The review queue holds GitHub review asks and ready pull requests opened
+// by sessions. Authored work keeps its source link so review questions can
+// return to the conversation that produced it.
 //
 // An ask is not a session: it has no pane, no status and no group, and the
-// only things to do with one are start a review, open it, or dismiss it. So it
-// gets a list of its own rather than a row among the sessions, and a key that
+// actions concern the PR and its linked conversations. It gets a list of
+// its own rather than a row among the sessions, and a key that
 // acts on a session is refused on the tab rather than taught what a pull
 // request is.
 
@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -25,8 +26,11 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/keymap"
+	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/workspec"
+	"github.com/usestring/gate-inbox/internal/worktracker"
 )
 
 // reviewsMsg carries the open asks back to the loop, after a load or an
@@ -136,7 +140,7 @@ func (m *Model) finishReviews(msg reviewsMsg) (tea.Model, tea.Cmd) {
 			msg.err = m.reloadReviewRequests()
 		}
 	} else if msg.err == nil {
-		m.reviews = msg.open
+		m.replaceReviews(msg.open)
 	}
 	preparing := ""
 	var prepErr error
@@ -375,7 +379,18 @@ func (m *Model) reviewTabLines(width, height int) []contentLine {
 		if i == m.reviewsCursor {
 			bg = selectedHex()
 		}
-		head, meta := reviewSpans(m.reviews[i], i == m.reviewsCursor)
+		r := m.reviews[i]
+		head, meta := reviewSpans(r, i == m.reviewsCursor)
+		if tier := m.reviewPriority(r); tier != priority.Unset {
+			tone := ToneGood
+			if tier == priority.Low {
+				tone = ToneBad
+			}
+			head = slices.Insert(head, 1, Span{Text: tier.Glyph() + " ", Tone: tone})
+		}
+		if origin := m.reviewOrigin(r); origin != nil {
+			meta = append(meta, Span{Text: " · " + m.displayName(*origin), Tone: ToneAccent})
+		}
 		label, tone := m.reviewSessionLabel(m.reviews[i])
 		if label == staleBriefingLabel {
 			// Put the warning before the metadata so a narrow rail keeps it.
@@ -424,9 +439,11 @@ func reviewSpans(r store.ReviewRequest, selected bool) (head, meta []Span) {
 		add("by "+r.Author, ToneMuted)
 	}
 	add(reviewAge(time.Since(r.TriggeredAt)), ToneMuted)
-	meta = append(meta, Span{Text: " · ", Tone: ToneMuted},
-		Span{Text: "+" + strconv.Itoa(r.Additions), Tone: ToneGood},
-		Span{Text: " -" + strconv.Itoa(r.Deletions), Tone: ToneBad})
+	if r.Trigger != "session" {
+		meta = append(meta, Span{Text: " · ", Tone: ToneMuted},
+			Span{Text: "+" + strconv.Itoa(r.Additions), Tone: ToneGood},
+			Span{Text: " -" + strconv.Itoa(r.Deletions), Tone: ToneBad})
+	}
 	if glyph := checksGlyph(forge.ChecksState(r.Checks)); glyph != "" {
 		add(glyph, checksTone(forge.ChecksState(r.Checks)))
 	}
@@ -459,9 +476,15 @@ func (m *Model) reviewDetailLines(width int) []string {
 		out = append(out, line("by "+r.Author, ToneMuted, false))
 	}
 	out = append(out, line(triggerLabel(r.Trigger)+" "+reviewAge(time.Since(r.TriggeredAt)), ToneMuted, false))
-	change := fmt.Sprintf("+%d -%d · %s", r.Additions, r.Deletions, countOf(r.ChangedFiles, "file"))
+	change := ""
+	if r.Trigger != "session" {
+		change = fmt.Sprintf("+%d -%d · %s", r.Additions, r.Deletions, countOf(r.ChangedFiles, "file"))
+	}
 	if glyph := checksGlyph(forge.ChecksState(r.Checks)); glyph != "" {
-		change += " · " + glyph + " checks"
+		if change != "" {
+			change += " · "
+		}
+		change += glyph + " checks"
 	}
 	if r.Draft {
 		change += " · draft"
@@ -472,6 +495,13 @@ func (m *Model) reviewDetailLines(width int) []string {
 		if label == staleBriefingLabel {
 			out = append(out, line(m.pressTo(keymap.ContextReviews, keymap.ReviewStart, "refresh briefing"), ToneMuted, false))
 		}
+	}
+	if origin := m.reviewOrigin(r); origin != nil {
+		out = append(out, "", line("Session: "+m.displayName(*origin), ToneAccent, false),
+			line(m.pressTo(keymap.ContextReviews, keymap.ReviewAuthor, "ask about this PR"), ToneMuted, false))
+	}
+	if tier := m.reviewPriority(r); tier != priority.Unset {
+		out = append(out, line("Priority: "+tier.Label(), ToneGood, false))
 	}
 	if r.URL != "" {
 		out = append(out, "", line(r.URL, ToneMuted, false))
@@ -493,6 +523,8 @@ func checksTone(state forge.ChecksState) Tone {
 
 func triggerLabel(trigger string) string {
 	switch forge.Trigger(trigger) {
+	case "session":
+		return "opened by a session"
 	case forge.TriggerLabel:
 		return "labelled"
 	case forge.TriggerComment:
@@ -640,7 +672,7 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	case keymap.Refresh:
 		return m, m.ingestReviews()
-	case keymap.ReviewOpen, keymap.ReviewDismiss, keymap.ReviewStart, keymap.ReviewView:
+	case keymap.ReviewOpen, keymap.ReviewDismiss, keymap.ReviewStart, keymap.ReviewView, keymap.ReviewAuthor:
 	default:
 		return nil, nil
 	}
@@ -649,6 +681,8 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch action {
+	case keymap.ReviewAuthor:
+		return m.openReviewAuthor(r)
 	case keymap.ReviewOpen:
 		return m, openLink(r.URL)
 	case keymap.ReviewDismiss:
@@ -664,7 +698,7 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 func (m *Model) reloadReviewRequests() error {
 	open, err := m.store.OpenReviewRequests()
 	if err == nil {
-		m.reviews = open
+		m.replaceReviews(open)
 	}
 	return err
 }
@@ -733,4 +767,108 @@ func (m *Model) launchReview(r store.ReviewRequest) (string, error) {
 	).Replace(cfg.PromptOrDefault())
 	name := "review-" + path.Base(r.Repo) + "-" + strconv.Itoa(r.Number)
 	return m.spawnSessionAs(tool, cfg.Model, name, dir, rootGroup, prompt, false, store.SourceUser)
+}
+
+func queueSessionReviews(st *store.Store, tracker *worktracker.Tracker, sessions []worktracker.Session, now time.Time) error {
+	var found []store.ReviewRequest
+	seen := map[string]bool{}
+	for _, sess := range sessions {
+		urls, err := st.OpenedPRs(sess.ID)
+		if err != nil {
+			return err
+		}
+		if len(urls) == 0 {
+			continue
+		}
+		work := tracker.For(sess.ID)
+		for _, ref := range work.Refs {
+			key := ref.Key()
+			pr, ok := work.PRs[key]
+			if !ok || !work.Looked[key] || ref.Kind != workspec.KindPR || seen[key] || !slices.Contains(urls, pr.URL) {
+				continue
+			}
+			seen[key] = true
+			if pr.Done() {
+				if err := st.CloseSessionReview(pr.Repo, pr.Number, now); err != nil {
+					return err
+				}
+				continue
+			}
+			if pr.State == forge.PRDraft {
+				if err := st.SetSessionReviewDraft(pr.Repo, pr.Number, now); err != nil {
+					return err
+				}
+				continue
+			}
+			if pr.State != forge.PROpen {
+				continue
+			}
+			head := ""
+			if pr.CI != nil {
+				head = pr.CI.HeadSHA
+			}
+			found = append(found, store.ReviewRequest{
+				Repo: pr.Repo, Number: pr.Number, URL: pr.URL, Title: pr.Title,
+				Trigger: "session", TriggerID: key, HeadSHA: head,
+				Checks: string(pr.Checks), TriggeredAt: now,
+			})
+		}
+	}
+	_, err := st.UpsertReviewRequests(found, now)
+	return err
+}
+
+func (m *Model) reviewOrigin(r store.ReviewRequest) *store.Session {
+	for i := range m.sessions {
+		if m.sessions[i].ID == r.OriginSessionID {
+			return &m.sessions[i]
+		}
+	}
+	return r.OriginSession
+}
+
+func (m *Model) reviewPriority(r store.ReviewRequest) priority.Tier {
+	var tier priority.Tier
+	if origin := m.reviewOrigin(r); origin != nil {
+		tier = store.EffectiveTier(m.priorityGroups, *origin)
+	}
+	if sess, _ := m.reviewSession(r); sess != nil {
+		tier = priority.Better(tier, store.EffectiveTier(m.priorityGroups, *sess))
+	}
+	return tier
+}
+
+func (m *Model) replaceReviews(open []store.ReviewRequest) {
+	selected := ""
+	if m.reviewsCursor >= 0 && m.reviewsCursor < len(m.reviews) {
+		selected = reviewKey(m.reviews[m.reviewsCursor])
+	}
+	m.reviews = open
+	m.reviewsCursor = max(0, min(m.reviewsCursor, len(open)-1))
+	slices.SortStableFunc(m.reviews, func(a, b store.ReviewRequest) int {
+		return m.reviewPriority(a).Rank() - m.reviewPriority(b).Rank()
+	})
+	for i, r := range m.reviews {
+		if reviewKey(r) == selected {
+			m.reviewsCursor = i
+			break
+		}
+	}
+}
+
+func (m *Model) openReviewAuthor(r store.ReviewRequest) (tea.Model, tea.Cmd) {
+	origin := m.reviewOrigin(r)
+	if origin == nil {
+		m.errBar.text = "the originating session is no longer on the board"
+		return m, nil
+	}
+	m.closePullRequest()
+	m.reviewsTab = false
+	m.statusFilter, m.toolFilter, m.search = statusFilterAll, "", ""
+	m.showArchived = origin.Archived
+	if sessionGone(m.sessions, origin.ID) {
+		m.sessions = append(m.sessions, *origin)
+	}
+	m.reportDone("ask about " + r.URL)
+	return m.landInNewSession(origin.ID)
 }

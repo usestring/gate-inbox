@@ -40,7 +40,18 @@ import (
 // row's marker all read it, so what the rail paints is the order the drain
 // walks.
 func (m *Model) tierOf(sess store.Session) priority.Tier {
-	return store.EffectiveTier(m.priorityGroups, sess)
+	tier := store.EffectiveTier(m.priorityGroups, sess)
+	if !m.reviewQueue {
+		return tier
+	}
+	for _, r := range m.reviews {
+		if r.SessionID == sess.ID {
+			if origin := m.reviewOrigin(r); origin != nil {
+				tier = priority.Better(tier, store.EffectiveTier(m.priorityGroups, *origin))
+			}
+		}
+	}
+	return tier
 }
 
 // cyclePrioritySelected walks the row under the cursor one step around the
@@ -72,6 +83,7 @@ func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {
 		} else {
 			m.priorityGroups[entry.group] = next
 		}
+		m.replaceReviews(m.reviews)
 		m.rebuildRows()
 		m.requestRefresh()
 		m.reportDone(priorityReport(next, baseName(entry.group)))
@@ -97,6 +109,7 @@ func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {
 			m.sessions[i].Priority = next
 		}
 	}
+	m.replaceReviews(m.reviews)
 	m.rebuildRows()
 	m.requestRefresh()
 	m.reportDone(priorityReport(next, m.displayName(sess)))

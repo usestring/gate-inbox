@@ -94,8 +94,8 @@ func TestUndoArchiveAnswersItsKey(t *testing.T) {
 	if _, cmd := m.archiveSelected(); cmd != nil {
 		m.applyCmd(t, cmd)
 	}
-	if !strings.Contains(m.errBar.text, "ctrl+⌥u undoes it") {
-		t.Errorf("notice %q does not name ctrl+⌥u", m.errBar.text)
+	if !strings.Contains(m.errBar.text, keymap.Display("ctrl+alt+u")+" undoes it") {
+		t.Errorf("notice %q does not name %s", m.errBar.text, keymap.Display("ctrl+alt+u"))
 	}
 	if _, cmd := m.handleKey(runeKey("ctrl+alt+u")); cmd != nil {
 		m.applyCmd(t, cmd)
@@ -109,7 +109,7 @@ func TestUndoArchiveAnswersItsKey(t *testing.T) {
 	if _, cmd := m.archiveSelected(); cmd != nil {
 		m.applyCmd(t, cmd)
 	}
-	if !strings.Contains(m.errBar.text, "Q undoes it") || strings.Contains(m.errBar.text, "ctrl+⌥u undoes") {
+	if !strings.Contains(m.errBar.text, "Q undoes it") || strings.Contains(m.errBar.text, keymap.Display("ctrl+alt+u")+" undoes") {
 		t.Errorf("notice %q does not follow the rebind to Q", m.errBar.text)
 	}
 }

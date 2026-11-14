@@ -105,6 +105,7 @@ const (
 	ReviewDismiss Action = "review_dismiss"
 	ReviewStart   Action = "review_start"
 	ReviewView    Action = "review_view"
+	ReviewAuthor  Action = "review_author"
 	// The tabs of a pull request's page, as GitHub names them.
 	ReviewConversation Action = "review_conversation"
 	ReviewFiles        Action = "review_files"
@@ -382,6 +383,7 @@ var Catalog = []Binding{
 	{ContextReviews, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextReviews, CursorDown, []string{"down", "j"}, "move down", true},
 	{ContextReviews, ReviewView, []string{"enter"}, "open the pull request", true},
+	{ContextReviews, ReviewAuthor, []string{"f"}, "ask the originating session", false},
 	{ContextReviews, ReviewStart, []string{"s"}, "start the review", false},
 	{ContextReviews, ReviewOpen, []string{"o"}, "open on GitHub", false},
 	{ContextReviews, ReviewDismiss, []string{"x"}, "dismiss", false},
@@ -410,6 +412,7 @@ var Catalog = []Binding{
 	{ContextReviewPage, ReviewApprove, []string{"a"}, "approve", false},
 	{ContextReviewPage, ReviewRequestChanges, []string{"r"}, "request changes", false},
 	{ContextReviewPage, ReviewCommentOnly, []string{"C", "shift+c"}, "submit as a comment", false},
+	{ContextReviewPage, ReviewAuthor, []string{"f"}, "ask the originating session", false},
 	{ContextReviewPage, ReviewStart, []string{"s"}, "start the review", false},
 	{ContextReviewPage, ReviewOpen, []string{"o"}, "open on GitHub", false},
 	{ContextReviewPage, ReviewDismiss, []string{"x"}, "dismiss", false},

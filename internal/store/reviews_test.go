@@ -3,6 +3,8 @@ package store
 import (
 	"testing"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/priority"
 )
 
 // Finding an ask again never reopens one the operator closed; a new ask on the same pull request
@@ -127,4 +129,44 @@ func TestReviewIngestRefreshesHeadForOtherOpenAsks(t *testing.T) {
 			t.Errorf("session head = %q; want the original head aaa", ask.SessionHead)
 		}
 	}
+}
+
+func TestReviewSourceFollowsTheActiveConversationAndSurvivesArchival(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Unix(1700000000, 0)
+	url := "https://github.com/example/api/pull/7"
+	for i, id := range []string{"original", "resumed"} {
+		sess := sample(id, "release")
+		sess.CreatedAt = now.Add(time.Duration(i) * time.Minute)
+		sess.Priority = priority.High
+		if err := st.CreateSession(sess); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.RecordOpenedPRs(id, []string{url}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ask := ReviewRequest{Repo: "example/api", Number: 7, Trigger: "session", TriggerID: "pr:example/api#7", URL: url}
+	if _, err := st.UpsertReviewRequests([]ReviewRequest{ask}, now); err != nil {
+		t.Fatal(err)
+	}
+	assertSource := func(id string) {
+		t.Helper()
+		open, err := st.OpenReviewRequests()
+		if err != nil || len(open) != 1 {
+			t.Fatalf("open = %+v, err = %v", open, err)
+		}
+		if open[0].OriginSessionID != id || open[0].OriginSession.Priority != priority.High || open[0].OriginSession.Group != "release" {
+			t.Fatalf("origin = %+v; want %s with its priority and group", open[0].OriginSession, id)
+		}
+	}
+	assertSource("resumed")
+	if err := st.SetArchived("resumed", true); err != nil {
+		t.Fatal(err)
+	}
+	assertSource("original")
+	if err := st.SetArchived("original", true); err != nil {
+		t.Fatal(err)
+	}
+	assertSource("resumed")
 }

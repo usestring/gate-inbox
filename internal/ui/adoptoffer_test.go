@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
@@ -36,7 +37,7 @@ func TestTheToastsKeyBringsTheNewPaneIn(t *testing.T) {
 	socket, pane := adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
 	m.applyCmd(t, nil)
 	m.noteAdopted(adoptedMsg{taken: 1, ids: []string{"byhand"}})
-	if !strings.Contains(m.errBar.text, "byhand, started outside the board, is on it as-is · ctrl+⌥a brings it in · ctrl+o leaves it out") {
+	if !strings.Contains(m.errBar.text, "byhand, started outside the board, is on it as-is · "+keymap.Display("ctrl+alt+a")+" brings it in · ctrl+o leaves it out") {
 		t.Fatalf("toast = %q", m.errBar.text)
 	}
 	// The toast outlives the couple of polls an ordinary notice gets.
@@ -104,10 +105,10 @@ func TestRestartsOfAnAdoptedPaneOfferToBringItIn(t *testing.T) {
 	m.selectSessionRow(t, "byhand")
 
 	m.restartSelected()
-	if m.mode == modeConfirmDelete || !strings.Contains(m.errBar.text, "ctrl+⌥a brings it in") {
+	if m.mode == modeConfirmDelete || !strings.Contains(m.errBar.text, keymap.Display("ctrl+alt+a")+" brings it in") {
 		t.Fatalf("restart on an adopted pane: mode %v, %q", m.mode, m.errBar.text)
 	}
-	if err := m.killSession(sessionNamed(t, m, "byhand")); err == nil || !strings.Contains(err.Error(), "ctrl+⌥a brings it in") {
+	if err := m.killSession(sessionNamed(t, m, "byhand")); err == nil || !strings.Contains(err.Error(), keymap.Display("ctrl+alt+a")+" brings it in") {
 		t.Fatalf("killSession refused with %v", err)
 	}
 

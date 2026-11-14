@@ -39,7 +39,7 @@ func (m *Model) inTriageContent(sess store.Session) bool {
 		return true
 	}
 	review := slices.ContainsFunc(m.reviews, func(r store.ReviewRequest) bool {
-		return r.SessionID == sess.ID
+		return r.SessionID == sess.ID || r.OriginSessionID == sess.ID
 	})
 	return review == (content == triageContentReviews)
 }

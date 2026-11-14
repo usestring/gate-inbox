@@ -49,10 +49,8 @@ func (m *Model) panePickMatches() []panePickEntry {
 		if m.triage && !m.inTriageScope(sess.Group) {
 			continue
 		}
-		if m.search != "" && !matchesSearch(sess, m.sessionSummary(sess), strings.ToLower(m.search), m.searchText[sess.ID]) {
-			if _, ok := m.historyHit(sess); !ok {
-				continue
-			}
+		if q := m.historyQueryText(); q != "" && !m.searchMatches(sess, q) {
+			continue
 		}
 		if query == "" {
 			entries = append(entries, panePickEntry{sess: sess})

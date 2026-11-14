@@ -171,7 +171,7 @@ func TestHistorySearchDebounceIgnoresSupersededTimers(t *testing.T) {
 	}
 }
 
-// The query rail is ranked: rows named for the query first, then rows
+// The query rail is ranked: rows titled for the query first, then rows
 // showing it, then rows that said it, most and most recently first; the
 // badge carries the count. Rows the query does not tell apart keep the
 // board's order.

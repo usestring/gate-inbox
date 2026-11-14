@@ -172,27 +172,49 @@ func (m *Model) searchFieldLine(width int) string {
 	indent := spaces(railInset)
 	glyph := keyStyle.Render("≡ ")
 	caret := lipgloss.NewStyle().Foreground(colorAccent).Render("▏")
-	hint := keyCapQuiet("esc", "close")
-	if !m.searching {
-		caret, hint = "", ""
+	// hints run widest first; the field shows the first that fits. The tab
+	// hint names the scope tab switches to, as esc's names what it does, and
+	// outlasts esc on a narrow rail because it is the less guessable key.
+	toggle := "title only"
+	if m.searchTitleOnly {
+		// A title-only query says so beside the glyph, so a short list
+		// reads as narrowed rather than as sessions gone missing.
+		glyph += subtleStyle.Render("title: ")
+		toggle = "all"
+	}
+	var hints []string
+	if m.searching {
+		tab := keyCapQuiet("tab", toggle)
+		hints = []string{tab + " " + keyCapQuiet("esc", "close"), tab}
+	} else {
+		caret = ""
 		if key := m.cap(keymap.ContextList, keymap.Search); key != "" {
-			hint = keyCapQuiet(key, "edit")
+			hints = []string{keyCapQuiet(key, "edit")}
 		}
 	}
 	chrome := railInset + textfmt.Width(glyph) + textfmt.Width(caret)
 
 	if m.search == "" {
-		field := glyph + caret + subtleStyle.Render("fuzzy session search")
-		if gap := width - railInset - textfmt.Width(field) - textfmt.Width(hint) - 1; gap >= 2 {
-			return indent + field + spaces(gap) + hint
+		placeholder := "fuzzy session search"
+		if m.searchTitleOnly {
+			placeholder = "name or generated title"
+		}
+		field := glyph + caret + subtleStyle.Render(placeholder)
+		for _, hint := range hints {
+			if gap := width - railInset - textfmt.Width(field) - textfmt.Width(hint) - 1; gap >= 2 {
+				return indent + field + spaces(gap) + hint
+			}
 		}
 		return indent + field
 	}
 	// A query longer than the rail keeps its end: that is where the caret is
 	// and where the next keystroke lands.
-	room := width - chrome - textfmt.Width(hint) - 2
-	if room < 8 {
-		hint, room = "", width-chrome
+	hint, room := "", width-chrome
+	for _, h := range hints {
+		if r := width - chrome - textfmt.Width(h) - 2; r >= 8 {
+			hint, room = h, r
+			break
+		}
 	}
 	query := m.search
 	if textfmt.Width(query) > room {
@@ -212,7 +234,7 @@ func (m *Model) searchFieldLine(width int) string {
 // where the hit was.
 func (m *Model) matchedInPane(sess store.Session) bool {
 	query := strings.ToLower(strings.TrimSpace(m.search))
-	if query == "" || matchesMetadata(sess, m.sessionSummary(sess), query) {
+	if query == "" || m.searchTitleOnly || matchesMetadata(sess, m.sessionSummary(sess), query) {
 		return false
 	}
 	return strings.Contains(m.searchText[sess.ID], query)

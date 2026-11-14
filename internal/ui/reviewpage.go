@@ -197,6 +197,8 @@ func (m *Model) handleReviewPageKey(action keymap.Action, bound bool) (tea.Model
 		view.jumpFile(action == keymap.ReviewNextFile)
 	case keymap.ReviewOpen:
 		return m, openLink(page.review.URL + [...]string{"", "/files", "/checks"}[page.tab])
+	case keymap.ReviewAuthor:
+		return m.openReviewAuthor(page.review)
 	case keymap.ReviewStart:
 		return m.startReview(page.review)
 	case keymap.ReviewDismiss:
@@ -265,6 +267,14 @@ func (v *reviewsView) renderPage(width, height int) [][]Span {
 	key := page.key()
 	detail := v.cache.details[key]
 	out := prHeader(page.review, detail, page.tab)
+	if origin := v.m.reviewOrigin(page.review); origin != nil {
+		label := "Session: " + v.m.displayName(*origin)
+		if tier := v.m.reviewPriority(page.review); tier != "" {
+			label += " · " + tier.Label()
+		}
+		out = append(out, []Span{{Text: label, Tone: ToneAccent}},
+			[]Span{{Text: v.m.pressTo(keymap.ContextReviewPage, keymap.ReviewAuthor, "ask about this PR"), Tone: ToneMuted}}, nil)
+	}
 	if label, tone := v.m.reviewSessionLabel(page.review); label == staleBriefingLabel {
 		hint := v.m.pressTo(keymap.ContextReviewPage, keymap.ReviewStart, "refresh briefing")
 		out[len(out)-1] = []Span{{Text: "PR updated · " + hint, Tone: tone}}

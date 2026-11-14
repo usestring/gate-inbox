@@ -305,6 +305,10 @@ type Model struct {
 	// hibernate.go.
 	hibernating      bool
 	hibernateSweptAt time.Time
+	// hibernateAfter and hibernateMinSessions are the hibernation in
+	// force: the Settings choice, else config.toml's. See hibernate.go.
+	hibernateAfter       time.Duration
+	hibernateMinSessions int
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -1032,9 +1036,13 @@ type settingsState struct {
 	triageContent    string
 	triageKeepAlives bool
 	idleSwitch       bool
-	confirmLaunches  bool
-	reopenSessions   string
-	outsidePanes     string
+	// hibernateAfter and hibernateMinSessions are the hibernation rows as
+	// the picker holds them.
+	hibernateAfter       time.Duration
+	hibernateMinSessions int
+	confirmLaunches      bool
+	reopenSessions       string
+	outsidePanes         string
 	// claudeSetup is the Settings switch for the board's entries in the
 	// operator's Claude Code config, as the picker holds it.
 	claudeSetup        bool
@@ -1088,6 +1096,8 @@ const (
 	settingsFieldTriageContent
 	settingsFieldTriageKeepAlives
 	settingsFieldIdleSwitch
+	settingsFieldHibernateAfter
+	settingsFieldHibernateMin
 	settingsFieldConfirmLaunches
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
@@ -1465,6 +1475,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	model.poller.compactTools = compactTools
 	model.poller.downgradeDelays = downgradeDelays
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
+	model.hibernateAfter, model.hibernateMinSessions = storedHibernation(st, cfg)
 	model.poller.hogWatch = newHogWatch(cfg.Hogs, "", func(msg store.InboxMessage) error {
 		_, _, err := st.Enqueue(msg, store.DefaultInboxLimits)
 		return err

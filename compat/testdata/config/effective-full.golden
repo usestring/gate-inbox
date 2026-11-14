@@ -22,6 +22,7 @@ file     extensions.artifacts.key_secret = "EXAMPLE_ARTIFACT_KEY"
 file     extensions.artifacts.link_ttl = "24h"
 file     extensions.artifacts.max_bytes = 1024
 default  hibernate_after = "0s"
+default  hibernate_min_sessions = 0
 default  hogs.cooldown = "30m0s"
 default  hogs.cpu.notice[0].available_below = 0
 default  hogs.cpu.notice[0].for = "10m0s"

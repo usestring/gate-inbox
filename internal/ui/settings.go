@@ -167,45 +167,47 @@ func (m *Model) openSettings() {
 		routing = accounts.Own
 	}
 	m.settings = settingsState{
-		toolNames:        names,
-		toolIndex:        index,
-		accountRouting:   routing,
-		chooserAvailable: chooser,
-		themeIndex:       themeIndex(current.Name),
-		quickCloseSend:   m.quickCloseAfterSend(),
-		enterFocuses:     m.enterFocuses(),
-		comfortableRows:  m.comfortableRows,
-		layout:           normalizeLayout(m.layout),
-		sidebar:          normalizeSidebar(m.sidebar),
-		palette:          normalizePalette(m.palette),
-		glyphs:           normalizeGlyphs(m.glyphs),
-		rowDetail:        normalizeRowDetail(m.rowDetail),
-		archiveConfirm:   normalizeArchiveConfirm(m.archiveConfirm),
-		deleteConfirm:    normalizeConfirmAsk(m.deleteConfirm),
-		restartConfirm:   normalizeConfirmAsk(m.restartConfirm),
-		listSort:         normalizeListSort(m.listSort),
-		listConsistency:  normalizeListConsistency(m.listConsistency),
-		chrome:           normalizeChrome(m.chrome),
-		leaveMode:        normalizeLeaveMode(m.leaveMode),
-		newSessionAgent:  normalizeNewSessionAgent(m.newSessionAgent),
-		autoProceed:      m.autoProceed,
-		smartTriage:      m.smartTriage,
-		triageOrder:      normalizeTriageOrder(m.triageOrder),
-		triageContent:    normalizeTriageContent(m.triageContent),
-		triageKeepAlives: m.triageKeepAlives,
-		idleSwitch:       m.idleSwitch,
-		confirmLaunches:  m.store.ConfirmLaunches(),
-		reopenSessions:   m.reopenSessionsMode(),
-		outsidePanes:     m.outsidePanesMode(),
-		claudeSetup:      m.claudeSetupSwitch(),
-		jevAutoSuggest:   m.jevAutoSuggest,
-		jevFinishCheck:   m.jevFinishCheck,
-		jevCopyOn:        m.jevCopyOn,
-		promptSuggest:    m.promptSuggest,
-		reviewQueue:      m.reviewQueue,
-		ciFeedback:       storedExperiment(m.store, store.CIFeedbackSetting),
-		arrowsStay:       m.arrowsStay,
-		backdropSync:     storedBackdrop(m.store) == backdropSync,
+		toolNames:            names,
+		toolIndex:            index,
+		accountRouting:       routing,
+		chooserAvailable:     chooser,
+		themeIndex:           themeIndex(current.Name),
+		quickCloseSend:       m.quickCloseAfterSend(),
+		enterFocuses:         m.enterFocuses(),
+		comfortableRows:      m.comfortableRows,
+		layout:               normalizeLayout(m.layout),
+		sidebar:              normalizeSidebar(m.sidebar),
+		palette:              normalizePalette(m.palette),
+		glyphs:               normalizeGlyphs(m.glyphs),
+		rowDetail:            normalizeRowDetail(m.rowDetail),
+		archiveConfirm:       normalizeArchiveConfirm(m.archiveConfirm),
+		deleteConfirm:        normalizeConfirmAsk(m.deleteConfirm),
+		restartConfirm:       normalizeConfirmAsk(m.restartConfirm),
+		listSort:             normalizeListSort(m.listSort),
+		listConsistency:      normalizeListConsistency(m.listConsistency),
+		chrome:               normalizeChrome(m.chrome),
+		leaveMode:            normalizeLeaveMode(m.leaveMode),
+		newSessionAgent:      normalizeNewSessionAgent(m.newSessionAgent),
+		autoProceed:          m.autoProceed,
+		smartTriage:          m.smartTriage,
+		triageOrder:          normalizeTriageOrder(m.triageOrder),
+		triageContent:        normalizeTriageContent(m.triageContent),
+		triageKeepAlives:     m.triageKeepAlives,
+		idleSwitch:           m.idleSwitch,
+		hibernateAfter:       m.hibernateAfter,
+		hibernateMinSessions: m.hibernateMinSessions,
+		confirmLaunches:      m.store.ConfirmLaunches(),
+		reopenSessions:       m.reopenSessionsMode(),
+		outsidePanes:         m.outsidePanesMode(),
+		claudeSetup:          m.claudeSetupSwitch(),
+		jevAutoSuggest:       m.jevAutoSuggest,
+		jevFinishCheck:       m.jevFinishCheck,
+		jevCopyOn:            m.jevCopyOn,
+		promptSuggest:        m.promptSuggest,
+		reviewQueue:          m.reviewQueue,
+		ciFeedback:           storedExperiment(m.store, store.CIFeedbackSetting),
+		arrowsStay:           m.arrowsStay,
+		backdropSync:         storedBackdrop(m.store) == backdropSync,
 	}
 	m.mode = modeSettings
 }
@@ -412,6 +414,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(outsidePanesSetting, normalizeOutsidePanes(m.settings.outsidePanes)); err != nil {
 		m.errBar.text = err.Error()
 	}
+	m.persistHibernation()
 	if m.hooks != nil && m.settings.claudeSetup != m.claudeSetupSwitch() {
 		if err := m.hooks.SetGlobalDisabled(!m.settings.claudeSetup); err != nil {
 			m.errBar.text = "saving claude code setup: " + err.Error()
@@ -716,6 +719,10 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.triageKeepAlives = !m.settings.triageKeepAlives
 	case settingsFieldIdleSwitch:
 		m.settings.idleSwitch = !m.settings.idleSwitch
+	case settingsFieldHibernateAfter:
+		m.settings.hibernateAfter = stepChoice(hibernateAfterChoices, m.settings.hibernateAfter, step)
+	case settingsFieldHibernateMin:
+		m.settings.hibernateMinSessions = stepChoice(hibernateMinChoices, m.settings.hibernateMinSessions, step)
 	case settingsFieldConfirmLaunches:
 		m.settings.confirmLaunches = !m.settings.confirmLaunches
 	case settingsFieldReopenSessions:

@@ -534,6 +534,8 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldTriageContent, "triage includes", normalizeTriageContent(m.settings.triageContent)) + "\n" +
 		row(settingsFieldTriageKeepAlives, "walk keep-alives", triageKeepAlives) + "\n" +
 		row(settingsFieldIdleSwitch, "switch when idle", idleSwitch) + "\n" +
+		row(settingsFieldHibernateAfter, "hibernate", hibernateAfterLabel(m.settings.hibernateAfter)) + "\n" +
+		row(settingsFieldHibernateMin, "keep awake at least", hibernateMinLabel(m.settings.hibernateMinSessions, m.settings.hibernateAfter)) + "\n" +
 		row(settingsFieldConfirmLaunches, "confirm launches", confirmLaunches) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +

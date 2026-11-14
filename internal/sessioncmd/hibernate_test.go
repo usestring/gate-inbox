@@ -174,7 +174,7 @@ func TestHibernateIdleTakesOnlySessionsRestedPastTheWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := h.sessions.HibernateIdle(3*time.Hour, true)
+	plan, err := h.sessions.HibernateIdle(3*time.Hour, 0, true)
 	if err != nil {
 		t.Fatalf("dry run: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestHibernateIdleTakesOnlySessionsRestedPastTheWindow(t *testing.T) {
 		t.Fatalf("plan = %v, want the rested row and not the fresh one", planned)
 	}
 
-	if _, err := h.sessions.HibernateIdle(3*time.Hour, false); err != nil {
+	if _, err := h.sessions.HibernateIdle(3*time.Hour, 0, false); err != nil {
 		t.Fatalf("HibernateIdle: %v", err)
 	}
 	if h.driver.Exists(old.ID) || !h.driver.Exists(fresh.ID) {
@@ -197,6 +197,50 @@ func TestHibernateIdleTakesOnlySessionsRestedPastTheWindow(t *testing.T) {
 	}
 	if row, err := h.store.Get(old.ID); err != nil || row.Archived {
 		t.Fatalf("hibernated row = %+v err=%v; it must stay on the active list", row, err)
+	}
+}
+
+// The minimum-sessions floor: at or below it the sweep stops nothing, and
+// above it only enough to come back down to it, longest rested first.
+func TestHibernateIdleKeepsTheMinimumLiveSessions(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	oldest := restingRow(t, h, "oldest01")
+	older := restingRow(t, h, "older001")
+	if err := h.store.ApplyDerivedStates(time.Now().Add(-6*time.Hour), []store.DerivedState{{ID: oldest.ID, Status: status.Finished}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.ApplyDerivedStates(time.Now().Add(-4*time.Hour), []store.DerivedState{{ID: older.ID, Status: status.Finished}}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := h.store.ListSessions(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := 0
+	for _, row := range rows {
+		if !row.Archived && row.Status != status.Dead {
+			live++
+		}
+	}
+
+	held, err := h.sessions.HibernateIdle(3*time.Hour, live, true)
+	if err != nil {
+		t.Fatalf("at the floor: %v", err)
+	}
+	if len(held.Hibernated) != 0 {
+		t.Fatalf("at the floor the sweep planned %v, want nothing", held.Hibernated)
+	}
+
+	result, err := h.sessions.HibernateIdle(3*time.Hour, live-1, false)
+	if err != nil {
+		t.Fatalf("one above the floor: %v", err)
+	}
+	if len(result.Hibernated) != 1 || result.Hibernated[0].ID != oldest.ID {
+		t.Fatalf("hibernated = %v, want only the longest rested %s", result.Hibernated, oldest.ID)
+	}
+	if h.driver.Exists(oldest.ID) || !h.driver.Exists(older.ID) {
+		t.Fatalf("oldest alive=%v older alive=%v", h.driver.Exists(oldest.ID), h.driver.Exists(older.ID))
 	}
 }
 

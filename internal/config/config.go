@@ -631,19 +631,26 @@ type Config struct {
 	// HibernateAfter is how long a session must rest, idle or finished,
 	// before the board hibernates it: stops its process to give the memory
 	// back, keeping its row, mail and claims, and waking it on its next
-	// message. Zero, the default, leaves every session running.
-	HibernateAfter Duration     `toml:"hibernate_after"`
-	Board          Board        `toml:"board"`
-	Naming         Naming       `toml:"naming"`
-	Log            Log          `toml:"log"`
-	Children       Children     `toml:"children"`
-	Work           Work         `toml:"work"`
-	Integrations   Integrations `toml:"integrations"`
-	Hogs           Hogs         `toml:"hogs"`
-	ClaudeCode     ClaudeCode   `toml:"claude_code"`
-	Codex          Codex        `toml:"codex"`
-	OpenCode       OpenCode     `toml:"opencode"`
-	Relaunch       Relaunch     `toml:"relaunch"`
+	// message. Zero, the default, leaves every session running. The
+	// Settings panel's choice, when one is saved, takes precedence.
+	HibernateAfter Duration `toml:"hibernate_after"`
+	// HibernateMinSessions is how many live sessions the board keeps
+	// before the sweep hibernates any: at or below it nothing is stopped,
+	// and above it only enough to come back down to it, longest rested
+	// first. Zero, the default, sets no floor. The Settings panel's choice,
+	// when one is saved, takes precedence.
+	HibernateMinSessions int          `toml:"hibernate_min_sessions"`
+	Board                Board        `toml:"board"`
+	Naming               Naming       `toml:"naming"`
+	Log                  Log          `toml:"log"`
+	Children             Children     `toml:"children"`
+	Work                 Work         `toml:"work"`
+	Integrations         Integrations `toml:"integrations"`
+	Hogs                 Hogs         `toml:"hogs"`
+	ClaudeCode           ClaudeCode   `toml:"claude_code"`
+	Codex                Codex        `toml:"codex"`
+	OpenCode             OpenCode     `toml:"opencode"`
+	Relaunch             Relaunch     `toml:"relaunch"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see

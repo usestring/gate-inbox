@@ -159,7 +159,7 @@ func (f *fakeSessions) Hibernate(sessionID, targetID string, dryRun bool) (sessi
 	return sessioncmd.HibernateResult{DryRun: dryRun, Hibernated: []sessioncmd.Session{f.session}}, f.failWith
 }
 
-func (f *fakeSessions) HibernateIdle(after time.Duration, dryRun bool) (sessioncmd.HibernateResult, error) {
+func (f *fakeSessions) HibernateIdle(after time.Duration, minSessions int, dryRun bool) (sessioncmd.HibernateResult, error) {
 	f.dryRun = dryRun
 	return sessioncmd.HibernateResult{DryRun: dryRun, Hibernated: []sessioncmd.Session{f.session}}, f.failWith
 }

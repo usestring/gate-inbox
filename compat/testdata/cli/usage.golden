@@ -231,13 +231,15 @@ usage: gate-inbox unpark [--json]
 $ gate-inbox hibernate -h
 exit 0
 --- stdout
-usage: gate-inbox hibernate [<session-id>] [--idle <duration>] [--dry-run] [--json]
+usage: gate-inbox hibernate [<session-id>] [--idle <duration> [--min-sessions <n>]] [--dry-run] [--json]
   -dry-run
     	print what would be hibernated without stopping anything
   -idle duration
     	hibernate every session idle or finished for at least this long, instead of one named session
   -json
     	print the raw result as JSON instead of a sentence
+  -min-sessions int
+    	with --idle, hibernate nothing at or below this many live sessions, and above it only enough to come back down to it
 
 $ gate-inbox groups -h
 exit 0

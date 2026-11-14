@@ -685,6 +685,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.toggleReviewsTab()
 		case action == keymap.CopySessionID:
 			return m.copySessionID(sess)
+		case action == keymap.OpenLastURL:
+			return m, m.openLastURL(sess)
 		case action == keymap.CopyJev:
 			return m.copyWithJev(sess)
 		case action == keymap.RunJev:

@@ -605,6 +605,9 @@ type Model struct {
 	// rowDetail is whether session rows spell their state and CLI out or
 	// leave them to marks. See rowdetail.go.
 	rowDetail string
+	// priorityScale is the persisted tier scale, "+2/-1" by default. See
+	// tierscale.go.
+	priorityScale string
 	// listSort is the persisted order the board's sessions are shown in
 	// within each group. See listsort.go.
 	listSort string
@@ -1018,6 +1021,7 @@ type settingsState struct {
 	palette          string
 	glyphs           string
 	rowDetail        string
+	priorityScale    string
 	archiveConfirm   string
 	deleteConfirm    string
 	restartConfirm   string
@@ -1073,6 +1077,7 @@ const (
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldRowDetail
+	settingsFieldPriorityScale
 	settingsFieldArchiveConfirm
 	settingsFieldDeleteConfirm
 	settingsFieldRestartConfirm
@@ -1434,6 +1439,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		palette:          storedPalette(st),
 		glyphs:           storedGlyphs(st),
 		rowDetail:        storedRowDetail(st),
+		priorityScale:    storedPriorityScale(st),
 		archiveConfirm:   storedArchiveConfirm(st),
 		deleteConfirm:    storedConfirmAsk(st, deleteConfirmSetting),
 		restartConfirm:   storedConfirmAsk(st, restartConfirmSetting),

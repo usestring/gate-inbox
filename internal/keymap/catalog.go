@@ -226,7 +226,7 @@ var Catalog = []Binding{
 	{ContextList, RestoreAll, []string{"alt+d"}, "restore every dead session: revive the dead, bring the archived back", false},
 	{ContextList, UndoArchive, []string{"ctrl+alt+u"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"alt+."}, "skip", false},
-	{ContextList, Priority, []string{"ctrl+p"}, "cycle priority: urgent → high → medium → low → none", false},
+	{ContextList, Priority, []string{"ctrl+p"}, "cycle priority: high → medium → low → none (tiers set in Settings)", false},
 	{ContextList, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	{ContextList, UnmuteAll, []string{"alt+m"}, "unmute every muted session listed", false},
 	{ContextList, QuickInput, []string{"ctrl+s"}, "hotkey menu", false},
@@ -296,7 +296,7 @@ var Catalog = []Binding{
 	// The list's ctrl+p, so the tier moves from wherever the operator is. It
 	// takes the agent's ctrl+p, which every agent CLI also answers on the up
 	// arrow.
-	{ContextFocus, Priority, []string{"ctrl+p"}, "cycle priority: urgent → high → medium → low → none", false},
+	{ContextFocus, Priority, []string{"ctrl+p"}, "cycle priority: high → medium → low → none (tiers set in Settings)", false},
 	// The list's mute on the same chord. A terminal without an enhanced
 	// keyboard protocol sends ctrl+m as enter, so there it stays a submit.
 	{ContextFocus, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},

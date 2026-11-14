@@ -89,8 +89,9 @@ func TestTriageKeepAlivesToggle(t *testing.T) {
 	)
 	keepWarm(m, []string{"kept-warm"}, smartNow.Add(time.Second))
 	assertRail(t, m, "done", "kept-warm")
+	m.triageKeepAlives = false
 	if got := drainOrder(m); !slices.Equal(got, []string{"done"}) {
-		t.Fatalf("drain = %v, want the keep-alive rest left out by default", got)
+		t.Fatalf("drain = %v, want the keep-alive rest left out when off", got)
 	}
 	m.triageKeepAlives = true
 	if got := drainOrder(m); !slices.Equal(got, []string{"done", "kept-warm"}) {
@@ -98,10 +99,49 @@ func TestTriageKeepAlivesToggle(t *testing.T) {
 	}
 }
 
+// The reported board: an idle session the cache warden kept warm after the
+// operator's last turn must still be handed over, after the plain idle one.
+// A store from before the default flip carries "off" that saveSettings wrote
+// without anybody choosing it; the flip must override it once.
+func TestTriageWalksKeptWarmIdleSessionsByDefault(t *testing.T) {
+	m := buildModel(t)
+	for key, value := range map[string]string{triageKeepAlivesSetting: "off", triageKeepAlivesDefaultSetting: ""} {
+		if err := m.store.SetSetting(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !storedTriageKeepAlives(m.store) {
+		t.Fatal("a pre-flip stored off kept keep-alive rests out of the drain")
+	}
+	if got, _ := m.store.Setting(triageKeepAlivesSetting); got != "on" {
+		t.Fatalf("flip stored %q, want on", got)
+	}
+
+	fleet := smartFleet(t,
+		smartSess("kept-warm-idle", status.Idle, 10*time.Minute),
+		smartSess("napping", status.Idle, 5*time.Hour),
+	)
+	fleet.triageKeepAlives = storedTriageKeepAlives(m.store)
+	keepWarm(fleet, nil, smartNow)
+	fleet.choreRests = map[string]time.Time{"kept-warm-idle": smartNow.Add(-time.Minute)}
+	fleet.rebuildRows()
+	if got := drainOrder(fleet); !slices.Equal(got, []string{"napping", "kept-warm-idle"}) {
+		t.Fatalf("drain = %v, want both idle sessions, the kept-warm one last", got)
+	}
+}
+
 func TestTriageOrderSettingsPersist(t *testing.T) {
 	m := buildModel(t)
-	if m.triageOrder != triageOrderQuestions || m.triageKeepAlives {
-		t.Fatalf("defaults = %q, %v; want questions first, keep-alives out", m.triageOrder, m.triageKeepAlives)
+	if m.triageOrder != triageOrderQuestions || !m.triageKeepAlives {
+		t.Fatalf("defaults = %q, %v; want questions first, keep-alives in", m.triageOrder, m.triageKeepAlives)
+	}
+	// Toggle off then back on, so the saved value is one the operator chose.
+	m.openSettings()
+	m.settings.field = settingsFieldTriageKeepAlives
+	m.cycleSetting(1)
+	m.saveAndCloseSettings()
+	if m.triageKeepAlives || storedTriageKeepAlives(m.store) {
+		t.Fatal("an explicit off after the default flip did not stick")
 	}
 	m.openSettings()
 	m.settings.field = settingsFieldTriageOrder

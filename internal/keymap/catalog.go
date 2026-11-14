@@ -66,13 +66,15 @@ const (
 	UnmuteAll     Action = "unmute_all"
 	CopySessionID Action = "copy_session_id"
 	CopyJev       Action = "copy_jev"
-	RunJev        Action = "run_jev"
-	HandOver      Action = "hand_over"
-	QuickInput    Action = "quick_prompt"
-	RenameSelf    Action = "rename_from_agent"
-	Rename        Action = "rename"
-	NameSweep     Action = "name_sweep"
-	Move          Action = "move"
+	// OpenLastURL opens the newest link the session's pane printed.
+	OpenLastURL Action = "open_last_url"
+	RunJev      Action = "run_jev"
+	HandOver    Action = "hand_over"
+	QuickInput  Action = "quick_prompt"
+	RenameSelf  Action = "rename_from_agent"
+	Rename      Action = "rename"
+	NameSweep   Action = "name_sweep"
+	Move        Action = "move"
 
 	ShowAllWork  Action = "show_all_work"
 	StatusFilter Action = "status_filter"
@@ -240,6 +242,7 @@ var Catalog = []Binding{
 	{ContextList, BringIn, []string{"ctrl+alt+a"}, "bring an outside pane in: resume it as a board session once idle", false},
 	{ContextList, LeaveOut, []string{"ctrl+o"}, "leave an outside pane off the board, still running", false},
 	{ContextList, Move, []string{"ctrl+e"}, "move it to a group", false},
+	{ContextList, OpenLastURL, []string{"ctrl+alt+o"}, "open the most recent link the session showed", false},
 	{ContextList, CopyJev, []string{"alt+'"}, "copy what JEV reads as left for you to copy", false},
 	{ContextList, RunJev, []string{"alt+\""}, "run the next command JEV reads as left for you to run", false},
 
@@ -322,6 +325,8 @@ var Catalog = []Binding{
 	{ContextFocus, TriageContent, []string{"alt+]"}, "cycle triage: sessions, reviews, or both", false},
 	{ContextFocus, ReviewsTab, []string{"ctrl+]"}, "switch to the Reviews tab", false},
 	{ContextFocus, CopySessionID, []string{"alt+/"}, "copy the agent's session id", false},
+	// ctrl+alt rather than option+letter, which belongs to snippet chords.
+	{ContextFocus, OpenLastURL, []string{"ctrl+alt+o"}, "open the most recent link the session showed", false},
 	{ContextFocus, CopyJev, []string{"alt+'"}, "copy what JEV reads as left for you to copy", false},
 	{ContextFocus, RunJev, []string{"alt+\""}, "run the next command JEV reads as left for you to run", false},
 	{ContextFocus, LastPane, []string{"ctrl+l", "alt+;"}, "back to the previous pane; again walks further back", false},

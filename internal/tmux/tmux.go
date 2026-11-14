@@ -1674,6 +1674,12 @@ func (d *Driver) CaptureRegion(id string, start, end int) (string, error) {
 		"-S", strconv.Itoa(start), "-E", strconv.Itoa(end))
 }
 
+// CaptureJoinedHistory returns a pane's plain text with its last lines of
+// history, wrapped lines joined (-J) so a URL the terminal folded reads whole.
+func (d *Driver) CaptureJoinedHistory(id string, lines int) (string, error) {
+	return d.runAt(id, "capture-pane", "-p", "-J", "-S", "-"+strconv.Itoa(lines), "-t", d.TargetName(id))
+}
+
 // capturePlain drops the escapes CapturePane keeps, which an application is
 // free to write partway through a line, breaking a match on the text.
 func (d *Driver) capturePlain(id string) (string, error) {

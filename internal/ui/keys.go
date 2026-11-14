@@ -353,6 +353,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.toggleMuteSelected()
 	case keymap.UnmuteAll:
 		return m.unmuteAllListed()
+	case keymap.OpenLastURL:
+		return m.openSelectedLastURL()
 	case keymap.CopyJev:
 		return m.copySelectedWithJev()
 	case keymap.RunJev:

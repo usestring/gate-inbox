@@ -173,7 +173,7 @@ func (s *Sessions) Park(sessionID string, dryRun bool) (result ParkResult, err e
 		pass.states[sess.ID] = pass.liveState(sess, pane)
 	}
 	pass.hibernate = s.parkHibernates(runtime, sessions, pass.states, sessionID)
-	if after := runtime.cfg.HibernateAfter.Duration; after > 0 {
+	if after := runtime.hibernateAfter(); after > 0 {
 		pass.result.HibernateAfter = after.String()
 	}
 	pass.hot = hotSessions(sessions, pass.states, pending)
@@ -392,7 +392,7 @@ func hotSessions(sessions []store.Session, states map[string]string, pending map
 // misread hid.
 func (s *Sessions) parkHibernates(runtime *runtime, sessions []store.Session, states map[string]string, callerID string) map[string]bool {
 	eligible := make(map[string]bool)
-	after := runtime.cfg.HibernateAfter.Duration
+	after := runtime.hibernateAfter()
 	if after <= 0 {
 		return eligible
 	}

@@ -41,7 +41,7 @@ const (
 	usageCleanup       = "cleanup-children [--status <state>] [--all] [--dry-run] [--json]"
 	usagePark          = "park [--dry-run] [--json]"
 	usageUnpark        = "unpark [--json]"
-	usageHibernate     = "hibernate [<session-id>] [--idle <duration>] [--dry-run] [--json]"
+	usageHibernate     = "hibernate [<session-id>] [--idle <duration> [--min-sessions <n>]] [--dry-run] [--json]"
 	usageGroups        = "groups [--json]"
 	usageCreateGroup   = "create-group <path> [--directory <path>] [--pin] [--json]"
 	usagePinGroup      = "pin-group <path> [--off] [--json]"
@@ -73,7 +73,7 @@ type sessionCommands interface {
 	Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error)
 	Unpark(sessionID string) (sessioncmd.UnparkResult, error)
 	Hibernate(sessionID, targetID string, dryRun bool) (sessioncmd.HibernateResult, error)
-	HibernateIdle(after time.Duration, dryRun bool) (sessioncmd.HibernateResult, error)
+	HibernateIdle(after time.Duration, minSessions int, dryRun bool) (sessioncmd.HibernateResult, error)
 	Groups(sessionID string) ([]sessioncmd.Group, error)
 	CreateGroup(sessionID, path, directory string, pin bool) (sessioncmd.Group, error)
 	PinGroup(sessionID, path string, pinned bool) (sessioncmd.Group, error)
@@ -572,6 +572,7 @@ func runPark(out io.Writer, sessions sessionCommands, args []string, sessionID s
 func runHibernate(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
 	set := cmdline.NewFlagSet(usageHibernate)
 	idle := set.Duration("idle", 0, "hibernate every session idle or finished for at least this long, instead of one named session")
+	minSessions := set.Int("min-sessions", 0, "with --idle, hibernate nothing at or below this many live sessions, and above it only enough to come back down to it")
 	dryRun := set.Bool("dry-run", false, "print what would be hibernated without stopping anything")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 0, 1)
@@ -583,7 +584,7 @@ func runHibernate(out io.Writer, sessions sessionCommands, args []string, sessio
 	case len(operands) == 1 && *idle == 0:
 		result, err = sessions.Hibernate(sessionID, operands[0], *dryRun)
 	case len(operands) == 0 && *idle > 0:
-		result, err = sessions.HibernateIdle(*idle, *dryRun)
+		result, err = sessions.HibernateIdle(*idle, *minSessions, *dryRun)
 	default:
 		return fmt.Errorf("usage: gate-inbox %s: name one session or pass --idle, not both", usageHibernate)
 	}

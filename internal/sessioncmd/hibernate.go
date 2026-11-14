@@ -3,6 +3,7 @@ package sessioncmd
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/agentsession"
@@ -74,9 +75,14 @@ func (s *Sessions) Hibernate(sessionID, targetID string, dryRun bool) (result Hi
 
 // HibernateIdle hibernates every session on the board that has rested at
 // least after and passes every check Hibernate makes. It is the opt-in
-// sweep: the board runs it on [sessions] hibernate_after, and an operator
-// can run it by hand, with dryRun for the plan alone.
-func (s *Sessions) HibernateIdle(after time.Duration, dryRun bool) (result HibernateResult, err error) {
+// sweep: the board runs it on hibernate_after, and an operator can run it by
+// hand, with dryRun for the plan alone.
+//
+// minSessions is a floor on live agents. With that many or fewer running,
+// the sweep stops nothing; above it, it stops only enough to come back down
+// to it, longest rested first, so a small board is never thinned out and a
+// large one keeps the sessions touched most recently. Zero sets no floor.
+func (s *Sessions) HibernateIdle(after time.Duration, minSessions int, dryRun bool) (result HibernateResult, err error) {
 	defer start("sessioncmd.hibernate_idle").done(&err)
 	if after <= 0 {
 		return HibernateResult{}, errors.New("hibernate needs a rest period greater than zero")
@@ -91,19 +97,50 @@ func (s *Sessions) HibernateIdle(after time.Duration, dryRun bool) (result Hiber
 		return HibernateResult{}, err
 	}
 	result.DryRun = dryRun
-	now := time.Now()
-	procs := onceTable(agentsession.ProcessTable)
+	var live []store.Session
 	for _, sess := range rows {
 		if sess.Archived || sess.Status == status.Dead || runtime.cfg.Tools[sess.Tool].Shell {
+			continue
+		}
+		live = append(live, sess)
+	}
+	budget := len(live)
+	if minSessions > 0 {
+		budget = len(live) - minSessions
+		if budget <= 0 {
+			result.Held = append(result.Held, fmt.Sprintf("%d live session(s), at or below the minimum of %d: none hibernated", len(live), minSessions))
+			return result, nil
+		}
+	}
+	// Longest rested first: when the floor caps the sweep, the sessions
+	// left running are the ones the operator turned to last.
+	slices.SortStableFunc(live, func(a, b store.Session) int { return a.LastStatusAt.Compare(b.LastStatusAt) })
+	now := time.Now()
+	procs := onceTable(agentsession.ProcessTable)
+	for _, sess := range live {
+		if budget <= 0 {
+			result.Held = append(result.Held, fmt.Sprintf("%s (id %s): the board is down to its minimum of %d live session(s)", sess.Name, sess.ID, minSessions))
 			continue
 		}
 		if reason := s.hibernateBlocker(runtime, sess, rows, after, now, procs); reason != "" {
 			result.Held = append(result.Held, fmt.Sprintf("%s (id %s): %s", sess.Name, sess.ID, reason))
 			continue
 		}
+		before := len(result.Hibernated)
 		s.hibernateOne(runtime, sess, &result)
+		if len(result.Hibernated) > before {
+			budget--
+		}
 	}
 	return result, nil
+}
+
+// hibernateAfter is the rest period in force: the Settings choice when one
+// is saved, else config.toml's hibernate_after. Zero means hibernation is
+// off. A store read that fails keeps the config value.
+func (r *runtime) hibernateAfter() time.Duration {
+	after, _, _ := r.store.HibernationPolicy(r.cfg.HibernateAfter.Duration, r.cfg.HibernateMinSessions)
+	return after
 }
 
 // hibernateBlocker is why sess must keep running, or "" when nothing does.

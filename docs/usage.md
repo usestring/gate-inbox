@@ -108,6 +108,8 @@ preview. Open the session to answer.
 
 ### Draining full-width
 
+Gate Inbox opens in triage by default and enters the head of the queue. Turning triage off is remembered across restarts.
+
 Triage plus two keys is the whole drain. `ctrl+i` turns triage on and opens the head of the queue,
 `alt+\` puts the list away, and `alt+,` hides the footer. Both stay that way as the queue advances, and the
 same keys bring them back. Answering is the only gesture: a dialog answered with `1`-`9` or `enter`

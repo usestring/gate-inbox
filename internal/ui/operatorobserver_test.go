@@ -43,6 +43,9 @@ func TestHotkeyMenuSendIsReportedAsTheOperatorsInput(t *testing.T) {
 		got[0].Text != "carry on with the plan" || got[0].Dialog || got[0].At.IsZero() {
 		t.Fatalf("reported %+v, want the snippet to %s", got[0], sess.ID)
 	}
+	if got[0].Writing != (extension.OperatorWriting{Words: 5, Chars: 22}) {
+		t.Fatalf("writing %+v, want the sentence's 5 words and 22 characters and nothing typed", got[0].Writing)
+	}
 }
 
 func TestSnippetSendIsReportedAndARefusedOneIsNot(t *testing.T) {
@@ -133,8 +136,8 @@ func TestFocusedLineIsReportedWithHowItWasWritten(t *testing.T) {
 		t.Fatalf("reported %+v, want one pane line with no text", got)
 	}
 	w := got[0].Writing
-	if w.KeyChars != 8 || w.PasteChars != 17 || w.Pastes != 1 || w.Words != 4 {
-		t.Fatalf("writing %+v, want 8 typed and 17 pasted characters making 4 words", w)
+	if w.KeyChars != 8 || w.PasteChars != 17 || w.Pastes != 1 || w.Words != 4 || w.Chars != 21 {
+		t.Fatalf("writing %+v, want 8 typed and 17 pasted characters leaving 4 words in 21", w)
 	}
 	if w.Compose < w.Active {
 		t.Fatalf("active %v is longer than the compose time %v", w.Active, w.Compose)
@@ -149,34 +152,69 @@ func TestFocusedLineIsReportedWithHowItWasWritten(t *testing.T) {
 	}
 }
 
-// Active caps each pause, and a run of keys faster than anyone types is a
-// burst. Measured against a fixed clock, since the board stamps each key as
-// it arrives.
+// A dialog that comes up over a half-written line is answered without taking
+// the line with it, even when the operator arrows to the row before Enter:
+// the line is still in the composer, and goes with the composer's own Enter
+// once the dialog is gone.
+func TestDialogAnswerLeavesTheComposersLine(t *testing.T) {
+	m := buildModel(t)
+	m.autoProceed = false
+	liveTriageFleet(t, m, map[string]string{"ask": status.Idle})
+	m.rebuildRows()
+	observer := &recordingObserver{}
+	m.ObserveBoard(observer)
+	m.enterFocusOn(t, "ask")
+	id := focusedID(t, m)
+
+	for _, r := range "draft" {
+		m.handleFocusKey(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	stageDialog(m, id)
+	m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	landAnswer(t, m, id)
+	m.preview, m.pane.cursor = "", paneCursor{}
+	m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	landAnswer(t, m, id)
+
+	got := operatorInputs(observer)
+	if len(got) != 2 || !got[0].Dialog || got[0].Writing != (extension.OperatorWriting{}) {
+		t.Fatalf("reported %+v, want the dialog's answer first, with nothing written", got)
+	}
+	if got[1].Dialog || got[1].Writing.KeyChars != 5 || got[1].Writing.Words != 1 {
+		t.Fatalf("reported %+v, want the composer's line second, with its 5 typed characters", got[1])
+	}
+}
+
+// Active caps each pause, a run of keys faster than anyone types is a burst,
+// and ctrl+c abandons a line. Measured against a fixed clock, since the board
+// stamps each key as it arrives.
 func TestLineWritingCapsPausesAndFindsBursts(t *testing.T) {
 	start := time.Now()
 	at := func(d time.Duration) time.Time { return start.Add(d) }
 	w := &lineWriting{}
-	w.key(at(0), at(0), "o", "")
-	w.key(at(200*time.Millisecond), at(200*time.Millisecond), "k", "")
-	w.key(at(400*time.Millisecond), at(400*time.Millisecond), " ", "")
-	// A long think, then text typed out as keys in one read. The first of
-	// them is slow to forward, and the rest queue behind it.
+	w.key(at(-10*time.Second), "gone", "", false)
+	w.key(at(-9*time.Second), "", "C-c", false)
+	w.key(at(0), "o", "", false)
+	w.key(at(200*time.Millisecond), "k", "", false)
+	w.key(at(400*time.Millisecond), " ", "", false)
+	// A long think, then text typed out as keys in one go. The frame after
+	// the first of them is slow to paint, and the rest wait behind it.
 	burst := at(time.Minute)
-	for i, r := range "and more" {
-		arrived, done := burst, burst.Add(30*time.Millisecond)
-		if i > 0 {
-			arrived = done.Add(time.Duration(i) * time.Millisecond)
-			done = arrived
-		}
-		w.key(arrived, done, string(r), "")
+	w.key(burst, "a", "", false)
+	w.painted(burst.Add(30 * time.Millisecond))
+	for i, r := range "nd more" {
+		arrived := burst.Add(31*time.Millisecond + time.Duration(i)*time.Millisecond)
+		w.key(arrived, string(r), "", false)
+		w.painted(arrived)
 	}
-	w.key(burst.Add(40*time.Millisecond), burst.Add(40*time.Millisecond), "", "C-w")
+	w.key(burst.Add(500*time.Millisecond), "", "C-w", false)
 	got := w.finish(burst.Add(time.Second))
 
-	if got.KeyChars != 11 || got.BurstChars != 8 || got.Words != 2 {
-		t.Fatalf("writing %+v, want 11 keys, 8 of them a burst, 2 words left", got)
+	if got.KeyChars != 11 || got.BurstChars != 8 || got.Words != 2 || got.Chars != 7 {
+		t.Fatalf("writing %+v, want 11 keys, 8 of them a burst, leaving 2 words in 7 characters", got)
 	}
-	wantActive := 400*time.Millisecond + extension.OperatorPauseCap + 40*time.Millisecond + 960*time.Millisecond
+	wantActive := 400*time.Millisecond + extension.OperatorPauseCap + 37*time.Millisecond + 963*time.Millisecond
 	if got.Active != wantActive || got.Compose != time.Minute+time.Second {
 		t.Fatalf("active %v compose %v, want %v and the whole span", got.Active, got.Compose, wantActive)
 	}

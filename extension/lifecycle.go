@@ -208,8 +208,8 @@ type OperatorInput struct {
 	// pane, where the board passes keystrokes on and never holds the line.
 	Text string
 	// Writing is how the line was written: how much of it came in as keys
-	// and how much as pastes, how many words it has, and how long it took.
-	// It carries counts and durations only, so an extension can measure
+	// and how much as pastes, how long it is, and how long it took. It
+	// carries counts and durations only, so an extension can measure
 	// writing without holding the text.
 	Writing OperatorWriting
 	// Dialog is set when the input answered a dialog the pane was holding,
@@ -225,41 +225,50 @@ type OperatorInput struct {
 
 // OperatorWriting measures one line the operator handed a session.
 //
-// For a line typed into a focused pane, every field counts what reached the
-// pane from the line's first key or paste to the key that submitted it. A
-// line the board sent whole (a snippet, a `send --as-human` line) only has
-// Words. Words over Active is the line's writing speed.
+// For a line typed into a focused pane, the board counts what it forwarded
+// into the pane from the line's first key or paste to the key that
+// submitted it; ctrl+c abandons the line, and the next key starts a new
+// one. A key that picked a dialog's option is the answer rather than
+// writing, so it has nothing measured. A line the board sent whole (a
+// snippet, a `send --as-human` line) has only Words and Chars. Words over
+// Active is the line's writing speed.
 //
-// Text a terminal delivers as a paste arrives here as a paste, whatever put
-// it on the clipboard. That includes dictation tools that insert by
-// pasting, which is how most of them write into a terminal. A tool or
-// terminal that types its text out as keys shows up in BurstChars instead.
+// A paste arrives as a paste whatever put the text on the clipboard,
+// including a dictation tool that inserts its text by pasting. Text a tool
+// or a keyboard types out as keys lands in BurstChars instead.
 type OperatorWriting struct {
 	// KeyChars is how many characters arrived as typed keys, BurstChars
 	// among them. Keys that only edit or move the caret, such as Backspace
 	// or an arrow, are not characters.
 	KeyChars int
-	// BurstChars is how many of KeyChars came in a run faster than a person
-	// types: at least OperatorBurstRun keys, each within OperatorBurstGap of
-	// the one before. That is text a program typed, or a paste a terminal
-	// sent without bracketing it.
+	// BurstChars is how many of KeyChars came in runs faster than a person
+	// types: OperatorBurstRun characters or more, each key reaching the
+	// board within OperatorBurstGap of the board finishing with the key
+	// before. That is text a program or a phone keyboard typed out, or a
+	// paste a terminal sent without bracketing it. Keys typed while the
+	// board was too busy to keep up read the same way.
 	BurstChars int
 	// PasteChars is how many characters arrived in pastes, across Pastes of
-	// them.
+	// them. A snippet the board typed into the line without sending it is
+	// one of them.
 	PasteChars int
 	Pastes     int
-	// Words is how many words the line has. For a pane line it is counted
-	// from what was typed and pasted, following Backspace and the
-	// word-delete and line-kill keys back, so an edit at the end of the line
-	// is counted out. An edit after moving the caret back into the line is
-	// counted as if it were made at the end.
+	// Words and Chars are how many words and characters the line has. For a
+	// pane line they are counted from what was typed and pasted, following
+	// Backspace and the word-delete and line-kill keys back, so an edit at
+	// the end of the line is counted out. An edit after moving the caret
+	// back into the line is counted as if it were made at the end, and text
+	// the session puts in the line itself, such as an earlier line it
+	// recalls or a completion, is not counted.
 	Words int
+	Chars int
 	// Compose is the time from the line's first key or paste to the key
 	// that submitted it.
 	Compose time.Duration
 	// Active is Compose with every gap between two keys, pastes or the
-	// submit counted at most OperatorPauseCap, so one long pause does not
-	// read as slow writing.
+	// submit counted at most OperatorPauseCap, so a pause to think, or a
+	// line left half written and come back to, does not read as slow
+	// writing.
 	Active time.Duration
 }
 
@@ -267,14 +276,14 @@ type OperatorWriting struct {
 const (
 	// OperatorPauseCap is the most one gap between keys adds to Active.
 	OperatorPauseCap = 3 * time.Second
-	// OperatorBurstGap is how close behind the key before it a key has to
-	// arrive to be part of a burst. Key repeat on any common keyboard is
-	// slower than this; a run of keys that arrived in one read is far
-	// faster.
+	// OperatorBurstGap is how soon after the board finishes with one key
+	// the next has to reach it to be part of a burst. Keys that came in
+	// together are already waiting and follow with almost no gap; a
+	// person's keys, key repeat included, come further apart.
 	OperatorBurstGap = 10 * time.Millisecond
-	// OperatorBurstRun is the fewest keys a burst has, so two keystrokes a
-	// network delay delivered together are not counted as one.
-	OperatorBurstRun = 4
+	// OperatorBurstRun is the fewest characters a burst has, so a few
+	// keystrokes a slow link delivered together are not counted as one.
+	OperatorBurstRun = 8
 )
 
 // OperatorVia is where on the board the operator's input came from.

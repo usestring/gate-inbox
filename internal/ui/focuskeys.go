@@ -130,17 +130,15 @@ func focusKeyText(key tea.Key) string {
 
 // focusKeyParts splits a forwarded key the way writing measures it: the
 // characters it typed, or else the tmux name it went by. An alt-modified
-// rune is a command to the line editor (alt+b, alt+f), not a character, so
-// it comes back by name.
+// rune is a command to the line editor (alt+b, alt+f), not a character.
 func focusKeyParts(key tea.Key) (text, name string) {
-	alt := key.Mod.Contains(tea.ModAlt)
-	name = focusKeyText(key)
-	if name == "" {
-		name = focusNamedKeys[focusKeyID{code: key.Code, mod: key.Mod &^ tea.ModAlt}]
-	} else if !alt {
-		return name, ""
+	if !key.Mod.Contains(tea.ModAlt) {
+		if text = focusKeyText(key); text != "" {
+			return text, ""
+		}
+		return "", focusNamedKeys[focusKeyID{code: key.Code, mod: key.Mod}]
 	}
-	if name != "" && alt {
+	if name = focusNamedKeys[focusKeyID{code: key.Code, mod: key.Mod &^ tea.ModAlt}]; name != "" {
 		name = "M-" + name
 	}
 	return "", name
@@ -834,11 +832,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// anything the key caused.
 	var landing tea.Cmd
 	if arms {
-		// The key that submits ends the line it measured. A dialog's
-		// printable pick is the choice, not part of anything written.
-		writing := m.takeWriting(sess.ID, keyAt)
 		landing = m.armLanding(sess, keyAt, extension.OperatorPane, "", dialog, handsOver, baseline)
-		m.landings[sess.ID].writing = writing
 	}
 	m.poller.noteOperatorInputAt(sess.ID, keyAt)
 	// SendRawAt takes the pooled pipe where there is one and forks where
@@ -847,14 +841,21 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if err := m.sendFocusKey(sess.ID, command); err != nil {
 		m.errBar.text = err.Error()
 		quiet = false
-		// The key never reached the pane, so there is nothing to land.
+		// The key never reached the pane, so there is nothing to land, and
+		// the line it would have sent is still being written.
 		if arms {
 			m.dropLanding(sess.ID)
 			landing = nil
 		}
-	} else if !arms {
+	} else if arms {
+		writing := m.submitWriting(sess.ID, keyAt, dialog, key.Code == tea.KeyEnter)
+		if pending := m.landings[sess.ID]; pending != nil {
+			pending.writing = writing
+		}
+	} else {
 		text, name := focusKeyParts(key)
-		m.writingFor(sess.ID, keyAt).key(keyAt, time.Now(), text, name)
+		m.keyFrame = m.writingFor(sess.ID)
+		m.keyFrame.key(keyAt, text, name, dialog)
 	}
 	// The key is the pane's now, so start looking for what it did with it.
 	// This is the whole echo path: no timer, no client, and no cost at all
@@ -920,7 +921,8 @@ func (m *Model) handleFocusPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		quiet = false
 	} else {
-		m.writingFor(sess.ID, pastedAt).paste(pastedAt, msg.Content)
+		dialog := sess.Status == status.Waiting || paneHasDialog(sess.Tool, m.preview)
+		m.writingFor(sess.ID).paste(pastedAt, msg.Content, dialog)
 	}
 	m.noteFocusActivity()
 	var echo tea.Cmd

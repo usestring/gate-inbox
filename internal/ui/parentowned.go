@@ -4,6 +4,9 @@ import (
 	"slices"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -96,6 +99,36 @@ func (m *Model) parentOwns(child store.Session, now time.Time, live map[string]b
 		return false
 	}
 	return true
+}
+
+// parentCanAnswer reports whether the dialog on sess's pane is one its parent
+// may settle with answer_session: a dialog answer_session can key, holding no
+// question headed Approval. Triage folds only these away, and only these are
+// relayed to the parent as its to answer.
+func parentCanAnswer(sess store.Session, pane string) bool {
+	answerable := false
+	if _, ok := dialog.Parse(ansi.Strip(pane)); ok {
+		answerable = true
+	} else if dialog.HasReader(sess.Tool) {
+		_, answerable = dialog.ReadQuestions(sess.Tool, pane, nil)
+	}
+	return answerable && !asksForApproval(sess.Tool, pane, asks.PendingQuestions(childAskTarget(sess)))
+}
+
+// operatorsDialog reports whether sess's pane holds a dialog that only the
+// operator may answer: a permission or trust prompt, or a question headed
+// Approval. Triage shows these at the child, so the operator answers them
+// there. A parent that put the same question to the operator again only
+// made them answer it twice.
+func operatorsDialog(sess store.Session, pane string) bool {
+	if parentCanAnswer(sess, pane) {
+		return false
+	}
+	if _, ok := dialog.Inspect(ansi.Strip(pane)); ok {
+		return true
+	}
+	_, ok := dialog.ReadScreenFor(sess.Tool, pane)
+	return ok
 }
 
 // asksForApproval reports whether the dialog on pane holds an unanswered

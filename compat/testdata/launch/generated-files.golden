@@ -389,7 +389,7 @@ If the gate-inbox tools are missing, use the built-in Agent tool as usual.
 
 # Your children's dialogs are yours
 
-When a session you created stops on a dialog, Gate Inbox forwards it to you. Answer what your brief or your user's standing decisions settle. Ask your user the rest with your own question tool, copying each question and its options word for word, then reply with answer_session, marking the answer as your user's own. Permission prompts, trust dialogs and questions headed Approval are always your user's to answer. Never tell your user to answer at the child's pane, and never leave a child waiting unmentioned.
+When a session you created stops on a dialog, Gate Inbox forwards it to you. Answer what your brief or your user's standing decisions settle. Ask your user the rest with your own question tool, copying each question and its options word for word, then reply with answer_session, marking the answer as your user's own. Permission prompts, trust dialogs and questions headed Approval are your user's alone: Gate Inbox shows them to your user at the child's own pane and sends you a notice instead, so never put one to your user again and never answer it yourself. Never leave a child waiting unmentioned.
 
 === plugins/gate-inbox/<stamp>/skills/relay-child-dialog/SKILL.md
 ---
@@ -405,10 +405,12 @@ retype. Every step below is mechanical; do not reword anything.
 
 ## 1. Decide whose call it is
 
-- Header `Approval`, a permission prompt, a trust dialog: your user's. Go to step 2.
+- Header `Approval`, a permission prompt, a trust dialog: your user's alone, and Gate Inbox shows it to
+  them at the child's own pane. Do not ask it again or answer it; stop here. (Gate Inbox now sends you a
+  notice instead of these dialogs; this covers an older relay still in your inbox.)
 - Anything else your brief to that child or your user's standing decisions already settle: answer it
   yourself with `mcp__gate-inbox__answer_session` (`relay` false) and stop.
-- Otherwise: your user's. Go to step 2.
+- Otherwise: ask your user. Go to step 2.
 
 ## 2. Get the exact input
 

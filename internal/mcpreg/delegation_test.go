@@ -70,7 +70,7 @@ func TestClaudeSteeringIsThePluginSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertSteers(t, "claude skill", string(skill), builtinDelegation["claude"])
-	for _, want := range []string{"Your children's dialogs are yours", "answer_session", "Approval are always your user's to answer"} {
+	for _, want := range []string{"Your children's dialogs are yours", "answer_session", "Approval are your user's alone", "never put one to your user again"} {
 		if !strings.Contains(string(skill), want) {
 			t.Fatalf("the skill lost the child-dialog rule %q:\n%s", want, skill)
 		}
@@ -178,7 +178,7 @@ func TestEveryCLISteeringCarriesTheChildDialogRule(t *testing.T) {
 	for style := range builtinDelegation {
 		text := DelegationSteering(style)
 		for _, want := range []string{"Your children's dialogs are yours", "word for word", "answer_session",
-			"relay: true", "Never tell your user to answer at the child's pane"} {
+			"relay: true", "never put one to your user again"} {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s steering lacks %q", style, want)
 			}

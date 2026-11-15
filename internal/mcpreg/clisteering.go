@@ -33,7 +33,7 @@ func AdoptedCLISteering(style string) string {
 		"",
 		"# Your children's dialogs are yours",
 		"",
-		"When a session you created stops on a dialog, Gate Inbox relays it to you. Answer what your brief or your user's standing decisions settle. Ask your user the rest, copying each question and its options word for word, then reply with `gate-inbox answer <id> \"<answer>\" --relay`. Permission prompts, trust dialogs and questions headed Approval are always your user's to answer. Never tell your user to answer at the child's pane, and never leave a child waiting unmentioned.",
+		"When a session you created stops on a dialog, Gate Inbox relays it to you. Answer what your brief or your user's standing decisions settle. Ask your user the rest, copying each question and its options word for word, then reply with `gate-inbox answer <id> \"<answer>\" --relay`. Permission prompts, trust dialogs and questions headed Approval are your user's alone: Gate Inbox shows them to your user at the child's own pane and sends you a notice instead, so never put one to your user again and never answer it yourself. Never leave a child waiting unmentioned.",
 		"",
 	}, "\n")
 }

@@ -19,12 +19,10 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/agentsession"
-	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/codexq"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
-	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -1148,15 +1146,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 			}
 		}
 		if sess.ParentID != "" && newStatus == status.Waiting {
-			if _, ok := dialog.Parse(ansi.Strip(childPane[sess.ID])); ok {
-				answerableWait[sess.ID] = true
-			} else if dialog.HasReader(sess.Tool) {
-				_, answerableWait[sess.ID] = dialog.ReadQuestions(sess.Tool, childPane[sess.ID], nil)
-			}
-			if answerableWait[sess.ID] &&
-				asksForApproval(sess.Tool, childPane[sess.ID], asks.PendingQuestions(childAskTarget(sess))) {
-				answerableWait[sess.ID] = false
-			}
+			answerableWait[sess.ID] = parentCanAnswer(sess, childPane[sess.ID])
 		}
 		if newStatus != sess.Status {
 			step = time.Now()

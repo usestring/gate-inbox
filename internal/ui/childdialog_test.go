@@ -129,8 +129,8 @@ func TestChildWaitingOnADialogNotifiesTheParentWithItsFullContent(t *testing.T) 
 			} else {
 				t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			}
-			if err := p.watchChildDialog(child, status.Waiting, readDialogFixture(t, tc.fixture), time.Now()); err != nil {
-				t.Fatalf("watchChildDialog: %v", err)
+			if err := p.relayChildQuestion(child, status.Waiting, readDialogFixture(t, tc.fixture)); err != nil {
+				t.Fatalf("relayChildQuestion: %v", err)
 			}
 			head, found, err := st.HeadMessage(parent.ID)
 			if err != nil || !found {
@@ -155,7 +155,7 @@ func TestAStandingChildDialogIsFollowedUpNotLeftSilent(t *testing.T) {
 	p.escalate = func(note notify.Note) bool { pinged = append(pinged, note); return true }
 	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "release-lead", Status: status.Working})
 	child := seedSession(t, st, store.Session{ID: "child001", Name: "release-audit", ParentID: parent.ID, Status: status.Working})
-	pane := readDialogFixture(t, "claude-2.1.284-w50-permission-bash.ansi")
+	pane := readDialogFixture(t, "claude-2.1.283-tabs-w50-first.ansi")
 	start := time.Now()
 
 	if err := p.watchChildDialog(child, status.Waiting, pane, start); err != nil {
@@ -229,14 +229,14 @@ func TestANewDialogOnAWaitingChildIsRelayedAgain(t *testing.T) {
 	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "release-lead", Status: status.Working})
 	child := seedSession(t, st, store.Session{ID: "child001", Name: "release-audit", ParentID: parent.ID, Status: status.Waiting})
 	now := time.Now()
-	if err := p.watchChildDialog(child, status.Waiting, readDialogFixture(t, "claude-2.1.284-w50-workspace-trust.ansi"), now); err != nil {
+	if err := p.watchChildDialog(child, status.Waiting, readDialogFixture(t, "claude-2.1.283-tabs-w50-first.ansi"), now); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.watchChildDialog(child, status.Waiting, readDialogFixture(t, "claude-2.1.284-w50-mcp-trust.ansi"), now.Add(2*time.Second)); err != nil {
+	if err := p.watchChildDialog(child, status.Waiting, readDialogFixture(t, "claude-2.1.284-w50-stepper4-first.ansi"), now.Add(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	head, _, _ := st.HeadMessage(parent.ID)
-	if !strings.Contains(head.Body, "MCP-server trust dialog") {
+	if !strings.Contains(head.Body, "package manager") {
 		t.Errorf("the second dialog was not relayed:\n%s", head.Body)
 	}
 	if n, _ := st.QueuedCount(parent.ID); n != 1 {
@@ -256,7 +256,7 @@ func TestARelayHeldByTheParentsOwnDialogIsNotEscalated(t *testing.T) {
 	p.escalate = func(note notify.Note) bool { pinged = append(pinged, note); return true }
 	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "release-lead", Status: status.Waiting})
 	child := seedSession(t, st, store.Session{ID: "child001", Name: "release-audit", ParentID: parent.ID, Status: status.Working})
-	pane := readDialogFixture(t, "claude-2.1.284-w50-permission-bash.ansi")
+	pane := readDialogFixture(t, "claude-2.1.283-tabs-w50-first.ansi")
 	start := time.Now()
 
 	for _, at := range []time.Duration{0, childDialogUndelivered, time.Hour, 90 * time.Minute} {
@@ -286,5 +286,35 @@ func TestARelayHeldByTheParentsOwnDialogIsNotEscalated(t *testing.T) {
 	}
 	if head, _, _ := st.HeadMessage(parent.ID); !head.Interrupt || len(pinged) != 1 {
 		t.Fatalf("a relay left undelivered by a working parent was not escalated: %+v, %d pings", head, len(pinged))
+	}
+}
+
+// A permission prompt is the operator's, and triage shows it at the child.
+// Relaying it whole had the parent put the same question to the operator, who
+// then answered it twice. The parent gets a notice, and is never chased.
+func TestAnOperatorsDialogIsNotRelayedForTheParentToAskAgain(t *testing.T) {
+	p, st := pollerWithStore(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var pinged []notify.Note
+	p.escalate = func(note notify.Note) bool { pinged = append(pinged, note); return true }
+	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "release-lead", Status: status.Working})
+	child := seedSession(t, st, store.Session{ID: "child001", Name: "release-audit", ParentID: parent.ID, Status: status.Working})
+	pane := readDialogFixture(t, "claude-2.1.284-w50-permission-bash.ansi")
+	start := time.Now()
+
+	if err := p.watchChildDialog(child, status.Waiting, pane, start); err != nil {
+		t.Fatal(err)
+	}
+	head, found, _ := st.HeadMessage(parent.ID)
+	if !found || !strings.Contains(head.Body, "Do not put it to them again") || strings.Contains(head.Body, "relay: true") {
+		t.Fatalf("the parent was handed the operator's dialog to relay: %+v", head)
+	}
+	for _, at := range []time.Duration{childDialogUndelivered, time.Hour} {
+		if err := p.watchChildDialog(child, status.Waiting, pane, start.Add(at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, _ := st.QueuedCount(parent.ID); n != 1 || len(pinged) != 0 {
+		t.Fatalf("the parent was chased over the operator's dialog: %d queued, %d pings", n, len(pinged))
 	}
 }

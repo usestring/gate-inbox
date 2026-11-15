@@ -11,10 +11,12 @@ retype. Every step below is mechanical; do not reword anything.
 
 ## 1. Decide whose call it is
 
-- Header `Approval`, a permission prompt, a trust dialog: your user's. Go to step 2.
+- Header `Approval`, a permission prompt, a trust dialog: your user's alone, and Gate Inbox shows it to
+  them at the child's own pane. Do not ask it again or answer it; stop here. (Gate Inbox now sends you a
+  notice instead of these dialogs; this covers an older relay still in your inbox.)
 - Anything else your brief to that child or your user's standing decisions already settle: answer it
   yourself with `mcp__gate-inbox__answer_session` (`relay` false) and stop.
-- Otherwise: your user's. Go to step 2.
+- Otherwise: ask your user. Go to step 2.
 
 ## 2. Get the exact input
 

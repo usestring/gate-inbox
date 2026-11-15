@@ -24,9 +24,12 @@ import (
 // is told, not left to poll. It carries the dialog in full: every question of
 // a several-question dialog, a multi-select's boxes and which are ticked, and
 // a permission or trust prompt as drawn, credentials scrubbed. Every kind
-// comes with the answer_session call that settles it, because every kind is
-// the parent's to settle: by answering, or by asking its own user word for
-// word and relaying their choice. None is handed to whoever is at the pane.
+// comes with the answer_session call that settles it: the parent answers what
+// its brief settles, or asks its own user word for word and relays their
+// choice. The exception is a dialog only the operator may answer (a
+// permission or trust prompt, or a question headed Approval). Triage shows
+// that one at the child, so the parent is told not to ask it again: putting
+// it to the operator from the parent as well made them answer it twice.
 //
 // A child that stays in its dialog is followed up, not left silently
 // waiting: a relay the parent has not taken in time is sent again as an
@@ -45,8 +48,11 @@ const (
 	childDialogUndelivered = 3 * time.Minute
 	// childDialogRemind is how long a delivered relay may go unanswered
 	// before it is repeated, at most childDialogReminders times.
+	// One reminder, inside ownedGrace: past that the operator is shown the
+	// question at the child, and a second reminder had the parent ask it of
+	// them again.
 	childDialogRemind    = 10 * time.Minute
-	childDialogReminders = 2
+	childDialogReminders = 1
 )
 
 // childDialogRelay is what was last relayed about one child's dialog.
@@ -85,7 +91,7 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 	if err != nil || !ok {
 		return err
 	}
-	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess))
+	body, key, urgent, operators := p.childRelay(sess, pane)
 	if p.childDialogs == nil {
 		p.childDialogs = map[string]*childDialogRelay{}
 	}
@@ -93,6 +99,11 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 	if relay == nil || relay.key != key {
 		relay = &childDialogRelay{key: key}
 		p.childDialogs[sess.ID] = relay
+		if operators {
+			// The operator answers it at the child, so there is nothing to
+			// chase the parent for.
+			relay.escalated, relay.reminders = true, childDialogReminders
+		}
 		return p.sendChildDialog(sess, parent, relay, body, urgent, now)
 	}
 	if relay.msgID == 0 {
@@ -140,7 +151,9 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 	return p.sendChildDialog(sess, parent, relay, again+body, false, now)
 }
 
-// relayChildQuestion tells sess's parent, once, what dialog sess is holding.
+// relayChildQuestion tells sess's parent, once, what dialog sess is holding,
+// in full whatever its kind. The poller's pass goes through watchChildDialog,
+// which sends a notice in place of a dialog only the operator may answer.
 func (p *poller) relayChildQuestion(sess store.Session, newStatus, pane string) error {
 	if newStatus != status.Waiting {
 		return nil
@@ -151,6 +164,29 @@ func (p *poller) relayChildQuestion(sess store.Session, newStatus, pane string) 
 	}
 	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess))
 	return p.sendChildDialog(sess, parent, &childDialogRelay{key: key}, body, urgent, time.Now())
+}
+
+// childRelay is what sess's parent is told about the dialog on pane. A dialog
+// only the operator may answer is shown to them at the child, so the parent
+// gets a notice not to ask it again rather than the dialog to relay; operators
+// reports that case.
+func (p *poller) childRelay(sess store.Session, pane string) (body, key string, urgent, operators bool) {
+	body, key, urgent = childDialogBody(sess, pane, p.pendingAskFile(sess))
+	if !operatorsDialog(sess, pane) {
+		return body, key, urgent, false
+	}
+	return childOperatorsNotice(sess), key, false, true
+}
+
+// childOperatorsNotice tells a parent its child is waiting on the operator at
+// the child's own pane. The dialog is not quoted: the parent has nothing to
+// key into it and nothing to put to its user.
+func childOperatorsNotice(sess store.Session) string {
+	return fmt.Sprintf("%s (session %s), which you spawned, has stopped on a dialog only your user may answer "+
+		"(a permission or trust prompt, or a question headed Approval). Gate Inbox shows it to your user at the "+
+		"child's own pane, and they answer it there. Do not put it to them again with your own question tool, and do "+
+		"not answer it with answer_session; carry on with your other work. Its next stop is relayed to you as usual.",
+		sess.Name, sess.ID)
 }
 
 // relayTarget is the session a child's dialog is relayed to: the one that

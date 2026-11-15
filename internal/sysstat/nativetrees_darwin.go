@@ -5,7 +5,6 @@ package sysstat
 import (
 	"bytes"
 	"encoding/binary"
-	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
 	"golang.org/x/sys/unix"
@@ -25,28 +24,28 @@ import (
 // the roots asked about. Argv comes from kern.procargs2, for the roots'
 // direct children only, as nameChildren limits it.
 //
-// lifetime asks for each process's CPU share over its whole life, the way
-// ps computes %cpu, in PCPU. Without it PCPU is left zero for the caller to
-// fill in.
+// PCPU is left zero for the caller to fill in. ps's %cpu on macOS is a
+// decaying average of recent use that no syscall here returns, and a
+// lifetime average in its place would show an agent that has gone idle as
+// still busy.
 //
 // It reports false when the table cannot be read, and the caller falls
 // back to ps.
-func nativeTrees(rootPIDs []int, lifetime bool) (map[int]ProcStat, bool) {
+func nativeTrees(rootPIDs []int) (map[int]ProcStat, bool) {
 	table, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil || len(table) == 0 {
 		return nil, false
 	}
 	children := make(map[int][]int, len(table))
-	started := make(map[int]time.Time, len(table))
+	listed := make(map[int]bool, len(table))
 	for i := range table {
-		pid := int(table[i].Proc.P_pid)
-		children[int(table[i].Eproc.Ppid)] = append(children[int(table[i].Eproc.Ppid)], pid)
-		started[pid] = time.Unix(table[i].Proc.P_starttime.Unix())
+		pid, ppid := int(table[i].Proc.P_pid), int(table[i].Eproc.Ppid)
+		children[ppid] = append(children[ppid], pid)
+		listed[pid] = true
 	}
-	now := time.Now()
 	stats := make(map[int]ProcStat, len(rootPIDs))
 	for _, root := range rootPIDs {
-		if _, alive := started[root]; !alive {
+		if !listed[root] {
 			continue
 		}
 		stat := ProcStat{OK: true}
@@ -60,11 +59,6 @@ func nativeTrees(rootPIDs []int, lifetime bool) (map[int]ProcStat, bool) {
 			stat.Procs++
 			stat.CPUSeconds += cpuSeconds
 			stat.RSS += rss
-			if lifetime {
-				if alive := now.Sub(started[pid]).Seconds(); alive > 0 {
-					stat.PCPU += cpuSeconds / alive * 100
-				}
-			}
 		})
 		for _, child := range children[root] {
 			if program := darwinArgv0(child); program != "" {

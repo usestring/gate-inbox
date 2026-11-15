@@ -16,7 +16,7 @@ import (
 func TestNativeTreesAgreeWithPs(t *testing.T) {
 	root := treeUnderTest(t)
 	full := Trees([]int{root})[root]
-	native, ok := nativeTrees([]int{root}, true)
+	native, ok := nativeTrees([]int{root})
 	if !ok {
 		t.Fatal("nativeTrees could not read the process table")
 	}
@@ -37,9 +37,6 @@ func TestNativeTreesAgreeWithPs(t *testing.T) {
 		t.Errorf("native CPU %vs and ps CPU %vs (ratio %.3f) disagree: the timebase conversion is wrong",
 			got.CPUSeconds, full.CPUSeconds, ratio)
 	}
-	if got.PCPU <= 0 {
-		t.Errorf("lifetime PCPU = %v with a child burning a core", got.PCPU)
-	}
 	wantChildren := slices.Clone(full.Children)
 	gotChildren := slices.Clone(got.Children)
 	slices.Sort(wantChildren)
@@ -50,7 +47,7 @@ func TestNativeTreesAgreeWithPs(t *testing.T) {
 }
 
 func TestNativeTreesSkipAGoneRoot(t *testing.T) {
-	stats, ok := nativeTrees([]int{1 << 30}, false)
+	stats, ok := nativeTrees([]int{1 << 30})
 	if !ok {
 		t.Fatal("nativeTrees could not read the process table")
 	}
@@ -90,6 +87,6 @@ func BenchmarkTreesPs(b *testing.B) {
 func BenchmarkTreesNative(b *testing.B) {
 	roots := []int{os.Getppid()}
 	for b.Loop() {
-		nativeTrees(roots, false)
+		nativeTrees(roots)
 	}
 }

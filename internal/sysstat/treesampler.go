@@ -79,7 +79,7 @@ var procChildren = sync.OnceValue(func() bool {
 //
 // The first call is a full scan, which seeds the pcpu fallback the caller
 // needs before it has two CPU-second samples to difference. Every call after
-// it walks /proc directly.
+// it walks /proc directly, or reads the kernel's process table on macOS.
 func (s *TreeSampler) Sample(rootPIDs []int, argvRoots map[int]bool) map[int]ProcStat {
 	if len(rootPIDs) == 0 {
 		return map[int]ProcStat{}
@@ -101,7 +101,7 @@ func (s *TreeSampler) Sample(rootPIDs []int, argvRoots map[int]bool) map[int]Pro
 		// macOS: the same seed-then-read shape, through the kernel's
 		// process table instead of /proc. The argv mark is not read here,
 		// so ArgvMarkOK stays false, which is what ps reported too.
-		stats, ok := nativeTrees(rootPIDs, false)
+		stats, ok := nativeTrees(rootPIDs)
 		if !ok {
 			return Trees(rootPIDs)
 		}
@@ -207,8 +207,7 @@ func lifetimePCPU(info procInfo, uptime float64) float64 {
 }
 
 // Tree is Trees for one root, read straight from /proc where the kernel
-// lists children, from the kernel's process table on macOS, and through
-// Trees elsewhere.
+// lists children, and through Trees elsewhere.
 //
 // The focused pane's process line asks for this every 1.2 seconds. Trees
 // forks ps twice to answer, and the first of those walks every process on the
@@ -216,10 +215,8 @@ func lifetimePCPU(info procInfo, uptime float64) float64 {
 // those, and forks nothing.
 func Tree(root int) (ProcStat, bool) {
 	if !procChildren() {
-		if stats, ok := nativeTrees([]int{root}, true); ok {
-			stat, alive := stats[root]
-			return stat, alive
-		}
+		// macOS stays on ps here: the focused pane shows PCPU as its CPU
+		// figure, and only ps has the recent-use average that figure means.
 		stat, ok := Trees([]int{root})[root]
 		return stat, ok
 	}

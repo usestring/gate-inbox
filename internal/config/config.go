@@ -781,7 +781,7 @@ func checkCompactWindow(name string, windows map[string]int) error {
 	slices.Sort(tiers)
 	for _, tier := range tiers {
 		if t := priority.Tier(tier); t == priority.Unset || !t.Valid() {
-			return fmt.Errorf("tools.%s.compact_window: %q is not a tier (want urgent, high, medium or low)", name, tier)
+			return fmt.Errorf("tools.%s.compact_window: %q is not a tier (want urgent, high, medium, low, lower or lowest)", name, tier)
 		}
 		if window := windows[tier]; window < MinCompactWindow || window > MaxCompactWindow {
 			return fmt.Errorf("tools.%s.compact_window.%s = %d: want %d to %d tokens", name, tier, window, MinCompactWindow, MaxCompactWindow)

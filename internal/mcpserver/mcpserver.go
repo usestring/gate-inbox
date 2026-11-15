@@ -30,7 +30,7 @@ type renameArgs struct {
 }
 
 type priorityArgs struct {
-	Tier string `json:"tier" jsonschema:"how much the work in this session matters: urgent (+3), high (+2), medium (+1), none (0), or low (-1)"`
+	Tier string `json:"tier" jsonschema:"how much the work in this session matters: urgent (+3), high (+2), medium (+1), none (0), low (-1), lower (-2) or lowest (-3); the board shows tiers past its configured scale at the scale's edge"`
 }
 
 type reviewCommentArgs struct {
@@ -528,7 +528,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Name: "set_priority",
 		Description: "Declare how much the work in this session matters, so the user's triage queue hands it over ahead of the sessions that matter less. " +
 			"Call it when you know something the manager cannot see from outside: the user says this is urgent or can wait, or the task turns out to be a production incident, a release blocker, or a background experiment. " +
-			"Tiers are urgent (+3), high (+2), medium (+1), and low (-1); none or 0 clears it. Numeric levels from -1 to 3 are also accepted. " +
+			"Tiers are urgent (+3), high (+2), medium (+1), low (-1), lower (-2) and lowest (-3); none or 0 clears it. Numeric levels from -3 to 3 are also accepted. " +
+			"The user's board uses two raised tiers and one lowered by default, and shows a tier past its scale at the scale's edge. " +
 			"It orders this session within the queue it is already in, so it never puts a session that needs nobody ahead of one waiting on an answer, and the user can always override it.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args priorityArgs) (*mcp.CallToolResult, any, error) {
 		return textResult(sessioncmd.Priority(configDir, callerOf(ctx), args.Tier))

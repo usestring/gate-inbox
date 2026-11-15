@@ -42,6 +42,7 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
 	seedSessions(t, filepath.Join(home, "state.db"))
 	skipWelcome(t, filepath.Join(home, "state.db"))
+	setSetting(t, filepath.Join(home, "state.db"), "triage_mode", "off")
 	// A died-while-closed mark would take two cells of the row the rungs
 	// are measured against; "never" leaves the seeded dead rows unmarked.
 	setSetting(t, filepath.Join(home, "state.db"), "reopen_sessions", "never")
@@ -304,6 +305,7 @@ func TestExternalBuildConfirmsBeforeOpening(t *testing.T) {
 	paintSession(t, db, socket, "0be0a001", "the held pane\n")
 	paintSession(t, db, socket, "0be0a002", "the free pane\n")
 	skipWelcome(t, db)
+	setSetting(t, db, "triage_mode", "off")
 	sortByName(t, db)
 	// Home and End ship unbound; the suite drives them here, so it binds
 	// them the way an operator would.

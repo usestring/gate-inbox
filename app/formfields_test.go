@@ -32,6 +32,7 @@ func TestExternalBuildAddsANewSessionFormField(t *testing.T) {
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
 	seedSessions(t, filepath.Join(home, "state.db"))
 	skipWelcome(t, filepath.Join(home, "state.db"))
+	setSetting(t, filepath.Join(home, "state.db"), "triage_mode", "off")
 	// "never" keeps the died-while-closed marks off the seeded dead rows,
 	// so the rows read as they did before the board was closed.
 	setSetting(t, filepath.Join(home, "state.db"), "reopen_sessions", "never")

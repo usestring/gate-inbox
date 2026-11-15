@@ -21,7 +21,7 @@ const OrphanGrace = time.Hour
 // takes only the status file, because a killed session can be revived and
 // keeps the rest, and a session deleted from the store (by the archive
 // sweep, a failed launch, or the CLI) has no single exit that knows about
-// every file. On 2026-11-14 one board held 2,175 such files for 34 sessions.
+// every file.
 //
 // A file is a session's when the part of its name before the first dot is a
 // session id: lowercase hex, eight characters or more. Shared files

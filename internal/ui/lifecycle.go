@@ -13,6 +13,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/adopt"
+	"github.com/usestring/gate-inbox/internal/closecmd"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
@@ -1087,6 +1088,7 @@ func (m *Model) archiveSessions(sessions []store.Session, isGroup bool, path str
 		// next poll: the tree filters on what is in hand, and a row that
 		// stays a poll longer reads as an archive that did not take.
 		m.markArchivedLocally(filed, missing)
+		m.runCloseCommand(sessions, filed, missing)
 		// A session this archive ended takes its queue with it, and each
 		// sender hears which of its messages went.
 		for _, id := range killed {
@@ -1694,3 +1696,19 @@ func (m *Model) noteAttachedTurn(id string, since time.Time) {
 	}
 	m.stampOperator(id, time.Now())
 }
+
+// runCloseCommand runs the operator's close command for each session an
+// archive filed, the dead ones included: an agent that died on its own may
+// have died without its session-end hooks too.
+func (m *Model) runCloseCommand(sessions []store.Session, filed, missing []string) {
+	closed := make([]store.Session, 0, len(filed))
+	for _, sess := range sessions {
+		if slices.Contains(filed, sess.ID) && !slices.Contains(missing, sess.ID) {
+			closed = append(closed, sess)
+		}
+	}
+	sessionClosed(m.cfg, closecmd.ReasonArchived, closed...)
+}
+
+// sessionClosed runs the operator's close command; tests replace it.
+var sessionClosed = closecmd.Closed

@@ -16,6 +16,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/closecmd"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
@@ -1671,6 +1672,10 @@ func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extensio
 	return s.stopSession(runtime, target, via, sessionID, killFor(runtime, target.ID))
 }
 
+// sessionClosed runs the operator's close command for a session closed for
+// good; tests replace it.
+var sessionClosed = closecmd.Closed
+
 func (s *Sessions) stopSession(runtime *runtime, target store.Session, via extension.KillSource, by string, kill func(string) error) (Session, error) {
 	// A kill is an end the operator chose, so a hibernated row stops being
 	// one and its held queue is resolved like any ended session's.
@@ -1689,6 +1694,9 @@ func (s *Sessions) stopSession(runtime *runtime, target store.Session, via exten
 	if !runtime.cfg.Tools[target.Tool].Shell {
 		sessionhooks.Killed(target, via, by)
 	}
+	// Every caller here is a close: kill_session, the board's kill, and a
+	// stop. A restart or a migration ends its pane through endSession.
+	sessionClosed(runtime.cfg, closecmd.ReasonKilled, target)
 	info := runtime.sessionInfo(target, false, false)
 	info.ReleasedTasks = released
 	return info, nil
@@ -1817,6 +1825,7 @@ func (s *Sessions) file(runtime *runtime, target store.Session, archived bool) (
 		if released, err = runtime.store.ArchiveSession(target.ID); err != nil {
 			return Session{}, err
 		}
+		sessionClosed(runtime.cfg, closecmd.ReasonArchived, target)
 	} else if err := runtime.store.SetArchived(target.ID, false); err != nil {
 		return Session{}, err
 	}

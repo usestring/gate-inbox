@@ -11,7 +11,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/autocopy"
+	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/classifier"
+	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/search"
@@ -19,7 +21,8 @@ import (
 )
 
 // Smart copy acts when the operator presses its key. It reads the latest
-// assistant message of the session the key was pressed on, picks out the
+// assistant message of the session the key was pressed on, with any question
+// dialog the agent is waiting on, picks out the
 // text an operator might lift from it -- drafts, fenced blocks, code spans and
 // links -- and asks the classifier which of them the agent left for the operator to use
 // themselves: a command to run in their own terminal, a link to open, a value
@@ -100,6 +103,28 @@ func latestAssistantText(messages []search.Message) string {
 		}
 	}
 	return ""
+}
+
+// withPendingQuestions adds to text the questions a dialog the agent left
+// open asks, with their options. A question dialog's text lives in the tool
+// call rather than in a message, so without this a command the agent put in
+// the dialog -- "type this at the prompt" -- is never offered.
+func withPendingQuestions(text string, questions []convo.AskQuestion) string {
+	var sb strings.Builder
+	sb.WriteString(strings.TrimSpace(text))
+	for _, q := range questions {
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString(strings.TrimSpace(q.Question))
+		for _, option := range q.Options {
+			sb.WriteString("\n- " + option.Label)
+			if option.Description != "" {
+				sb.WriteString(": " + option.Description)
+			}
+		}
+	}
+	return sb.String()
 }
 
 // askJevCopy asks the classifier every question plan carries in one call and returns its
@@ -232,6 +257,8 @@ func (m *Model) readJevTurn(sess store.Session, turn, run string) (tea.Model, te
 	m.jevCopy.busy = true
 	locator := search.NewLocator(m.conversation.locator.ClaudeHome, m.conversation.locator.CodexRoot)
 	tool := historyToolFormats(m.cfg)[sess.Tool]
+	askTarget := asks.Target{Tool: tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd,
+		ClaudeHome: m.conversation.locator.ClaudeHome}
 	database := opencodeDBPath()
 	from := m.displayName(sess)
 	generation := m.jevCopy.generation
@@ -249,6 +276,9 @@ func (m *Model) readJevTurn(sess store.Session, turn, run string) (tea.Model, te
 			return msg
 		}
 		text := latestAssistantText(messages)
+		if call, pending := asks.Pending(askTarget); pending {
+			text = withPendingQuestions(text, call.Questions)
+		}
 		plan := autocopy.Prepare(text)
 		if len(plan.Input().Questions) == 0 {
 			msg.ok = true

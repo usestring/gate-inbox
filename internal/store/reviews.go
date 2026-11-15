@@ -72,8 +72,8 @@ func (s *Store) UpsertReviewRequests(found []ReviewRequest, now time.Time) ([]Re
 		case err == sql.ErrNoRows:
 			// A new ask on a pull request already tiered by hand keeps that tier.
 			err := tx.QueryRow(`SELECT difficulty FROM review_requests
-				WHERE repo = ? AND number = ? AND state IN (?, ?) AND difficulty <> '' LIMIT 1`,
-				r.Repo, r.Number, ReviewPending, ReviewStarted).Scan(&r.Difficulty)
+				WHERE repo = ? AND number = ? AND difficulty <> '' LIMIT 1`,
+				r.Repo, r.Number).Scan(&r.Difficulty)
 			if err != nil && err != sql.ErrNoRows {
 				return nil, err
 			}

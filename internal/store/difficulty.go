@@ -102,11 +102,11 @@ func NextDifficultyFilter(ceiling string) string {
 	return Difficulties[rank+1]
 }
 
-// SetPullRequestDifficulty sets the tier of every open ask on one pull request.
+// SetPullRequestDifficulty sets the tier of every ask on one pull request.
 // Empty goes back to the guess.
 func (s *Store) SetPullRequestDifficulty(repo string, number int, tier string) error {
 	_, err := s.db.Exec(`UPDATE review_requests SET difficulty = ?
-		WHERE repo = ? AND number = ? AND state IN (?, ?)`,
-		tier, repo, number, ReviewPending, ReviewStarted)
+		WHERE repo = ? AND number = ?`,
+		tier, repo, number)
 	return err
 }

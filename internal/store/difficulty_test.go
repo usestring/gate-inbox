@@ -91,3 +91,46 @@ func TestHandSetDifficultySurvivesIngest(t *testing.T) {
 		t.Fatalf("cleared tier: effective %q, want the guess trivial", open[0].EffectiveDifficulty())
 	}
 }
+
+func TestHandSetDifficultySurvivesClosedAsks(t *testing.T) {
+	for _, state := range []string{ReviewDismissed, ReviewSubmitted} {
+		t.Run(state, func(t *testing.T) {
+			s := newTestStore(t)
+			now := time.Unix(1700000000, 0)
+			ask := ReviewRequest{Repo: "o/r", Number: 7, Trigger: "comment", TriggerID: "initial", Additions: 2, ChangedFiles: 1}
+			if _, err := s.UpsertReviewRequests([]ReviewRequest{ask}, now); err != nil {
+				t.Fatal(err)
+			}
+			for _, tier := range []string{DifficultyHard, DifficultyEasy, ""} {
+				if err := s.SetPullRequestDifficulty(ask.Repo, ask.Number, tier); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.SetPullRequestReviewState(ask.Repo, ask.Number, state, "", "", now); err != nil {
+					t.Fatal(err)
+				}
+				ask.TriggerID += "-next"
+				added, err := s.UpsertReviewRequests([]ReviewRequest{ask}, now)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(added) != 1 || added[0].Difficulty != tier {
+					t.Fatalf("new ask after %s: %+v, want difficulty %q", state, added, tier)
+				}
+				open, err := s.OpenReviewRequests()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(open) != 1 || open[0].TriggerID != ask.TriggerID {
+					t.Fatalf("open asks = %+v, want only %s", open, ask.TriggerID)
+				}
+				want := tier
+				if want == "" {
+					want = DifficultyTrivial
+				}
+				if got := open[0].EffectiveDifficulty(); got != want {
+					t.Fatalf("effective difficulty = %q, want %q", got, want)
+				}
+			}
+		})
+	}
+}

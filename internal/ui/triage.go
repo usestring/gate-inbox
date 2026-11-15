@@ -601,15 +601,9 @@ func storedSmartTriage(st *store.Store) bool {
 	return err != nil || chosen != "off"
 }
 
-// storedTriage reads the persisted mode. Off is the default: triage
-// rearranges the whole rail, so it is never something a user arrives at
-// without having asked for it.
 func storedTriage(st *store.Store) bool {
 	chosen, err := st.Setting(triageSetting)
-	if err != nil {
-		return false
-	}
-	return chosen == "on"
+	return err != nil || chosen != "off"
 }
 
 // storedTriageScope reads the group the queue was last narrowed to. An unset

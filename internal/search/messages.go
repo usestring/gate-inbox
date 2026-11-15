@@ -21,6 +21,18 @@ type Message struct {
 // ReadFirstPrompts shares the conversation filter so injected instructions
 // and Codex's duplicate event records cannot become the opening prompt.
 func ReadFirstPrompts(target Target, count int) ([]string, error) {
+	return readFirstPrompts(target, count, func(text string) bool { return !band.Has(text) })
+}
+
+func ReadFirstWorkPrompt(target Target) (string, error) {
+	prompts, err := readFirstPrompts(target, 1, func(text string) bool { return ClassifyTurn(text) == TurnWork })
+	if err != nil || len(prompts) == 0 {
+		return "", err
+	}
+	return prompts[0], nil
+}
+
+func readFirstPrompts(target Target, count int, accept func(string) bool) ([]string, error) {
 	f, err := os.Open(target.Path)
 	if err != nil {
 		return nil, err
@@ -31,7 +43,7 @@ func ReadFirstPrompts(target Target, count int) ([]string, error) {
 	scanner.Buffer(make([]byte, 64<<10), limit)
 	var prompts []string
 	for len(prompts) < count && scanner.Scan() {
-		if message, ok := parseMessage(scanner.Bytes(), target.Tool); ok && message.Role == "user" && !band.Has(message.Text) {
+		if message, ok := parseMessage(scanner.Bytes(), target.Tool); ok && message.Role == "user" && accept(message.Text) {
 			prompts = append(prompts, message.Text)
 		}
 	}

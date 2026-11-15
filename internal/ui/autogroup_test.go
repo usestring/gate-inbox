@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/classifier"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -155,5 +158,66 @@ func TestAutoGroupSkipsArchivedGroups(t *testing.T) {
 	m.archivedGroups = map[string]bool{"old-project": true}
 	if options := m.autoGroupOptions(m.sessions[0], time.Now()); len(options) != 0 {
 		t.Fatalf("an archived group was offered: %#v", options)
+	}
+}
+
+func TestAutoGroupPreservesDetachedSpawner(t *testing.T) {
+	m := buildModel(t)
+	m.autoGroupOn = true
+	for _, sess := range []store.Session{
+		{ID: "creator", Name: "creator", Tool: "claude"},
+		{ID: "detached", Name: "work", Tool: "claude", SpawnedBy: "creator"},
+	} {
+		if err := m.store.CreateSession(sess); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.applyAutoGroup(autoGroupResultMsg{id: "detached", name: "work", option: autoGroupOption{kind: autoGroupPreset, group: "project"}, ok: true})
+	got, err := m.store.Get("detached")
+	if err != nil || got.Group != "project" || got.SpawnedBy != "creator" || got.ParentID != "" {
+		t.Fatalf("grouped session = %+v, err %v", got, err)
+	}
+}
+
+func TestAutoGroupReadsOpeningWorkBeforeTranscriptTail(t *testing.T) {
+	for _, tool := range []string{search.ToolClaude, search.ToolCodex} {
+		t.Run(tool, func(t *testing.T) {
+			root := t.TempDir()
+			dir := filepath.Join(root, "projects", "project")
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "conversation.jsonl")
+			file, err := os.Create(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			message := func(text string) string {
+				if tool == search.ToolClaude {
+					return `{"type":"user","message":{"role":"user","content":"` + text + `"}}` + "\n"
+				}
+				return `{"type":"response_item","payload":{"type":"message","role":"user","content":"` + text + `"}}` + "\n"
+			}
+			if _, err := file.WriteString(message("# AGENTS.md instructions for /repo") + message("[gate-inbox] This request is from Gate Inbox itself: Name this session") + message("Fix the parser")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := file.Seek(17<<20, 0); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := file.WriteString("\n" + message("An unrelated later task")); err != nil {
+				t.Fatal(err)
+			}
+			locator := search.NewLocator(root, root)
+			sess := store.Session{ID: "adopted", AgentSessionID: "conversation"}
+			if tool == search.ToolCodex {
+				if err := os.Rename(path, filepath.Join(root, "rollout-conversation.jsonl")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := autoGroupFirstPrompt(locator, sess, tool, ""); got != "Fix the parser" {
+				t.Fatalf("opening work = %q", got)
+			}
+		})
 	}
 }

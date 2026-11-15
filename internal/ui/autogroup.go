@@ -190,11 +190,11 @@ func (m *Model) checkAutoGroup() tea.Cmd {
 	if m.autoGroup.checked == nil {
 		m.autoGroup.checked = map[string]string{}
 	}
-	m.autoGroup.checked[sess.ID] = sess.Name
 	options := m.autoGroupOptions(sess, now)
 	if len(options) == 0 {
 		return nil
 	}
+	m.autoGroup.checked[sess.ID] = sess.Name
 	m.autoGroup.busy = true
 	provider := m.classifierProvider()
 	endpoint := provider.Endpoint()
@@ -236,6 +236,10 @@ func autoGroupFirstPrompt(locator *search.Locator, sess store.Session, tool, dat
 	target, found := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
 	if !found {
 		return ""
+	}
+	if target.Tool != search.ToolOpenCode {
+		prompt, _ := search.ReadFirstWorkPrompt(target)
+		return prompt
 	}
 	messages, err := search.ReadMessages(target, database)
 	if err != nil {
@@ -297,7 +301,7 @@ func (m *Model) applyAutoGroup(msg autoGroupResultMsg) {
 		}
 	}
 	for _, id := range members {
-		if err := m.store.MoveSession(id, group); err != nil {
+		if err := m.store.GroupSession(id, group); err != nil {
 			m.errBar.text = err.Error()
 			return
 		}

@@ -84,9 +84,6 @@ func (s *TreeSampler) Sample(rootPIDs []int, argvRoots map[int]bool) map[int]Pro
 	if len(rootPIDs) == 0 {
 		return map[int]ProcStat{}
 	}
-	if !procChildren() {
-		return Trees(rootPIDs)
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -97,6 +94,21 @@ func (s *TreeSampler) Sample(rootPIDs []int, argvRoots map[int]bool) map[int]Pro
 			s.pcpu[root] = stat.PCPU
 		}
 		s.seeded = true
+		return stats
+	}
+
+	if !procChildren() {
+		// macOS: the same seed-then-read shape, through the kernel's
+		// process table instead of /proc. The argv mark is not read here,
+		// so ArgvMarkOK stays false, which is what ps reported too.
+		stats, ok := nativeTrees(rootPIDs, false)
+		if !ok {
+			return Trees(rootPIDs)
+		}
+		for root, stat := range stats {
+			stat.PCPU = s.pcpu[root]
+			stats[root] = stat
+		}
 		return stats
 	}
 
@@ -195,7 +207,8 @@ func lifetimePCPU(info procInfo, uptime float64) float64 {
 }
 
 // Tree is Trees for one root, read straight from /proc where the kernel
-// lists children, and through Trees elsewhere.
+// lists children, from the kernel's process table on macOS, and through
+// Trees elsewhere.
 //
 // The focused pane's process line asks for this every 1.2 seconds. Trees
 // forks ps twice to answer, and the first of those walks every process on the
@@ -203,6 +216,10 @@ func lifetimePCPU(info procInfo, uptime float64) float64 {
 // those, and forks nothing.
 func Tree(root int) (ProcStat, bool) {
 	if !procChildren() {
+		if stats, ok := nativeTrees([]int{root}, true); ok {
+			stat, alive := stats[root]
+			return stat, alive
+		}
 		stat, ok := Trees([]int{root})[root]
 		return stat, ok
 	}

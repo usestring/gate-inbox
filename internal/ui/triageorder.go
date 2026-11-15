@@ -34,11 +34,23 @@ var triageOrders = []string{triageOrderQuestions, triageOrderPriority, triageOrd
 
 const (
 	triageOrderSetting = "triage_order"
-	// triageKeepAlivesSetting puts keep-alive rests back in the drain. Off
-	// by default: a session whose only news is the cache warden's "ok" has
-	// nothing for the operator, and handing it over is a hop spent on no
-	// work. See chorerest.go.
+	// triageKeepAlivesSetting keeps keep-alive rests in the drain. On by
+	// default. The cache warden only keeps resting sessions warm, so every
+	// keep-alive rest is a session that was idle or finished before the "ok",
+	// and the drain would have handed it over without one. Leaving them out
+	// took every idle session touched in the last hour out of the walk, which
+	// are the ones whose context the operator still holds. A rest still ranks
+	// below every real one (see triageChoreRest), and a mute the drain left
+	// survives later keep-alives (see isMuted), so a warm session is not
+	// handed back on each pass. Off leaves them on the rail only. See
+	// chorerest.go.
 	triageKeepAlivesSetting = "triage_keepalives"
+	// triageKeepAlivesDefaultSetting records that a store has been through the
+	// flip to on. saveSettings writes every field on every save, so a stored
+	// "off" from before it is no evidence anybody chose it; the flip applies
+	// once per store, and an "off" written after it stays. See
+	// autoProceedDefaultSetting, which solved the same problem first.
+	triageKeepAlivesDefaultSetting = "triage_keepalives_default_on"
 )
 
 func normalizeTriageOrder(order string) string {
@@ -59,8 +71,18 @@ func storedTriageOrder(st *store.Store) string {
 }
 
 func storedTriageKeepAlives(st *store.Store) bool {
+	migrated, err := st.Setting(triageKeepAlivesDefaultSetting)
+	if err != nil {
+		return true
+	}
+	if migrated != autoProceedDefaultDone {
+		if err := st.SetSetting(triageKeepAlivesSetting, "on"); err == nil {
+			_ = st.SetSetting(triageKeepAlivesDefaultSetting, autoProceedDefaultDone)
+		}
+		return true
+	}
 	chosen, err := st.Setting(triageKeepAlivesSetting)
-	return err == nil && chosen == "on"
+	return err != nil || chosen != "off"
 }
 
 // triageOrderLabel is the order as the rail's footer and Settings show it.

@@ -1,6 +1,6 @@
 # "triage order" and "walk keep-alives" are rows in Settings, under
 # smart triage. The order cycles questions first, priority first, oldest
-# first, questions only; keep-alives are out of the drain by default.
+# first, questions only; keep-alives are in the drain by default.
 #
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/triage-order.tape
 
@@ -26,7 +26,7 @@ Sleep 1s
 Down
 Right
 Sleep 1500ms
-Screenshot {{SHOTS}}/05-keep-alives-in-triage-on.png
+Screenshot {{SHOTS}}/05-keep-alives-in-triage-off.png
 Sleep 1s
 Escape
 Sleep 1500ms

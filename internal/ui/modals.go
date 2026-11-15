@@ -519,6 +519,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldPalette, "colour", normalizePalette(m.settings.palette)) + "\n" +
 		row(settingsFieldGlyphs, "status marks", normalizeGlyphs(m.settings.glyphs)+"  "+statusGlyph("waiting")+statusGlyph("finished")+statusGlyph("errored")) + "\n" +
 		row(settingsFieldRowDetail, "row detail", normalizeRowDetail(m.settings.rowDetail)) + "\n" +
+		row(settingsFieldPriorityScale, "priority tiers", parsePriorityScale(m.settings.priorityScale).Label()) + "\n" +
 		row(settingsFieldArchiveConfirm, "ask before killing", normalizeArchiveConfirm(m.settings.archiveConfirm)) + "\n" +
 		row(settingsFieldDeleteConfirm, "ask before deleting", normalizeConfirmAsk(m.settings.deleteConfirm)) + "\n" +
 		row(settingsFieldRestartConfirm, "ask before restarting", normalizeConfirmAsk(m.settings.restartConfirm)) + "\n" +

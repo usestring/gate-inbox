@@ -383,7 +383,7 @@ func (m *Model) reviewTabLines(width, height int) []contentLine {
 		head, meta := reviewSpans(r, i == m.reviewsCursor)
 		if tier := m.reviewPriority(r); tier != priority.Unset {
 			tone := ToneGood
-			if tier == priority.Low {
+			if tier.Deferred() {
 				tone = ToneBad
 			}
 			head = slices.Insert(head, 1, Span{Text: tier.Glyph() + " ", Tone: tone})
@@ -835,7 +835,7 @@ func (m *Model) reviewPriority(r store.ReviewRequest) priority.Tier {
 	if sess, _ := m.reviewSession(r); sess != nil {
 		tier = priority.Better(tier, store.EffectiveTier(m.priorityGroups, *sess))
 	}
-	return tier
+	return m.scale().Clamp(tier)
 }
 
 func (m *Model) replaceReviews(open []store.ReviewRequest) {

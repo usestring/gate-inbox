@@ -335,16 +335,35 @@ func (m *Model) reviewsTabBar(width int) string {
 		}
 		return mutedStyle.Render(label)
 	}
-	reviews := "Reviews"
-	if pending, _ := m.reviewCounts(); pending > 0 {
-		reviews += " (" + strconv.Itoa(pending) + ")"
+	pending, _ := m.reviewCounts()
+	labels := []string{"Reviews"}
+	if pending > 0 {
+		labels[0] += " (" + strconv.Itoa(pending) + ")"
 	}
-	bar := spaces(railInset) + tab("Sessions", !m.reviewsTab) + subtleText(" │ ") + tab(reviews, m.reviewsTab)
+	if m.reviewCeiling != "" {
+		// The filter hides reviews, so naming it outranks the count and the
+		// triage hint when the rail is narrow.
+		labels = []string{labels[0] + " · max " + m.reviewCeiling, "Reviews · max " + m.reviewCeiling}
+	}
 	hint := normalizeTriageContent(m.triageContent)
 	if key := m.tightCap(keymap.ContextList, keymap.TriageContent); key != "" {
 		hint = key + " " + hint
 	}
 	available := width - railGutter
+	render := func(reviews string) string {
+		return spaces(railInset) + tab("Sessions", !m.reviewsTab) + subtleText(" │ ") + tab(reviews, m.reviewsTab)
+	}
+	bar := render(labels[0])
+	if m.reviewCeiling != "" {
+		for _, label := range labels {
+			if bar = render(label); textfmt.Width(bar)+2 <= available {
+				break
+			}
+		}
+		if textfmt.Width(bar)+textfmt.Width(hint)+2 > available {
+			hint = ""
+		}
+	}
 	bar = textfmt.TruncateWidth(bar, max(available-textfmt.Width(hint)-2, 0), "…")
 	return paint(rowColumns(bar, subtleText(hint), available), width, panelHex())
 }
@@ -439,6 +458,9 @@ func reviewSpans(r store.ReviewRequest, selected bool) (head, meta []Span) {
 		add("by "+r.Author, ToneMuted)
 	}
 	add(reviewAge(time.Since(r.TriggeredAt)), ToneMuted)
+	if tier := difficultySpan(r); tier.Text != "" {
+		add(tier.Text, tier.Tone)
+	}
 	if r.Trigger != "session" {
 		meta = append(meta, Span{Text: " · ", Tone: ToneMuted},
 			Span{Text: "+" + strconv.Itoa(r.Additions), Tone: ToneGood},
@@ -502,6 +524,14 @@ func (m *Model) reviewDetailLines(width int) []string {
 	}
 	if tier := m.reviewPriority(r); tier != priority.Unset {
 		out = append(out, line("Priority: "+tier.Label(), ToneGood, false))
+	}
+	if tier := difficultySpan(r); tier.Text != "" {
+		how := "guessed from its size"
+		if r.Difficulty != "" {
+			how = "set by hand"
+		}
+		out = append(out, line("Difficulty: "+r.EffectiveDifficulty()+" ("+how+")", tier.Tone, false),
+			line(m.pressTo(keymap.ContextReviews, keymap.ReviewDifficulty, "change it"), ToneMuted, false))
 	}
 	if r.URL != "" {
 		out = append(out, "", line(r.URL, ToneMuted, false))
@@ -672,7 +702,9 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	case keymap.Refresh:
 		return m, m.ingestReviews()
-	case keymap.ReviewOpen, keymap.ReviewDismiss, keymap.ReviewStart, keymap.ReviewView, keymap.ReviewAuthor:
+	case keymap.ReviewDifficultyFilter:
+		return m, m.cycleReviewCeiling()
+	case keymap.ReviewDifficulty, keymap.ReviewOpen, keymap.ReviewDismiss, keymap.ReviewStart, keymap.ReviewView, keymap.ReviewAuthor:
 	default:
 		return nil, nil
 	}
@@ -681,6 +713,8 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch action {
+	case keymap.ReviewDifficulty:
+		return m, m.cycleReviewDifficulty(r)
 	case keymap.ReviewAuthor:
 		return m.openReviewAuthor(r)
 	case keymap.ReviewOpen:
@@ -846,6 +880,13 @@ func (m *Model) replaceReviews(open []store.ReviewRequest) {
 	m.reviews = open
 	m.reviewsCursor = max(0, min(m.reviewsCursor, len(open)-1))
 	slices.SortStableFunc(m.reviews, func(a, b store.ReviewRequest) int {
+		if in := m.reviewInCeiling(b); m.reviewInCeiling(a) != in {
+			// Under a difficulty filter the reviews it lets through lead.
+			if in {
+				return 1
+			}
+			return -1
+		}
 		return m.reviewPriority(a).Rank() - m.reviewPriority(b).Rank()
 	})
 	for i, r := range m.reviews {

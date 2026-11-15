@@ -40,6 +40,7 @@ type ReviewRequest struct {
 	State           string
 	SessionID       string
 	SessionHead     string
+	Difficulty      string // the tier set by hand, empty when the guess stands; see difficulty.go
 	OriginSessionID string
 	OriginSession   *Session
 	CreatedAt       time.Time
@@ -69,13 +70,20 @@ func (s *Store) UpsertReviewRequests(found []ReviewRequest, now time.Time) ([]Re
 			r.Repo, r.Number, r.Trigger, r.TriggerID).Scan(&state)
 		switch {
 		case err == sql.ErrNoRows:
+			// A new ask on a pull request already tiered by hand keeps that tier.
+			err := tx.QueryRow(`SELECT difficulty FROM review_requests
+				WHERE repo = ? AND number = ? AND state IN (?, ?) AND difficulty <> '' LIMIT 1`,
+				r.Repo, r.Number, ReviewPending, ReviewStarted).Scan(&r.Difficulty)
+			if err != nil && err != sql.ErrNoRows {
+				return nil, err
+			}
 			if _, err := tx.Exec(`INSERT INTO review_requests
 				(repo, number, trigger, trigger_id, title, author, url, head_sha, draft, additions,
-				 deletions, changed, checks, triggered_at, state, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				 deletions, changed, checks, triggered_at, state, created_at, updated_at, difficulty)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				r.Repo, r.Number, r.Trigger, r.TriggerID, r.Title, r.Author, r.URL, r.HeadSHA,
 				r.Draft, r.Additions, r.Deletions, r.ChangedFiles, r.Checks,
-				encodeTime(r.TriggeredAt), ReviewPending, at, at); err != nil {
+				encodeTime(r.TriggeredAt), ReviewPending, at, at, r.Difficulty); err != nil {
 				return nil, err
 			}
 			r.State, r.CreatedAt, r.UpdatedAt = ReviewPending, now, now
@@ -120,7 +128,7 @@ func (s *Store) UpdateReviewHead(repo string, number int, previous, head string)
 func (s *Store) OpenReviewRequests() ([]ReviewRequest, error) {
 	rows, err := s.db.Query(`SELECT repo, number, trigger, trigger_id, title, author, url,
 		head_sha, draft, additions, deletions, changed, checks, triggered_at, state, session_id,
-		session_head, created_at, updated_at,
+		session_head, created_at, updated_at, difficulty,
 		COALESCE((SELECT p.session_id FROM session_prs p JOIN sessions s ON s.id = p.session_id
 			WHERE p.url = review_requests.url
 			ORDER BY s.archived, s.created_at DESC, s.id LIMIT 1), '')
@@ -136,7 +144,7 @@ func (s *Store) OpenReviewRequests() ([]ReviewRequest, error) {
 		var triggered, created, updated int64
 		if err := rows.Scan(&r.Repo, &r.Number, &r.Trigger, &r.TriggerID, &r.Title, &r.Author,
 			&r.URL, &r.HeadSHA, &r.Draft, &r.Additions, &r.Deletions, &r.ChangedFiles, &r.Checks,
-			&triggered, &r.State, &r.SessionID, &r.SessionHead, &created, &updated, &r.OriginSessionID); err != nil {
+			&triggered, &r.State, &r.SessionID, &r.SessionHead, &created, &updated, &r.Difficulty, &r.OriginSessionID); err != nil {
 			return nil, err
 		}
 		r.TriggeredAt = decodeTime(triggered)

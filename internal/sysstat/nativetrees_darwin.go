@@ -15,8 +15,7 @@ import (
 // macOS has no /proc, so the Linux sampler's walk never runs here and every
 // poll pass forked ps twice: once for every process on the machine, once
 // more for the pane children's names. On a loaded Mac that fork was most
-// of a slow pass -- 1.1s of a 1.6s median across 770 slow passes on
-// 2026-11-14 -- and it grows with the load the board is meant to show.
+// of a slow pass, and it grows with the load the board is meant to show.
 //
 // The process table comes from one kern.proc.all sysctl, which returns
 // every pid and its parent without starting anything. CPU time and resident

@@ -28,7 +28,7 @@ func TestPruneOrphansTakesOnlyOldFilesOfDeletedSessions(t *testing.T) {
 	gone := []string{"deadbeef.status.child-seg", "deadbeef.ask.json", "deadbeef.exit", "0123456789ab.conversation"}
 	kept := []string{
 		"cafef00d.status", "cafef00d.status.child-seg", "cafef00d.ask.json", // a live row
-		"claude-settings-4cd571742030.json", "gate-inbox-mcp-claude.json", // shared files
+		"claude-settings-0a1b2c3d4e5f.json", "gate-inbox-mcp-claude.json", // shared files
 		"abc.status",      // too short to be an id
 		"DEADBEEF.status", // not lowercase hex
 		"feedface",        // no suffix

@@ -259,6 +259,9 @@ func (m *Model) readJevTurn(sess store.Session, turn, run string) (tea.Model, te
 	tool := historyToolFormats(m.cfg)[sess.Tool]
 	askTarget := asks.Target{Tool: tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd,
 		ClaudeHome: m.conversation.locator.ClaudeHome}
+	if m.hooks != nil {
+		askTarget.PendingAskFile = m.hooks.PendingAskFile(sess.ID)
+	}
 	database := opencodeDBPath()
 	from := m.displayName(sess)
 	generation := m.jevCopy.generation

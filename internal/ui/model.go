@@ -451,6 +451,13 @@ type Model struct {
 	adoptFinishedAt time.Time
 	// adoptBusy is set while an adopt scan is out on its own goroutine.
 	adoptBusy bool
+	// unsureFlagged is the panes an adopt scan last found looking like an
+	// agent without adopting them, by adoptKey, so each is flagged once.
+	unsureFlagged map[string]bool
+	// unsureShownAt is when the unadopted-panes line was last put up, and
+	// unsureText is that line, so the bar can hold it while it is current.
+	unsureShownAt time.Time
+	unsureText    string
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -2695,6 +2702,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errBar.text = "adopting a pane: " + msg.err.Error()
 		}
 		m.noteAdopted(msg)
+		m.noteUnsure(msg.unsure, time.Now())
 		if msg.taken > 0 {
 			// The rows are in the store but not yet on the board; the sweep
 			// is what reads them back.
@@ -3284,7 +3292,8 @@ func (m *Model) ageError() {
 		return
 	}
 	m.errBar.age++
-	if m.errBar.age >= 2 && !m.offerLive(time.Now()) {
+	now := time.Now()
+	if m.errBar.age >= 2 && !m.offerLive(now) && !m.unsureLive(now) {
 		m.errBar = errBar{}
 	}
 }

@@ -30,7 +30,8 @@ func sessionID(t *testing.T, m *Model, name string) string {
 // rail has to read in the order the drain walks.
 func TestPriorityLiftsAheadOfLowerTiers(t *testing.T) {
 	m := buildModel(t)
-	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
+	m.smartTriage = false     // the strict order; smart triage has triagesmart_test.go
+	m.priorityScale = "+3/-3" // the full scale, so urgent paints as itself
 	seedTriageFleet(t, m)
 	if err := m.store.SetPriority(sessionID(t, m, "reviewme"), priority.Urgent); err != nil {
 		t.Fatal(err)
@@ -115,7 +116,7 @@ func TestPriorityKeyCyclesTheSession(t *testing.T) {
 	seedTriageFleet(t, m)
 	id := sessionID(t, m, "napping")
 
-	for _, want := range []priority.Tier{priority.Urgent, priority.High, priority.Medium, priority.Low, priority.Unset} {
+	for _, want := range []priority.Tier{priority.High, priority.Medium, priority.Low, priority.Unset} {
 		m.selectSessionRow(t, "napping")
 		pressKey(t, m, key("ctrl+p"))
 		got, err := m.store.Get(id)
@@ -207,15 +208,15 @@ func TestPriorityKeyTogglesTheGroupAndRefusesRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, g := range groups {
-		if g.Name == "alpha" && g.Priority != priority.Urgent {
-			t.Fatalf("p on the group row stored %q, want urgent", g.Priority)
+		if g.Name == "alpha" && g.Priority != priority.High {
+			t.Fatalf("p on the group row stored %q, want high", g.Priority)
 		}
 	}
 	rail := triageRail(m)
-	if !strings.Contains(rail, "alpha "+priority.Urgent.Glyph()) {
+	if !strings.Contains(rail, "alpha "+priority.High.Glyph()) {
 		t.Fatalf("group row wears no glyph:\n%s", rail)
 	}
-	if !strings.Contains(rail, "old-block "+priority.Urgent.Glyph()) {
+	if !strings.Contains(rail, "old-block "+priority.High.Glyph()) {
 		t.Fatalf("session under a tiered group wears no glyph:\n%s", rail)
 	}
 
@@ -358,16 +359,16 @@ func TestCtrlPCyclesPriorityOnBothScreens(t *testing.T) {
 	if m.mode == modeQuickActions {
 		t.Fatal("ctrl+p on the list opened quick actions")
 	}
-	if got, _ := m.store.Get(restID); got.Priority != priority.Urgent {
-		t.Fatalf("ctrl+p on the list stored %q, want urgent", got.Priority)
+	if got, _ := m.store.Get(restID); got.Priority != priority.High {
+		t.Fatalf("ctrl+p on the list stored %q, want high", got.Priority)
 	}
 
 	m.enterFocusOn(t, "ask")
 	if _, _ = m.handleFocusKey(ctrlP()); m.mode != modeFocus {
 		t.Fatalf("ctrl+p left focus for mode %v", m.mode)
 	}
-	if got, _ := m.store.Get(askID); got.Priority != priority.Urgent {
-		t.Fatalf("ctrl+p in focus stored %q, want urgent", got.Priority)
+	if got, _ := m.store.Get(askID); got.Priority != priority.High {
+		t.Fatalf("ctrl+p in focus stored %q, want high", got.Priority)
 	}
 
 	m.leaveFocus()
@@ -389,11 +390,11 @@ func TestAPriorityChangeFlashesTheRow(t *testing.T) {
 	updated, _ := m.handleKey(ctrlP())
 	*m = *updated.(*Model)
 
-	flashed := "napping " + priority.Urgent.Glyph() + " URGENT"
+	flashed := "napping " + priority.High.Glyph() + " HIGH"
 	if rail := triageRail(m); !strings.Contains(rail, flashed) {
 		t.Fatalf("the changed row does not spell its tier:\n%s", rail)
 	}
-	if !m.errBar.worked() || m.errBar.text != "priority urgent: napping" {
+	if !m.errBar.worked() || m.errBar.text != "priority high: napping" {
 		t.Fatalf("status bar = %q, want the change named", m.errBar.text)
 	}
 
@@ -403,7 +404,7 @@ func TestAPriorityChangeFlashesTheRow(t *testing.T) {
 		t.Fatal("a stale timer ended the newer flash")
 	}
 	m.endPriorityFlash(priorityFlashEndMsg{seq: seq})
-	if rail := triageRail(m); strings.Contains(rail, "URGENT") || !strings.Contains(rail, "napping "+priority.Urgent.Glyph()) {
+	if rail := triageRail(m); strings.Contains(rail, "HIGH") || !strings.Contains(rail, "napping "+priority.High.Glyph()) {
 		t.Fatalf("after the flash the row should wear only its glyph:\n%s", rail)
 	}
 }

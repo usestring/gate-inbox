@@ -736,7 +736,7 @@ func (m *Model) defaultRowLegend() legendSection {
 	// queue, and the footer names what the next press sets.
 	var pairs [][2]string
 	if key := m.tightCap(keymap.ContextList, keymap.Priority); key != "" {
-		pairs = append(pairs, [2]string{key, priorityLegend(row.sess.Priority)})
+		pairs = append(pairs, [2]string{key, priorityLegend(m.scale(), row.sess.Priority)})
 	}
 	pairs = append(pairs,
 		[2]string{openKey, enterHint}, [2]string{m.tightCap(keymap.ContextList, keymap.Attach), attachHint})
@@ -850,7 +850,7 @@ func (m *Model) rowLegend() legendSection {
 			text   string
 		}{
 			{keymap.RenameSelf, "rename"}, {keymap.Move, "move"},
-			{keymap.Priority, priorityLegend(m.priorityGroups[row.group])},
+			{keymap.Priority, priorityLegend(m.scale(), m.priorityGroups[row.group])},
 			{keymap.Archive, "kill"}, {keymap.Revive, "revive"}, {keymap.Restore, "restore"},
 		} {
 			if m.applies(keymap.ContextList, candidate.action, row) {

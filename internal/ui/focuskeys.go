@@ -128,6 +128,24 @@ func focusKeyText(key tea.Key) string {
 	return string(code)
 }
 
+// focusKeyParts splits a forwarded key the way writing measures it: the
+// characters it typed, or else the tmux name it went by. An alt-modified
+// rune is a command to the line editor (alt+b, alt+f), not a character, so
+// it comes back by name.
+func focusKeyParts(key tea.Key) (text, name string) {
+	alt := key.Mod.Contains(tea.ModAlt)
+	name = focusKeyText(key)
+	if name == "" {
+		name = focusNamedKeys[focusKeyID{code: key.Code, mod: key.Mod &^ tea.ModAlt}]
+	} else if !alt {
+		return name, ""
+	}
+	if name != "" && alt {
+		name = "M-" + name
+	}
+	return "", name
+}
+
 // focusSelected enters focus mode: keys go to the selected session's pane
 // while the manager, its rail and its live preview stay on screen.
 func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
@@ -816,7 +834,11 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// anything the key caused.
 	var landing tea.Cmd
 	if arms {
+		// The key that submits ends the line it measured. A dialog's
+		// printable pick is the choice, not part of anything written.
+		writing := m.takeWriting(sess.ID, keyAt)
 		landing = m.armLanding(sess, keyAt, extension.OperatorPane, "", dialog, handsOver, baseline)
+		m.landings[sess.ID].writing = writing
 	}
 	m.poller.noteOperatorInputAt(sess.ID, keyAt)
 	// SendRawAt takes the pooled pipe where there is one and forks where
@@ -830,6 +852,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.dropLanding(sess.ID)
 			landing = nil
 		}
+	} else if !arms {
+		text, name := focusKeyParts(key)
+		m.writingFor(sess.ID, keyAt).key(keyAt, time.Now(), text, name)
 	}
 	// The key is the pane's now, so start looking for what it did with it.
 	// This is the whole echo path: no timer, no client, and no cost at all
@@ -889,10 +914,13 @@ func (m *Model) handleFocusPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	} else if resume == nil {
 		m.echoPending = true
 	}
-	m.poller.noteOperatorInput(sess.ID)
+	pastedAt := time.Now()
+	m.poller.noteOperatorInputAt(sess.ID, pastedAt)
 	if err := m.sendFocusPaste(sess.ID, msg.Content); err != nil {
 		m.errBar.text = err.Error()
 		quiet = false
+	} else {
+		m.writingFor(sess.ID, pastedAt).paste(pastedAt, msg.Content)
 	}
 	m.noteFocusActivity()
 	var echo tea.Cmd

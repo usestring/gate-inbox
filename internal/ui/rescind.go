@@ -24,8 +24,9 @@ type submissionRescind struct {
 // noteOperator records that the operator handed sess something from the
 // board and it reached the pane: on the row, which is the clock smart triage
 // measures a wait from, and to the board's observer. An extension that put a
-// question to the operator learns from it that a person has answered.
-func (m *Model) noteOperator(sess store.Session, via extension.OperatorVia, text string, dialog bool, at time.Time) {
+// question to the operator learns from it that a person has answered. A line
+// sent whole comes with no writing measured, and gets its word count here.
+func (m *Model) noteOperator(sess store.Session, via extension.OperatorVia, text string, writing extension.OperatorWriting, dialog bool, at time.Time) {
 	m.stampOperator(sess.ID, at)
 	if m.poller != nil {
 		m.poller.requestRefresh()
@@ -33,10 +34,14 @@ func (m *Model) noteOperator(sess store.Session, via extension.OperatorVia, text
 	if m.poller == nil || m.poller.observer == nil {
 		return
 	}
+	if text != "" {
+		writing.Words = wordsIn(text)
+	}
 	m.poller.observer.Operator(extension.OperatorInput{
 		SessionID: sess.ID,
 		Via:       via,
 		Text:      text,
+		Writing:   writing,
 		Dialog:    dialog,
 		At:        at,
 	})

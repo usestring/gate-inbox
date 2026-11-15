@@ -1927,6 +1927,7 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 				SessionID: sess.ID,
 				Via:       extension.OperatorCLI,
 				Text:      msg.Body,
+				Writing:   extension.OperatorWriting{Words: wordsIn(msg.Body)},
 				MessageID: msg.ID,
 				At:        at,
 			})

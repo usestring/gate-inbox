@@ -765,6 +765,9 @@ type Model struct {
 	heldSnippetsRestored bool
 	landings             map[string]*pendingLanding
 	landingGen           int
+	// writing measures the line being typed into each focused pane, by
+	// session, until the key that submits it; see writing.go.
+	writing map[string]*lineWriting
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.

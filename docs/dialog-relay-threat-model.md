@@ -41,7 +41,10 @@ For every relayed answer, the parent's own transcript must hold an AskUserQuesti
   launch;
 - carries the answer being keyed. A screen's choice must be one of its labels, matched by text and
   never by position. `keys` must be the exact keys the user picked;
-- has not already been relayed for this dialog. Each piece of evidence is spent once;
+- has not already been relayed for this dialog. Each piece of evidence is spent once. It is spent
+  as soon as any key of the answer reaches the child, but not by an answer refused before its
+  first key, such as a typed answer where the child's question takes only ticks. The parent can
+  correct the call and relay the same answer again without asking the user twice;
 - was not itself typed into the parent by Gate Inbox on another agent's behalf.
 
 A refusal keys nothing and says exactly what to ask the user and how to call again.

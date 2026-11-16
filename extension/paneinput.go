@@ -16,12 +16,15 @@ type PaneInputSource interface {
 
 // PaneInput is one key or paste the board handed a session's pane, reported
 // once it reached the pane: a key typed into a focused pane, a paste into
-// one, or a snippet the board typed in. The board keeps none of it after;
-// an extension that keeps Text is keeping what the operator typed.
+// one, or a snippet the board typed in. It carries the shape of what was
+// typed, never the characters, so a password typed at a prompt that doesn't
+// echo, or a pasted key, reaches no extension.
 type PaneInput struct {
 	SessionID string
-	// Text is the characters a key typed, or the text pasted. It is empty
-	// for a key that types nothing, which Key names instead.
+	// Text is the characters a key typed, or the text pasted, masked: every
+	// character but whitespace is an x, so "hunter2 ok" arrives as
+	// "xxxxxxx xx". It keeps the length and the word breaks. It is empty for
+	// a key that types nothing, which Key names instead.
 	Text string
 	// Key is a key that types nothing, by its tmux name: "BSpace", "Left",
 	// "Enter", "C-w". Alt adds an "M-" prefix, and turns a character into

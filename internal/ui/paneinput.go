@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/usestring/gate-inbox/extension"
 )
@@ -17,8 +19,9 @@ type keyStamp struct {
 }
 
 // notePaneInput reports input that reached a session's pane to the board's
-// observer, with Ready filled in from the key before it.
+// observer, with its text masked and Ready filled in from the key before it.
 func (m *Model) notePaneInput(in extension.PaneInput) {
+	in.Text = maskText(in.Text)
 	if in.Paste {
 		m.lastKey = keyStamp{}
 	} else {
@@ -30,6 +33,19 @@ func (m *Model) notePaneInput(in extension.PaneInput) {
 	if observer := m.viewObserver(); observer != nil {
 		observer.PaneInput(in)
 	}
+}
+
+// maskText is text as PaneInput carries it: every character but whitespace
+// replaced by x, so the length and the word breaks survive and the
+// characters do not. A password typed at a prompt that doesn't echo, or a
+// pasted key, never leaves the board.
+func maskText(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return r
+		}
+		return 'x'
+	}, text)
 }
 
 // noteKeyDrawn moves the last key's ready on to the end of the frame drawn

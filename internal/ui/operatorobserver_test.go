@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -144,21 +145,21 @@ func TestFocusedKeysAndPastesAreReportedAsPaneInput(t *testing.T) {
 		}
 	}
 	o, k, bs, altB, paste, enter := got[0], got[1], got[2], got[3], got[4], got[5]
-	if o.Text != "o" || o.Key != "" || o.Paste || o.Sends || !o.Ready.IsZero() {
-		t.Fatalf("first key %+v, want an o with no key before it", o)
+	if o.Text != "x" || o.Key != "" || o.Paste || o.Sends || !o.Ready.IsZero() {
+		t.Fatalf("first key %+v, want one character with no key before it", o)
 	}
-	// The screen drawn after the o moved the board's ready on past it.
-	if k.Text != "k" || !k.Ready.After(o.At) || k.Ready.After(k.At) {
-		t.Fatalf("second key %+v, want a k ready after the o at %v", k, o.At)
+	// The screen drawn after the first key moved the board's ready on past it.
+	if k.Text != "x" || !k.Ready.After(o.At) || k.Ready.After(k.At) {
+		t.Fatalf("second key %+v, want a character ready after the first at %v", k, o.At)
 	}
-	// Nothing was drawn after the k, so it was done with the k as it came.
+	// Nothing was drawn after the second, so it was done with it as it came.
 	if bs.Text != "" || bs.Key != "BSpace" || !bs.Ready.Equal(k.At) {
-		t.Fatalf("backspace %+v, want it ready at the k's %v", bs, k.At)
+		t.Fatalf("backspace %+v, want it ready at the second key's %v", bs, k.At)
 	}
 	if altB.Text != "" || altB.Key != "M-b" {
 		t.Fatalf("alt+b %+v, want it named M-b", altB)
 	}
-	if paste.Text != " the failing test" || !paste.Paste || paste.Key != "" || !paste.Ready.IsZero() {
+	if paste.Text != " xxx xxxxxxx xxxx" || !paste.Paste || paste.Key != "" || !paste.Ready.IsZero() {
 		t.Fatalf("paste %+v", paste)
 	}
 	if enter.Key != "Enter" || !enter.Sends || !enter.Ready.IsZero() {
@@ -193,8 +194,8 @@ func TestKeysOnADialogAreReportedWithIt(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("reported %+v, want three keys", got)
 	}
-	if got[0].Text != "d" || got[0].Dialog || got[0].Sends {
-		t.Fatalf("first key %+v, want a d typed at the prompt", got[0])
+	if got[0].Text != "x" || got[0].Dialog || got[0].Sends {
+		t.Fatalf("first key %+v, want a character typed at the prompt", got[0])
 	}
 	if got[1].Key != "Down" || !got[1].Dialog || got[1].Sends {
 		t.Fatalf("second key %+v, want an arrow on the dialog", got[1])
@@ -226,15 +227,50 @@ func TestSnippetTypedIntoAPaneIsReportedAsAPaste(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("reported %+v, want the typed sentence and the sent snippet", got)
 	}
-	if got[0].SessionID != sess.ID || got[0].Text != "and then" || !got[0].Paste || got[0].Sends {
+	if got[0].SessionID != sess.ID || got[0].Text != "xxx xxxx" || !got[0].Paste || got[0].Sends {
 		t.Fatalf("typed sentence %+v, want a paste left in the line", got[0])
 	}
-	if got[1].SessionID != sess.ID || got[1].Text != "carry on with the plan" || !got[1].Paste || !got[1].Sends {
+	if got[1].SessionID != sess.ID || got[1].Text != "xxxxx xx xxxx xxx xxxx" || !got[1].Paste || !got[1].Sends {
 		t.Fatalf("sent snippet %+v, want a paste that sends", got[1])
 	}
 	landAnswer(t, m, sess.ID)
 	inputs := operatorInputs(observer)
 	if len(inputs) != 1 || !inputs[0].At.Equal(got[1].At) {
 		t.Fatalf("reported %+v, want the snippet under its pane input's %v", inputs, got[1].At)
+	}
+}
+
+// What the operator types or pastes reaches extensions as its shape only: a
+// password typed at a prompt that doesn't echo, or a pasted key, keeps its
+// length and word breaks and loses its characters.
+func TestASecretTypedOrPastedNeverReachesAnExtension(t *testing.T) {
+	m := buildModel(t)
+	m.autoProceed = false
+	liveTriageFleet(t, m, map[string]string{"ask": status.Idle})
+	m.rebuildRows()
+	observer := &recordingObserver{}
+	m.ObserveBoard(observer)
+	m.enterFocusOn(t, "ask")
+
+	for _, r := range "hunter2 é!" {
+		m.handleFocusKey(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	m.handleFocusPaste(tea.PasteMsg{Content: "sk-live-AbC123\tok\n"})
+	m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	got := paneInputs(observer)
+	var typed, pasted strings.Builder
+	for _, in := range got {
+		if in.Paste {
+			pasted.WriteString(in.Text)
+		} else {
+			typed.WriteString(in.Text)
+		}
+	}
+	if typed.String() != "xxxxxxx xx" || pasted.String() != "xxxxxxxxxxxxxx\txx\n" {
+		t.Fatalf("typed %q and pasted %q, want only their shapes", typed.String(), pasted.String())
+	}
+	if seen := fmt.Sprintf("%+v", got); strings.Contains(seen, "hunter") || strings.Contains(seen, "sk-live") {
+		t.Fatalf("an extension received the secret: %s", seen)
 	}
 }

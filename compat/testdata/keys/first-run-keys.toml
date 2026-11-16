@@ -96,7 +96,7 @@
 # legend_peek         = ["ctrl+/"]  # peek at every available key
 # quick_actions       = ["ctrl+k"]  # quick actions: find any action by name, run it, see its key
 # help                = ["ctrl+h"]  # this key map (cannot be unbound)
-# quit                = ["ctrl+alt+q"]  # quit (sessions keep running) (cannot be unbound)
+# quit                = ["ctrl+q", "ctrl+alt+q"]  # quit (sessions keep running) (cannot be unbound)
 
 # [focus]
 # leave               = ["ctrl+q"]  # back to the manager; in triage, on to the next (cannot be unbound)

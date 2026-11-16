@@ -86,7 +86,7 @@ toggle_rail = []  # hide / show the list beside the pane
 legend_peek = ["ctrl+/"]  # peek at every available key
 quick_actions = ["ctrl+k"]  # quick actions: find any action by name, run it, see its key
 help = ["ctrl+h"]  # this key map (required)
-quit = ["ctrl+alt+q"]  # quit (sessions keep running) (required)
+quit = ["ctrl+q", "ctrl+alt+q"]  # quit (sessions keep running) (required)
 
 [focus]
 leave = ["ctrl+q"]  # back to the manager; in triage, on to the next (required)

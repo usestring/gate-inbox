@@ -628,18 +628,10 @@ type Config struct {
 	// the label has outlived any turn it could describe, so it is more
 	// likely a misread than a long turn.
 	StaleStatusAfter Duration `toml:"stale_status_after"`
-	// HibernateAfter is how long a session must rest, idle or finished,
-	// before the board hibernates it: stops its process to give the memory
-	// back, keeping its row, mail and claims, and waking it on its next
-	// message. Zero, the default, leaves every session running. The
-	// Settings panel's choice, when one is saved, takes precedence.
-	HibernateAfter Duration `toml:"hibernate_after"`
-	// HibernateMinSessions is how many live sessions the board keeps
-	// before the sweep hibernates any: at or below it nothing is stopped,
-	// and above it only enough to come back down to it, longest rested
-	// first. Zero, the default, sets no floor. The Settings panel's choice,
-	// when one is saved, takes precedence.
-	HibernateMinSessions int          `toml:"hibernate_min_sessions"`
+	// HibernateAfter retains the age cutoff for manual parking; automatic
+	// hibernation uses HibernateSensitivity instead.
+	HibernateAfter       Duration     `toml:"hibernate_after"`
+	HibernateSensitivity string       `toml:"hibernate_sensitivity"`
 	Board                Board        `toml:"board"`
 	Naming               Naming       `toml:"naming"`
 	Log                  Log          `toml:"log"`

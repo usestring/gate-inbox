@@ -234,22 +234,20 @@ func TestTriageStartupEntersTheHeadOfTheQueue(t *testing.T) {
 	}
 }
 
-// The entry is armed by the persisted mode alone: a board built over a store
-// that left triage on asks for it, and any other board does not.
 func TestTriageStartupEntryFollowsTheStoredMode(t *testing.T) {
 	m := buildModel(t)
 	if m.triageStartupEnter {
-		t.Fatal("a fresh board armed the startup entry")
+		t.Fatal("a board with triage disabled armed the startup entry")
 	}
-	if err := m.store.SetSetting(triageSetting, "on"); err != nil {
-		t.Fatalf("SetSetting: %v", err)
-	}
-	restored := New(m.cfg, m.store, m.tmux, m.engine, m.hooks, "dev")
-	if !restored.triage {
-		t.Fatal("the restored board did not pick up triage")
-	}
-	if !restored.triageStartupEnter {
-		t.Fatal("a board restored in triage did not arm the startup entry")
+	for _, setting := range []string{"", "on", "off"} {
+		if err := m.store.SetSetting(triageSetting, setting); err != nil {
+			t.Fatalf("SetSetting: %v", err)
+		}
+		restored := New(m.cfg, m.store, m.tmux, m.engine, m.hooks, "dev")
+		want := setting != "off"
+		if restored.triage != want || restored.triageStartupEnter != want {
+			t.Fatalf("stored mode %q: triage=%v, startup entry=%v; want %v", setting, restored.triage, restored.triageStartupEnter, want)
+		}
 	}
 }
 
@@ -480,7 +478,7 @@ func TestNormalModeOrderAndCtrlQUnchanged(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
 	if m.triage {
-		t.Fatal("triage should be off by default")
+		t.Fatal("triage should respect the stored opt-out")
 	}
 	// The store's own order: root first, then each group's sessions in the
 	// order they were made, untouched by status.

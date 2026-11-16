@@ -305,10 +305,6 @@ type Model struct {
 	// hibernate.go.
 	hibernating      bool
 	hibernateSweptAt time.Time
-	// hibernateAfter and hibernateMinSessions are the hibernation in
-	// force: the Settings choice, else config.toml's. See hibernate.go.
-	hibernateAfter       time.Duration
-	hibernateMinSessions int
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -769,6 +765,11 @@ type Model struct {
 	heldSnippetsRestored bool
 	landings             map[string]*pendingLanding
 	landingGen           int
+	// writing measures the line being typed into each focused pane, by
+	// session, until the key that submits it; see writing.go. keyFrame is
+	// the line a key just went to, until the frame after that key is painted.
+	writing  map[string]*lineWriting
+	keyFrame *lineWriting
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
@@ -1011,39 +1012,38 @@ type quickState struct {
 }
 
 type settingsState struct {
-	toolNames        []string
-	toolIndex        int
-	accountRouting   string
-	chooserAvailable bool
-	themeIndex       int
-	field            int
-	quickCloseSend   bool
-	enterFocuses     bool
-	comfortableRows  bool
-	layout           string
-	sidebar          string
-	palette          string
-	glyphs           string
-	rowDetail        string
-	priorityScale    string
-	archiveConfirm   string
-	deleteConfirm    string
-	restartConfirm   string
-	listSort         string
-	listConsistency  string
-	chrome           string
-	leaveMode        string
-	newSessionAgent  string
-	autoProceed      bool
-	smartTriage      bool
-	triageOrder      string
-	triageContent    string
-	triageKeepAlives bool
-	idleSwitch       bool
-	// hibernateAfter and hibernateMinSessions are the hibernation rows as
-	// the picker holds them.
-	hibernateAfter       time.Duration
-	hibernateMinSessions int
+	searching            bool
+	search               textinput.Model
+	hibernateSensitivity string
+	toolNames            []string
+	toolIndex            int
+	accountRouting       string
+	chooserAvailable     bool
+	themeIndex           int
+	field                int
+	quickCloseSend       bool
+	enterFocuses         bool
+	comfortableRows      bool
+	layout               string
+	sidebar              string
+	palette              string
+	glyphs               string
+	rowDetail            string
+	priorityScale        string
+	archiveConfirm       string
+	deleteConfirm        string
+	restartConfirm       string
+	listSort             string
+	listConsistency      string
+	chrome               string
+	leaveMode            string
+	newSessionAgent      string
+	autoProceed          bool
+	smartTriage          bool
+	triageOrder          string
+	triageContent        string
+	triageKeepAlives     bool
+	idleSwitch           bool
 	confirmLaunches      bool
 	reopenSessions       string
 	outsidePanes         string
@@ -1101,11 +1101,10 @@ const (
 	settingsFieldTriageContent
 	settingsFieldTriageKeepAlives
 	settingsFieldIdleSwitch
-	settingsFieldHibernateAfter
-	settingsFieldHibernateMin
 	settingsFieldConfirmLaunches
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
+	settingsFieldHibernate
 	settingsFieldClaudeSetup
 	settingsFieldJev
 	settingsFieldExperimental
@@ -1481,7 +1480,6 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	model.poller.compactTools = compactTools
 	model.poller.downgradeDelays = downgradeDelays
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
-	model.hibernateAfter, model.hibernateMinSessions = storedHibernation(st, cfg)
 	model.poller.hogWatch = newHogWatch(cfg.Hogs, "", func(msg store.InboxMessage) error {
 		_, _, err := st.Enqueue(msg, store.DefaultInboxLimits)
 		return err
@@ -3077,6 +3075,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
 
 	case tea.PasteMsg:
+		if m.mode == modeSettings && m.settings.searching {
+			var cmd tea.Cmd
+			m.settings.search, cmd = m.settings.search.Update(msg)
+			m.selectMatchingSetting()
+			return m, cmd
+		}
 		if m.reviewPageOpen() {
 			if page := m.reviewPage(); page.compose != nil {
 				text := strings.ReplaceAll(msg.Content, "\r\n", "\n")
@@ -3347,6 +3351,7 @@ func (m *Model) rebuildRows() {
 	// them ask, and every ask was its own fork. See holdLivePanes.
 	defer m.releaseLivePanes(m.holdLivePanes())
 	m.pruneMutes(m.sessions)
+	m.pruneWriting(m.sessions)
 	m.buildTree()
 	if m.cursorSessionID() != m.railCursorSess {
 		m.buildTree()

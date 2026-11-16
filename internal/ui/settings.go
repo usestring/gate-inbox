@@ -6,9 +6,14 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -167,6 +172,8 @@ func (m *Model) openSettings() {
 		routing = accounts.Own
 	}
 	m.settings = settingsState{
+		search:               textinput.New(),
+		hibernateSensitivity: m.hibernateSensitivity(),
 		toolNames:            names,
 		toolIndex:            index,
 		accountRouting:       routing,
@@ -195,8 +202,6 @@ func (m *Model) openSettings() {
 		triageContent:        normalizeTriageContent(m.triageContent),
 		triageKeepAlives:     m.triageKeepAlives,
 		idleSwitch:           m.idleSwitch,
-		hibernateAfter:       m.hibernateAfter,
-		hibernateMinSessions: m.hibernateMinSessions,
 		confirmLaunches:      m.store.ConfirmLaunches(),
 		reopenSessions:       m.reopenSessionsMode(),
 		outsidePanes:         m.outsidePanesMode(),
@@ -210,6 +215,8 @@ func (m *Model) openSettings() {
 		arrowsStay:           m.arrowsStay,
 		backdropSync:         storedBackdrop(m.store) == backdropSync,
 	}
+	m.settings.search.Placeholder = "search settings"
+	m.settings.search.CharLimit = 100
 	m.mode = modeSettings
 }
 
@@ -224,16 +231,50 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.settings.jevPanel {
 		return m.handleJevSettingsKey(msg)
 	}
+	if m.settings.searching {
+		switch msg.String() {
+		case "esc":
+			m.settings.search.SetValue("")
+			m.settings.search.Blur()
+			m.settings.searching = false
+		case "enter", "down", "up":
+			m.settings.search.Blur()
+			m.settings.searching = false
+		default:
+			var cmd tea.Cmd
+			m.settings.search, cmd = m.settings.search.Update(msg)
+			m.selectMatchingSetting()
+			return m, cmd
+		}
+		m.selectMatchingSetting()
+		return m, nil
+	}
 	switch msg.String() {
+	case "/", "ctrl+f":
+		m.settings.searching = true
+		return m, m.settings.search.Focus()
 	case "up", "k":
-		m.settings.field = (m.settings.field + settingsFieldCount - 1) % settingsFieldCount
+		m.moveSetting(-1)
 	case "down", "j":
-		m.settings.field = (m.settings.field + 1) % settingsFieldCount
+		m.moveSetting(1)
 	case "left", "h":
-		return m, m.cycleSetting(-1)
+		if len(m.matchingSettings()) == 0 {
+			return m, nil
+		}
+		cmd := m.cycleSetting(-1)
+		m.selectMatchingSetting()
+		return m, cmd
 	case "right", "l":
-		return m, m.cycleSetting(1)
+		if len(m.matchingSettings()) == 0 {
+			return m, nil
+		}
+		cmd := m.cycleSetting(1)
+		m.selectMatchingSetting()
+		return m, cmd
 	case "enter":
+		if len(m.matchingSettings()) == 0 {
+			return m, nil
+		}
 		switch m.settings.field {
 		case settingsFieldJev:
 			m.settings.jevPanel = true
@@ -266,9 +307,48 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.saveAndCloseSettings()
 	case "esc":
+		if m.settings.search.Value() != "" {
+			m.settings.search.SetValue("")
+			return m, nil
+		}
 		return m.saveAndCloseSettings()
 	}
 	return m, nil
+}
+
+func (m *Model) matchingSettings() []int {
+	terms := strings.Fields(strings.ToLower(m.settings.search.Value()))
+	var fields []int
+	for field, row := range m.settingsRows(true) {
+		text := strings.ToLower(ansi.Strip(row))
+		if field == settingsFieldHibernate {
+			text += " hibernation memory sensitivity active sessions age"
+		}
+		if slices.ContainsFunc(terms, func(term string) bool { return !strings.Contains(text, term) }) {
+			continue
+		}
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+func (m *Model) selectMatchingSetting() {
+	fields := m.matchingSettings()
+	if len(fields) > 0 && !slices.Contains(fields, m.settings.field) {
+		m.settings.field = fields[0]
+	}
+}
+
+func (m *Model) moveSetting(step int) {
+	fields := m.matchingSettings()
+	if len(fields) == 0 {
+		return
+	}
+	index := slices.Index(fields, m.settings.field)
+	if index < 0 {
+		index = 0
+	}
+	m.settings.field = fields[(index+step+len(fields))%len(fields)]
 }
 
 func (m *Model) saveAndCloseSettings() (tea.Model, tea.Cmd) {
@@ -287,6 +367,13 @@ func (m *Model) saveAndCloseSettings() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) persistSettings() tea.Cmd {
+	if m.settings.hibernateSensitivity != m.hibernateSensitivity() {
+		if err := m.store.SetSetting(hibernateSensitivitySetting, m.settings.hibernateSensitivity); err != nil {
+			m.errBar.text = err.Error()
+		} else {
+			m.hibernateSweptAt = time.Time{}
+		}
+	}
 	startPromptSnips := !m.promptSuggest && m.settings.promptSuggest
 	if m.settings.accountRouting != "" {
 		if err := m.store.SetSetting(store.AccountRoutingSetting, m.settings.accountRouting); err != nil {
@@ -418,7 +505,6 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(outsidePanesSetting, normalizeOutsidePanes(m.settings.outsidePanes)); err != nil {
 		m.errBar.text = err.Error()
 	}
-	m.persistHibernation()
 	if m.hooks != nil && m.settings.claudeSetup != m.claudeSetupSwitch() {
 		if err := m.hooks.SetGlobalDisabled(!m.settings.claudeSetup); err != nil {
 			m.errBar.text = "saving claude code setup: " + err.Error()
@@ -577,6 +663,10 @@ func (m *Model) toggleCLIHidden(name string) {
 // command rather than blocking the update path.
 func (m *Model) cycleSetting(step int) tea.Cmd {
 	switch m.settings.field {
+	case settingsFieldHibernate:
+		modes := []string{"low", "balanced", "high", "off"}
+		index := slices.Index(modes, sessioncmd.NormalizeHibernateSensitivity(m.settings.hibernateSensitivity))
+		m.settings.hibernateSensitivity = modes[(index+step+len(modes))%len(modes)]
 	case settingsFieldTool:
 		count := len(m.settings.toolNames)
 		if count == 0 {
@@ -726,10 +816,6 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.triageKeepAlives = !m.settings.triageKeepAlives
 	case settingsFieldIdleSwitch:
 		m.settings.idleSwitch = !m.settings.idleSwitch
-	case settingsFieldHibernateAfter:
-		m.settings.hibernateAfter = stepChoice(hibernateAfterChoices, m.settings.hibernateAfter, step)
-	case settingsFieldHibernateMin:
-		m.settings.hibernateMinSessions = stepChoice(hibernateMinChoices, m.settings.hibernateMinSessions, step)
 	case settingsFieldConfirmLaunches:
 		m.settings.confirmLaunches = !m.settings.confirmLaunches
 	case settingsFieldReopenSessions:

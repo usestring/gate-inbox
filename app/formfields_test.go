@@ -1,10 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -72,6 +74,19 @@ func TestExternalBuildAddsANewSessionFormField(t *testing.T) {
 	// typed on started.txt can be lost. The list's first polled row is drawn
 	// by the running program, which is reading keys by then.
 	waitForDrawn(t, out, 0, "noop:dead", exited)
+	started := waitForFile(t, filepath.Join(data, "started.txt"), "", exited, out)
+	var pid int
+	if _, err := fmt.Sscan(started, &pid); err != nil {
+		t.Fatalf("started.txt = %q: %v", started, err)
+	}
+	// Killing script alone can leave its board child writing into the home
+	// during TempDir cleanup. Let the board finish before its wrapper exits.
+	t.Cleanup(func() {
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+			t.Errorf("signal the board: %v", err)
+		}
+		<-exited
+	})
 
 	// ctrl+alt+n opens the form on the CLI picker; typing picks envecho, up
 	// wraps onto the extension's field after the form's own, space turns

@@ -178,6 +178,9 @@ func buildModelWithStorePath(t testing.TB) (*Model, string) {
 		t.Fatalf("store open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
+	if err := st.SetSetting(triageSetting, "off"); err != nil {
+		t.Fatalf("disable triage: %v", err)
+	}
 
 	driver := newTestDriver(t, testSocket)
 	engine, err := status.NewEngine(cfg)

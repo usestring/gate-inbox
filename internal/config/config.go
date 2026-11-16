@@ -628,23 +628,22 @@ type Config struct {
 	// the label has outlived any turn it could describe, so it is more
 	// likely a misread than a long turn.
 	StaleStatusAfter Duration `toml:"stale_status_after"`
-	// HibernateAfter is how long a session must rest, idle or finished,
-	// before the board hibernates it: stops its process to give the memory
-	// back, keeping its row, mail and claims, and waking it on its next
-	// message. Zero, the default, leaves every session running.
-	HibernateAfter Duration     `toml:"hibernate_after"`
-	Board          Board        `toml:"board"`
-	Naming         Naming       `toml:"naming"`
-	Log            Log          `toml:"log"`
-	Children       Children     `toml:"children"`
-	Work           Work         `toml:"work"`
-	Integrations   Integrations `toml:"integrations"`
-	Hogs           Hogs         `toml:"hogs"`
-	AutoGroup      AutoGroup    `toml:"auto_group"`
-	ClaudeCode     ClaudeCode   `toml:"claude_code"`
-	Codex          Codex        `toml:"codex"`
-	OpenCode       OpenCode     `toml:"opencode"`
-	Relaunch       Relaunch     `toml:"relaunch"`
+	// HibernateAfter retains the age cutoff for manual parking; automatic
+	// hibernation uses HibernateSensitivity instead.
+	HibernateAfter       Duration     `toml:"hibernate_after"`
+	HibernateSensitivity string       `toml:"hibernate_sensitivity"`
+	Board                Board        `toml:"board"`
+	Naming               Naming       `toml:"naming"`
+	Log                  Log          `toml:"log"`
+	Children             Children     `toml:"children"`
+	Work                 Work         `toml:"work"`
+	Integrations         Integrations `toml:"integrations"`
+	Hogs                 Hogs         `toml:"hogs"`
+	AutoGroup            AutoGroup    `toml:"auto_group"`
+	ClaudeCode           ClaudeCode   `toml:"claude_code"`
+	Codex                Codex        `toml:"codex"`
+	OpenCode             OpenCode     `toml:"opencode"`
+	Relaunch             Relaunch     `toml:"relaunch"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -775,7 +774,7 @@ func checkCompactWindow(name string, windows map[string]int) error {
 	slices.Sort(tiers)
 	for _, tier := range tiers {
 		if t := priority.Tier(tier); t == priority.Unset || !t.Valid() {
-			return fmt.Errorf("tools.%s.compact_window: %q is not a tier (want urgent, high, medium or low)", name, tier)
+			return fmt.Errorf("tools.%s.compact_window: %q is not a tier (want urgent, high, medium, low, lower or lowest)", name, tier)
 		}
 		if window := windows[tier]; window < MinCompactWindow || window > MaxCompactWindow {
 			return fmt.Errorf("tools.%s.compact_window.%s = %d: want %d to %d tokens", name, tier, window, MinCompactWindow, MaxCompactWindow)

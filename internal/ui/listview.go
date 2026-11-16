@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -1402,7 +1403,7 @@ func (m *Model) renderGroupEntry(entry treeRow, selected bool, width int, pad, g
 		}
 	}
 	head := pad + guides + subtleText(marker) + " " + m.groupNumberLabel(entry.group) + nameStyle.Render(name)
-	if badge := m.rowPriorityBadge(groupFlashKey(entry.group), m.priorityGroups[entry.group]); badge != "" {
+	if badge := m.rowPriorityBadge(groupFlashKey(entry.group), m.scale().Clamp(m.priorityGroups[entry.group])); badge != "" {
 		head += " " + badge
 	}
 
@@ -1976,6 +1977,9 @@ func (m *Model) quickHoldsPane() bool {
 // that gives it back. The pane keeps its colours; the band alone says so.
 func (m *Model) quickBanner(width int) string {
 	title := "HOTKEY MENU OPEN"
+	if m.quick.launch {
+		title = "LAUNCH SNIPPETS"
+	}
 	if note := " · esc to close"; textfmt.Width(title+note) <= width {
 		title += note
 	}
@@ -2018,13 +2022,16 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 		limit = min(limit, max(1, m.listBodyHeight()-6))
 	}
 	lines := m.quickMenuLines(width, limit)
-	if suggestion := m.selectedAutoSuggestion(); suggestion != "" && limit > 1 {
+	if suggestion := m.selectedAutoSuggestion(); !m.quick.launch && suggestion != "" && limit > 1 {
 		_, _, note := m.quickMenuInks()
 		lines = m.quickMenuLines(width, limit-1)
 		lines = append(lines, note(truncateTail("ctrl+y insert · "+suggestion, width)))
 	}
 	if m.quickHoldsPane() {
 		return strings.Join(lines, "\n")
+	}
+	if m.quick.launch {
+		target = rowColumns(label("launch")+mutedStyle.Render("new session · "+m.defaultTool()), "", width)
 	}
 	return target + "\n" + strings.Join(lines, "\n")
 }
@@ -2036,15 +2043,19 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 // last line says how many did not fit, and the key map lists them all.
 func (m *Model) quickMenuLines(width, limit int) []string {
 	keyInk, labelInk, noteInk := m.quickMenuInks()
-	if m.snipErr != "" {
+	set, loadErr, path := m.snips, m.snipErr, snippets.Path(m.configDir())
+	if m.quick.launch {
+		set, loadErr, path = m.launchSnips, m.launchSnipErr, snippets.LaunchPath(m.configDir())
+	}
+	if loadErr != "" {
 		errInk := errStyle.Render
 		if m.quickHoldsPane() {
 			errInk = keyInk
 		}
-		return []string{errInk(truncateTail("snippets.json could not be read: "+m.snipErr, width))}
+		return []string{errInk(truncateTail(filepath.Base(path)+" could not be read: "+loadErr, width))}
 	}
-	if len(m.snips.Snippets) == 0 {
-		return []string{labelInk(truncateTail("no snippets yet: add them to "+snippets.Path(m.configDir()), width))}
+	if len(set.Snippets) == 0 {
+		return []string{labelInk(truncateTail("no snippets yet: add them to "+path, width))}
 	}
 	type cell struct {
 		text  string
@@ -2054,7 +2065,7 @@ func (m *Model) quickMenuLines(width, limit int) []string {
 	var lines [][]cell
 	var line []cell
 	used := 0
-	for _, snip := range m.snips.Snippets {
+	for _, snip := range set.Snippets {
 		key, title := snip.Key, snip.Preview
 		if title == "" {
 			title = snip.Title()

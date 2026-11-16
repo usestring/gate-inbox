@@ -14,6 +14,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/keymap"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -126,6 +127,22 @@ func focusKeyText(key tea.Key) string {
 		return ""
 	}
 	return string(code)
+}
+
+// focusKeyParts splits a forwarded key the way writing measures it: the
+// characters it typed, or else the tmux name it went by. An alt-modified
+// rune is a command to the line editor (alt+b, alt+f), not a character.
+func focusKeyParts(key tea.Key) (text, name string) {
+	if !key.Mod.Contains(tea.ModAlt) {
+		if text = focusKeyText(key); text != "" {
+			return text, ""
+		}
+		return "", focusNamedKeys[focusKeyID{code: key.Code, mod: key.Mod}]
+	}
+	if name = focusNamedKeys[focusKeyID{code: key.Code, mod: key.Mod &^ tea.ModAlt}]; name != "" {
+		name = "M-" + name
+	}
+	return "", name
 }
 
 // focusSelected enters focus mode: keys go to the selected session's pane
@@ -825,11 +842,21 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if err := m.sendFocusKey(sess.ID, command); err != nil {
 		m.errBar.text = err.Error()
 		quiet = false
-		// The key never reached the pane, so there is nothing to land.
+		// The key never reached the pane, so there is nothing to land, and
+		// the line it would have sent is still being written.
 		if arms {
 			m.dropLanding(sess.ID)
 			landing = nil
 		}
+	} else if arms {
+		writing := m.submitWriting(sess.ID, keyAt, dialog, key.Code == tea.KeyEnter)
+		if pending := m.landings[sess.ID]; pending != nil {
+			pending.writing = writing
+		}
+	} else {
+		text, name := focusKeyParts(key)
+		m.keyFrame = m.writingFor(sess.ID)
+		m.keyFrame.key(keyAt, text, name, dialog)
 	}
 	// The key is the pane's now, so start looking for what it did with it.
 	// This is the whole echo path: no timer, no client, and no cost at all
@@ -846,6 +873,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if quiet {
 		m.frameUnchanged()
 	}
+	// Codex also uses Enter to complete text and advance nested pickers, so it
+	// must wait for observed submission even on a composer-looking screen.
 	// Dialog keys and slash commands can advance CLI pickers without submitting
 	// a prompt, so only an ordinary composer Enter may hand over before the
 	// answer is seen landing. Its check still runs and returns the session to
@@ -853,7 +882,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// a scrolled-back pane to its live bottom was typed at history, not at the
 	// prompt, and stays. The echo chase is dropped: its frames are for the pane
 	// being left, and its captures would contend with the next pane's first one.
-	if landing != nil && resume == nil && key.Code == tea.KeyEnter && handsOver && !dialog && baseline != "" && !m.paneHasSlashCommand(sess.Tool, baseline) {
+	codexEnter := key.Code == tea.KeyEnter && historyToolFormats(m.cfg)[sess.Tool] == search.ToolCodex
+	if landing != nil && resume == nil && key.Code == tea.KeyEnter && !codexEnter && handsOver && !dialog && baseline != "" && !m.paneHasSlashCommand(sess.Tool, baseline) {
 		if next := m.handOverOnEnter(sess, keyAt); next != nil {
 			return m, tea.Batch(landing, next)
 		}
@@ -889,10 +919,14 @@ func (m *Model) handleFocusPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	} else if resume == nil {
 		m.echoPending = true
 	}
-	m.poller.noteOperatorInput(sess.ID)
+	pastedAt := time.Now()
+	m.poller.noteOperatorInputAt(sess.ID, pastedAt)
 	if err := m.sendFocusPaste(sess.ID, msg.Content); err != nil {
 		m.errBar.text = err.Error()
 		quiet = false
+	} else {
+		dialog := sess.Status == status.Waiting || paneHasDialog(sess.Tool, m.preview)
+		m.writingFor(sess.ID).paste(pastedAt, msg.Content, dialog)
 	}
 	m.noteFocusActivity()
 	var echo tea.Cmd

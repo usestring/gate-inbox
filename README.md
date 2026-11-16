@@ -130,8 +130,9 @@ without answering, and `ctrl+\` stops. `alt+\` puts the list away for full-width
 hides the key hints. `triage order` in Settings switches to priority first, oldest first, or
 questions only; [`docs/usage.md`](docs/usage.md#walking-the-queue) has the full ordering.
 
-**Set priority.** `ctrl+p` steps a session or group through urgent, high, medium, low and none,
-from the list or from inside the session. `ctrl+m` mutes a session to keep it out of the queue.
+**Set priority.** `ctrl+p` steps a session or group through high, medium, low and none, from the
+list or from inside the session. `priority tiers` in Settings picks up to three tiers above the
+default and up to three below; the default is two above and one below. `ctrl+m` mutes a session to keep it out of the queue.
 
 **Switch subscriptions or agents.** Select a session and press `alt+a` to switch its subscription,
 or `ctrl+t` to move its conversation to another CLI. When a session hits a usage limit and a
@@ -162,7 +163,7 @@ selected agent for builds and one-off commands.
 | `ctrl+w` | Show only what needs attention |
 | `ctrl+y` | Show only one CLI's sessions, cycling through the harnesses on the board |
 | `ctrl+f` | Fuzzy search; `esc` closes the field, deleting the text clears it |
-| `ctrl+p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none. `ctrl+p` also works from a focused session, and the row flashes its new tier |
+| `ctrl+p` | Priority tier for a session or group; each press steps high → medium → low → none on the default scale (`priority tiers` in Settings allows up to +3 / -3). `ctrl+p` also works from a focused session, and the row flashes its new tier |
 | `ctrl+m` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
 | `ctrl+t` / `alt+a` | Move the conversation to another CLI / switch its subscription |
 | `ctrl+alt+t` | Shell tab under the selected agent |
@@ -259,7 +260,8 @@ Claude Code can rank a session from an optional skill frontmatter field:
 gate-inbox-priority: high
 ```
 
-The accepted tiers are `urgent`, `high`, `medium`, and `low`. The last invoked skill with a tier
+The accepted tiers are `urgent`, `high`, `medium`, `low`, `lower` and `lowest`; the board shows a
+tier past its configured scale at the scale's edge. The last invoked skill with a tier
 wins. The hook reads skills from `$CLAUDE_PROJECT_DIR/skills` first, then
 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills`. It runs for the `Skill` tool and a prompt beginning
 with `/<skill>`. Skills without a valid tier leave priority unchanged.

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -444,7 +443,7 @@ func (m *Model) triageKeyOf(sess store.Session, now time.Time) triageKey {
 		key.band = triageBandWalkable
 		// A low tier is the operator deferring the work on purpose, and a
 		// question there waits its tier's turn like everything else in it.
-		key.asking = m.triageStateOf(sess) == status.Waiting && m.tierOf(sess) != priority.Low
+		key.asking = m.triageStateOf(sess) == status.Waiting && !m.tierOf(sess).Deferred()
 		if m.smartTriage {
 			key.band, key.score = triageBandScored, triageScore(sess)
 			key.tier = m.triageScoredRank(sess)
@@ -519,8 +518,8 @@ func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string
 			k := m.triageKeyOf(kid, now)
 			// A child's question can lift the branch's state, but cannot
 			// undo the operator deferring the whole branch.
-			if m.tierOf(sess) == priority.Low {
-				k.priority = priority.Low.Rank()
+			if tier := m.tierOf(sess); tier.Deferred() {
+				k.priority = tier.Rank()
 				k.asking = false
 			}
 			if k.before(best) {
@@ -602,15 +601,9 @@ func storedSmartTriage(st *store.Store) bool {
 	return err != nil || chosen != "off"
 }
 
-// storedTriage reads the persisted mode. Off is the default: triage
-// rearranges the whole rail, so it is never something a user arrives at
-// without having asked for it.
 func storedTriage(st *store.Store) bool {
 	chosen, err := st.Setting(triageSetting)
-	if err != nil {
-		return false
-	}
-	return chosen == "on"
+	return err != nil || chosen != "off"
 }
 
 // storedTriageScope reads the group the queue was last narrowed to. An unset

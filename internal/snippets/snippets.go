@@ -348,18 +348,26 @@ func legacyChord(key string) string { return "alt+shift+" + key }
 // making them fix a comma. An entry that parses but cannot bind is a Problem —
 // see Set.
 func Load(dir string) (Set, error) {
-	path := Path(dir)
 	supplied := currentDistribution()
+	return load(Path(dir), firstRun(supplied), supplied, false)
+}
+
+func LaunchPath(dir string) string { return filepath.Join(dir, "launch_snippets.json") }
+
+func LoadLaunch(dir string) (Set, error) {
+	return load(LaunchPath(dir), []Snippet{{Key: "1", Label: "clear disk space", Text: "clear disk space"}}, nil, true)
+}
+
+func load(path string, defaults, supplied []Snippet, launch bool) (Set, error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		defaults := firstRun(supplied)
 		if encoded, err := json.MarshalIndent(defaults, "", "  "); err == nil {
 			_ = os.WriteFile(path, append(encoded, '\n'), 0o644)
 		}
-		if len(supplied) == 0 {
+		if !launch && len(supplied) == 0 {
 			return Set{Snippets: defaults}, nil
 		}
-		return validate(underlay(defaults, supplied)), nil
+		return validateCategory(underlay(defaults, supplied), launch), nil
 	}
 	if err != nil {
 		return Set{}, err
@@ -368,11 +376,15 @@ func Load(dir string) (Set, error) {
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return Set{}, fmt.Errorf("%s: %w", path, err)
 	}
-	return validate(underlay(parsed, supplied)), nil
+	return validateCategory(underlay(parsed, supplied), launch), nil
 }
 
 // validate keeps the entries that can bind and says why the rest cannot.
 func validate(parsed []Snippet) Set {
+	return validateCategory(parsed, false)
+}
+
+func validateCategory(parsed []Snippet, launch bool) Set {
 	var set Set
 	taken := map[string]int{}
 	chords := map[string]int{}
@@ -387,15 +399,22 @@ func validate(parsed []Snippet) Set {
 		// Only the text's edges: a snippet is a message, and an operator who
 		// wrote one across several lines meant those lines.
 		snip.Text = strings.TrimSpace(snip.Text)
+		if launch {
+			snip.Chord, omitted = "", false
+		}
 		switch {
 		case snip.Key == "":
 			set.Problems = append(set.Problems, entry(i, snip)+"has no key")
-		case !legalKey(snip.Key):
+		case launch && !legalKey(snip.Key) && !(len(snip.Key) == 1 && snip.Key[0] >= '0' && snip.Key[0] <= '9'):
+			set.Problems = append(set.Problems, entry(i, snip)+"key "+quote(snip.Key)+" must be a single letter a-z, digit 0-9, "+SectionKey+" or "+PlusMinusKey)
+		case !launch && !legalKey(snip.Key):
 			// Letters, § and ±. The menu reads bare keys, so every letter
 			// binds -- including i and m, which no chord could carry -- and
 			// § and ± earn their places on the physical key left of 1.
 			set.Problems = append(set.Problems,
 				entry(i, snip)+"key "+quote(snip.Key)+" must be a single letter a-z, "+SectionKey+" or "+PlusMinusKey)
+		case launch && strings.HasPrefix(snip.Text, "-"):
+			set.Problems = append(set.Problems, entry(i, snip)+"launch prompt cannot start with a flag")
 		case snip.Text == "":
 			set.Problems = append(set.Problems, entry(i, snip)+"sends nothing")
 		case snip.Chord != "" && !legalChord(snip.Chord):

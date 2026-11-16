@@ -136,8 +136,10 @@ type Model struct {
 
 	// snips are the operator's canned answers, read once at startup;
 	// snipErr is why there are none, when the file would not be read.
-	snips   snippets.Set
-	snipErr string
+	snips         snippets.Set
+	snipErr       string
+	launchSnips   snippets.Set
+	launchSnipErr string
 	// typeQuestion types a snippet into the free-text row of the question a
 	// session's dialog is showing; nil leaves every dialog holding a snippet
 	// back. See UseQuestionTyper.
@@ -607,6 +609,9 @@ type Model struct {
 	// rowDetail is whether session rows spell their state and CLI out or
 	// leave them to marks. See rowdetail.go.
 	rowDetail string
+	// priorityScale is the persisted tier scale, "+2/-1" by default. See
+	// tierscale.go.
+	priorityScale string
 	// listSort is the persisted order the board's sessions are shown in
 	// within each group. See listsort.go.
 	listSort string
@@ -764,6 +769,11 @@ type Model struct {
 	heldSnippetsRestored bool
 	landings             map[string]*pendingLanding
 	landingGen           int
+	// writing measures the line being typed into each focused pane, by
+	// session, until the key that submits it; see writing.go. keyFrame is
+	// the line a key just went to, until the frame after that key is painted.
+	writing  map[string]*lineWriting
+	keyFrame *lineWriting
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
@@ -1001,42 +1011,47 @@ type quickState struct {
 	active             bool
 	fromFocus          bool
 	closeAfterSend     bool
+	launch             bool
 	suggestions        []string
 	suggestionIdentity string
 }
 
 type settingsState struct {
-	toolNames        []string
-	toolIndex        int
-	accountRouting   string
-	chooserAvailable bool
-	themeIndex       int
-	field            int
-	quickCloseSend   bool
-	enterFocuses     bool
-	comfortableRows  bool
-	layout           string
-	sidebar          string
-	palette          string
-	glyphs           string
-	rowDetail        string
-	archiveConfirm   string
-	deleteConfirm    string
-	restartConfirm   string
-	listSort         string
-	listConsistency  string
-	chrome           string
-	leaveMode        string
-	newSessionAgent  string
-	autoProceed      bool
-	smartTriage      bool
-	triageOrder      string
-	triageContent    string
-	triageKeepAlives bool
-	idleSwitch       bool
-	confirmLaunches  bool
-	reopenSessions   string
-	outsidePanes     string
+	searching            bool
+	search               textinput.Model
+	hibernateSensitivity string
+	toolNames            []string
+	toolIndex            int
+	accountRouting       string
+	chooserAvailable     bool
+	themeIndex           int
+	field                int
+	quickCloseSend       bool
+	enterFocuses         bool
+	comfortableRows      bool
+	layout               string
+	sidebar              string
+	palette              string
+	glyphs               string
+	rowDetail            string
+	priorityScale        string
+	archiveConfirm       string
+	deleteConfirm        string
+	restartConfirm       string
+	listSort             string
+	listConsistency      string
+	chrome               string
+	leaveMode            string
+	newSessionAgent      string
+	autoProceed          bool
+	smartTriage          bool
+	triageOrder          string
+	triageContent        string
+	triageKeepAlives     bool
+	idleSwitch           bool
+	confirmLaunches      bool
+	reopenSessions       string
+	outsidePanes         string
 	// claudeSetup is the Settings switch for the board's entries in the
 	// operator's Claude Code config, as the picker holds it.
 	claudeSetup        bool
@@ -1076,6 +1091,7 @@ const (
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldRowDetail
+	settingsFieldPriorityScale
 	settingsFieldArchiveConfirm
 	settingsFieldDeleteConfirm
 	settingsFieldRestartConfirm
@@ -1094,6 +1110,7 @@ const (
 	settingsFieldConfirmLaunches
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
+	settingsFieldHibernate
 	settingsFieldClaudeSetup
 	settingsFieldJev
 	settingsFieldExperimental
@@ -1438,6 +1455,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		palette:          storedPalette(st),
 		glyphs:           storedGlyphs(st),
 		rowDetail:        storedRowDetail(st),
+		priorityScale:    storedPriorityScale(st),
 		archiveConfirm:   storedArchiveConfirm(st),
 		deleteConfirm:    storedConfirmAsk(st, deleteConfirmSetting),
 		restartConfirm:   storedConfirmAsk(st, restartConfirmSetting),
@@ -3067,6 +3085,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
 
 	case tea.PasteMsg:
+		if m.mode == modeSettings && m.settings.searching {
+			var cmd tea.Cmd
+			m.settings.search, cmd = m.settings.search.Update(msg)
+			m.selectMatchingSetting()
+			return m, cmd
+		}
 		if m.reviewPageOpen() {
 			if page := m.reviewPage(); page.compose != nil {
 				text := strings.ReplaceAll(msg.Content, "\r\n", "\n")
@@ -3337,6 +3361,7 @@ func (m *Model) rebuildRows() {
 	// them ask, and every ask was its own fork. See holdLivePanes.
 	defer m.releaseLivePanes(m.holdLivePanes())
 	m.pruneMutes(m.sessions)
+	m.pruneWriting(m.sessions)
 	m.buildTree()
 	if m.cursorSessionID() != m.railCursorSess {
 		m.buildTree()

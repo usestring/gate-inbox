@@ -136,8 +136,10 @@ type Model struct {
 
 	// snips are the operator's canned answers, read once at startup;
 	// snipErr is why there are none, when the file would not be read.
-	snips   snippets.Set
-	snipErr string
+	snips         snippets.Set
+	snipErr       string
+	launchSnips   snippets.Set
+	launchSnipErr string
 	// typeQuestion types a snippet into the free-text row of the question a
 	// session's dialog is showing; nil leaves every dialog holding a snippet
 	// back. See UseQuestionTyper.
@@ -1007,6 +1009,7 @@ type quickState struct {
 	active             bool
 	fromFocus          bool
 	closeAfterSend     bool
+	launch             bool
 	suggestions        []string
 	suggestionIdentity string
 }

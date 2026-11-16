@@ -150,7 +150,7 @@ func askJev(ctx context.Context, provider classifier.Provider, client *http.Clie
 }
 
 func (m *Model) suggestIdentity() (string, bool) {
-	if !m.jevAutoSuggest || !m.quick.active || m.conversation == nil || m.jevAPIKey() == "" {
+	if !m.jevAutoSuggest || !m.quick.active || m.quick.launch || m.conversation == nil || m.jevAPIKey() == "" {
 		return "", false
 	}
 	entry, ok := m.selectedRow()

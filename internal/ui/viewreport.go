@@ -133,6 +133,15 @@ func (m *Model) pressedAction(msg tea.KeyPressMsg) (keymap.Action, string, exten
 		return "", "", "", false
 	}
 	action, bound := m.sideAction(ctx, msg)
+	if m.quick.active && m.quick.launch {
+		if bound && action == keymap.QuickInput {
+			return action, "", extension.ViaKey, true
+		}
+		if snip, found := m.launchSnips.Get(msg.String()); found {
+			return keymap.NewSession, snip.Key, extension.ViaMenu, true
+		}
+		return "", "", "", false
+	}
 	if m.quick.active {
 		if bound && (action == keymap.QuickInput || action == keymap.ToggleConversation || action == keymap.Rescind) {
 			return action, "", extension.ViaKey, true

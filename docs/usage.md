@@ -282,6 +282,21 @@ Shells live in the tree with the agents they belong to, marked with `❯` where 
 
 A shell left on its empty command carries no session id, so `gate-inbox rename` run inside one cannot find its session. Rename it from the list with `ctrl+alt+r`. Give the block a command and the pane gets an id like any other session.
 
+## Launch snippets
+
+Press `ctrl+s` to open snippets, then `ctrl+s` again to switch to launch snippets. Press a snippet key to start a new session with its text as the first prompt. The menu closes completely and the new session takes focus, even when ordinary snippets are set to keep the menu open. Launches use the configured default CLI and the selected group's directory. They also work from a focused session or an empty board.
+
+Launch snippets live separately in `launch_snippets.json`, beside `snippets.json`. Each entry has a `key` (a letter a–z, digit 0–9, `§` or `±`), an optional `label` or `preview`, and `text`. A first run supplies `1` for **clear disk space**. For example:
+
+```json
+[
+  {"key": "1", "label": "clear disk space", "text": "clear disk space"},
+  {"key": "r", "label": "review changes", "text": "Review the changes in this working tree"}
+]
+```
+
+Edit `launch_snippets.json` to configure launches; the file reloads each time you enter the category. `ctrl+s` switches back to ordinary snippets; `esc` closes either category. Launch keys never answer a dialog or send text to an existing session. Direct chords and `autoSubmit` apply only to ordinary snippets.
+
 ## Opening the snippets file
 
 Settings (`ctrl+alt+s`) → **snippets** opens `snippets.json` in your editor. Gate Inbox takes the first of these it finds: `editor` in [config.toml](configuration.md), `$GATE_INBOX_EDITOR`, a GUI editor on `PATH` (`code`, `cursor`, `windsurf`, `zed`, `subl`, `idea`), then `$VISUAL` or `$EDITOR`, and last a terminal editor on `PATH` (`nvim`, `vim`, `nano`, `vi`). The environment comes before the terminal editors because it usually names the editor you set for git commit messages; the terminal editors come last because they are a fallback rather than a choice you made, and they are there so the file opens on a machine that has never been configured.

@@ -315,7 +315,7 @@ func Defaults() []Snippet {
 	return []Snippet{
 		submit("y", "yes", "yes"),
 		submit("t", "continue", "continue"),
-		submit("e", "eli5", "I'm confused, explain like I'm 5"),
+		submit("e", "tldr", "tldr explain simply"),
 		submit("w", "wake up", "Auto wake-up: the previous turn died on a transient API error. "+
 			"Continue where you left off."),
 		submit("n", "needs?", "what do you need from me?"),

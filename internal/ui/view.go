@@ -562,7 +562,7 @@ func (m *Model) viewFooter() string {
 			if launchCap != "" {
 				pairs = append(pairs, [2]string{launchCap, "back to snippets"})
 			}
-			pairs = append(pairs, [2]string{"ctrl+e", "edit launches"}, [2]string{"esc", "close"})
+			pairs = append(pairs, [2]string{"esc", "close"})
 			return m.transientFooter(legendSection{title: "Launches", pairs: pairs})
 		}
 		closeCap := "esc"

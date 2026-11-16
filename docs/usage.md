@@ -295,7 +295,7 @@ Launch snippets live separately in `launch_snippets.json`, beside `snippets.json
 ]
 ```
 
-`ctrl+e` in the launch category opens its file in your editor. The file reloads each time you enter the category. `ctrl+s` switches back to ordinary snippets; `esc` closes either category. Launch keys never answer a dialog or send text to an existing session. Direct chords and `autoSubmit` apply only to ordinary snippets.
+Edit `launch_snippets.json` to configure launches; the file reloads each time you enter the category. `ctrl+s` switches back to ordinary snippets; `esc` closes either category. Launch keys never answer a dialog or send text to an existing session. Direct chords and `autoSubmit` apply only to ordinary snippets.
 
 ## Opening the snippets file
 

@@ -42,12 +42,6 @@ func (m *Model) handleLaunchSnippetKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 		m.quick = quickState{}
 		m.clearQuickBlockedNotice()
 		return m, nil
-	case "ctrl+e":
-		if m.configDir() == "" {
-			m.errBar.text = "launch snippets file is unavailable"
-			return m, nil
-		}
-		return m.launchEditor(snippets.LaunchPath(m.configDir()))
 	}
 	snip, ok := m.launchSnips.Get(msg.String())
 	if !ok {
@@ -82,11 +76,11 @@ func (m *Model) launchSnippet(snip snippets.Snippet) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) launchSnippetHelpSection() helpSection {
-	rows := []helpRow{note("press the hotkey-menu key twice, then a launch key; esc closes the menu.")}
+	rows := []helpRow{note("press the menu key twice, then a launch key; esc closes.")}
 	for _, snip := range m.launchSnips.Snippets {
 		rows = append(rows, lit(snip.Key, "launch "+snip.Title()))
 	}
-	rows = append(rows, note("edit launches with ctrl+e in the launch menu: "+snippets.LaunchPath(m.configDir())))
+	rows = append(rows, note("edit them in "+snippets.LaunchPath(m.configDir())))
 	if m.launchSnipErr != "" {
 		rows = append(rows, note("✕ "+m.launchSnipErr))
 	}

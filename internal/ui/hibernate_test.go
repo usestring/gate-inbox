@@ -2,12 +2,37 @@ package ui
 
 import (
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
+
+func TestAutomaticHibernateDefaultsOnAndHonorsSavedOff(t *testing.T) {
+	m := buildModel(t)
+	m.cfg.HibernateAfter.Duration = 0
+	if got := m.hibernateSensitivity(); got != "balanced" {
+		t.Fatalf("default sensitivity = %q", got)
+	}
+	if cmd := m.settleHibernated(); cmd == nil || m.hibernateSweptAt.IsZero() {
+		t.Fatal("default policy did not schedule automatic hibernation")
+	}
+	m.hibernating = false
+	m.hibernateSweptAt = time.Time{}
+	m.openSettings()
+	m.settings.hibernateSensitivity = "off"
+	m.persistSettings()
+	m.openSettings()
+	if m.settings.hibernateSensitivity != "off" {
+		t.Fatal("saved opt-out did not survive reopening settings")
+	}
+	m.settleHibernated()
+	if !m.hibernateSweptAt.IsZero() {
+		t.Fatal("disabled policy still scheduled a sweep")
+	}
+}
 
 // hibernatedRow is a board session whose pane hibernate stopped: the row
 // dead in the store and in m.sessions, its id on the hibernated set.

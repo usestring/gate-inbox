@@ -76,7 +76,6 @@ type pendingLanding struct {
 	sess     store.Session
 	via      extension.OperatorVia
 	text     string
-	writing  extension.OperatorWriting
 	armed    time.Time
 	deadline time.Time
 	// handOver is whether landing should also move the drain on. It is read
@@ -604,7 +603,7 @@ func (m *Model) settleLandings(listedAt time.Time, unseen map[string]bool) {
 // has seen the new one start. The new turn raises its own alert when it ends.
 func (m *Model) answerLanded(pending pendingLanding) tea.Cmd {
 	m.noteSubmission(pending.sess)
-	m.noteOperator(pending.sess, pending.via, pending.text, pending.writing, pending.probe.dialog, pending.armed)
+	m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog, pending.armed)
 	if m.heldAckID == pending.sess.ID {
 		m.heldAckID = ""
 	}

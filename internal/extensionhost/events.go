@@ -28,11 +28,12 @@ type Events struct {
 	// the ID of the extension that owns it.
 	report func(owner string, err error)
 
-	mu        sync.Mutex
-	events    []*subscription[extension.StatusEvent]
-	passes    []*subscription[extension.Pass]
-	operators []*subscription[extension.OperatorInput]
-	views     []*subscription[extension.ViewEvent]
+	mu         sync.Mutex
+	events     []*subscription[extension.StatusEvent]
+	passes     []*subscription[extension.Pass]
+	operators  []*subscription[extension.OperatorInput]
+	views      []*subscription[extension.ViewEvent]
+	paneInputs []*subscription[extension.PaneInput]
 	// supervising maps each supervised session to the extension holding it,
 	// and pins the status that extension has pinned it at. See supervise.go.
 	supervising map[string]string
@@ -125,6 +126,17 @@ func (b *Events) View(event extension.ViewEvent) {
 	}
 }
 
+// PaneInput is a key or paste having reached a session's pane. It is called
+// on the board's update loop, so it only queues.
+func (b *Events) PaneInput(input extension.PaneInput) {
+	b.mu.Lock()
+	subs := b.paneInputs
+	b.mu.Unlock()
+	for _, sub := range subs {
+		sub.push(input)
+	}
+}
+
 func (b *Events) remove(sub any) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -132,6 +144,7 @@ func (b *Events) remove(sub any) {
 	b.passes = without(b.passes, sub)
 	b.operators = without(b.operators, sub)
 	b.views = without(b.views, sub)
+	b.paneInputs = without(b.paneInputs, sub)
 }
 
 // without copies rather than filtering in place: Transition and Pass range
@@ -205,6 +218,15 @@ func (v *boardView) OnView(fn func(extension.ViewEvent)) func() {
 	return v.add(sub, func() {
 		v.events.mu.Lock()
 		v.events.views = append(v.events.views[:len(v.events.views):len(v.events.views)], sub)
+		v.events.mu.Unlock()
+	})
+}
+
+func (v *boardView) OnPaneInput(fn func(extension.PaneInput)) func() {
+	sub := newSubscription(v.owner, fn, v.events.report, false)
+	return v.add(sub, func() {
+		v.events.mu.Lock()
+		v.events.paneInputs = append(v.events.paneInputs[:len(v.events.paneInputs):len(v.events.paneInputs)], sub)
 		v.events.mu.Unlock()
 	})
 }

@@ -3,7 +3,6 @@ package ui
 import (
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/extension"
@@ -14,6 +13,12 @@ func operatorInputs(r *recordingObserver) []extension.OperatorInput {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]extension.OperatorInput(nil), r.inputs...)
+}
+
+func paneInputs(r *recordingObserver) []extension.PaneInput {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]extension.PaneInput(nil), r.paneInputs...)
 }
 
 // A snippet sent from the hotkey menu is reported once it has reached the
@@ -43,9 +48,6 @@ func TestHotkeyMenuSendIsReportedAsTheOperatorsInput(t *testing.T) {
 		got[0].Text != "carry on with the plan" || got[0].Dialog || got[0].At.IsZero() {
 		t.Fatalf("reported %+v, want the snippet to %s", got[0], sess.ID)
 	}
-	if got[0].Writing != (extension.OperatorWriting{Words: 5, Chars: 22}) {
-		t.Fatalf("writing %+v, want the sentence's 5 words and 22 characters and nothing typed", got[0].Writing)
-	}
 }
 
 func TestSnippetSendIsReportedAndARefusedOneIsNot(t *testing.T) {
@@ -72,6 +74,9 @@ func TestSnippetSendIsReportedAndARefusedOneIsNot(t *testing.T) {
 	got := operatorInputs(observer)
 	if len(got) != 1 || got[0].SessionID != ask.ID || got[0].Via != extension.OperatorSnippet || got[0].Text != plusMinusText {
 		t.Fatalf("reported %+v, want only the snippet that reached %s", got, ask.ID)
+	}
+	if inputs := paneInputs(observer); len(inputs) != 1 || inputs[0].SessionID != ask.ID {
+		t.Fatalf("pane input %+v, want only the snippet that reached %s", inputs, ask.ID)
 	}
 }
 
@@ -108,10 +113,10 @@ func TestFocusedDialogAnswerIsReportedAsADialogAnswer(t *testing.T) {
 	}
 }
 
-// A line typed and pasted into a focused pane is reported with how it was
-// written: the board never holds the line, so these counts are all an
-// extension has to measure the operator's writing by.
-func TestFocusedLineIsReportedWithHowItWasWritten(t *testing.T) {
+// Keys and pastes in a focused pane are reported as they reach it, each key
+// with when the board was free for it. The key that sends the line says so,
+// and the line is reported under that key's At once it lands.
+func TestFocusedKeysAndPastesAreReportedAsPaneInput(t *testing.T) {
 	m := buildModel(t)
 	m.autoProceed = false
 	liveTriageFleet(t, m, map[string]string{"ask": status.Idle})
@@ -121,42 +126,55 @@ func TestFocusedLineIsReportedWithHowItWasWritten(t *testing.T) {
 	m.enterFocusOn(t, "ask")
 	id := focusedID(t, m)
 
-	for _, r := range "fix thsi" {
-		m.handleFocusKey(tea.KeyPressMsg{Code: r, Text: string(r)})
-	}
-	for range 4 {
-		m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	}
+	m.handleFocusKey(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	m.View()
+	m.handleFocusKey(tea.KeyPressMsg{Code: 'k', Text: "k"})
+	m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m.handleFocusKey(tea.KeyPressMsg{Code: 'b', Mod: tea.ModAlt})
 	m.handleFocusPaste(tea.PasteMsg{Content: " the failing test"})
 	m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	landAnswer(t, m, id)
 
-	got := operatorInputs(observer)
-	if len(got) != 1 || got[0].Via != extension.OperatorPane || got[0].Text != "" {
-		t.Fatalf("reported %+v, want one pane line with no text", got)
+	got := paneInputs(observer)
+	if len(got) != 6 {
+		t.Fatalf("reported %+v, want six inputs", got)
 	}
-	w := got[0].Writing
-	if w.KeyChars != 8 || w.PasteChars != 17 || w.Pastes != 1 || w.Words != 4 || w.Chars != 21 {
-		t.Fatalf("writing %+v, want 8 typed and 17 pasted characters leaving 4 words in 21", w)
+	for _, in := range got {
+		if in.SessionID != id || in.Dialog || in.At.IsZero() {
+			t.Fatalf("reported %+v, want input to %s's prompt", in, id)
+		}
 	}
-	if w.Compose < w.Active {
-		t.Fatalf("active %v is longer than the compose time %v", w.Active, w.Compose)
+	o, k, bs, altB, paste, enter := got[0], got[1], got[2], got[3], got[4], got[5]
+	if o.Text != "o" || o.Key != "" || o.Paste || o.Sends || !o.Ready.IsZero() {
+		t.Fatalf("first key %+v, want an o with no key before it", o)
+	}
+	// The screen drawn after the o moved the board's ready on past it.
+	if k.Text != "k" || !k.Ready.After(o.At) || k.Ready.After(k.At) {
+		t.Fatalf("second key %+v, want a k ready after the o at %v", k, o.At)
+	}
+	// Nothing was drawn after the k, so it was done with the k as it came.
+	if bs.Text != "" || bs.Key != "BSpace" || !bs.Ready.Equal(k.At) {
+		t.Fatalf("backspace %+v, want it ready at the k's %v", bs, k.At)
+	}
+	if altB.Text != "" || altB.Key != "M-b" {
+		t.Fatalf("alt+b %+v, want it named M-b", altB)
+	}
+	if paste.Text != " the failing test" || !paste.Paste || paste.Key != "" || !paste.Ready.IsZero() {
+		t.Fatalf("paste %+v", paste)
+	}
+	if enter.Key != "Enter" || !enter.Sends || !enter.Ready.IsZero() {
+		t.Fatalf("enter %+v, want the key that sends, with no key since the paste", enter)
 	}
 
-	// The next line starts from nothing.
-	m.handleFocusKey(tea.KeyPressMsg{Code: 'y', Text: "y"})
-	m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	landAnswer(t, m, id)
-	if got := operatorInputs(observer); len(got) != 2 || got[1].Writing.KeyChars != 1 || got[1].Writing.Words != 1 {
-		t.Fatalf("second line reported %+v, want one typed character", got[len(got)-1])
+	inputs := operatorInputs(observer)
+	if len(inputs) != 1 || inputs[0].Via != extension.OperatorPane || !inputs[0].At.Equal(enter.At) {
+		t.Fatalf("reported %+v, want the line under the Enter's %v", inputs, enter.At)
 	}
 }
 
-// A dialog that comes up over a half-written line is answered without taking
-// the line with it, even when the operator arrows to the row before Enter:
-// the line is still in the composer, and goes with the composer's own Enter
-// once the dialog is gone.
-func TestDialogAnswerLeavesTheComposersLine(t *testing.T) {
+// A key on a dialog is reported with it, and only the one that answers it
+// sends; the line typed before the dialog came up was typed at the prompt.
+func TestKeysOnADialogAreReportedWithIt(t *testing.T) {
 	m := buildModel(t)
 	m.autoProceed = false
 	liveTriageFleet(t, m, map[string]string{"ask": status.Idle})
@@ -166,56 +184,57 @@ func TestDialogAnswerLeavesTheComposersLine(t *testing.T) {
 	m.enterFocusOn(t, "ask")
 	id := focusedID(t, m)
 
-	for _, r := range "draft" {
-		m.handleFocusKey(tea.KeyPressMsg{Code: r, Text: string(r)})
-	}
+	m.handleFocusKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	stageDialog(m, id)
 	m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	landAnswer(t, m, id)
-	m.preview, m.pane.cursor = "", paneCursor{}
-	m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	landAnswer(t, m, id)
 
-	got := operatorInputs(observer)
-	if len(got) != 2 || !got[0].Dialog || got[0].Writing != (extension.OperatorWriting{}) {
-		t.Fatalf("reported %+v, want the dialog's answer first, with nothing written", got)
+	got := paneInputs(observer)
+	if len(got) != 3 {
+		t.Fatalf("reported %+v, want three keys", got)
 	}
-	if got[1].Dialog || got[1].Writing.KeyChars != 5 || got[1].Writing.Words != 1 {
-		t.Fatalf("reported %+v, want the composer's line second, with its 5 typed characters", got[1])
+	if got[0].Text != "d" || got[0].Dialog || got[0].Sends {
+		t.Fatalf("first key %+v, want a d typed at the prompt", got[0])
+	}
+	if got[1].Key != "Down" || !got[1].Dialog || got[1].Sends {
+		t.Fatalf("second key %+v, want an arrow on the dialog", got[1])
+	}
+	if got[2].Key != "Enter" || !got[2].Dialog || !got[2].Sends {
+		t.Fatalf("third key %+v, want the Enter that answers the dialog", got[2])
 	}
 }
 
-// Active caps each pause, a run of keys faster than anyone types is a burst,
-// and ctrl+c abandons a line. Measured against a fixed clock, since the board
-// stamps each key as it arrives.
-func TestLineWritingCapsPausesAndFindsBursts(t *testing.T) {
-	start := time.Now()
-	at := func(d time.Duration) time.Time { return start.Add(d) }
-	w := &lineWriting{}
-	w.key(at(-10*time.Second), "gone", "", false)
-	w.key(at(-9*time.Second), "", "C-c", false)
-	w.key(at(0), "o", "", false)
-	w.key(at(200*time.Millisecond), "k", "", false)
-	w.key(at(400*time.Millisecond), " ", "", false)
-	// A long think, then text typed out as keys in one go. The frame after
-	// the first of them is slow to paint, and the rest wait behind it.
-	burst := at(time.Minute)
-	w.key(burst, "a", "", false)
-	w.painted(burst.Add(30 * time.Millisecond))
-	for i, r := range "nd more" {
-		arrived := burst.Add(31*time.Millisecond + time.Duration(i)*time.Millisecond)
-		w.key(arrived, string(r), "", false)
-		w.painted(arrived)
-	}
-	w.key(burst.Add(500*time.Millisecond), "", "C-w", false)
-	got := w.finish(burst.Add(time.Second))
+// A snippet the board types into a pane is reported as a paste: left in the
+// line for the operator's Enter, or sent whole, which sends the line and is
+// reported under the snippet's At once it lands.
+func TestSnippetTypedIntoAPaneIsReportedAsAPaste(t *testing.T) {
+	m := buildModel(t)
+	bindMenuSnippet(t, m, "carry on with the plan")
+	createSession(t, m, "answer-me", t.TempDir(), "")
+	sess := m.sessionRows()[0]
+	observer := &recordingObserver{}
+	m.ObserveBoard(observer)
+	m.selectSessionRow(t, "answer-me")
 
-	if got.KeyChars != 11 || got.BurstChars != 8 || got.Words != 2 || got.Chars != 7 {
-		t.Fatalf("writing %+v, want 11 keys, 8 of them a burst, leaving 2 words in 7 characters", got)
+	m.sendSentence(sess, "and then", `"and then"`, false, false)
+	m.openQuickMode()
+	if _, _ = m.handleQuickKey(letter('c')); !strings.HasPrefix(m.errBar.text, "sent ") {
+		t.Fatalf("send: %q", m.errBar.text)
 	}
-	wantActive := 400*time.Millisecond + extension.OperatorPauseCap + 37*time.Millisecond + 963*time.Millisecond
-	if got.Active != wantActive || got.Compose != time.Minute+time.Second {
-		t.Fatalf("active %v compose %v, want %v and the whole span", got.Active, got.Compose, wantActive)
+
+	got := paneInputs(observer)
+	if len(got) != 2 {
+		t.Fatalf("reported %+v, want the typed sentence and the sent snippet", got)
+	}
+	if got[0].SessionID != sess.ID || got[0].Text != "and then" || !got[0].Paste || got[0].Sends {
+		t.Fatalf("typed sentence %+v, want a paste left in the line", got[0])
+	}
+	if got[1].SessionID != sess.ID || got[1].Text != "carry on with the plan" || !got[1].Paste || !got[1].Sends {
+		t.Fatalf("sent snippet %+v, want a paste that sends", got[1])
+	}
+	landAnswer(t, m, sess.ID)
+	inputs := operatorInputs(observer)
+	if len(inputs) != 1 || !inputs[0].At.Equal(got[1].At) {
+		t.Fatalf("reported %+v, want the snippet under its pane input's %v", inputs, got[1].At)
 	}
 }

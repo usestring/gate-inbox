@@ -14,6 +14,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/keymap"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -846,6 +847,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if quiet {
 		m.frameUnchanged()
 	}
+	// Codex also uses Enter to complete text and advance nested pickers, so it
+	// must wait for observed submission even on a composer-looking screen.
 	// Dialog keys and slash commands can advance CLI pickers without submitting
 	// a prompt, so only an ordinary composer Enter may hand over before the
 	// answer is seen landing. Its check still runs and returns the session to
@@ -853,7 +856,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// a scrolled-back pane to its live bottom was typed at history, not at the
 	// prompt, and stays. The echo chase is dropped: its frames are for the pane
 	// being left, and its captures would contend with the next pane's first one.
-	if landing != nil && resume == nil && key.Code == tea.KeyEnter && handsOver && !dialog && baseline != "" && !m.paneHasSlashCommand(sess.Tool, baseline) {
+	codexEnter := key.Code == tea.KeyEnter && historyToolFormats(m.cfg)[sess.Tool] == search.ToolCodex
+	if landing != nil && resume == nil && key.Code == tea.KeyEnter && !codexEnter && handsOver && !dialog && baseline != "" && !m.paneHasSlashCommand(sess.Tool, baseline) {
 		if next := m.handOverOnEnter(sess, keyAt); next != nil {
 			return m, tea.Batch(landing, next)
 		}

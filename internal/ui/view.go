@@ -552,15 +552,20 @@ func (m *Model) viewFooter() string {
 		}})
 	}
 	if m.quick.active {
-		closeCap := "space/esc"
+		context := keymap.ContextList
 		if m.quick.fromFocus {
-			// Unbound by the operator's own rebind: the key map still
-			// offers the row, but a footer names only keys that work.
-			closeCap = "esc"
-			if key := m.tightCap(keymap.ContextFocus, keymap.QuickInput); key != "" {
-				closeCap = key + "/esc"
-			}
+			context = keymap.ContextFocus
 		}
+		launchCap := m.tightCap(context, keymap.QuickInput)
+		if m.quick.launch {
+			pairs := [][2]string{{"key", "launch session"}}
+			if launchCap != "" {
+				pairs = append(pairs, [2]string{launchCap, "back to snippets"})
+			}
+			pairs = append(pairs, [2]string{"ctrl+e", "edit launches"}, [2]string{"esc", "close"})
+			return m.transientFooter(legendSection{title: "Launches", pairs: pairs})
+		}
+		closeCap := "esc"
 		pairs := [][2]string{
 			{"key", "send snippet"}, {"↑↓", "switch target"}, {closeCap, "close"},
 		}
@@ -570,6 +575,9 @@ func (m *Model) viewFooter() string {
 			pairs = [][2]string{
 				{"key", "send snippet"}, {closeCap, "close"},
 			}
+		}
+		if launchCap != "" {
+			pairs = append(pairs, [2]string{launchCap, "launch snippets"})
 		}
 		if m.showsConversation() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})

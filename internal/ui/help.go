@@ -274,7 +274,7 @@ func (m *Model) helpCatalog() []helpSection {
 	}
 	catalog = append(catalog, helpSections()...)
 	catalog = append(catalog, m.extensionHelpSections()...)
-	return append(catalog, m.snippetHelpSection())
+	return append(catalog, m.snippetHelpSection(), m.launchSnippetHelpSection())
 }
 
 // SetExtensionNotes hands the board what configuring its extensions came

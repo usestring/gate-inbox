@@ -1,7 +1,8 @@
-# Triage: several agents at once, two of them stopped on a question. i
-# enters the queue, alt+\ gives the pane the full width, and every answer hands that
-# session back to its agent and brings up the next one on its own. ctrl+b is
-# the demo's alias for alt+\, which vhs cannot send (see record.sh).
+# Triage, the README's opening recording: four agents at different priorities,
+# two of them stopped on a question. ctrl+i turns the group into one queue and
+# opens its head; every answer hands that session back to its agent and the
+# queue advances to the next on its own. ctrl+v is the demo's alias for
+# ctrl+i, which vhs sends as tab (see record.sh).
 #
 #   tools/demo/record.sh tools/demo/triage.tape
 #
@@ -20,63 +21,72 @@ Sleep 1s
 Escape
 Sleep 1s
 
-# Seed four agents off camera.
-Type "n"
+# Seed four agents off camera. ctrl+p in a focused session steps its priority
+# from none: one press is urgent, two high, three medium.
+Ctrl+n
 Sleep 2500ms
-Type "ABC-123 add CSV export to billing"
+Type "upgrade dependencies"
 Enter
-Sleep 2s
+Sleep 1500ms
+Ctrl+p
+Sleep 800ms
 Ctrl+q
 Sleep 1500ms
-Type "n"
+Ctrl+n
 Sleep 2500ms
 Type "update the install steps in the README"
 Enter
-Sleep 2s
+Sleep 1500ms
+Ctrl+p
+Sleep 500ms
+Ctrl+p
+Sleep 800ms
 Ctrl+q
 Sleep 1500ms
-Type "n"
+Ctrl+n
+Sleep 2500ms
+Type "ABC-123 add CSV export to billing"
+Enter
+Sleep 1500ms
+Ctrl+p
+Sleep 500ms
+Ctrl+p
+Sleep 500ms
+Ctrl+p
+Sleep 800ms
+Ctrl+q
+Sleep 1500ms
+Ctrl+n
 Sleep 2500ms
 Type "fix the flaky login test"
 Enter
 Sleep 2s
 Ctrl+q
-Sleep 1500ms
-Type "n"
-Sleep 2500ms
-Type "upgrade dependencies"
-Enter
-Sleep 2s
-Ctrl+q
 Sleep 10s
 Show
-Sleep 1500ms
+Sleep 1200ms
 
-# i turns triage on and enters the session that has waited longest, and
-# alt+\ puts the list away.
-Type "i"
-Sleep 2500ms
-Ctrl+b
-Sleep 2000ms
+# ctrl+i turns the group into one queue: questions first, then by priority.
+# It opens the head of the queue, the urgent question.
+Ctrl+v
+Sleep 3500ms
 
-# A number answers the dialog; the next waiting session comes up on its own.
+# A number answers the dialog, and the queue advances to the next question.
 Type "1"
 Sleep 3500ms
 
-# Arrows and Enter answer it the same way.
+# Arrows and Enter answer it the same way; next is the high-priority finish.
 Down
 Sleep 800ms
 Enter
 Sleep 3500ms
 
-# A finished session is next; a typed reply is an answer too.
+# A typed reply is an answer too, and the queue moves on again.
 Type "thanks, open a draft PR"
 Sleep 600ms
 Enter
-Sleep 3500ms
+Sleep 4s
 
-# alt+\ brings the list back, and ctrl+\ stops the drain.
-Ctrl+b
-Sleep 1500ms
+# ctrl+\ stops triage and returns to the list.
 Ctrl+\
 Sleep 3s

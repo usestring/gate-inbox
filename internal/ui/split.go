@@ -183,6 +183,7 @@ func (m *Model) onDivider(x int) bool {
 type railHitMap struct {
 	x, width int
 	links    []string
+	copyIDs  map[int]string
 	sessions []string
 	covered  []railHitCover
 }
@@ -200,12 +201,16 @@ func (h *railHitMap) cover(x, y, width int) {
 
 func newRailHitMap(rows []contentLine, x, width int) railHitMap {
 	links := make([]string, len(rows))
+	copyIDs := make(map[int]string)
 	sessions := make([]string, len(rows))
 	for i, row := range rows {
 		links[i] = row.link
+		if row.copyID != "" {
+			copyIDs[i] = row.copyID
+		}
 		sessions[i] = row.sessionID
 	}
-	return railHitMap{x: x, width: width, links: links, sessions: sessions}
+	return railHitMap{x: x, width: width, links: links, copyIDs: copyIDs, sessions: sessions}
 }
 
 func (h railHitMap) contains(x, y int) bool {
@@ -239,7 +244,11 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if click, ok := msg.(tea.MouseClickMsg); ok && click.Button == tea.MouseLeft &&
 		(m.mode == modeList || m.mode == modeFocus) && !m.split.resizeMode && !m.quick.active &&
 		!m.sel.dragging && !m.pending.active && !m.forwardingMouse {
-		if id := m.railHit.sessionAt(click.X, click.Y-m.listChromeRows()); id != "" {
+		rowY := click.Y - m.listChromeRows()
+		if id := m.railHit.copyIDs[rowY]; id != "" && m.railHit.contains(click.X, rowY) {
+			return m, copySessionIDCmd(id)
+		}
+		if id := m.railHit.sessionAt(click.X, rowY); id != "" {
 			for i, row := range m.rows {
 				if row.entersAs() && row.sess.ID == id {
 					var leave tea.Cmd

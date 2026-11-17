@@ -34,7 +34,7 @@ func (f *fake) ask(_ context.Context, key string, state any, questions map[strin
 	return f.scores, true
 }
 
-func classifier(f *fake, now *time.Time) *Classifier {
+func testClassifier(f *fake, now *time.Time) *Classifier {
 	return &Classifier{Ask: f.ask, Now: func() time.Time { return *now }}
 }
 
@@ -50,7 +50,7 @@ func TestJudgeAllowsOnlyWhenBothScoresClearTheThreshold(t *testing.T) {
 		{0.89, 0.99, false},
 	} {
 		f := &fake{scores: map[string]float64{"in_scope": c.inScope, "safe": c.safe}}
-		a := classifier(f, &now).Judge("s1", "key", Request{Tool: "Bash", Input: map[string]any{"command": "go test ./..."}})
+		a := testClassifier(f, &now).Judge("s1", "key", Request{Tool: "Bash", Input: map[string]any{"command": "go test ./..."}})
 		if a.Allow != c.allow || !a.Judged {
 			t.Errorf("%v/%v: %+v", c.inScope, c.safe, a)
 		}
@@ -63,7 +63,7 @@ func TestJudgeAllowsOnlyWhenBothScoresClearTheThreshold(t *testing.T) {
 func TestJudgeWithoutAKeyAsksAndSaysSoOnce(t *testing.T) {
 	now := time.Now()
 	f := &fake{}
-	c := classifier(f, &now)
+	c := testClassifier(f, &now)
 	first := c.Judge("s1", "", Request{Tool: "Bash"})
 	second := c.Judge("s1", "", Request{Tool: "Bash"})
 	other := c.Judge("s2", "", Request{Tool: "Bash"})
@@ -75,7 +75,7 @@ func TestJudgeWithoutAKeyAsksAndSaysSoOnce(t *testing.T) {
 func TestCircuitBreakerPausesAfterThreeFailures(t *testing.T) {
 	now := time.Now()
 	f := &fake{fail: true}
-	c := classifier(f, &now)
+	c := testClassifier(f, &now)
 	for i := 0; i < FailureLimit; i++ {
 		if a := c.Judge("s1", "key", Request{Tool: "Bash"}); a.Allow {
 			t.Fatalf("a failed request allowed: %+v", a)
@@ -181,7 +181,7 @@ func TestHandlerHonoursTheSettingAndRecordsEachAllow(t *testing.T) {
 		dir := board(t, c.autoMode, c.setting)
 		now := time.Now()
 		f := &fake{scores: map[string]float64{"in_scope": 0.97, "safe": 0.95}}
-		a := post(t, Handler(dir, "X-Session", classifier(f, &now)), call)
+		a := post(t, Handler(dir, "X-Session", testClassifier(f, &now)), call)
 		if (f.calls == 1) != c.asked || a.Allow != c.asked {
 			t.Errorf("auto_mode %q, setting %q: %+v, calls %d", c.autoMode, c.setting, a, f.calls)
 		}

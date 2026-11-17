@@ -60,14 +60,14 @@ func TestCatalogHasNoCollisions(t *testing.T) {
 
 func TestHelpAndLegendPeekHaveSeparateKeys(t *testing.T) {
 	m := resolve(t, nil)
-	for _, key := range []string{"H", "shift+h", "ctrl+h"} {
+	for _, key := range []string{"ctrl+h"} {
 		action, ok := m.Action(ContextList, key)
 		if !ok || action != Help {
 			t.Errorf("%s on list answers %q, want %s", key, action, Help)
 		}
 	}
-	if action, ok := m.Action(ContextList, "?"); !ok || action != LegendPeek {
-		t.Errorf("? on list answers %q, want %s", action, LegendPeek)
+	if action, ok := m.Action(ContextList, "ctrl+/"); !ok || action != LegendPeek {
+		t.Errorf("ctrl+/ on list answers %q, want %s", action, LegendPeek)
 	}
 	if action, ok := m.Action(ContextFocus, "ctrl+h"); !ok || action != Help {
 		t.Errorf("ctrl+h in focus answers %q, want %s", action, Help)
@@ -104,11 +104,11 @@ func TestOverrideMovesAKey(t *testing.T) {
 	if got := m.Key(ContextList, NewSession); got != "z" {
 		t.Fatalf("new_session is on %q", got)
 	}
-	if _, ok := m.Action(ContextList, "n"); ok {
-		t.Fatal("n still answers after the action moved off it")
+	if _, ok := m.Action(ContextList, "ctrl+n"); ok {
+		t.Fatal("ctrl+n still answers after the action moved off it")
 	}
 	// Everything it did not name is untouched.
-	if got := m.Key(ContextList, NewGroup); got != "g" {
+	if got := m.Key(ContextList, NewGroup); got != "ctrl+alt+g" {
 		t.Fatalf("an unrelated binding moved to %q", got)
 	}
 }
@@ -200,7 +200,7 @@ func TestReservedKeysAreRefused(t *testing.T) {
 		if len(problems) == 0 {
 			t.Errorf("%s was accepted", tc.name)
 		}
-		if got := m.Key(ContextList, NewSession); got != "n" {
+		if got := m.Key(ContextList, NewSession); got != "ctrl+n" {
 			t.Errorf("%s: a refused override left new_session on %q", tc.name, got)
 		}
 	}
@@ -280,12 +280,12 @@ func TestAnOptionalActionCanBeUnbound(t *testing.T) {
 // first in the catalog keeps it, the second is told, and nothing is lost
 // without a word.
 func TestACollisionIsReportedAndTheFirstKeeps(t *testing.T) {
-	m, problems := New(Overrides{ContextList: {NewGroup: {"n"}}})
+	m, problems := New(Overrides{ContextList: {NewGroup: {"ctrl+n"}}})
 	if len(problems) == 0 {
-		t.Fatal("two actions on n was accepted silently")
+		t.Fatal("two actions on ctrl+n was accepted silently")
 	}
-	if action, _ := m.Action(ContextList, "n"); action != NewSession {
-		t.Fatalf("n now answers %s", action)
+	if action, _ := m.Action(ContextList, "ctrl+n"); action != NewSession {
+		t.Fatalf("ctrl+n now answers %s", action)
 	}
 	if m.Bound(ContextList, NewGroup) {
 		t.Fatal("new_group kept a key it lost the collision for")
@@ -296,12 +296,12 @@ func TestACollisionIsReportedAndTheFirstKeeps(t *testing.T) {
 // deliberately, and the action that held it is reported rather than refused.
 func TestRebindTakesTheKeyAndReportsWhoLostIt(t *testing.T) {
 	m := resolve(t, nil)
-	next, problems := m.Rebind(ContextList, NewGroup, []string{"n"})
-	if action, _ := next.Action(ContextList, "n"); action != NewGroup {
-		t.Fatalf("n answers %s after the rebind", action)
+	next, problems := m.Rebind(ContextList, NewGroup, []string{"ctrl+n"})
+	if action, _ := next.Action(ContextList, "ctrl+n"); action != NewGroup {
+		t.Fatalf("ctrl+n answers %s after the rebind", action)
 	}
 	if next.Bound(ContextList, NewSession) {
-		t.Fatal("new_session kept n")
+		t.Fatal("new_session kept ctrl+n")
 	}
 	found := false
 	for _, problem := range problems {
@@ -325,7 +325,7 @@ func TestRebindOntoAReservedKeyIsRefused(t *testing.T) {
 	if len(problems) == 0 {
 		t.Fatal("ctrl+c was accepted")
 	}
-	if got := next.Key(ContextList, NewGroup); got != "g" {
+	if got := next.Key(ContextList, NewGroup); got != "ctrl+alt+g" {
 		t.Fatalf("new_group moved to %q anyway", got)
 	}
 }
@@ -333,7 +333,7 @@ func TestRebindOntoAReservedKeyIsRefused(t *testing.T) {
 func TestResetPutsAnActionBack(t *testing.T) {
 	m := resolve(t, Overrides{ContextList: {NewSession: {"z"}}})
 	back, _ := m.Reset(ContextList, NewSession)
-	if got := back.Key(ContextList, NewSession); got != "n" {
+	if got := back.Key(ContextList, NewSession); got != "ctrl+n" {
 		t.Fatalf("reset left new_session on %q", got)
 	}
 	if len(back.Overrides()) != 0 {

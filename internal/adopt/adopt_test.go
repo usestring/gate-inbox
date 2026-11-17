@@ -341,6 +341,8 @@ func TestAPathArgumentDoesNotNameTheProgram(t *testing.T) {
 		{"a shebang script, the interpreter first", []string{"/bin/sh /usr/local/bin/pi"}, true},
 		{"an env shebang", []string{"env node /opt/tools/pi"}, true},
 		{"nothing running it at all", []string{"-zsh", "ls"}, false},
+		{"the native binary tmux names with an .exe suffix", []string{"pi.exe"}, true},
+		{"a different program sharing the prefix", []string{"pip.exe"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := namesProgram(tc.argv, "pi"); got != tc.want {

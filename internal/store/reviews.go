@@ -23,25 +23,27 @@ const (
 // ReviewRequest is one stored ask. It mirrors forge.ReviewRequest for the same reason StoredPR
 // mirrors forge.PR: store cannot import forge.
 type ReviewRequest struct {
-	Repo         string
-	Number       int
-	Trigger      string
-	TriggerID    string
-	Title        string
-	Author       string
-	URL          string
-	HeadSHA      string
-	Draft        bool
-	Additions    int
-	Deletions    int
-	ChangedFiles int
-	Checks       string
-	TriggeredAt  time.Time
-	State        string
-	SessionID    string
-	SessionHead  string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	Repo            string
+	Number          int
+	Trigger         string
+	TriggerID       string
+	Title           string
+	Author          string
+	URL             string
+	HeadSHA         string
+	Draft           bool
+	Additions       int
+	Deletions       int
+	ChangedFiles    int
+	Checks          string
+	TriggeredAt     time.Time
+	State           string
+	SessionID       string
+	SessionHead     string
+	OriginSessionID string
+	OriginSession   *Session
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // Open reports whether the ask is still the operator's to act on.
@@ -82,7 +84,7 @@ func (s *Store) UpsertReviewRequests(found []ReviewRequest, now time.Time) ([]Re
 			return nil, err
 		default:
 			if _, err := tx.Exec(`UPDATE review_requests SET title = ?, author = ?, url = ?,
-				head_sha = ?, draft = ?, additions = ?, deletions = ?, changed = ?, checks = ?,
+				head_sha = COALESCE(NULLIF(?, ''), head_sha), draft = ?, additions = ?, deletions = ?, changed = ?, checks = ?,
 				updated_at = ?
 				WHERE repo = ? AND number = ? AND trigger = ? AND trigger_id = ?`,
 				r.Title, r.Author, r.URL, r.HeadSHA, r.Draft, r.Additions, r.Deletions,
@@ -90,16 +92,39 @@ func (s *Store) UpsertReviewRequests(found []ReviewRequest, now time.Time) ([]Re
 				return nil, err
 			}
 		}
+		if r.HeadSHA != "" {
+			// The head belongs to the PR, even when this fetch only found one of its asks.
+			if _, err := tx.Exec(`UPDATE review_requests SET head_sha = ?
+				WHERE repo = ? AND number = ? AND state IN (?, ?) AND head_sha <> ?`,
+				r.HeadSHA, r.Repo, r.Number, ReviewPending, ReviewStarted, r.HeadSHA); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return added, tx.Commit()
+}
+
+// UpdateReviewHead records the head fetched by the PR page. If an ingest
+// already moved the queue to another head during the fetch, leave it alone.
+func (s *Store) UpdateReviewHead(repo string, number int, previous, head string) error {
+	if head == "" || head == previous {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE review_requests SET head_sha = ?
+		WHERE repo = ? AND number = ? AND state IN (?, ?) AND head_sha = ?`,
+		head, repo, number, ReviewPending, ReviewStarted, previous)
+	return err
 }
 
 // OpenReviewRequests is every ask still pending or started, oldest ask first.
 func (s *Store) OpenReviewRequests() ([]ReviewRequest, error) {
 	rows, err := s.db.Query(`SELECT repo, number, trigger, trigger_id, title, author, url,
 		head_sha, draft, additions, deletions, changed, checks, triggered_at, state, session_id,
-		session_head, created_at, updated_at
-		FROM review_requests WHERE state IN (?, ?)
+		session_head, created_at, updated_at,
+		COALESCE((SELECT p.session_id FROM session_prs p JOIN sessions s ON s.id = p.session_id
+			WHERE p.url = review_requests.url
+			ORDER BY s.archived, s.created_at DESC, s.id LIMIT 1), '')
+		FROM review_requests WHERE state IN (?, ?) AND NOT (trigger = 'session' AND draft)
 		ORDER BY triggered_at, repo, number`, ReviewPending, ReviewStarted)
 	if err != nil {
 		return nil, err
@@ -111,14 +136,38 @@ func (s *Store) OpenReviewRequests() ([]ReviewRequest, error) {
 		var triggered, created, updated int64
 		if err := rows.Scan(&r.Repo, &r.Number, &r.Trigger, &r.TriggerID, &r.Title, &r.Author,
 			&r.URL, &r.HeadSHA, &r.Draft, &r.Additions, &r.Deletions, &r.ChangedFiles, &r.Checks,
-			&triggered, &r.State, &r.SessionID, &r.SessionHead, &created, &updated); err != nil {
+			&triggered, &r.State, &r.SessionID, &r.SessionHead, &created, &updated, &r.OriginSessionID); err != nil {
 			return nil, err
 		}
 		r.TriggeredAt = decodeTime(triggered)
 		r.CreatedAt, r.UpdatedAt = time.UnixMilli(created), time.UnixMilli(updated)
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	origins := map[string]*Session{}
+	for i := range out {
+		id := out[i].OriginSessionID
+		if id == "" {
+			continue
+		}
+		if origins[id] == nil {
+			origin, err := s.Get(id)
+			if err == sql.ErrNoRows {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			origins[id] = &origin
+		}
+		out[i].OriginSession = origins[id]
+	}
+	return out, nil
 }
 
 // SetPullRequestReviewState moves every open ask on one pull request to state, recording the
@@ -261,5 +310,19 @@ func (s *Store) AttachReviewSession(repo string, number int, sessionID, head str
 	_, err := s.db.Exec(`UPDATE review_requests SET `+sessionColumns+`, updated_at = ?
 		WHERE repo = ? AND number = ? AND state IN (?, ?)`,
 		sessionID, head, sessionID, sessionID, now.UnixMilli(), repo, number, ReviewPending, ReviewStarted)
+	return err
+}
+
+func (s *Store) CloseSessionReview(repo string, number int, now time.Time) error {
+	_, err := s.db.Exec(`UPDATE review_requests SET state = ?, updated_at = ?
+		WHERE repo = ? AND number = ? AND trigger = 'session' AND state IN (?, ?)`,
+		ReviewDismissed, now.UnixMilli(), repo, number, ReviewPending, ReviewStarted)
+	return err
+}
+
+func (s *Store) SetSessionReviewDraft(repo string, number int, now time.Time) error {
+	_, err := s.db.Exec(`UPDATE review_requests SET draft = 1, updated_at = ?
+		WHERE repo = ? AND number = ? AND trigger = 'session' AND state IN (?, ?)`,
+		now.UnixMilli(), repo, number, ReviewPending, ReviewStarted)
 	return err
 }

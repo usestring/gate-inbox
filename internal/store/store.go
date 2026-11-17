@@ -2062,6 +2062,15 @@ func (s *Store) placeSession(id, group, parentID string, groupOnly bool) error {
 		return err
 	}
 	defer tx.Rollback()
+	if groupOnly && group != "" {
+		var exists bool
+		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM groups WHERE name = ?)`, group).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("group %q: %w", group, ErrGroupNotFound)
+		}
+	}
 	rows, err := tx.Query(`SELECT id FROM sessions WHERE id = ? OR (
 		`+migrationColumn+` != '' AND `+migrationColumn+` =
 		(SELECT value FROM settings WHERE key = ?)) ORDER BY sort_order, created_at`, id, migrationKeyPrefix+id)
@@ -2135,7 +2144,7 @@ func (s *Store) placeSession(id, group, parentID string, groupOnly bool) error {
 			}
 		}
 	}
-	if group != "" {
+	if group != "" && !groupOnly {
 		if _, err := tx.Exec(
 			`INSERT INTO groups (name, sort_order)
 			 VALUES (?, (SELECT COALESCE(MAX(sort_order)+1, 0) FROM groups))

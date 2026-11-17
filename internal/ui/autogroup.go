@@ -288,7 +288,7 @@ func (m *Model) applyAutoGroup(msg autoGroupResultMsg) {
 		return
 	}
 	if option.kind != autoGroupExisting {
-		if err := m.store.AddGroup(group, dir); err != nil && !errors.Is(err, store.ErrGroupExists) {
+		if err := m.store.AddGroup(group, dir); err != nil && (option.kind == autoGroupPeer || !errors.Is(err, store.ErrGroupExists)) {
 			m.errBar.text = err.Error()
 			return
 		}

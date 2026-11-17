@@ -130,6 +130,70 @@ func TestAutoGroupLeavesASessionAPersonPlaced(t *testing.T) {
 	}
 }
 
+func TestAutoGroupPeerNameCollisionLeavesBothSessionsLoose(t *testing.T) {
+	m := buildModel(t)
+	m.autoGroupOn = true
+	if err := m.store.AddGroup("fix-login", ""); err != nil {
+		t.Fatal(err)
+	}
+	createSession(t, m, "fix/login", t.TempDir(), "")
+	peer := m.sessions[0]
+	createSession(t, m, "login-tests", t.TempDir(), "")
+	sess := m.sessions[1]
+	if sess.ID == peer.ID {
+		sess = m.sessions[0]
+	}
+	m.applyAutoGroup(autoGroupResultMsg{id: sess.ID, name: sess.Name, option: autoGroupOption{kind: autoGroupPeer, peer: peer}, ok: true})
+	for _, id := range []string{sess.ID, peer.ID} {
+		got, err := m.store.Get(id)
+		if err != nil || got.Group != "" {
+			t.Fatalf("session %s group = %q, err %v", id, got.Group, err)
+		}
+	}
+}
+
+func TestAutoGroupDoesNotRecreateAChangedExistingGroup(t *testing.T) {
+	for _, change := range []string{"rename", "move", "delete"} {
+		t.Run(change, func(t *testing.T) {
+			m := buildModel(t)
+			m.autoGroupOn = true
+			if err := m.store.AddGroup("project", ""); err != nil {
+				t.Fatal(err)
+			}
+			m.materializeGroupsLocal([]string{"project"})
+			createSession(t, m, "project-work", t.TempDir(), "")
+			sess := m.sessions[0]
+			option := m.autoGroupOptions(sess, time.Now())[0]
+			var err error
+			switch change {
+			case "rename":
+				err = m.store.RenameGroup("project", "renamed")
+			case "move":
+				err = m.store.MoveGroup("project", "parent")
+			case "delete":
+				_, err = m.store.DeleteEmptyGroup("project")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.applyAutoGroup(autoGroupResultMsg{id: sess.ID, name: sess.Name, option: option, ok: true})
+			got, err := m.store.Get(sess.ID)
+			if err != nil || got.Group != "" {
+				t.Fatalf("group = %q, err %v", got.Group, err)
+			}
+			groups, err := m.store.Groups()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, group := range groups {
+				if group.Name == "project" {
+					t.Fatal("recreated stale group")
+				}
+			}
+		})
+	}
+}
+
 func TestAutoGroupAsksOncePerName(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "first-name", t.TempDir(), "")

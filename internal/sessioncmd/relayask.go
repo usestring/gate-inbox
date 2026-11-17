@@ -24,8 +24,9 @@ type RelayAsk = relayask.Input
 // relayAskOn reads the dialog target's pane is holding into the RelayAsk that
 // relays it, or nil when the pane holds no dialog to relay.
 func (s *Sessions) relayAskOn(target store.Session, raw string) *RelayAsk {
-	if _, onReview := dialog.OnReview(raw); onReview {
-		// Its answers are in; nothing on the page is the user's to decide.
+	if _, done := s.submitPageNext(target, raw); done {
+		// Its answers are in; nothing on the page is the user's to decide. A
+		// page still missing an answer falls through and relays that question.
 		return nil
 	}
 	asked := s.asked(target)
@@ -134,12 +135,14 @@ func (s *Sessions) explainRefusal(r *runtime, target store.Session, raw string, 
 }
 
 // submitPageNext is what to do about target standing on the review page of a
-// several-question dialog, and whether it is: Submit, not a question for the
-// user. See relayask.SubmitPage.
+// several-question dialog with every answer in -- Submit, not a question for
+// the user (relayask.SubmitPage) -- and whether it is. A page still missing
+// an answer is not one: that question may be an Approval the user must be
+// asked word for word, so it takes the ordinary question relay.
 func (s *Sessions) submitPageNext(target store.Session, raw string) (string, bool) {
 	review, ok := dialog.OnReview(raw)
-	if !ok {
+	if !ok || !review.Done(dialog.Questions(raw, s.asked(target))) {
 		return "", false
 	}
-	return relayask.SubmitPage(target.ID, review.Done(dialog.Questions(raw, s.asked(target)))), true
+	return relayask.SubmitPage(target.ID), true
 }

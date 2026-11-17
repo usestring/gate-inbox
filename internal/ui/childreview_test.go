@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/usestring/gate-inbox/internal/asks"
+	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -41,5 +44,50 @@ func TestAChildOnItsReviewPageIsToldToSubmitNotAsked(t *testing.T) {
 	}
 	if !strings.HasPrefix(key, "r:") || urgent {
 		t.Errorf("key %q urgent %v", key, urgent)
+	}
+}
+
+// incompleteReview is the Submit tab of a two-question dialog with only the
+// first question answered: the page warns, and the tab row still shows.
+const incompleteReview = `──────────────────────────────────────────────────
+←  ☒ Rollout  ☐ Approval  ✔ Submit  →
+
+Review your answers
+
+⚠ You have not answered all questions
+
+ ● Which rollout path should I take?
+   → Do both
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+`
+
+func TestAnIncompleteReviewPageRelaysTheMissingQuestion(t *testing.T) {
+	const tool = "fake-review-cli"
+	call := asks.Call{Tool: tool, ID: "call-1", Questions: []convo.AskQuestion{
+		{Header: "Rollout", Question: "Which rollout path should I take?",
+			Options: []convo.AskOption{{Label: "Do both"}, {Label: "Region only"}}},
+		{Header: "Approval", Question: "Deploy the edge router now?",
+			Options: []convo.AskOption{{Label: "Deploy", Description: "Fast-forward the deploy branch"}, {Label: "Hold"}}},
+	}}
+	asks.Register(tool, fakeAsks{call: call})
+	dialog.RegisterTool(tool, dialog.ToolReader{})
+	t.Cleanup(func() {
+		asks.Register(tool, fakeAsks{})
+		dialog.RegisterTool(tool, dialog.ToolReader{})
+	})
+	sess := store.Session{ID: "child001", Name: "rollout-child", Tool: tool, AgentSessionID: "conv"}
+	body, key, _ := childDialogBody(sess, incompleteReview)
+	for _, want := range []string{"Deploy the edge router now?", "Fast-forward the deploy branch", "headed Approval",
+		"relay: true"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("incomplete review relay does not say %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "do not ask them which key to press") || strings.HasPrefix(key, "r:") {
+		t.Errorf("an incomplete review page was relayed as one to submit (key %q):\n%s", key, body)
 	}
 }

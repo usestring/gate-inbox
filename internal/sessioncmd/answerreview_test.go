@@ -11,6 +11,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/relayask"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -287,5 +288,26 @@ func TestReadSessionOnAClippedReviewPageSaysToSubmitIt(t *testing.T) {
 	}
 	if !strings.Contains(screen.Digest.Next, `answer "Submit answers"`) {
 		t.Errorf("next = %q, want the Submit step", screen.Digest.Next)
+	}
+}
+
+// A review page still missing an answer is not a page to submit: the missing
+// question may be an Approval the user must be asked word for word, so it
+// keeps its relay.
+func TestAnIncompleteReviewPageKeepsTheRelayForTheMissingQuestion(t *testing.T) {
+	asked := fourQuestions[:2]
+	sim := newTabbedDialog(asked)
+	sim.answers[0] = "Bun"
+	sim.active = len(asked)
+	raw, _ := sim.Capture()
+	if _, ok := dialog.OnReview(raw); !ok {
+		t.Fatalf("not read as a review page:\n%s", raw)
+	}
+	if next, done := (&Sessions{}).submitPageNext(store.Session{ID: "child001"}, raw); done {
+		t.Fatalf("an incomplete review page reads as one to submit: %q", next)
+	}
+	ask := relayask.For(asked, dialog.Questions(raw, asked))
+	if ask == nil || len(ask.Questions) != 1 || ask.Questions[0].Question != asked[1].Question {
+		t.Fatalf("relay_ask = %+v, want the unanswered question 2 alone", ask)
 	}
 }

@@ -77,7 +77,7 @@ func (s *Sessions) AnswerKeys(sessionID, targetID string, keys []string, relay b
 	// On a review page the refusals below used to send the parent to ask its
 	// user which key to press, on answers that user had already given. Keys
 	// the user did choose (Escape to cancel, say) still go through.
-	reviewNext, onReview := s.submitPageNext(target, raw)
+	reviewNext, onReview := s.submitPageNext(target, raw) // a page with every answer in
 	shown := screenLines(ansi.Strip(raw))
 	spelled := strings.Join(keys, " ")
 	guard := s.guard(runtime.store, caller, target, relay)

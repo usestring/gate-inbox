@@ -222,12 +222,12 @@ func childDialogBody(sess store.Session, pane string, saved ...string) (body, ke
 	if call.Async && len(call.Questions) > 0 {
 		return childAsyncMessage(sess, call), "a:" + call.ID, false
 	}
-	if review, ok := dialog.OnReview(pane); ok {
+	if review, ok := dialog.OnReview(pane); ok && review.Done(dialog.Questions(pane, call.Questions)) {
 		// Checked before the questions and the screens: its two numbered
 		// choices read as a dialog for the user, and the answers it lists were
-		// given already.
-		questions := dialog.Questions(pane, call.Questions)
-		return childReviewMessage(sess, review, questions), "r:" + textfmt.Fingerprint(fmt.Sprint(review.Answers)), false
+		// given already. A page still missing an answer falls through, so that
+		// question is relayed word for word.
+		return childReviewMessage(sess, review), "r:" + textfmt.Fingerprint(fmt.Sprint(review.Answers)), false
 	}
 	if reading, ok := dialog.ReadQuestions(sess.Tool, pane, call.Questions); ok && len(reading.Questions) > 0 {
 		var id strings.Builder
@@ -411,7 +411,7 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 
 // childReviewMessage is a child standing on the review page its
 // several-question dialog ends on: Submit, which the parent presses itself.
-func childReviewMessage(sess store.Session, review dialog.Review, questions []dialog.Question) string {
+func childReviewMessage(sess store.Session, review dialog.Review) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "%s (session %s), which you spawned, is waiting on the review page of a dialog asking "+
 		"several questions. It lists these answers:\n\n", sess.Name, sess.ID)
@@ -422,7 +422,7 @@ func childReviewMessage(sess store.Session, review dialog.Review, questions []di
 		fmt.Fprintf(&out, "  - %s\n    -> %s\n", logging.ScrubWrapped(dialog.Readable(answer.Question)),
 			logging.ScrubWrapped(dialog.Readable(answer.Answer)))
 	}
-	out.WriteString("\n" + relayask.SubmitPage(sess.ID, review.Done(questions)))
+	out.WriteString("\n" + relayask.SubmitPage(sess.ID))
 	return out.String()
 }
 

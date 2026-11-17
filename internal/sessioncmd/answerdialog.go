@@ -165,7 +165,10 @@ func (s *Sessions) answerAll(sessionID, targetID string, answers []QuestionAnswe
 		// question dialog; one answer there gets the same refusal.
 		return runtime.answer(target, answers[0].reply(), "parent", caller.ID, guard)
 	}
-	if review, onReview := dialog.OnReview(raw); onReview {
+	// A review page whose tab row still shows and that lacks an answer goes
+	// to fillDialog below, which navigates to the missing question's tab.
+	_, tabbed := dialog.ParseStepper(raw)
+	if review, onReview := dialog.OnReview(raw); onReview && (!tabbed || review.Done(questions)) {
 		// Every question is behind the dialog: its answers were keyed, and
 		// relayed, by an earlier call. What is left is Submit, and nothing new
 		// of the user's is keyed, so no new answer of theirs is wanted.

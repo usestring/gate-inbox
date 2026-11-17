@@ -46,7 +46,11 @@ func (m *Model) copySessionID(sess store.Session) (tea.Model, tea.Cmd) {
 		m.errBar.text = m.displayName(sess) + " has no agent session id yet"
 		return m, nil
 	}
-	return m, func() tea.Msg {
+	return m, copySessionIDCmd(id)
+}
+
+func copySessionIDCmd(id string) tea.Cmd {
+	return func() tea.Msg {
 		if err := writeClipboard(id); err != nil {
 			return sessionIDCopiedMsg{err: err}
 		}

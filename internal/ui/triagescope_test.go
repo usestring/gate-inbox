@@ -293,7 +293,7 @@ func TestTriageAdvanceWidensADrainedScope(t *testing.T) {
 
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("a board with nothing waiting handed over %q", focusedName(t, m))
+	if m.mode != modeFocus || focusedName(t, m) != "ask" {
+		t.Fatalf("the skipped question did not return after widening: mode %v", m.mode)
 	}
 }

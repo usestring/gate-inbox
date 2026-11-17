@@ -267,21 +267,23 @@ func TestSmartTriageMuteOnAFinishOutlastsItsAck(t *testing.T) {
 	}
 }
 
-// Leaving a page in a walk hands its session over. The walk starts from the
-// head of the queue, so the session left behind must be muted or the next
-// hop hands it straight back.
-func TestSmartTriageLeavingAPageMutesItsSession(t *testing.T) {
+// Leaving a page postpones its session until the other work has been offered.
+func TestSmartTriageLeavingAPageDefersItsSession(t *testing.T) {
 	m := smartFleet(t,
 		smartSess("ask", status.Waiting, time.Minute),
 		smartSess("calm", status.Idle, time.Hour),
 	)
 	m.cursor = 0
 	m.leaveHeadPane(true)
-	if !m.isMuted(m.sessions[0]) {
-		t.Fatal("leaving the page did not mute the session it was over")
+	if m.isMuted(m.sessions[0]) {
+		t.Fatal("leaving the page muted its unfinished session")
 	}
-	if i, ok := m.nextTriageInput("calm", nil); ok {
-		t.Fatalf("the walk past calm handed over %q, want the drain over", m.rows[i].sess.Name)
+	assertRail(t, m, "calm", "ask")
+	if i, ok := m.nextTriageInput("ask", nil); !ok || m.rows[i].sess.ID != "calm" {
+		t.Fatal("the walk did not offer the other work before the skipped page")
+	}
+	if i, ok := m.nextTriageInput("calm", nil); !ok || m.rows[i].sess.ID != "ask" {
+		t.Fatal("the skipped page did not return after the other work")
 	}
 }
 

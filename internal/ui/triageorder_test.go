@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // orderFleet is a question, an urgent finish carrying the cache warden's
@@ -28,6 +29,42 @@ func orderFleet(t *testing.T, order string) *Model {
 	m.triageOrder = order
 	m.rebuildRows()
 	return m
+}
+
+func TestTriageDeferralsStayBehindNewWorkUntilReset(t *testing.T) {
+	for _, order := range triageOrders {
+		t.Run(order, func(t *testing.T) {
+			m := orderFleet(t, order)
+			before := sessionNames(m)
+			m.deferTriageSession("ask")
+			m.deferTriageSession("urgent-done")
+			// A new turn must not undo the operator's decision to postpone it.
+			for i := range m.sessions {
+				if m.sessions[i].ID == "ask" {
+					m.sessions[i].LastStatusAt = smartNow
+				}
+			}
+			m.sessions = append(m.sessions, smartSess("new-work", status.Waiting, time.Minute))
+			m.rebuildRows()
+			if rail := sessionNames(m); !slices.Equal(rail[len(rail)-2:], []string{"ask", "urgent-done"}) {
+				t.Fatalf("rail = %v, want skipped sessions at the back", rail)
+			}
+			got := drainOrder(m)
+			if order == triageOrderQuestionsOnly {
+				if !slices.Equal(got, []string{"new-work", "ask"}) {
+					t.Fatalf("questions-only drain = %v, want the deferred question last", got)
+				}
+			} else if len(got) != 5 || !slices.Equal(got[len(got)-2:], []string{"ask", "urgent-done"}) {
+				t.Fatalf("drain = %v, want skipped sessions after all other work", got)
+			}
+			m.sessions = slices.DeleteFunc(m.sessions, func(sess store.Session) bool { return sess.ID == "new-work" })
+			m.clearMutes()
+			m.rebuildRows()
+			if got := sessionNames(m); !slices.Equal(got, before) {
+				t.Fatalf("reset queue = %v, want %v", got, before)
+			}
+		})
+	}
 }
 
 func TestTriageOrders(t *testing.T) {

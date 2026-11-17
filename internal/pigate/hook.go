@@ -69,16 +69,25 @@ func mergeGate(configDir, command, cwd string) (string, bool) {
 
 // askAutoMode posts the call to the board's shared loopback server, which
 // holds the TypeSafe key and asks the classifier (piauto.Handler). This
-// process never reads the key. A server that is not running, or not the
-// board's own, or any failure, is an answer with no allow in it.
+// process never reads the TypeSafe key, and under confinement
+// (package keyconfine) not the caller key either: it proves its session with
+// the token in the session's own MCP config, the one key-dir file left
+// visible to it, and checks the server with a proof keyed by that token
+// before sending it. A server that is not running, or not the board's own,
+// or any failure, is an answer with no allow in it.
 func askAutoMode(configDir, sessionID string, r piauto.Request) piauto.Answer {
 	down := piauto.Answer{Note: "pi auto mode is unavailable: the board's shared server is not answering"}
 	url := mcpshared.URL(configDir)
-	if url == "" || sessionID == "" || !mcpshared.Healthy(configDir, url) {
-		return down
+	token := mcpshared.SessionToken(configDir, sessionID)
+	if token == "" {
+		// An unconfined session with no config of its own can still derive
+		// its token from the key.
+		token, _ = parentseal.ExistingCallerToken(configDir, sessionID)
 	}
-	token, err := parentseal.ExistingCallerToken(configDir, sessionID)
-	if err != nil || token == "" {
+	if token == "" {
+		return piauto.Answer{Note: "pi auto mode is unavailable: this session has no token for the board's shared server"}
+	}
+	if !mcpshared.HealthyFor(url, sessionID, token) {
 		return down
 	}
 	body, err := json.Marshal(r)

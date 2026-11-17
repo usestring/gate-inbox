@@ -11,8 +11,8 @@
 //  2. The operator's Claude Code permission rules (managed, user and project
 //     settings): a deny anywhere beats an ask anywhere, which beats an allow.
 //  3. The merge gate, for a gh pr merge: the standing merge authority allows
-//     it. Otherwise only a grant or an allow rule can; the fast path never
-//     does.
+//     it, and otherwise it asks, with no rule offered. Nothing below can
+//     allow a merge the gate refused.
 //  4. Board grants in force for the session, and standing grants, read on
 //     every call so a new one applies on the next call with no restart; then
 //     the rules a person approved at this session's own dialog with "don't
@@ -193,7 +193,9 @@ func Decide(env Env, req Request) Decision {
 			}
 		}
 	}
-	d.Suggestion = suggest(call)
+	if mergeCommand(call) == "" {
+		d.Suggestion = suggest(call)
+	}
 	for _, r := range rules {
 		c := call
 		c.RuleBase = r.Source.Base
@@ -207,16 +209,21 @@ func Decide(env Env, req Request) Decision {
 		d.Decision, d.Reason = Allow, "it only asks the user"
 		return d
 	}
-	var mergeRefusal string
 	if merge := mergeCommand(call); merge != "" {
+		// The merge gate is terminal, as Claude Code's merge-gate hook is:
+		// what it does not cover asks, and no grant, dialog approval, allow
+		// rule, fast path or auto mode can allow it, so its dialog offers no
+		// rule to remember either.
+		why, ok := "merge gate: no standing merge authority is configured", false
 		if env.MergeGate != nil {
-			why, ok := env.MergeGate(merge, req.Cwd)
-			if ok {
-				d.Decision, d.Reason = Allow, why
-				return d
-			}
-			mergeRefusal = why
+			why, ok = env.MergeGate(merge, req.Cwd)
 		}
+		if ok {
+			d.Decision, d.Reason = Allow, why
+			return d
+		}
+		d.Suggestion = ""
+		return asking(d, call, why)
 	}
 	grants := env.Grants
 	if grants == nil {
@@ -249,16 +256,11 @@ func Decide(env Env, req Request) Decision {
 			}
 		}
 	}
-	if mergeCommand(call) == "" {
-		if why, ok := readOnly(call, req.ReadOnly); ok {
-			d.Decision, d.Reason = Allow, why
-			return d
-		}
+	if why, ok := readOnly(call, req.ReadOnly); ok {
+		d.Decision, d.Reason = Allow, why
+		return d
 	}
 	reason := "no rule or grant allows it"
-	if mergeRefusal != "" {
-		reason = mergeRefusal
-	}
 	if autoModeMayAsk(env, call) {
 		a := env.AutoMode(piauto.Request{Tool: tool, Input: req.ToolInput, Cwd: req.Cwd, Brief: req.Brief, Recent: req.Recent})
 		if a.Allow {
@@ -273,10 +275,11 @@ func Decide(env Env, req Request) Decision {
 }
 
 // autoModeMayAsk reports whether auto mode may be asked about call at all.
-// It never overrides the merge gate or a request to run outside the sandbox,
-// which only a grant or a person can approve.
+// It never overrides a request to run outside the sandbox, which only a
+// grant or a person can approve. A merge never reaches it: the merge gate
+// has already decided.
 func autoModeMayAsk(env Env, call grant.Call) bool {
-	if env.AutoMode == nil || mergeCommand(call) != "" {
+	if env.AutoMode == nil {
 		return false
 	}
 	outside, _ := call.Input["dangerouslyDisableSandbox"].(bool)

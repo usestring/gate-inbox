@@ -19,6 +19,8 @@ Sleep 1s
 Type "i"
 Sleep 1s
 Type "i"
+Sleep 2s
+Enter
 Sleep 3s
 Screenshot {{SHOTS}}/01-first-session.png
 Sleep 1s

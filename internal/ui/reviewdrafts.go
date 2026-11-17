@@ -240,21 +240,25 @@ func reviewThreads(detail *forge.PRDetail, drafts []store.ReviewDraft) (threads 
 
 // draftLines draws a draft under its line, set in from the diff by a bar
 // apart from a review thread's: the selected one is marked, and a dropped
-// one is muted.
-func draftLines(d store.ReviewDraft, selected bool, width int) [][]Span {
+// or stale one is muted.
+func draftLines(d store.ReviewDraft, selected, stale bool, width int) [][]Span {
 	bar := strings.Repeat(" ", diffGutter) + "│ "
 	if selected {
 		bar = strings.Repeat(" ", diffGutter) + "┃ "
 	}
 	tone := ToneAccent
-	if d.State == store.DraftDropped {
+	if d.State == store.DraftDropped || stale {
 		tone = ToneMuted
 	}
 	who := "agent"
 	if d.Author == store.DraftByOperator {
 		who = "you"
 	}
-	head := []Span{{Text: bar, Tone: tone, Bold: selected}, {Text: "draft · " + who, Bold: true}}
+	head := []Span{{Text: bar, Tone: tone, Bold: selected}, {Text: "draft", Bold: true}}
+	if stale {
+		head = append(head, Span{Text: " · stale", Tone: ToneWarn, Bold: true})
+	}
+	head = append(head, Span{Text: " · " + who, Bold: true})
 	if selected {
 		head = append(head, Span{Text: " · selected", Tone: ToneAccent})
 	}
@@ -262,7 +266,7 @@ func draftLines(d store.ReviewDraft, selected bool, width int) [][]Span {
 		head = append(head, Span{Text: " · question", Tone: ToneWarn})
 	}
 	stateTone := ToneMuted
-	if d.State == store.DraftKept {
+	if d.State == store.DraftKept && !stale {
 		stateTone = ToneGood
 	}
 	head = append(head, Span{Text: " · " + d.State, Tone: stateTone})
@@ -274,7 +278,7 @@ func draftLines(d store.ReviewDraft, selected bool, width int) [][]Span {
 		}
 	}
 	body := bodyLines(d.Body, "", room)
-	if d.State == store.DraftDropped {
+	if d.State == store.DraftDropped || stale {
 		for i := range body {
 			body[i] = mute(body[i])
 		}

@@ -23,7 +23,7 @@ func TestMuteKeyStoresTheFlagAndTheRowReadsMuted(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, _ := m.handleKey(key("M"))
+	updated, _ := m.handleKey(key("ctrl+m"))
 	m = updated.(*Model)
 	ask := sessionNamed(t, m, "ask")
 	if !ask.Muted {
@@ -48,7 +48,7 @@ func TestMuteKeyStoresTheFlagAndTheRowReadsMuted(t *testing.T) {
 	}
 
 	// The same key puts it back.
-	updated, _ = m.handleKey(key("M"))
+	updated, _ = m.handleKey(key("ctrl+m"))
 	m = updated.(*Model)
 	if sessionNamed(t, m, "ask").Muted {
 		t.Fatal("M did not unmute")
@@ -69,7 +69,7 @@ func TestMutedSessionStaysVisibleButSkippedInTriageUntilUnmuted(t *testing.T) {
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "other": status.Waiting})
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
-	updated, _ := m.handleKey(key("M"))
+	updated, _ := m.handleKey(key("ctrl+m"))
 	m = updated.(*Model)
 
 	m.triage = true
@@ -96,7 +96,7 @@ func TestMutedSessionStaysVisibleButSkippedInTriageUntilUnmuted(t *testing.T) {
 	m.triage = false
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
-	updated, _ = m.handleKey(key("M"))
+	updated, _ = m.handleKey(key("ctrl+m"))
 	m = updated.(*Model)
 	m.triage = true
 	m.rebuildRows()
@@ -115,10 +115,10 @@ func TestSkipKeyUnmutesADurablyMutedRow(t *testing.T) {
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
-	updated, _ := m.handleKey(key("M"))
+	updated, _ := m.handleKey(key("ctrl+m"))
 	m = updated.(*Model)
 
-	updated, _ = m.handleKey(key("."))
+	updated, _ = m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if sessionNamed(t, m, "ask").Muted {
 		t.Fatalf(`"." did not unmute the row: %s`, m.errBar.text)
@@ -474,7 +474,7 @@ func TestMutingTheLastTriageSessionLeavesTheDrainOpen(t *testing.T) {
 		t.Fatal("the last session was not muted")
 	}
 
-	updated, _ = m.handleKey(key("M"))
+	updated, _ = m.handleKey(key("ctrl+m"))
 	m = updated.(*Model)
 	if m.mode != modeList || sessionNamed(t, m, "ask").Muted {
 		t.Fatalf("unmuting should stay on the list, got mode %v", m.mode)

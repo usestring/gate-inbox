@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/usestring/gate-inbox/grant"
-	"github.com/usestring/gate-inbox/internal/jev"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/piauto"
@@ -70,11 +70,11 @@ func TestHookWithAKeyButNoBoardServerAsks(t *testing.T) {
 	// reached.
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv(jev.KeyEnv, "test-key")
-	if err := os.MkdirAll(filepath.Dir(jev.KeyPath(configDir)), 0o700); err != nil {
+	t.Setenv(classifier.JEV.KeyEnv(), "test-key")
+	if err := os.MkdirAll(filepath.Dir(classifier.JEV.KeyPath(configDir)), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(jev.KeyPath(configDir), []byte("saved-key"), 0o600); err != nil {
+	if err := os.WriteFile(classifier.JEV.KeyPath(configDir), []byte("saved-key"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(bashReq(t.TempDir(), "go test ./..."))

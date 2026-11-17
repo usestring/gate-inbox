@@ -1619,7 +1619,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
   },
-  "description": "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, background, finished, idle, errored, dead; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it; background is a session whose turn ended with a shell, monitor or task still running, which wakes it into another turn) and which row is this session. Send to the session that already owns the work, idle or working, instead of creating another; use create_session for a distinct workstream with no suitable owner, within the user's task or an explicitly invoked skill. Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
+  "description": "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, background, finished, idle, errored, hibernating, dead; hibernating is a session stopped to give its memory back, not a dead one: any message sent to it wakes it on its conversation, so send to it rather than reviving it; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it; background is a session whose turn ended with a shell, monitor or task still running, which wakes it into another turn) and which row is this session. Send to the session that already owns the work, idle or working, instead of creating another; use create_session for a distinct workstream with no suitable owner, within the user's task or an explicitly invoked skill. Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -1643,7 +1643,7 @@
         "type": "string"
       },
       "status": {
-        "description": "keep only sessions in these states: starting, working, waiting, delegating, background, finished, idle, errored or dead; omit for every state",
+        "description": "keep only sessions in these states: starting, working, waiting, delegating, background, finished, idle, errored, hibernating or dead; omit for every state",
         "items": {
           "type": "string"
         },
@@ -3439,12 +3439,12 @@
 
 === set_priority
 {
-  "description": "Declare how much the work in this session matters, so the user's triage queue hands it over ahead of the sessions that matter less. Call it when you know something the manager cannot see from outside: the user says this is urgent or can wait, or the task turns out to be a production incident, a release blocker, or a background experiment. Tiers are urgent (+3), high (+2), medium (+1), and low (-1); none or 0 clears it. Numeric levels from -1 to 3 are also accepted. It orders this session within the queue it is already in, so it never puts a session that needs nobody ahead of one waiting on an answer, and the user can always override it.",
+  "description": "Declare how much the work in this session matters, so the user's triage queue hands it over ahead of the sessions that matter less. Call it when you know something the manager cannot see from outside: the user says this is urgent or can wait, or the task turns out to be a production incident, a release blocker, or a background experiment. Tiers are urgent (+3), high (+2), medium (+1), low (-1), lower (-2) and lowest (-3); none or 0 clears it. Numeric levels from -3 to 3 are also accepted. The user's board uses two raised tiers and one lowered by default, and shows a tier past its scale at the scale's edge. It orders this session within the queue it is already in, so it never puts a session that needs nobody ahead of one waiting on an answer, and the user can always override it.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "tier": {
-        "description": "how much the work in this session matters: urgent (+3), high (+2), medium (+1), none (0), or low (-1)",
+        "description": "how much the work in this session matters: urgent (+3), high (+2), medium (+1), none (0), low (-1), lower (-2) or lowest (-3); the board shows tiers past its configured scale at the scale's edge",
         "type": "string"
       }
     },
@@ -3904,7 +3904,7 @@
         "type": "integer"
       },
       "until": {
-        "description": "states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, dead); delegating, a session at rest whose own children are still going, and background, one whose turn ended with a shell or task still running, are not among them. Valid values: starting, working, waiting, delegating, background, finished, idle, errored, dead",
+        "description": "states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, hibernating, dead); delegating, a session at rest whose own children are still going, and background, one whose turn ended with a shell or task still running, are not among them. Valid values: starting, working, waiting, delegating, background, finished, idle, errored, hibernating, dead",
         "items": {
           "type": "string"
         },

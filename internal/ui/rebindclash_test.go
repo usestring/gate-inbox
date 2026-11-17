@@ -37,16 +37,16 @@ func notesText(m *Model) string { return strings.Join(m.help.notes, "\n") }
 func TestRebindingOntoATakenKeyAsksFirstAndNamesTheHolder(t *testing.T) {
 	m := buildModel(t)
 	armOn(t, m, "show all of a session", keymap.ShowAllWork)
-	m.handleHelpKey(runeKey("x"))
+	m.handleHelpKey(runeKey("ctrl+x"))
 
 	if m.help.clash == nil {
-		t.Fatalf("x was taken without asking; notes: %s", notesText(m))
+		t.Fatalf("ctrl+x was taken without asking; notes: %s", notesText(m))
 	}
-	if !strings.Contains(notesText(m), `x is already bound to "kill it and file the row" (archive)`) {
+	if !strings.Contains(notesText(m), `ctrl+x is already bound to "kill it and file the row" (archive)`) {
 		t.Errorf("the warning does not name archive by its label:\n%s", notesText(m))
 	}
-	if got := m.km().Key(keymap.ContextList, keymap.Archive); got != "x" {
-		t.Fatalf("archive lost x before the answer: now %q", got)
+	if got := m.km().Key(keymap.ContextList, keymap.Archive); got != "ctrl+x" {
+		t.Fatalf("archive lost ctrl+x before the answer: now %q", got)
 	}
 	if !hintPairHas(m.helpHint(), "y/↵") || !hintPairHas(m.helpHint(), "esc/n") {
 		t.Errorf("the hint does not offer the answers: %v", m.helpHint())
@@ -56,11 +56,11 @@ func TestRebindingOntoATakenKeyAsksFirstAndNamesTheHolder(t *testing.T) {
 	if m.help.clash != nil {
 		t.Fatal("the question is still up after y")
 	}
-	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "x" {
-		t.Errorf("show_all_work is on %q, want x", got)
+	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "ctrl+x" {
+		t.Errorf("show_all_work is on %q, want ctrl+x", got)
 	}
 	if m.km().Bound(keymap.ContextList, keymap.Archive) {
-		t.Errorf("archive still holds %v after giving x up", m.km().Keys(keymap.ContextList, keymap.Archive))
+		t.Errorf("archive still holds %v after giving ctrl+x up", m.km().Keys(keymap.ContextList, keymap.Archive))
 	}
 	if !strings.Contains(notesText(m), "archive gave it up and is now on no key") {
 		t.Errorf("the result does not say archive lost the key:\n%s", notesText(m))
@@ -70,7 +70,7 @@ func TestRebindingOntoATakenKeyAsksFirstAndNamesTheHolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !regexp.MustCompile(`(?m)^archive\s+= \[\]$`).Match(raw) ||
-		!regexp.MustCompile(`(?m)^show_all_work\s+= \["x"\]$`).Match(raw) {
+		!regexp.MustCompile(`(?m)^show_all_work\s+= \["ctrl\+x"\]$`).Match(raw) {
 		t.Errorf("the move was not saved:\n%s", raw)
 	}
 }
@@ -80,18 +80,18 @@ func TestDecliningAClashChangesNothing(t *testing.T) {
 	for _, answer := range []tea.KeyMsg{runeKey("n"), namedKey(tea.KeyEsc)} {
 		m := buildModel(t)
 		armOn(t, m, "show all of a session", keymap.ShowAllWork)
-		m.handleHelpKey(runeKey("x"))
+		m.handleHelpKey(runeKey("ctrl+x"))
 		m.handleHelpKey(answer)
 		if m.help.clash != nil {
 			t.Fatalf("%s left the question up", answer)
 		}
-		if got := m.km().Key(keymap.ContextList, keymap.Archive); got != "x" {
+		if got := m.km().Key(keymap.ContextList, keymap.Archive); got != "ctrl+x" {
 			t.Errorf("%s: archive is on %q", answer, got)
 		}
 		if m.km().Bound(keymap.ContextList, keymap.ShowAllWork) {
 			t.Errorf("%s: show_all_work picked up %v", answer, m.km().Keys(keymap.ContextList, keymap.ShowAllWork))
 		}
-		if !strings.Contains(notesText(m), "x stays on archive") {
+		if !strings.Contains(notesText(m), "ctrl+x stays on archive") {
 			t.Errorf("%s: notes = %s", answer, notesText(m))
 		}
 	}
@@ -103,7 +103,7 @@ func TestTheClashAnswersTheConfirmBinding(t *testing.T) {
 	m := buildModel(t)
 	m.keys, _ = m.km().Rebind(keymap.ContextConfirm, keymap.Confirm, []string{"o"})
 	armOn(t, m, "show all of a session", keymap.ShowAllWork)
-	m.handleHelpKey(runeKey("x"))
+	m.handleHelpKey(runeKey("ctrl+x"))
 	if !hintPairHas(m.helpHint(), "o") {
 		t.Errorf("the hint = %v, want o for yes", m.helpHint())
 	}
@@ -112,8 +112,8 @@ func TestTheClashAnswersTheConfirmBinding(t *testing.T) {
 		t.Fatal("y answered a clash after confirm moved to o")
 	}
 	m.handleHelpKey(runeKey("o"))
-	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "x" {
-		t.Errorf("o did not move x: show_all_work is on %q", got)
+	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "ctrl+x" {
+		t.Errorf("o did not move ctrl+x: show_all_work is on %q", got)
 	}
 }
 
@@ -156,18 +156,18 @@ func TestAClashWithAnExtensionKeyNamesTheExtensionAction(t *testing.T) {
 }
 
 // The last key of an action the screen cannot work without is refused on the
-// press, not offered and then refused: q is quit's only key.
+// press, not offered and then refused: ctrl+alt+q is quit's only key.
 func TestTheLastKeyOfARequiredActionIsRefusedWithoutAsking(t *testing.T) {
 	m := buildModel(t)
 	armOn(t, m, "show all of a session", keymap.ShowAllWork)
-	m.handleHelpKey(runeKey("q"))
+	m.handleHelpKey(runeKey("ctrl+alt+q"))
 	if m.help.clash != nil {
 		t.Fatal("the key map offered to move quit's only key")
 	}
 	if !strings.Contains(notesText(m), "last key on quit") {
 		t.Errorf("notes = %s", notesText(m))
 	}
-	if got := m.km().Key(keymap.ContextList, keymap.Quit); got != "q" {
+	if got := m.km().Key(keymap.ContextList, keymap.Quit); got != "ctrl+alt+q" {
 		t.Errorf("quit is on %q", got)
 	}
 }

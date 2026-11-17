@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/envname"
 )
 
 // The Axiom credential can be fetched on the first send rather than read from
@@ -19,7 +21,7 @@ const (
 	// ProjectEnv the project holding it. Neither has a default: which secret
 	// in which project is the operator's to name, and a guess would be a
 	// credential read nobody asked for.
-	SecretEnv  = "GATE_INBOX_TRACE_SECRET"
+	SecretEnv  = envname.TraceSecret
 	ProjectEnv = "GATE_INBOX_TRACE_PROJECT"
 
 	// secretTimeout bounds the fetch. It runs before the TUI takes the

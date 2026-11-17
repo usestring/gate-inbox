@@ -2381,6 +2381,10 @@
         "additionalProperties": false,
         "description": "the session's status, the question it is holding, and its last result",
         "properties": {
+          "next": {
+            "description": "when set, the step to take yourself about what the session is showing, with no question for your user",
+            "type": "string"
+          },
           "question": {
             "description": "question the session is waiting on, with its options; empty when nothing is being asked",
             "type": "string"

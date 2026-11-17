@@ -59,7 +59,10 @@ func TestAGrantReachesAPiChildLiveWithoutARestart(t *testing.T) {
 	if got := piPush(h, child); got != pigate.Ask {
 		t.Fatalf("before the grant: %s", got)
 	}
-	question := ApprovalQuestion(child, push, DefaultGrantTTL)
+	question := PiApprovalQuestion(child, push, DefaultGrantTTL)
+	if strings.Contains(question.Question, "restart") && !strings.Contains(question.Question, "without a restart") {
+		t.Fatalf("a pi child's question promises a restart: %s", question.Question)
+	}
 	asked := time.Now().Add(-time.Minute)
 	(&transcript{}).ask("toolu_pi", asked, question).
 		answer("toolu_pi", asked.Add(time.Second), map[string]string{question.Question: "Grant"}).

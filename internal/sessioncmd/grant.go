@@ -142,6 +142,19 @@ func ApprovalQuestion(target store.Session, g grant.Grant, ttl time.Duration) co
 // are numbered, so the user sees every one of them in the question they
 // answer.
 func ApprovalQuestionFor(target store.Session, gs []grant.Grant, ttl time.Duration) convo.AskQuestion {
+	return approvalQuestion(target, gs, ttl, false)
+}
+
+// PiApprovalQuestion is ApprovalQuestion for a pi child, whose tool gate
+// (package pigate) reads its grants on every call: the grant applies from its
+// next call and nothing restarts, so the question says that instead.
+func PiApprovalQuestion(target store.Session, g grant.Grant, ttl time.Duration) convo.AskQuestion {
+	return approvalQuestion(target, []grant.Grant{g}, ttl, true)
+}
+
+// approvalQuestion is the question for gs; live is a target that takes a
+// grant on its next call with no restart (a pi session).
+func approvalQuestion(target store.Session, gs []grant.Grant, ttl time.Duration, live bool) convo.AskQuestion {
 	if ttl == 0 {
 		return standingQuestion(target, gs)
 	}
@@ -158,7 +171,10 @@ func ApprovalQuestionFor(target store.Session, gs []grant.Grant, ttl time.Durati
 	}
 	applies := fmt.Sprintf("Gate Inbox writes %s into that session's own settings only, restarts it to apply, "+
 		"and revokes %s when the time is up.", it, it)
-	if target.TmuxPaneID != "" {
+	if live {
+		applies = fmt.Sprintf("Gate Inbox records %s for that session only, which applies %s from its next tool "+
+			"call without a restart, and revokes %s when the time is up.", it, it, it)
+	} else if target.TmuxPaneID != "" {
 		applies = fmt.Sprintf("That session was started outside Gate Inbox, so Gate Inbox applies %s to that "+
 			"session only, through its hooks where they can carry %s and otherwise once it is resumed, and "+
 			"revokes %s when the time is up.", it, it, it)
@@ -250,7 +266,8 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 	if err != nil {
 		return GrantResult{}, err
 	}
-	if tool.StatusSource == hooks.StatusSourcePi && !req.Revoke {
+	live := tool.StatusSource == hooks.StatusSourcePi
+	if live && !req.Revoke {
 		if err := piGrantable(gs); err != nil {
 			return GrantResult{}, err
 		}
@@ -318,11 +335,11 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 				if err != nil {
 					return GrantResult{}, err
 				}
-				evidence, hash, err := s.grantApproval(runtime.store, caller, target, gs, ttl)
+				evidence, hash, err := s.grantApproval(runtime.store, caller, target, gs, ttl, live)
 				if err != nil {
 					return GrantResult{}, err
 				}
-				result.Question = ApprovalQuestionFor(target, gs, ttl).Question
+				result.Question = approvalQuestion(target, gs, ttl, live).Question
 				now := time.Now()
 				owner, expires := target.ID, now.Add(ttl)
 				if ttl == 0 {
@@ -640,8 +657,8 @@ func grantInfos(st *store.Store, id string) ([]GrantInfo, error) {
 // target, and returns its tool_use id and the hash of the question in it. The
 // checks are relay.go's verify, held to Gate Inbox's own question rather than
 // the child's.
-func (s *Sessions) grantApproval(st *store.Store, caller, target store.Session, gs []grant.Grant, ttl time.Duration) (string, string, error) {
-	want := ApprovalQuestionFor(target, gs, ttl)
+func (s *Sessions) grantApproval(st *store.Store, caller, target store.Session, gs []grant.Grant, ttl time.Duration, live bool) (string, string, error) {
+	want := approvalQuestion(target, gs, ttl, live)
 	hash := questionHash(want)
 	need := func(reason string) error { return &ApprovalNeeded{Question: want, Reason: reason} }
 	path := s.transcriptOf(caller)

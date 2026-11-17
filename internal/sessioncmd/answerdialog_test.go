@@ -53,6 +53,10 @@ type tabbedDialog struct {
 	// stuck is a fault: Enter on this 1-based box of a multi-select does not
 	// toggle it.
 	stuck int
+	// height is the pane's rows: an open dialog taller than that shows only
+	// its last height rows, its top scrolled off, as a review page of long
+	// questions does. 0 shows all of it.
+	height int
 }
 
 func newTabbedDialog(questions []convo.AskQuestion) *tabbedDialog {
@@ -132,6 +136,18 @@ func (d *tabbedDialog) rule() string {
 }
 
 func (d *tabbedDialog) Capture() (string, error) {
+	drawn, err := d.draw()
+	if err != nil || d.closed || d.height == 0 {
+		return drawn, err
+	}
+	lines := strings.Split(strings.TrimSuffix(drawn, "\n"), "\n")
+	if len(lines) > d.height {
+		lines = lines[len(lines)-d.height:]
+	}
+	return strings.Join(lines, "\n") + "\n", nil
+}
+
+func (d *tabbedDialog) draw() (string, error) {
 	var out strings.Builder
 	for _, line := range d.prose {
 		out.WriteString(d.wrap("  ", "     ", line))

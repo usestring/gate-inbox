@@ -47,6 +47,9 @@ type ReadDigest struct {
 	Questions []dialog.Question `json:"questions,omitempty" jsonschema:"every question of the dialog the session is holding, with its header, full text, options and whether it is answered; answer them with answer_session"`
 	// RelayAsk is the input for the caller's own AskUserQuestion that relays
 	// the dialog to its user word for word (relayask.go).
+	// Next is what the caller does about a screen that is not the user's to
+	// answer: the review page of a dialog whose answers are all in.
+	Next     string    `json:"next,omitempty" jsonschema:"when set, the step to take yourself about what the session is showing, with no question for your user"`
 	RelayAsk *RelayAsk `json:"relay_ask,omitempty" jsonschema:"when the session is on a dialog: the exact input for your own AskUserQuestion that puts it to your user word for word, which answer_session relay: true accepts; pass it as is, then answer with the option your user picks"`
 }
 

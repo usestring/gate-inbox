@@ -74,16 +74,26 @@ func (s *Sessions) AnswerKeys(sessionID, targetID string, keys []string, relay b
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
+	// On a review page the refusals below used to send the parent to ask its
+	// user which key to press, on answers that user had already given. Keys
+	// the user did choose (Escape to cancel, say) still go through.
+	reviewNext, onReview := s.submitPageNext(target, raw)
 	shown := screenLines(ansi.Strip(raw))
 	spelled := strings.Join(keys, " ")
 	guard := s.guard(runtime.store, caller, target, relay)
 	if !relay {
+		if onReview {
+			return AnsweredQuestion{}, fmt.Errorf("no keys were sent: %s", reviewNext)
+		}
 		return AnsweredQuestion{}, fmt.Errorf("%w: keys are sent only as your user's own choice. Ask your user with "+
 			"your own question tool, quoting session %s's screen word for word:\n\n%s\n\nwith the keys to press "+
 			"as the options (for example %q), then call answer_session with those keys and relay: true",
 			errScreenNeedsRelay, target.ID, shown, spelled)
 	}
 	if err := guard.admitKeys(shown, spelled); err != nil {
+		if onReview {
+			return AnsweredQuestion{}, fmt.Errorf("no keys were sent: %s", reviewNext)
+		}
 		return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
 	}
 	answered, err := sendKeys(pane, raw, keys)

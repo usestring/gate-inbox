@@ -254,3 +254,43 @@ func TestThePromptStopsAtTheDialogsTopEdge(t *testing.T) {
 		t.Errorf("prompt = %q, want %q", got.Prompt, want)
 	}
 }
+
+// A review page taller than the pane, measured live on Claude Code 2.1.321
+// (2026-11-12, renamed): the heading is still on the
+// screen, the tab row above it is not.
+const reviewNoTabRow = `Review your answers
+
+ │ ● example/api PR #42 fails the public-docs
+ │   check. Approve the re-record?
+   → Approve re-record
+ │ ● Ship #42 once it's green?
+   → Merge+deploy when green
+ │ ● How should I proceed with the load test?
+   → Pilot 300 turns first (Recommended)
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+`
+
+func TestAReviewPageWithoutItsTabRowStillCountsEveryQuestion(t *testing.T) {
+	review, ok := OnReview(reviewNoTabRow)
+	if !ok || review.Clipped || len(review.Answers) != 3 {
+		t.Fatalf("review = %+v ok = %v", review, ok)
+	}
+	questions := Questions(reviewNoTabRow, nil)
+	if len(questions) != 3 || !review.Done(questions) {
+		t.Fatalf("questions = %+v, done = %v; want all three answered", questions, review.Done(questions))
+	}
+	if questions[2].Answer != "Pilot 300 turns first (Recommended)" {
+		t.Errorf("question 3 answer = %q", questions[2].Answer)
+	}
+}
+
+func TestAClippedReviewPageNeedsItsChoicesAtTheFoot(t *testing.T) {
+	prose := "   → Deploy search\nI asked: Ready to submit your answers?\n\n❯ 1. Submit answers\n  2. Cancel\n\nmore output\n"
+	if _, ok := ParseReview(prose); ok {
+		t.Error("prose quoting the review page read as one")
+	}
+}

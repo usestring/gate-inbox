@@ -222,6 +222,13 @@ func childDialogBody(sess store.Session, pane string, saved ...string) (body, ke
 	if call.Async && len(call.Questions) > 0 {
 		return childAsyncMessage(sess, call), "a:" + call.ID, false
 	}
+	if review, ok := dialog.OnReview(pane); ok {
+		// Checked before the questions and the screens: its two numbered
+		// choices read as a dialog for the user, and the answers it lists were
+		// given already.
+		questions := dialog.Questions(pane, call.Questions)
+		return childReviewMessage(sess, review, questions), "r:" + textfmt.Fingerprint(fmt.Sprint(review.Answers)), false
+	}
 	if reading, ok := dialog.ReadQuestions(sess.Tool, pane, call.Questions); ok && len(reading.Questions) > 0 {
 		var id strings.Builder
 		for _, q := range reading.Questions {
@@ -399,6 +406,23 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 		fmt.Fprintf(&out, "\n\nEvery question has an answer and the dialog is waiting on its Submit page: "+
 			"answer_session on session %s with the answer \"Submit answers\" sends it.", sess.ID)
 	}
+	return out.String()
+}
+
+// childReviewMessage is a child standing on the review page its
+// several-question dialog ends on: Submit, which the parent presses itself.
+func childReviewMessage(sess store.Session, review dialog.Review, questions []dialog.Question) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "%s (session %s), which you spawned, is waiting on the review page of a dialog asking "+
+		"several questions. It lists these answers:\n\n", sess.Name, sess.ID)
+	if review.Clipped {
+		out.WriteString("  (the page is taller than the pane; its first answers have scrolled off)\n")
+	}
+	for _, answer := range review.Answers {
+		fmt.Fprintf(&out, "  - %s\n    -> %s\n", logging.ScrubWrapped(dialog.Readable(answer.Question)),
+			logging.ScrubWrapped(dialog.Readable(answer.Answer)))
+	}
+	out.WriteString("\n" + relayask.SubmitPage(sess.ID, review.Done(questions)))
 	return out.String()
 }
 

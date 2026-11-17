@@ -165,6 +165,19 @@ func (s *Sessions) answerAll(sessionID, targetID string, answers []QuestionAnswe
 		// question dialog; one answer there gets the same refusal.
 		return runtime.answer(target, answers[0].reply(), "parent", caller.ID, guard)
 	}
+	if review, onReview := dialog.OnReview(raw); onReview {
+		// Every question is behind the dialog: its answers were keyed, and
+		// relayed, by an earlier call. What is left is Submit, and nothing new
+		// of the user's is keyed, so no new answer of theirs is wanted.
+		answered, err := answersOnReview(pane, questions, answers, review, submit)
+		answered.SessionID, answered.Name = target.ID, target.Name
+		if err != nil {
+			return answered, fmt.Errorf("session %s: %w", target.ID, err)
+		}
+		logging.Info("parent submitted a child's review page",
+			"parent", caller.ID, "session", target.ID, "submitted", answered.Submitted)
+		return answered, nil
+	}
 	answers = onScreen(questions, answers)
 	planned := make([]plannedAnswer, 0, len(answers))
 	for _, answer := range answers {
@@ -295,7 +308,7 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 	if err != nil {
 		return result, err
 	}
-	_, tabbed := dialog.ParseStepper(raw)
+	initial, tabbed := dialog.ParseStepper(raw)
 	for _, step := range plan {
 		if tabbed {
 			if raw, err = navigateTo(pane, step.index); err != nil {
@@ -324,16 +337,26 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 			return finish(pane, result, nil)
 		}
 		// Recorded only once its tab ticks, so a batch that stops here does not
-		// report an answer the dialog never took.
+		// report an answer the dialog never took. The last answer moves the
+		// dialog to its review page, and a page taller than the pane scrolls
+		// the tab row off: there the page listing this answer is the proof.
 		if raw, err = waitFor(pane, func(raw string) bool {
 			stepper, ok := dialog.ParseStepper(raw)
-			return ok && step.index < len(stepper.Steps) && stepper.Steps[step.index].Answered
+			if ok {
+				return step.index < len(stepper.Steps) && stepper.Steps[step.index].Answered
+			}
+			review, onReview := dialog.OnReview(raw)
+			_, listed := registered(review.Answers, filled)
+			return onReview && listed
 		}); err != nil {
 			return finish(pane, result, fmt.Errorf("question %d was keyed but its tab never ticked: %w", step.index+1, err))
 		}
 		result.Answers = append(result.Answers, filled)
 	}
-	stepper, _ := dialog.ParseStepper(raw)
+	stepper, stillTabbed := dialog.ParseStepper(raw)
+	if _, onReview := dialog.OnReview(raw); !stillTabbed && onReview {
+		return fromReview(pane, result, initial, submit)
+	}
 	switch {
 	case submit && stepper.AllAnswered():
 		if err := submitDialog(pane, len(stepper.Steps), result.Answers); err != nil {
@@ -354,6 +377,100 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 	}
 	result.Verified = true
 	return finish(pane, result, nil)
+}
+
+// fromReview ends a batch whose last answer left the dialog on a review page
+// taller than the pane, its tab row scrolled off. Which questions have
+// answers is what the tab row said before the first key plus what this batch
+// keyed; with all of them answered and submit set, the page is checked and
+// Submit pressed, and otherwise the page is checked and left standing.
+func fromReview(pane dialogPane, result AnsweredQuestion, initial dialog.Stepper, submit bool) (AnsweredQuestion, error) {
+	answered := make([]bool, len(result.Questions))
+	for i, step := range initial.Steps {
+		if i < len(answered) {
+			answered[i] = step.Answered
+		}
+	}
+	for _, filled := range result.Answers {
+		answered[filled.Index-1] = true
+	}
+	all := !slices.Contains(answered, false)
+	var err error
+	if submit && all {
+		if err = submitDialog(pane, len(result.Questions), result.Answers); err == nil {
+			result.Submitted = true
+		}
+	} else {
+		_, err = checkReview(pane, len(result.Questions), result.Answers)
+	}
+	if err != nil {
+		return finish(pane, result, err)
+	}
+	result.Verified = true
+	return finish(pane, result, nil)
+}
+
+// answersOnReview settles a call made while the dialog stands on its review
+// page: typically the same answers sent again after a call whose last answer
+// brought the page up but could not see it. An answer the page already lists
+// is checked against it and not keyed again; "Submit answers" on its own just
+// submits. An answer the page lists differently is refused with nothing
+// keyed: the page holds no question to change. With submit set and every
+// question answered, Submit is pressed and the answers read back.
+func answersOnReview(pane dialogPane, questions []dialog.Question, answers []QuestionAnswer, review dialog.Review, submit bool) (AnsweredQuestion, error) {
+	result := AnsweredQuestion{Questions: questions, Question: "Review your answers"}
+	var filled []FilledAnswer
+	if !(len(answers) == 1 && strings.TrimSpace(answers[0].Question) == "" && submitWord(answers[0].reply())) {
+		for _, answer := range answers {
+			index, err := dialog.Resolve(questions, answer.Question)
+			if err != nil {
+				return result, fmt.Errorf("the dialog is on its review page, past its questions: %w", err)
+			}
+			question := questions[index]
+			want := answer.reply()
+			if len(answer.Ticks) > 0 {
+				want = strings.Join(inOptionOrder(question, answer.Ticks), ", ")
+			}
+			entry := FilledAnswer{Index: index + 1, Header: question.Header, Answer: want, question: question.Question}
+			got, found := registered(review.Answers, entry)
+			switch {
+			case !found && review.Clipped && question.Answered:
+				// Scrolled off above the part of the page still showing.
+				continue
+			case !found:
+				return result, fmt.Errorf("the dialog is on its review page and lists no answer for question %d, "+
+					"so nothing was keyed; read_session shows the page", index+1)
+			case !dialog.SameText(got, want):
+				return result, fmt.Errorf("the dialog is on its review page with question %d answered %q, not %q, "+
+					"so nothing was keyed or submitted", index+1, dialog.Readable(got), want)
+			}
+			filled = append(filled, entry)
+		}
+	}
+	result.Answers = filled
+	if !submit {
+		result.Verified = true
+		return finish(pane, result, nil)
+	}
+	if !review.Done(questions) {
+		return finish(pane, result, errors.New("the review page shows a question with no answer yet, so it was not "+
+			"submitted; read_session shows which"))
+	}
+	if err := submitDialog(pane, len(questions), filled); err != nil {
+		return finish(pane, result, err)
+	}
+	result.Submitted, result.Verified = true, true
+	result.Answer, result.Selected = "Submit answers", "Submit answers"
+	return finish(pane, result, nil)
+}
+
+// submitWord is an answer naming the review page's Submit choice.
+func submitWord(reply string) bool {
+	switch strings.ToLower(strings.Join(strings.Fields(reply), " ")) {
+	case "submit", "submit answers":
+		return true
+	}
+	return false
 }
 
 // finish fills in what the dialog looks like now, so a caller whose batch
@@ -508,17 +625,32 @@ var readbackTimeout = 10 * time.Second
 // readback for a several-question dialog: what the page lists is what Submit
 // sends.
 func checkReview(pane dialogPane, submitTab int, filled []FilledAnswer) (dialog.Review, error) {
-	raw, err := navigateTo(pane, submitTab)
+	raw, err := pane.Capture()
 	if err != nil {
 		return dialog.Review{}, err
+	}
+	// Already on a review page whose tab row scrolled off: there is no row to
+	// navigate by, and no need to.
+	_, tabbed := dialog.ParseStepper(raw)
+	if _, onReview := dialog.OnReview(raw); tabbed || !onReview {
+		if raw, err = navigateTo(pane, submitTab); err != nil {
+			return dialog.Review{}, err
+		}
 	}
 	review, ok := dialog.ParseReview(ansi.Strip(raw))
 	if !ok {
 		return review, fmt.Errorf("%w: the Submit tab is not showing its review page, so the answers "+
 			"could not be read back", errDialogMoved)
 	}
-	for _, answer := range filled {
+	for i, answer := range filled {
 		got, found := registered(review.Answers, answer)
+		if !found && review.Clipped && i < len(filled)-1 {
+			// Scrolled off the top of a page taller than the pane. Its tab
+			// ticked before the next question was keyed, which is the proof
+			// it took; the last answer, the one that brought this page up,
+			// is drawn at its foot and is always checked.
+			continue
+		}
 		if !found {
 			return review, fmt.Errorf("question %d was answered %q, but the review page lists no answer "+
 				"for it, so it cannot be confirmed and nothing was submitted", answer.Index, answer.want())
@@ -553,8 +685,9 @@ func submitDialog(pane dialogPane, submitTab int, filled []FilledAnswer) error {
 		return err
 	}
 	if _, err := waitFor(pane, func(raw string) bool {
-		_, still := dialog.ParseStepper(raw)
-		return !still
+		_, tabbed := dialog.ParseStepper(raw)
+		_, onReview := dialog.OnReview(raw)
+		return !tabbed && !onReview
 	}); err != nil {
 		return errors.New("Submit was pressed but the dialog is still standing")
 	}

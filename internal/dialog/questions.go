@@ -62,8 +62,13 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 	}
 	stepper, tabbed := ParseStepper(pane)
 	count := 1
-	if tabbed {
+	switch {
+	case tabbed:
 		count = len(stepper.Steps)
+	case isReview && !isDialog:
+		// A review page taller than the pane has scrolled its tab row off, so
+		// the call says how many questions there are, else the page itself.
+		count = max(len(asked), len(review.Answers), 1)
 	}
 	if isDialog && !callShows(asked, held, stepper, tabbed) {
 		asked = nil
@@ -91,10 +96,14 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 			out[i].Answered = stepper.Steps[i].Answered
 		}
 		for _, answer := range review.Answers {
-			if out[i].Question != "" && SameText(answer.Question, out[i].Question) {
+			if out[i].Question != "" && (SameText(answer.Question, out[i].Question) ||
+				!tabbed && SameQuestion(answer.Question, out[i].Question)) {
 				out[i].Answer, out[i].Answered = Readable(answer.Answer), true
 			}
 		}
+	}
+	if isReview && !tabbed && !isDialog {
+		reviewOnly(out, review)
 	}
 	if !isDialog {
 		return out
@@ -329,4 +338,55 @@ func RenderQuestions(questions []Question) string {
 		}
 	}
 	return out.String()
+}
+
+// reviewOnly fills in what a review page with no tab row says about out. With
+// no call to name the questions, the page's own rows are the questions. On a
+// clipped page every question above the first one it still shows scrolled
+// off answered: the page lists only answered questions, in order, and its
+// warning that one is missing is drawn above them, out of sight too.
+func reviewOnly(out []Question, review Review) {
+	if len(out) == len(review.Answers) {
+		for i, answer := range review.Answers {
+			if out[i].Question == "" {
+				out[i].Question, out[i].Answer, out[i].Answered = answer.Question, Readable(answer.Answer), true
+			}
+		}
+	}
+	if !review.Clipped {
+		return
+	}
+	first := slices.IndexFunc(out, func(q Question) bool { return q.Answered })
+	for i := 0; i < first; i++ {
+		out[i].Answered = true
+	}
+}
+
+// OnReview reads the review page a several-question dialog ends on off pane,
+// raw or stripped: ok only when that page is what the pane holds, with no
+// question dialog drawn over it.
+func OnReview(pane string) (Review, bool) {
+	plain := ansi.Strip(pane)
+	if _, isDialog := Inspect(plain); isDialog {
+		return Review{}, false
+	}
+	return ParseReview(plain)
+}
+
+// Done reports whether the page is ready to send: it shows no warning, it
+// lists at least one answer, and every one of questions -- what Questions
+// read off the same pane -- has an answer.
+func (r Review) Done(questions []Question) bool {
+	if !r.Complete || len(r.Answers) == 0 {
+		return false
+	}
+	if len(questions) == 0 {
+		return true
+	}
+	for _, q := range questions {
+		if !q.Answered {
+			return false
+		}
+	}
+	return true
 }

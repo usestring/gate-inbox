@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // A withheld variable the tmux server holds reaches neither the agent nor
@@ -29,7 +31,7 @@ func TestAWithheldVariableReachesNoProcessInThePane(t *testing.T) {
 	// tmux hands the window command to its default shell, from an environment
 	// fixed when the server started.
 	cmd := exec.Command("/bin/sh", "-c", window)
-	cmd.Env = append(os.Environ(), "GI_TEST_KEY=server-value")
+	cmd.Env = append(tmuxtest.Environ(), "GI_TEST_KEY=server-value")
 	if raw, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%s: %v\n%s", window, err, raw)
 	}

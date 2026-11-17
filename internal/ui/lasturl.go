@@ -23,7 +23,7 @@ var captureForLastURL = func(m *Model, id string) (string, error) {
 // lastURL is the newest http(s) link in text, with the punctuation that
 // closes the sentence or the bracket around it trimmed off.
 func lastURL(text string) string {
-	matches := urlPattern.FindAllString(text, -1)
+	matches := urlPattern.FindAllString(strings.ReplaceAll(text, "](", "] ("), -1)
 	for i := len(matches) - 1; i >= 0; i-- {
 		// "https://." trims to a bare scheme, which is no link at all.
 		if url := trimURL(matches[i]); !strings.HasSuffix(url, "://") {

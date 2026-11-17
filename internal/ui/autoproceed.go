@@ -208,7 +208,7 @@ func (m *Model) handOverOnWork(before string) tea.Cmd {
 		pending.observed.decided = "poll"
 		recordLanding(pending, "seen")
 		m.noteSubmission(pending.sess)
-		m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog, pending.armed)
+		m.noteOperator(pending.sess, pending.via, pending.text, pending.writing, pending.probe.dialog, pending.armed)
 	}
 	m.dropLanding(sess.ID)
 	return m.handOverFocused(sess)
@@ -238,7 +238,7 @@ func (m *Model) handOverOnIdle(now time.Time) tea.Cmd {
 	}
 	next := -1
 	for i, row := range m.rows {
-		if !m.triageHandable(row, current.ID, nil) || !m.needsPerson(row.sess) {
+		if !m.triageHandable(row, current.ID, nil) || !m.needsPerson(row.sess) || !m.inTriageContent(row.sess) {
 			continue
 		}
 		if next < 0 || m.triageLess(row.sess, m.rows[next].sess) {

@@ -306,7 +306,11 @@ rules = [
   # "✳ Drizzling… (6s · thinking)" / "✽ Zigzagging… (3m 18s · ↓ 1.4k tokens)"
   { state = "working", pattern = "(?m)^[✻✳✶✽✢·✦✧+*] \\S+… \\(" },
   { state = "working", pattern = "esc to interrupt" },
-  { state = "errored", pattern = "(?im)^\\s*error:" },
+  # A fatal error the CLI prints itself starts at column zero. Claude indents
+  # everything it draws, tool output included, so an indented "error:" is a
+  # command's output ("     error: failed to push some refs"), not the agent
+  # failing.
+  { state = "errored", pattern = "(?im)^error:" },
 ]
 
 [tools.opencode]

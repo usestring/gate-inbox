@@ -439,7 +439,7 @@ func TestDefaultsCarryQuickReplies(t *testing.T) {
 	for _, want := range []string{
 		"yes",
 		"continue",
-		"I'm confused, explain like I'm 5",
+		"tldr explain simply",
 	} {
 		if !texts[want] {
 			t.Errorf("defaults have no %q", want)

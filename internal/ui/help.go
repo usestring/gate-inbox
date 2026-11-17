@@ -274,7 +274,7 @@ func (m *Model) helpCatalog() []helpSection {
 	}
 	catalog = append(catalog, helpSections()...)
 	catalog = append(catalog, m.extensionHelpSections()...)
-	return append(catalog, m.snippetHelpSection())
+	return append(catalog, m.snippetHelpSection(), m.launchSnippetHelpSection())
 }
 
 // SetExtensionNotes hands the board what configuring its extensions came
@@ -376,6 +376,9 @@ func legendGlyph(key string) string {
 // the rows that carry one. A pull request or ticket glyph names no status,
 // so it falls through to the accent.
 func legendMarkStatus(key string) (string, bool) {
+	if key == "◒ "+statusLabel(status.Background) {
+		return status.Background, true
+	}
 	fields := strings.Fields(key)
 	if len(fields) == 0 {
 		return "", false
@@ -395,6 +398,8 @@ func legendMarkStatus(key string) (string, bool) {
 		return status.Background, true
 	case status.Pending:
 		return status.Pending, true
+	case status.Hibernating:
+		return status.Hibernating, true
 	case status.Errored:
 		return status.Errored, true
 	case status.Starting:

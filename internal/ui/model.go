@@ -716,6 +716,8 @@ type Model struct {
 	// done; see mute.go for why it is memory of the pass rather than state
 	// on the session.
 	muted map[string]muteMark
+	// Skipping postpones work until the rest of the queue has been offered.
+	triageDeferred []string
 	// deaf holds the sessions whose panes were found ignoring input, and
 	// focusDeaf counts the run of no-repaint keystrokes in the focused one
 	// that gets a session there. focusDeafID is which session that run

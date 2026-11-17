@@ -266,10 +266,7 @@ func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 		t.Fatalf("queue = %v want %v", got, want)
 	}
 
-	// Starting from the middle proves the queue wraps to waiting sessions
-	// before handing over errors. It never comes round a second time -- each
-	// hop mutes the session it leaves, so the walk ends when the queue is drained rather
-	// than cycling over work already done. See mute.go.
+	// Starting from the middle still offers the unanswered question first.
 	m.enterFocusOn(t, "done")
 	for _, want := range []string{"ask", "broke"} {
 		updated, _ := m.handleFocusKey(ctrlQ())
@@ -283,8 +280,8 @@ func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 	}
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("the queue came round again to %q", focusedName(t, m))
+	if m.mode != modeFocus || focusedName(t, m) != "done" {
+		t.Fatalf("the skipped finish did not return: mode %v", m.mode)
 	}
 }
 
@@ -376,8 +373,8 @@ func TestTriageDrainCarriesOnIntoIdleSessions(t *testing.T) {
 	}
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("the idle pass came round again to %q", focusedName(t, m))
+	if m.mode != modeFocus || focusedName(t, m) != "ask" {
+		t.Fatalf("the skipped question did not return after the idle pass: mode %v", m.mode)
 	}
 }
 
@@ -730,7 +727,8 @@ func TestTriageDrainHandsOverIdleBeforeErrored(t *testing.T) {
 		}
 	}
 	updated, _ := m.handleFocusKey(ctrlQ())
-	if got := updated.(*Model).mode; got != modeList {
-		t.Fatalf("drained queue left the operator in mode %v", got)
+	m = updated.(*Model)
+	if m.mode != modeFocus || focusedName(t, m) != "ask" {
+		t.Fatalf("the skipped question did not return after the errored session: mode %v", m.mode)
 	}
 }

@@ -125,8 +125,9 @@ priority goes ahead of a lower one, and within one priority a question goes ahea
 session, which goes ahead of an idle one. Sessions still working wait below everything ready for
 you. Picking an option in a dialog, or sending a reply, hands that session back to its agent and
 advances the queue to the next one. A session that becomes ready while you work joins the queue in
-place, and when the group is empty the queue widens to the rest of the board. `ctrl+q` skips one
-without answering, and `ctrl+\` stops. `alt+\` puts the list away for full-width work, and `alt+,`
+place, and when the group is empty the queue widens to the rest of the board. `ctrl+q` moves a
+session to the back without answering; it returns after the rest of the queue. Restarting triage
+clears that order. `ctrl+\` stops. `alt+\` puts the list away for full-width work, and `alt+,`
 hides the key hints. `triage order` in Settings switches to priority first, oldest first, or
 questions only; [`docs/usage.md`](docs/usage.md#walking-the-queue) has the full ordering.
 

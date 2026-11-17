@@ -640,13 +640,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.triageResume = false
 			return m, m.leaveFocus()
 		}
-		// Handing the session over is the operator saying they are done with
-		// it. Muting it rather than skipping it for one hop is what makes the
-		// queue converge: the status it is left showing lags a poll behind
-		// whatever was just typed into it, so a plain skip only defers the
-		// return by one session. See mute.go.
 		if onRow {
-			return m, m.handOverFocused(sess)
+			m.deferTriageSession(sess.ID)
+			return m, m.moveOnFrom(sess)
 		}
 		return m, tea.Batch(m.leaveFocus(), m.advanceTriage(leftID))
 	}

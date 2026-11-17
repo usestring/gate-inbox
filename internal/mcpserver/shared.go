@@ -104,7 +104,15 @@ func (s *sharedServer) handler() http.Handler {
 			http.Error(w, "nonce too long", http.StatusBadRequest)
 			return
 		}
-		proof, err := parentseal.ServerProof(s.configDir, nonce)
+		// A session names itself when it cannot read the key, only its own
+		// token (mcpshared.HealthyFor), and gets the proof keyed by that.
+		var proof string
+		var err error
+		if session := r.URL.Query().Get("session"); session != "" {
+			proof, err = parentseal.ServerProofForSession(s.configDir, session, nonce)
+		} else {
+			proof, err = parentseal.ServerProof(s.configDir, nonce)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

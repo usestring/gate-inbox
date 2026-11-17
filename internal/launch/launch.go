@@ -24,7 +24,6 @@ import (
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
-	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/piext"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
@@ -737,7 +736,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return "", nil, err
 	}
 	if tool.StatusSource == hooks.StatusSourcePi {
-		return withPiExtension(manager, command, env, id, write)
+		return withPiExtension(manager, command, env, id, write, piAutoModeWanted(tool))
 	}
 	if tool.StatusSource != hooks.StatusSourceClaude {
 		return command, env, nil
@@ -770,7 +769,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 // extension is written under the hooks dir with a content-stamped name, so
 // this build's launch loads this build's extension and never one an older
 // build left there; nothing is written to ~/.pi.
-func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id string, write bool) (string, map[string]string, error) {
+func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id string, write, autoMode bool) (string, map[string]string, error) {
 	path := piext.Path(manager.Dir())
 	if write {
 		var err error
@@ -784,12 +783,36 @@ func withPiExtension(manager *hooks.Manager, command string, env map[string]stri
 	// is its model's to read, including the copy the tmux server holds from
 	// the operator's environment; withheld, it reaches no process there.
 	env[jev.KeyEnv] = tmux.Withheld
-	if write && id != "" {
-		// The extension's hook asks auto mode (package piauto) on the board's
-		// shared server, proving its session with the caller token, whose key
-		// a board with no Claude session yet has not minted. Without it auto
-		// mode only asks, so a failure here is not a failed launch.
-		_, _ = parentseal.CallerToken(manager.ConfigDir(), id)
+	if write && id != "" && autoMode {
+		writeAutoModeConfig(manager.ConfigDir(), id)
 	}
 	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
+}
+
+// piAutoModeWanted reports whether a pi tool's config leaves auto mode on;
+// the board setting is read on each call, on the server's side.
+func piAutoModeWanted(tool config.Tool) bool {
+	return !strings.EqualFold(strings.TrimSpace(tool.AutoMode), "off")
+}
+
+// writeAutoModeConfig gives a pi session the token its hook proves itself
+// with when it asks auto mode (package piauto) on the board's shared server.
+// The token goes into the session's own MCP config in the key dir, the same
+// file a shared_mcp launch writes and the one key-dir file a confined
+// session can still read (package keyconfine), so auto mode works with
+// shared_mcp off and under confinement. Only a running server that proves
+// it is the board's gets one: the board keeps it up while a pi tool has
+// auto mode on. Without it auto mode only asks, so a failure here is not a
+// failed launch, and an existing config (a shared_mcp launch's) is kept.
+func writeAutoModeConfig(configDir, id string) {
+	if _, err := os.Stat(mcpshared.ClaudeConfigPath(configDir, id)); err == nil {
+		return
+	}
+	url := mcpshared.URL(configDir)
+	if !mcpshared.Healthy(configDir, url) {
+		return
+	}
+	if _, err := mcpshared.WriteClaudeConfig(configDir, url, "", id); err != nil {
+		logging.Warn("pi auto mode: could not write the session's server config", logging.Err(err))
+	}
 }

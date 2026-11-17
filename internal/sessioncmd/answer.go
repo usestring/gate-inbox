@@ -192,6 +192,7 @@ func answerGuarded(pane dialogPane, raw string, held dialog.Dialog, reply string
 			return AnsweredQuestion{}, err
 		}
 	}
+	pane = guard.watch(pane)
 	answered, err := answerHeld(pane, raw, held, reply)
 	err = guard.settle(pane, &answered, err, func() (AnsweredQuestion, error) { return rekeyHeld(pane, reply) })
 	guard.finish(err)

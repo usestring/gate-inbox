@@ -171,16 +171,34 @@ func TestThePreviewCardReadsTheDialogOffThePane(t *testing.T) {
 	}
 }
 
-// A dialog asking one question, and one whose call the transcript does not
-// hold, draw the preview they drew before: nothing is added to it.
-func TestThePreviewIsUnchangedWithoutASeveralQuestionCall(t *testing.T) {
+func TestClaudeSingleQuestionPreviewUsesTheLivePane(t *testing.T) {
+	m := questionPreview(t, "claude-2.1.284-w50-prose-single.ansi", nil)
+	pane := m.preview
+	preview := func() string { return strippedRows(m.conversationRows(50, 20)) }
+	text := preview()
+	for _, want := range []string{"1 question", "Which rollout path should I take?", "1. Hold for staged UI", "2. Only region #4021", "3. Do both"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("preview does not show %q:\n%s", want, text)
+		}
+	}
+	for _, unwanted := range []string{"until the rework ships", "Type something", "Chat about this"} {
+		if strings.Contains(text, unwanted) {
+			t.Errorf("preview includes %q from outside the question's choices:\n%s", unwanted, text)
+		}
+	}
+
+	sess, _ := m.selected()
+	_, _ = m.Update(previewMsg{sessID: sess.ID, preview: pane + "\n❯ "})
+	if text := preview(); strings.Contains(text, "Which rollout path should I take?") {
+		t.Errorf("preview still shows a question after Claude returned to its input line:\n%s", text)
+	}
+}
+
+// A several-question dialog still needs the call behind it to draw its card.
+func TestThePreviewIsUnchangedWithoutAMatchingSeveralQuestionCall(t *testing.T) {
 	baseline := strippedRows(questionPreview(t, "claude-2.1.283-tabs-w50-second.ansi", nil).conversationRows(50, 40))
 	if strings.Contains(baseline, "questions ·") {
 		t.Fatalf("a preview with no call read drew a card:\n%s", baseline)
-	}
-	single := questionPreview(t, "claude-2.1.284-w50-prose-single.ansi", pendingFixture(t, "claude-ask-two-questions.jsonl"))
-	if got := strippedRows(single.conversationRows(50, 40)); got != baseline {
-		t.Errorf("a single-question dialog changed the preview:\n%s\nwant\n%s", got, baseline)
 	}
 	short := questionPreview(t, "claude-2.1.283-tabs-w50-second.ansi", pendingFixture(t, "claude-ask-two-questions.jsonl"))
 	if got := strippedRows(short.conversationRows(50, 40)); got != baseline {

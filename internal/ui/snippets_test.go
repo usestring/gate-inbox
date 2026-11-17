@@ -524,9 +524,7 @@ func TestSectionSnippetFromTheListSendsToTheCursorRow(t *testing.T) {
 	waitForPaneText(t, m, sess.ID, "summarise it")
 }
 
-// The leader toggles the focused menu back off: there is no typing it, so
-// the same key is the way out besides esc.
-func TestLeaderTogglesTheFocusedMenuClosed(t *testing.T) {
+func TestLeaderSwitchesTheFocusedMenuToLaunches(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
@@ -540,11 +538,11 @@ func TestLeaderTogglesTheFocusedMenuClosed(t *testing.T) {
 	}
 	updated, _ = m.handleFocusKey(menuTrigger())
 	m = updated.(*Model)
-	if m.quick.active {
-		t.Fatal("the leader did not close the menu it opened")
+	if !m.quick.active || !m.quick.launch {
+		t.Fatal("the second leader did not switch to launch snippets")
 	}
 	if m.mode != modeFocus {
-		t.Fatalf("closing the menu left the session, mode %v", m.mode)
+		t.Fatalf("switching categories left the session, mode %v", m.mode)
 	}
 }
 

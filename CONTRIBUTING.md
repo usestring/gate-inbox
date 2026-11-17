@@ -31,17 +31,19 @@ only, with the full suites left to CI.
 
 ### Pre-push tests
 
-Enable the repository's hook once per clone (including when working in a submodule):
+The hook is optional. Agents should keep using focused package tests rather than enable it:
 
 ```bash
+# Optional local short checks; agents should use focused package tests.
 git config --local core.hooksPath .githooks
 ```
 
-Every push runs the full Go suite without cached results or `-short`, including E2E tests,
+When enabled, each push runs Go tests with `-short` and native result caching,
 through the tmux isolation check. It then runs every `scripts/*.test.sh` suite. A failed command
 blocks the push. Tests that need
 live accounts, transcripts or other opt-in fixtures still require their documented environment
-variables; the hook does not enable them automatically. Run `.githooks/pre-push` to check locally.
+variables; the hook does not enable them automatically. It runs one Go package at a time and
+defaults GOMAXPROCS to 2. CI retains the full uncached E2E suite. Run `.githooks/pre-push` to check locally.
 
 ### Tests and your live tmux server
 

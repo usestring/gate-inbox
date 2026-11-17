@@ -35,10 +35,9 @@ const workTickInterval = 30 * time.Second
 
 type workTickMsg struct{}
 
-// workLoadedMsg carries no payload. The tracker is the state and it is
-// concurrency-safe, so the message exists to draw the next frame, not to
-// hand results back through the event loop.
-type workLoadedMsg struct{}
+// The tracker is concurrency-safe; only review persistence failures need
+// to travel back to the event loop with the redraw.
+type workLoadedMsg struct{ reviewsErr error }
 
 // newWorkTracker is the tracker the board runs: real git, gh and Linear as
 // far as the config switches them on, the operator's settle window, and the
@@ -123,6 +122,7 @@ func (m *Model) refreshWork() tea.Cmd {
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].visible && !rows[j].visible })
 	tracker, driver, stor, history := m.work, m.tmux, m.store, m.history
+	reviews := m.reviewQueue
 
 	return func() tea.Msg {
 		var live []string
@@ -146,7 +146,11 @@ func (m *Model) refreshWork() tea.Cmd {
 			sessions = append(sessions, tracked)
 		}
 		tracker.Refresh(sessions)
-		return workLoadedMsg{}
+		var err error
+		if reviews && stor != nil {
+			err = queueSessionReviews(stor, tracker, sessions, time.Now())
+		}
+		return workLoadedMsg{reviewsErr: err}
 	}
 }
 

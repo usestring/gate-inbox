@@ -108,7 +108,7 @@ func (m *Model) displayStatusLabel(sess store.Session) string {
 	if label, _ := m.claudeAuthNotice(sess); label != "" {
 		return label
 	}
-	return statusLabel(sess.Status)
+	return statusLabel(m.shownStatus(sess))
 }
 
 // displayStatusGlyph is the mark beside that label. A muted row takes the
@@ -118,7 +118,7 @@ func (m *Model) displayStatusGlyph(sess store.Session) string {
 	if sess.Muted {
 		return mutedGlyph()
 	}
-	return statusGlyph(sess.Status)
+	return statusGlyph(m.shownStatus(sess))
 }
 
 // displayStatusText tints the label: subtle for a mute, which is a queue
@@ -127,5 +127,5 @@ func (m *Model) displayStatusText(sess store.Session, text string) string {
 	if sess.Muted {
 		return subtleText(text)
 	}
-	return statusTint(sess.Status, text)
+	return statusTint(m.shownStatus(sess), text)
 }

@@ -27,8 +27,8 @@ func TestAnExtensionRanksASessionBetweenWaitingAndErrored(t *testing.T) {
 		}
 		return joined(ids)
 	}
-	if got := order(); got != "ask,run,err" {
-		t.Fatalf("triage order = %s before any claim, want the errored session last", got)
+	if got := order(); got != "ask,err,run" {
+		t.Fatalf("triage order = %s before any claim, want the working session last", got)
 	}
 	bridge.Attention("batch", "run", Attention{NeedsPerson: true, Rank: AttentionBlocked})
 	m.Update(extensionBadgesMsg{})
@@ -38,8 +38,8 @@ func TestAnExtensionRanksASessionBetweenWaitingAndErrored(t *testing.T) {
 	// A rank alone does not make a working session walkable.
 	bridge.Attention("batch", "run", Attention{Rank: AttentionBlocked})
 	m.Update(extensionBadgesMsg{})
-	if got := order(); got != "ask,run,err" {
-		t.Fatalf("triage order = %s, want the errored session last even without a NeedsPerson claim", got)
+	if got := order(); got != "ask,err,run" {
+		t.Fatalf("triage order = %s, want the working session back under the errored one without a NeedsPerson claim", got)
 	}
 	bridge.Attention("batch", "run", Attention{})
 	m.Update(extensionBadgesMsg{})

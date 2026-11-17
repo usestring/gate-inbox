@@ -1,6 +1,19 @@
 # A skipped question returns after the other eligible work, without a reset.
-# Run with --no-seed --foreign waiting --foreign finished.
-Sleep 12s
+# Run with --no-seed; both sessions replay the waiting Claude fixture.
+Ctrl+n
+Sleep 1500ms
+Type "claude"
+Sleep 800ms
+Enter
+Sleep 8s
+Ctrl+\
+Sleep 2s
+Ctrl+n
+Sleep 1500ms
+Type "claude"
+Sleep 800ms
+Enter
+Sleep 8s
 Ctrl+\
 Sleep 1s
 Type "i"

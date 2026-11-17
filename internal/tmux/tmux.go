@@ -574,7 +574,7 @@ func (d *Driver) Create(id, cwd, command string, env map[string]string, width, h
 			d.paneThemePush.Unlock()
 			return err
 		}
-		args = append(args, withheld(env)+shell.runScript(scriptPath))
+		args = append(args, withholding(env, shell.runScript(scriptPath)))
 	}
 	args = append(args, trailingTheme...)
 	_, runErr := d.run(args...)
@@ -647,10 +647,12 @@ const (
 // as well as unset in the script, after any startup file that set it again.
 const Withheld = "\x00withheld"
 
-// withheld is the prefix that starts the pane's first process without the
-// withheld variables, or "" when there are none. It execs, so the shell tmux
-// runs the window command under does not stay behind holding them.
-func withheld(env map[string]string) string {
+// withholding is command started without the withheld variables, or command
+// itself when there are none. It execs, so the shell tmux runs the window
+// command under does not stay behind holding them. A command that already
+// execs has that exec dropped: env runs programs, not shell builtins, and
+// would fail on a literal exec with 127.
+func withholding(env map[string]string, command string) string {
 	var keys []string
 	for key, value := range env {
 		if value == Withheld {
@@ -658,14 +660,14 @@ func withheld(env map[string]string) string {
 		}
 	}
 	if len(keys) == 0 {
-		return ""
+		return command
 	}
 	sort.Strings(keys)
 	prefix := "exec env"
 	for _, key := range keys {
 		prefix += " -u " + ShellQuote(key)
 	}
-	return prefix + " "
+	return prefix + " " + strings.TrimPrefix(command, "exec ")
 }
 
 // filterMallocNoise runs command with its stderr through a filter dropping

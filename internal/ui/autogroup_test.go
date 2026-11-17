@@ -194,6 +194,32 @@ func TestAutoGroupDoesNotRecreateAChangedExistingGroup(t *testing.T) {
 	}
 }
 
+func TestAutoGroupRejectsARenamedPeer(t *testing.T) {
+	m := buildModel(t)
+	m.autoGroupOn = true
+	sess := store.Session{ID: "primary", Name: "login-tests", Tool: "claude"}
+	peer := store.Session{ID: "peer", Name: "login", Tool: "claude"}
+	for _, row := range []store.Session{sess, peer} {
+		if err := m.store.CreateSession(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.store.RenameSession(peer.ID, "unrelated-task"); err != nil {
+		t.Fatal(err)
+	}
+	m.applyAutoGroup(autoGroupResultMsg{id: sess.ID, name: sess.Name, option: autoGroupOption{kind: autoGroupPeer, peer: peer}, ok: true})
+	for _, id := range []string{sess.ID, peer.ID} {
+		got, err := m.store.Get(id)
+		if err != nil || got.Group != "" {
+			t.Fatalf("session %s group = %q, err %v", id, got.Group, err)
+		}
+	}
+	groups, err := m.store.Groups()
+	if err != nil || len(groups) != 0 {
+		t.Fatalf("groups = %+v, err %v", groups, err)
+	}
+}
+
 func TestAutoGroupAsksOncePerName(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "first-name", t.TempDir(), "")

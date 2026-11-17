@@ -272,7 +272,7 @@ func (m *Model) applyAutoGroup(msg autoGroupResultMsg) {
 		dir = sess.Cwd
 	case autoGroupPeer:
 		peer, err := m.store.Get(option.peer.ID)
-		if err != nil || !m.autoGroupLoose(peer) || m.autoGroup.placed[peer.ID] {
+		if err != nil || !m.autoGroupLoose(peer) || m.autoGroup.placed[peer.ID] || peer.Name != option.peer.Name {
 			return
 		}
 		group = autoGroupName(peer.Name)

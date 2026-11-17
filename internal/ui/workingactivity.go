@@ -15,6 +15,14 @@ import (
 const workingActivitySetting = "working_activity"
 const activityScrollInterval = 200 * time.Millisecond
 
+const (
+	textScrollOff   = "off"
+	textScrollOn    = "on"
+	textScrollHover = "hover"
+)
+
+var textScrollModes = []string{textScrollOff, textScrollOn, textScrollHover}
+
 type workingActivity struct {
 	text  string
 	since time.Time
@@ -22,16 +30,23 @@ type workingActivity struct {
 
 type activityTickMsg struct{}
 
-func storedWorkingActivity(st *store.Store) bool {
-	chosen, err := st.Setting(workingActivitySetting)
-	return err == nil && chosen == "scroll"
+func storedWorkingActivity(st *store.Store) string {
+	chosen, _ := st.Setting(workingActivitySetting)
+	switch chosen {
+	case textScrollOff, textScrollOn, textScrollHover:
+		return chosen
+	case "scroll":
+		return textScrollOn
+	default:
+		return textScrollHover
+	}
 }
 
-func workingActivityLabel(on bool) string {
-	if on {
-		return "scroll"
+func workingActivityLabel(mode string) string {
+	if mode == textScrollHover {
+		return "on hover"
 	}
-	return "off"
+	return mode
 }
 
 func activityExcerpt(region string) string {
@@ -67,13 +82,31 @@ func (m *Model) updateWorkingActivity(texts map[string]string) {
 	m.workingActivities = updated
 }
 
-func (m *Model) rowWorkingActivity(entry treeRow) (workingActivity, bool) {
-	activity := m.workingActivities[entry.sess.ID]
-	return activity, m.workingScroll && entry.sess.Status == status.Working && activity.text != "" && !m.renamingRow(entry)
+func (m *Model) scrollsRow(id string) bool {
+	return m.textScroll == textScrollOn || m.textScroll == textScrollHover && m.activityHover == id
+}
+
+func (m *Model) updateActivityHover(x, y int) bool {
+	id := ""
+	if (m.mode == modeList || m.mode == modeFocus) && !m.quick.active &&
+		!m.split.resizeMode && !m.sel.dragging && !m.pending.active && !m.forwardingMouse {
+		id = m.railHit.sessionAt(x, y-m.listChromeRows())
+	}
+	if id == m.activityHover {
+		return false
+	}
+	m.activityHover, m.activityHoverSince = id, time.Now()
+	return true
+}
+
+func (m *Model) activityActive() bool {
+	return m.visible && (m.mode == modeList || m.mode == modeFocus) &&
+		!m.quick.active && (m.textScroll == textScrollOn && len(m.rows) > 0 ||
+		m.textScroll == textScrollHover && m.activityHover != "")
 }
 
 func (m *Model) startActivityTick() tea.Cmd {
-	if m.activityAnimating || !m.workingScroll || len(m.workingActivities) == 0 {
+	if m.activityAnimating || !m.activityActive() {
 		return nil
 	}
 	m.activityAnimating = true
@@ -93,8 +126,8 @@ func scrollActivity(text string, room int, elapsed time.Duration) string {
 		return text
 	}
 	const pauseSteps = 6
-	travel := width - room
-	step := int(max(elapsed, 0)/activityScrollInterval) % (travel + 2*pauseSteps)
-	offset := min(max(step-pauseSteps, 0), travel)
-	return ansi.Cut(text, offset, offset+room)
+	const gap = "   "
+	step := int(max(elapsed, 0)/activityScrollInterval) % (width + len(gap) + pauseSteps)
+	offset := max(step-pauseSteps, 0)
+	return ansi.Cut(text+gap+text, offset, offset+room)
 }

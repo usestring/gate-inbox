@@ -462,10 +462,10 @@ func (m *Model) sessionDetailLines(width int) []contentLine {
 	if !ok {
 		return nil
 	}
-	tool := sess.Tool
+	tool := shortToolName(sess.Tool)
 	if m.mode == modeRename && m.rename.sessID == sess.ID {
 		if picked := m.renameTool(); picked != "" {
-			tool = picked
+			tool = shortToolName(picked)
 		}
 	}
 	// A session on a chosen model wears it on the same chip as the CLI it
@@ -715,8 +715,10 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 	return lines
 }
 
-// entryHeight includes the optional activity line so the list window keeps
-// each session's details together when scrolling.
+// entryHeight is how many lines an entry paints: one in the compact list,
+// two once the comfortable density unstacks the meta onto its own line.
+// Groups match sessions either way, since a ragged list of one- and
+// two-line rows reads as gaps rather than as rhythm.
 func (m *Model) entryHeight(entry treeRow) int {
 	// An artifact has no second line to unstack: its state already rides
 	// beside it, and a blank line under every pull request would cost the
@@ -724,14 +726,10 @@ func (m *Model) entryHeight(entry treeRow) int {
 	if entry.isArtifact() || entry.isHead() {
 		return 1
 	}
-	height := 1
 	if m.stackedRows() {
-		height++
+		return 2
 	}
-	if _, ok := m.rowWorkingActivity(entry); ok {
-		height++
-	}
-	return height
+	return 1
 }
 
 // listAnchor names the rail's top entry by identity, so a row a poll adds or
@@ -997,14 +995,7 @@ func (m *Model) renderTreeRowContent(entry treeRow, selected bool, width, index 
 	if entry.isGroup {
 		return m.renderGroupEntry(entry, selected, width, pad, guides, trail, bg)
 	}
-	row := m.renderSessionEntry(entry, selected, width, pad, guides, trail, bg)
-	if activity, ok := m.rowWorkingActivity(entry); ok {
-		indent := metaIndent(pad, trail) + spaces(m.railFoldReserve())
-		room := width - textfmt.Width(indent) - 1
-		text := scrollActivity(activity.text, room, time.Since(activity.since))
-		row += "\n" + paint(indent+subtleText(text), width, bg)
-	}
-	return row
+	return m.renderSessionEntry(entry, selected, width, pad, guides, trail, bg)
 }
 
 // A shell takes a caret rather than an idle dot it would never leave, but
@@ -1161,7 +1152,7 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 		marks += " " + badge
 	}
 	state += marks
-	tool := metaText(" · " + sess.Tool)
+	tool := metaText(" · " + shortToolName(sess.Tool))
 	if m.rowMarks() {
 		// The tinted mark ahead of the name already says the state, so the
 		// word goes and the CLI is written as its letters. See rowdetail.go.
@@ -1313,8 +1304,19 @@ func (m *Model) summaryTag(sess store.Session, room int, style func(string) stri
 		return ""
 	}
 	text := m.sessionSummary(sess)
+	since := m.activitySince
+	if activity := m.workingActivities[sess.ID]; m.textScroll != textScrollOff &&
+		sess.Status == status.Working && activity.text != "" {
+		text, since = activity.text, activity.since
+	}
 	if text == "" {
 		return ""
+	}
+	if m.scrollsRow(sess.ID) {
+		if m.textScroll == textScrollHover && m.activityHoverSince.After(since) {
+			since = m.activityHoverSince
+		}
+		return "  " + style(scrollActivity(text, room-2, time.Since(since)))
 	}
 	return "  " + style(textfmt.TruncateWidth(text, room-2, "…"))
 }
@@ -1912,7 +1914,7 @@ func (m *Model) viewGroupAgents(group string, width, height int) string {
 		}
 		rows = append(rows, rosterRow{
 			name:  m.displayStatusText(sess, m.displayStatusGlyph(sess)) + " " + valueStyle.Render(m.displayName(sess)),
-			tool:  subtleText(sess.Tool),
+			tool:  subtleText(shortToolName(sess.Tool)),
 			state: m.displayStatusText(sess, m.displayStatusLabel(sess)) + subtleText(" · "+relSince(lastActivity(sess))),
 		})
 		shown++
@@ -2034,7 +2036,7 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 		state := m.displayStatusText(sess, m.displayStatusGlyph(sess)+" "+m.displayStatusLabel(sess))
 		target = fitColumns(
 			[]string{label("send") + lipgloss.NewStyle().Foreground(colorBright).Bold(true).Render(m.displayName(sess))},
-			[]string{state + " " + chipStyle.Render(sess.Tool), state, ""}, width)
+			[]string{state + " " + chipStyle.Render(shortToolName(sess.Tool)), state, ""}, width)
 	}
 	limit := min(maxRows, quickBarMaxRows)
 	if m.mode == modeFocus {

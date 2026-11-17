@@ -187,7 +187,7 @@ func (m *Model) openSettings() {
 		palette:              normalizePalette(m.palette),
 		glyphs:               normalizeGlyphs(m.glyphs),
 		rowDetail:            normalizeRowDetail(m.rowDetail),
-		workingScroll:        m.workingScroll,
+		textScroll:           m.textScroll,
 		priorityScale:        normalizePriorityScale(m.priorityScale),
 		archiveConfirm:       normalizeArchiveConfirm(m.archiveConfirm),
 		deleteConfirm:        normalizeConfirmAsk(m.deleteConfirm),
@@ -432,7 +432,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(rowDetailSetting, normalizeRowDetail(m.settings.rowDetail)); err != nil {
 		m.errBar.text = err.Error()
 	}
-	if err := m.store.SetSetting(workingActivitySetting, workingActivityLabel(m.settings.workingScroll)); err != nil {
+	if err := m.store.SetSetting(workingActivitySetting, m.settings.textScroll); err != nil {
 		m.errBar.text = err.Error()
 	}
 	if err := m.store.SetSetting(priorityScaleSetting, normalizePriorityScale(m.settings.priorityScale)); err != nil {
@@ -550,7 +550,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.glyphs = normalizeGlyphs(m.settings.glyphs)
 	applyGlyphSet(m.glyphs)
 	m.rowDetail = normalizeRowDetail(m.settings.rowDetail)
-	m.workingScroll = m.settings.workingScroll
+	m.textScroll = m.settings.textScroll
 	m.priorityScale = normalizePriorityScale(m.settings.priorityScale)
 	m.archiveConfirm = normalizeArchiveConfirm(m.settings.archiveConfirm)
 	m.deleteConfirm = normalizeConfirmAsk(m.settings.deleteConfirm)
@@ -753,7 +753,7 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 	case settingsFieldRowDetail:
 		m.settings.rowDetail = cycleMode(rowDetailModes, normalizeRowDetail(m.settings.rowDetail), step)
 	case settingsFieldWorkingActivity:
-		m.settings.workingScroll = !m.settings.workingScroll
+		m.settings.textScroll = cycleMode(textScrollModes, m.settings.textScroll, step)
 	case settingsFieldPriorityScale:
 		m.settings.priorityScale = cycleMode(priorityScaleModes, normalizePriorityScale(m.settings.priorityScale), step)
 	case settingsFieldArchiveConfirm:

@@ -165,7 +165,7 @@ func TestUnfoldingASessionListsItsWork(t *testing.T) {
 	if !strings.Contains(rail, "▾ ") {
 		t.Fatalf("the open row still says it is shut:\n%s", rail)
 	}
-	if strings.Contains(rail, "claude · "+statusGlyph(status.Waiting)) {
+	if strings.Contains(rail, "cld · "+statusGlyph(status.Waiting)) {
 		t.Fatalf("the badge is still on the meta line:\n%s", rail)
 	}
 	for _, want := range []string{"#838", "ABC-100001", "In Review"} {

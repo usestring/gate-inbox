@@ -10,7 +10,7 @@ import (
 
 const (
 	splitRatioSetting = "split_ratio"
-	defaultSplitRatio = 0.3
+	defaultSplitRatio = 0.4
 	minSplitSide      = 30
 	// minSplitWidth is the narrowest terminal that still earns two panels.
 	// Below it the rail cannot hold a session name and the preview cannot hold
@@ -27,7 +27,7 @@ type settingReader interface {
 	Setting(key string) (string, error)
 }
 
-// loadSplitRatio restores the sessions/sidebar ratio, or the 30% default
+// loadSplitRatio restores the sessions/sidebar ratio, or the 40% default
 // when nothing is stored or the value is unusable.
 func loadSplitRatio(st settingReader) float64 {
 	raw, err := st.Setting(splitRatioSetting)

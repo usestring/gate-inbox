@@ -688,6 +688,10 @@ The cost is that a shape only carries state to somebody who has learned it, and 
 
 Once the marks are familiar, the state word beside each row repeats what the tinted mark already says. The `row detail` row in Settings switches from `words` to `marks`: a row drops its state word, writes Claude, Codex and OpenCode as `CC`, `CX` and `OC` in each CLI's own colour, and a group's state rollup reads in marks instead of words. Other CLIs keep their names. Under the quiet colour setting the letters take the row's muted tint.
 
+## Working activity
+
+Settings (`ctrl+alt+s`) has a `working activity` row. Switch it from `off` to `scroll` to show the latest four nonblank output lines on a separate line below each working session. Long text scrolls horizontally, pausing at the beginning and end, so more detail fits without moving the name or status. New output restarts the scroll. The text comes from the pane captures the board already reads, above the agent's input box; a tool without a recognized input box keeps its usual conversation summary. Resting sessions keep their usual summaries too. The extra line uses the rail’s full available width in either list density. The choice is saved across restarts and starts off.
+
 ## Themes
 
 `ctrl+alt+s` opens Settings, where `↑↓` move between fields and `←→` change the focused one.

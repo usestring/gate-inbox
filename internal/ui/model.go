@@ -606,7 +606,10 @@ type Model struct {
 	glyphs string
 	// rowDetail is whether session rows spell their state and CLI out or
 	// leave them to marks. See rowdetail.go.
-	rowDetail string
+	rowDetail         string
+	workingScroll     bool
+	workingActivities map[string]workingActivity
+	activityAnimating bool
 	// priorityScale is the persisted tier scale, "+2/-1" by default. See
 	// tierscale.go.
 	priorityScale string
@@ -1034,6 +1037,7 @@ type settingsState struct {
 	palette              string
 	glyphs               string
 	rowDetail            string
+	workingScroll        bool
 	priorityScale        string
 	archiveConfirm       string
 	deleteConfirm        string
@@ -1090,6 +1094,7 @@ const (
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldRowDetail
+	settingsFieldWorkingActivity
 	settingsFieldPriorityScale
 	settingsFieldArchiveConfirm
 	settingsFieldDeleteConfirm
@@ -1156,6 +1161,7 @@ type refreshMsg struct {
 	compactWindows   map[string]compactView
 	archivedChildren map[string]int
 	searchText       map[string]string
+	workingActivity  map[string]string
 	answerableWait   map[string]bool
 	choreRests       map[string]time.Time
 	// askQuestions is each Claude session's pending AskUserQuestion call,
@@ -1453,6 +1459,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		palette:          storedPalette(st),
 		glyphs:           storedGlyphs(st),
 		rowDetail:        storedRowDetail(st),
+		workingScroll:    storedWorkingActivity(st),
 		priorityScale:    storedPriorityScale(st),
 		archiveConfirm:   storedArchiveConfirm(st),
 		deleteConfirm:    storedConfirmAsk(st, deleteConfirmSetting),
@@ -2393,6 +2400,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleBrowserOpen(msg)
 		return m, nil
 
+	case activityTickMsg:
+		m.activityAnimating = false
+		if !m.visible || (m.mode != modeList && m.mode != modeFocus) || !m.workingScroll || len(m.workingActivities) == 0 {
+			m.frameUnchanged()
+		}
+		return m, m.startActivityTick()
+
 	case startupTickMsg:
 		if !m.needsLoaderTick() {
 			m.startupAnimating = false
@@ -2605,6 +2619,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.compactWindows = msg.compactWindows
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
+		m.updateWorkingActivity(msg.workingActivity)
 		m.answerableWait = msg.answerableWait
 		m.choreRests = msg.choreRests
 		m.askQuestions = msg.askQuestions
@@ -2677,12 +2692,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.loadDrafts())
+			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.startActivityTick(), m.loadDrafts())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.loadDrafts())
+		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.startActivityTick(), m.loadDrafts())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)

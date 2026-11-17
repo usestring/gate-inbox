@@ -715,10 +715,8 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 	return lines
 }
 
-// entryHeight is how many lines an entry paints: one in the compact list,
-// two once the comfortable density unstacks the meta onto its own line.
-// Groups match sessions either way, since a ragged list of one- and
-// two-line rows reads as gaps rather than as rhythm.
+// entryHeight includes the optional activity line so the list window keeps
+// each session's details together when scrolling.
 func (m *Model) entryHeight(entry treeRow) int {
 	// An artifact has no second line to unstack: its state already rides
 	// beside it, and a blank line under every pull request would cost the
@@ -726,10 +724,14 @@ func (m *Model) entryHeight(entry treeRow) int {
 	if entry.isArtifact() || entry.isHead() {
 		return 1
 	}
+	height := 1
 	if m.stackedRows() {
-		return 2
+		height++
 	}
-	return 1
+	if _, ok := m.rowWorkingActivity(entry); ok {
+		height++
+	}
+	return height
 }
 
 // listAnchor names the rail's top entry by identity, so a row a poll adds or
@@ -995,7 +997,14 @@ func (m *Model) renderTreeRowContent(entry treeRow, selected bool, width, index 
 	if entry.isGroup {
 		return m.renderGroupEntry(entry, selected, width, pad, guides, trail, bg)
 	}
-	return m.renderSessionEntry(entry, selected, width, pad, guides, trail, bg)
+	row := m.renderSessionEntry(entry, selected, width, pad, guides, trail, bg)
+	if activity, ok := m.rowWorkingActivity(entry); ok {
+		indent := metaIndent(pad, trail) + spaces(m.railFoldReserve())
+		room := width - textfmt.Width(indent) - 1
+		text := scrollActivity(activity.text, room, time.Since(activity.since))
+		row += "\n" + paint(indent+subtleText(text), width, bg)
+	}
+	return row
 }
 
 // A shell takes a caret rather than an idle dot it would never leave, but

@@ -379,6 +379,7 @@ type contentLine struct {
 	tone      string
 	bg        string
 	link      string
+	copyID    string
 	sessionID string
 }
 

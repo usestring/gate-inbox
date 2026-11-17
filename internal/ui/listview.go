@@ -251,10 +251,13 @@ func (m *Model) railLines(width, height int) []contentLine {
 	// row's facts sit right above the prompt it was launched with, since both
 	// answer "what is this" before the dock answers "how loaded is the
 	// machine".
-	var opening []string
+	var opening []contentLine
 	// The Reviews tab has no selected session for it to describe.
 	if tier == dockFull && !m.onReviewsTab() {
-		block := append(m.sessionDetailLines(width), m.promptLines(width)...)
+		block := m.sessionDetailLines(width)
+		for _, line := range m.promptLines(width) {
+			block = append(block, contentLine{text: line})
+		}
 		if len(block) > 0 && listHeight-len(block)-1 >= dockFullMinList {
 			opening = block
 			listHeight -= len(block) + 1
@@ -283,9 +286,7 @@ func (m *Model) railLines(width, height int) []contentLine {
 	}
 	if opening != nil {
 		rows = append(rows, contentLine{rule: true})
-		for _, line := range opening {
-			rows = append(rows, contentLine{text: line})
-		}
+		rows = append(rows, opening...)
 	}
 	if meters != nil {
 		rows = append(rows, contentLine{rule: true})
@@ -441,14 +442,21 @@ func railFact(pad, label, value string) string {
 // carries only what the row does not. Its start time stays: the row's clock
 // is the last activity, which reads the same on a session launched a minute
 // ago as on one that has been up for days.
-func (m *Model) sessionDetailLines(width int) []string {
+func (m *Model) sessionDetailLines(width int) []contentLine {
 	pad := spaces(railInset)
 	room := width - railInset - 2
 	if room < 8 {
 		return nil
 	}
+	var lines []contentLine
+	appendLines := func(texts ...string) {
+		for _, text := range texts {
+			lines = append(lines, contentLine{text: text})
+		}
+	}
 	if group, ok := m.selectedGroup(); ok {
-		return m.groupDetailLines(group, pad, room)
+		appendLines(m.groupDetailLines(group, pad, room)...)
+		return lines
 	}
 	sess, ok := m.selected()
 	if !ok {
@@ -479,23 +487,25 @@ func (m *Model) sessionDetailLines(width int) []string {
 				subtleStyle.Render(" · ")+valueStyle.Render(humanBytes(m.proc.RSS)),
 			factRoom, "…")
 	}
-	lines := []string{
+	appendLines(
 		railFact(pad, "cli", chipStyle.Render(textfmt.TruncateWidth(tool, max(factRoom-2, 1), "…"))),
 		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(homeRelative(sess.Cwd), factRoom))),
 		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.LaunchTime()), factRoom, "…"))),
-	}
+	)
 	if id := strings.TrimSpace(sess.AgentSessionID); id != "" {
-		lines = append(lines, wideFact(pad, "session id", valueStyle.Render(id), room)...)
+		for _, text := range wideFact(pad, "session id", valueStyle.Render(id)+subtleStyle.Render(" · click to copy"), room) {
+			lines = append(lines, contentLine{text: text, copyID: id})
+		}
 	}
 	if usage != "" {
-		lines = append(lines, railFact(pad, "usage", usage))
+		appendLines(railFact(pad, "usage", usage))
 	}
 	now := time.Now()
 	boardCompacts := false
 	for _, fact := range m.extFacts[sess.ID] {
 		boardCompacts = boardCompacts || fact.Label == compactLabel
-		lines = append(lines, wideFact(pad, fact.Label, extensionFactText(fact, now), room)...)
+		appendLines(wideFact(pad, fact.Label, extensionFactText(fact, now), room)...)
 	}
 	// Where an extension compacts the session itself, its line is the
 	// auto-compact one and the settings file's window is only the CLI's own
@@ -505,13 +515,13 @@ func (m *Model) sessionDetailLines(width int) []string {
 		if boardCompacts {
 			label = "claude window"
 		}
-		lines = append(lines, wideFact(pad, label, compactFact(view, now), room)...)
+		appendLines(wideFact(pad, label, compactFact(view, now), room)...)
 	}
 	// What its spawner granted it on its user's approval, one line each:
 	// a widened permission is the one fact about a session nobody should
 	// have to go looking for.
 	for _, granted := range m.granted[sess.ID] {
-		lines = append(lines, railFact(pad, "grant", annotationStyle.Render(textfmt.TruncateWidth(granted, factRoom, "…"))))
+		appendLines(railFact(pad, "grant", annotationStyle.Render(textfmt.TruncateWidth(granted, factRoom, "…"))))
 	}
 	return lines
 }

@@ -169,7 +169,7 @@ func TestGroupRowRendersGroupPane(t *testing.T) {
 		}
 	}
 
-	detail := ansi.Strip(strings.Join(m.sessionDetailLines(60), "\n"))
+	detail := ansi.Strip(strings.Join(detailText(m.sessionDetailLines(60)), "\n"))
 	if !strings.Contains(detail, filepath.Base(dir)) {
 		t.Fatalf("group detail missing path %q:\n%s", dir, detail)
 	}

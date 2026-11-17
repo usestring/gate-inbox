@@ -111,7 +111,7 @@ func TestSessionWorkArrivesFolded(t *testing.T) {
 // are. Under-reporting silently is the fault this whole shape exists to stop.
 func TestANarrowFoldedRowStillCountsTheWork(t *testing.T) {
 	m := railWorkModel(t)
-	rail := ansi.Strip(railLinesText(m.railLines(59, m.listBodyHeight())))
+	rail := ansi.Strip(railLinesText(m.railLines(56, m.listBodyHeight())))
 	if !strings.Contains(rail, "+2") {
 		t.Fatalf("a rail with no room for marks says nothing about the work:\n%s", rail)
 	}

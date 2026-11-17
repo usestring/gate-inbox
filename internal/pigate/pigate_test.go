@@ -191,6 +191,19 @@ func TestDecideMergeGate(t *testing.T) {
 		d.Reason != "merge gate: PR #1 has a failing check" {
 		t.Errorf("refused merge: %+v, want the gate's own reason", d)
 	}
+	// A refusal is terminal: no grant or allow rule lets
+	// the merge through, and the dialog offers no rule to remember.
+	allowing := sources(t, cwd, map[string]map[string][]string{"user settings": {"allow": {"Bash(gh pr:*)", "Bash"}}})
+	env := Env{Rules: allowing, MergeGate: refused,
+		Grants: []grant.Grant{{Kind: grant.KindRule, Value: "Bash(gh pr merge:*)"}}}
+	for _, cmd := range []string{"gh pr merge 1 --squash", "git fetch && gh pr merge 2"} {
+		if d := Decide(env, bashReq(cwd, cmd)); d.Decision != Ask || d.Suggestion != "" {
+			t.Errorf("%s with an allow rule and grant: %+v, want an ask with no rule offered", cmd, d)
+		}
+	}
+	if d := Decide(Env{Rules: allowing, Grants: []grant.Grant{}}, bashReq(cwd, "gh pr merge 1")); d.Decision != Ask {
+		t.Errorf("no merge gate wired: %+v, want ask", d)
+	}
 }
 
 // AskUserQuestion changes nothing, so it runs without a dialog, as in Claude

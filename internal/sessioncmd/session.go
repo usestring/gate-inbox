@@ -295,8 +295,25 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 	return r.sessionInfoIn(sess, dir, running, self)
 }
 
+// shownStatus is sess's status as the tools report it: a row hibernate
+// stopped is dead in the store, because its process is gone, but it is
+// resting until its next message, and a caller told it was dead would
+// revive it by hand or give up on it.
+func (r *runtime) shownStatus(sess store.Session) string {
+	if sess.Status != status.Dead || sess.Archived {
+		return sess.Status
+	}
+	hibernated, err := r.store.Hibernated()
+	if err != nil {
+		logging.Info("could not read the hibernated set", "session", sess.ID, logging.Err(err))
+		return sess.Status
+	}
+	return store.Shown(sess, hibernated)
+}
+
 // sessionInfoIn is sessionInfo with the directory already read.
 func (r *runtime) sessionInfoIn(sess store.Session, dir string, running, self bool) Session {
+	sess.Status = r.shownStatus(sess)
 	return Session{
 		ID:                      sess.ID,
 		Name:                    sess.Name,
@@ -486,6 +503,13 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 	if stored, err = r.delegated(stored); err != nil {
 		return SessionList{}, err
 	}
+	// Before the filter, so a caller can ask for hibernating rows by name
+	// and a dead filter leaves them out.
+	hibernated, err := r.store.Hibernated()
+	if err != nil {
+		return SessionList{}, err
+	}
+	stored = store.ApplyHibernated(stored, hibernated)
 	scan, err := r.driver.ScanPanesWithPaths()
 	if err != nil {
 		return SessionList{}, err

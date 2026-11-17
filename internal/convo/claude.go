@@ -265,16 +265,18 @@ func projectDir(cwd string) string {
 }
 
 type record struct {
-	Type       string `json:"type"`
-	AITitle    string `json:"aiTitle"`
-	LastPrompt string `json:"lastPrompt"`
-	SessionID  string `json:"sessionId"`
-	Cwd        string `json:"cwd"`
-	Timestamp  string `json:"timestamp"`
-	IsMeta     bool   `json:"isMeta"`
-	Message    struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
+	Type        string `json:"type"`
+	AITitle     string `json:"aiTitle"`
+	LastPrompt  string `json:"lastPrompt"`
+	SessionID   string `json:"sessionId"`
+	Cwd         string `json:"cwd"`
+	Timestamp   string `json:"timestamp"`
+	IsMeta      bool   `json:"isMeta"`
+	IsSidechain bool   `json:"isSidechain"`
+	Message     struct {
+		Role       string          `json:"role"`
+		StopReason string          `json:"stop_reason"`
+		Content    json.RawMessage `json:"content"`
 	} `json:"message"`
 }
 
@@ -381,16 +383,9 @@ func parseHead(raw []byte) []string {
 // slashCommand is the command line a record's command tags hold, "/name
 // args", or empty when the record is not a slash command.
 func slashCommand(content json.RawMessage) string {
-	var text string
-	if json.Unmarshal(content, &text) != nil {
-		var parts []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		}
-		if json.Unmarshal(content, &parts) != nil || len(parts) == 0 || parts[0].Type != "text" {
-			return ""
-		}
-		text = parts[0].Text
+	text, ok := leadingText(content)
+	if !ok {
+		return ""
 	}
 	name := tagText(text, "command-name")
 	if !strings.HasPrefix(name, "/") {

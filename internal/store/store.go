@@ -1370,7 +1370,8 @@ func (s *Store) applyDerivedStates(at time.Time, states []DerivedState) error {
 }
 
 // AcknowledgeFinished atomically marks a session idle and acked if its stored
-// status is still finished. A newer status makes the operation a no-op.
+// status is still finished, and acked alone if it is background. Any other
+// status makes the operation a no-op.
 //
 // last_status_at stays where the finish put it, here and in
 // applyDerivedStates: acknowledging a rest does not start a new one. Moving
@@ -1381,6 +1382,13 @@ func (s *Store) AcknowledgeFinished(id string) error {
 		`UPDATE sessions SET status = ?, acked = 1 WHERE id = ? AND status = ?`,
 		status.Idle, id, status.Finished)
 	if err != nil {
+		return err
+	}
+	// A turn that ended with a shell still running is a finish too, and
+	// seeing it acknowledges it. It keeps its status: the shell is still
+	// going, and the turn it wakes into clears the ack.
+	if _, err := s.db.Exec(
+		`UPDATE sessions SET acked = 1 WHERE id = ? AND status = ?`, id, status.Background); err != nil {
 		return err
 	}
 	return s.requireRowOrNoop(res, id)

@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/keymap"
@@ -33,11 +32,11 @@ func shellCount(m *Model) int {
 
 func pressTerminalKey(t *testing.T, m *Model) {
 	t.Helper()
-	// A spawn takes the keyboard into the shell it made, so a second T typed
-	// there is the letter T. These tests are about how many shells the key
+	// A spawn takes the keyboard into the shell it made, and a second
+	// ctrl+alt+t there leaves it for the board before it spawns. These tests are about how many shells the key
 	// makes, so each press starts from the board.
 	m.leaveFocusForFixture(t)
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 'T', Text: "T"})
+	_, cmd := m.Update(key("ctrl+alt+t"))
 	m.applyCmd(t, cmd)
 }
 
@@ -388,7 +387,7 @@ func TestTerminalKeyIgnoresAutorepeat(t *testing.T) {
 	// a second request by definition -- which is why this test failed most
 	// of the time it ran, on a guard that was working.
 	for i := 0; i < 5; i++ {
-		updated, _ := m.Update(tea.KeyPressMsg{Code: 'T', Text: "T"})
+		updated, _ := m.Update(key("ctrl+alt+t"))
 		*m = *updated.(*Model)
 	}
 	m.applyCmd(t, m.refreshCmd())
@@ -426,15 +425,15 @@ func TestShellRowLegendDropsTheConversationKeys(t *testing.T) {
 	}
 	for _, pair := range legend.pairs {
 		switch pair[0] {
-		case "space", "f":
+		case m.tightCap(keymap.ContextList, keymap.QuickInput), "f":
 			t.Fatalf("legend offers %q on a shell row, which refuses it", pair[0])
 		}
 	}
 	if !slices.ContainsFunc(legend.pairs, func(pair [2]string) bool { return pair[0] == m.tightCap(keymap.ContextList, keymap.Priority) }) {
 		t.Fatal("legend should still offer the keys a shell answers, priority included")
 	}
-	if !slices.ContainsFunc(legend.pairs, func(pair [2]string) bool { return pair[0] == "x" }) {
-		t.Fatal("legend should still offer the keys a shell answers, x included")
+	if !slices.ContainsFunc(legend.pairs, func(pair [2]string) bool { return pair[0] == m.tightCap(keymap.ContextList, keymap.Archive) }) {
+		t.Fatal("legend should still offer the keys a shell answers, kill included")
 	}
 }
 
@@ -448,7 +447,11 @@ func TestAgentRowLegendKeepsTheConversationKeys(t *testing.T) {
 	if legend.title != "Session" {
 		t.Fatalf("legend title = %q, want Session", legend.title)
 	}
-	for _, key := range []string{"space", "r", "m"} {
+	for _, key := range []string{
+		m.tightCap(keymap.ContextList, keymap.QuickInput),
+		m.tightCap(keymap.ContextList, keymap.RenameSelf),
+		m.tightCap(keymap.ContextList, keymap.Move),
+	} {
 		if !slices.ContainsFunc(legend.pairs, func(pair [2]string) bool { return pair[0] == key }) {
 			t.Fatalf("legend should offer %q on an agent row", key)
 		}

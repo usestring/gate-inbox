@@ -32,7 +32,8 @@ func TestFuzzyLiveSessionsEndToEnd(t *testing.T) {
 		{"claude", "cld"}, {"codex", "cdx"}, {"opencode", "opc"},
 	} {
 		t.Run(tc.tool, func(t *testing.T) {
-			typeText("/gtin")
+			press(key("ctrl+f"))
+			typeText("gtin")
 			if len(m.sessionRows()) != 3 {
 				t.Fatalf("name abbreviation returned %v", sessionNames(m))
 			}
@@ -63,7 +64,7 @@ func TestFuzzyLiveSessionsEndToEnd(t *testing.T) {
 			m.leaveFocusForFixture(t)
 			// esc closes the field and keeps the filter now; deleting the
 			// text is what brings every session back.
-			press(tea.KeyPressMsg{Code: '/', Text: "/"})
+			press(key("ctrl+f"))
 			press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 			press(tea.KeyPressMsg{Code: tea.KeyEnter})
 			if m.search != "" || len(m.sessionRows()) != 3 {
@@ -71,7 +72,8 @@ func TestFuzzyLiveSessionsEndToEnd(t *testing.T) {
 			}
 		})
 	}
-	typeText("/zzzznomatch")
+	press(key("ctrl+f"))
+	typeText("zzzznomatch")
 	if len(m.sessionRows()) != 0 {
 		t.Fatal("non-matching query kept a row")
 	}
@@ -80,7 +82,7 @@ func TestFuzzyLiveSessionsEndToEnd(t *testing.T) {
 		t.Fatalf("esc should close the field and keep the filter, got searching=%v query=%q rows=%d",
 			m.searching, m.search, len(m.sessionRows()))
 	}
-	press(tea.KeyPressMsg{Code: '/', Text: "/"})
+	press(key("ctrl+f"))
 	press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	press(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if len(m.sessionRows()) != 3 {

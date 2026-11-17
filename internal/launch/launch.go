@@ -17,10 +17,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/band"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
-	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
@@ -782,6 +782,6 @@ func withPiExtension(manager *hooks.Manager, command string, env map[string]stri
 	// from its own process. Pi has no sandbox, so a key anywhere in its pane
 	// is its model's to read, including the copy the tmux server holds from
 	// the operator's environment; withheld, it reaches no process there.
-	env[jev.KeyEnv] = tmux.Withheld
+	env[classifier.JEV.KeyEnv()] = tmux.Withheld
 	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
 }

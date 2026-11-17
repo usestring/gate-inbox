@@ -5,6 +5,7 @@ package ui
 import (
 	"fmt"
 	"github.com/usestring/gate-inbox/internal/keymap"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 
 func (m *Model) View() tea.View {
 	view := tea.NewView(m.frame())
+	m.notePaintedKey()
 	view.AltScreen = true
 	// The app holds mouse reporting so a drag on the split divider and an
 	// Alt-click forwarded into a pane both reach handleMouse.
@@ -379,9 +381,12 @@ func parentGroup(group string) string {
 // groupStatusBreakdown renders "2 working · 1 waiting" for the subtree,
 // each count tinted in its status color, skipping zero statuses.
 func (m *Model) groupStatusBreakdown(group string) string {
+	if m.rowMarks() {
+		return m.groupStatusGlyphs(group)
+	}
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Hibernating, status.Dead} {
 		if counts[st] > 0 {
 			// The count carries the state's color, the word stays quiet: a
 			// rollup line should read as one texture, not as six labels
@@ -396,7 +401,7 @@ func (m *Model) groupStatusCounts(group string) map[string]int {
 	counts := map[string]int{}
 	for _, sess := range m.listedAgents() {
 		if inGroupSubtree(sess.Group, group) {
-			counts[sess.Status]++
+			counts[m.shownStatus(sess)]++
 		}
 	}
 	return counts
@@ -409,7 +414,7 @@ func (m *Model) groupStatusCounts(group string) map[string]int {
 func (m *Model) groupStatusGlyphs(group string) string {
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Hibernating, status.Dead} {
 		if counts[st] == 0 {
 			continue
 		}
@@ -547,15 +552,20 @@ func (m *Model) viewFooter() string {
 		}})
 	}
 	if m.quick.active {
-		closeCap := "space/esc"
+		context := keymap.ContextList
 		if m.quick.fromFocus {
-			// Unbound by the operator's own rebind: the key map still
-			// offers the row, but a footer names only keys that work.
-			closeCap = "esc"
-			if key := m.tightCap(keymap.ContextFocus, keymap.QuickInput); key != "" {
-				closeCap = key + "/esc"
-			}
+			context = keymap.ContextFocus
 		}
+		launchCap := m.tightCap(context, keymap.QuickInput)
+		if m.quick.launch {
+			pairs := [][2]string{{"key", "launch session"}}
+			if launchCap != "" {
+				pairs = append(pairs, [2]string{launchCap, "back to snippets"})
+			}
+			pairs = append(pairs, [2]string{"esc", "close"})
+			return m.transientFooter(legendSection{title: "Launches", pairs: pairs})
+		}
+		closeCap := "esc"
 		pairs := [][2]string{
 			{"key", "send snippet"}, {"↑↓", "switch target"}, {closeCap, "close"},
 		}
@@ -565,6 +575,9 @@ func (m *Model) viewFooter() string {
 			pairs = [][2]string{
 				{"key", "send snippet"}, {closeCap, "close"},
 			}
+		}
+		if launchCap != "" {
+			pairs = append(pairs, [2]string{launchCap, "launch snippets"})
 		}
 		if m.showsConversation() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})
@@ -732,7 +745,7 @@ func (m *Model) defaultRowLegend() legendSection {
 	// queue, and the footer names what the next press sets.
 	var pairs [][2]string
 	if key := m.tightCap(keymap.ContextList, keymap.Priority); key != "" {
-		pairs = append(pairs, [2]string{key, priorityLegend(row.sess.Priority)})
+		pairs = append(pairs, [2]string{key, priorityLegend(m.scale(), row.sess.Priority)})
 	}
 	pairs = append(pairs,
 		[2]string{openKey, enterHint}, [2]string{m.tightCap(keymap.ContextList, keymap.Attach), attachHint})
@@ -797,6 +810,7 @@ func (m *Model) peekLegendSections() []legendSection {
 func (m *Model) rowLegend() legendSection {
 	if m.onReviewsTab() {
 		return legendSection{title: "Reviews", pairs: [][2]string{
+			{m.tightCap(keymap.ContextList, keymap.NewSession), "new session"},
 			{m.tightCap(keymap.ContextReviews, keymap.ReviewStart), "start"},
 			{m.tightCap(keymap.ContextReviews, keymap.ReviewOpen), "open"},
 			{m.tightCap(keymap.ContextReviews, keymap.ReviewDismiss), "dismiss"},
@@ -845,7 +859,7 @@ func (m *Model) rowLegend() legendSection {
 			text   string
 		}{
 			{keymap.RenameSelf, "rename"}, {keymap.Move, "move"},
-			{keymap.Priority, priorityLegend(m.priorityGroups[row.group])},
+			{keymap.Priority, priorityLegend(m.scale(), m.priorityGroups[row.group])},
 			{keymap.Archive, "kill"}, {keymap.Revive, "revive"}, {keymap.Restore, "restore"},
 		} {
 			if m.applies(keymap.ContextList, candidate.action, row) {
@@ -940,6 +954,7 @@ func (m *Model) viewLegend() legendSection {
 				if m.triageScope != "" {
 					text = "triage: " + baseName(m.triageScope)
 				}
+				text += " · " + triageOrderLabel(m.triageOrder)
 			}
 		case keymap.EmptyGroups:
 			if m.hideEmptyGroups {
@@ -1007,6 +1022,26 @@ func humanBytes(b uint64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f%cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// homeRelative shows a path under the home directory as ~/..., the way a
+// shell prompt does. The detail pane's dir row is the one place the board
+// prints a session's full path, and the home prefix is the part of it that
+// says nothing about the session but names the account: it is the first thing
+// cut by truncateTail on a narrow rail anyway, and it is what a screenshot or
+// a recorded capture would otherwise publish.
+func homeRelative(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || home == "/" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if rest, ok := strings.CutPrefix(path, strings.TrimSuffix(home, "/")+"/"); ok {
+		return "~/" + rest
+	}
+	return path
 }
 
 // truncateTail keeps the end of the string (best for paths).

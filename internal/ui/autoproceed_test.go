@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
@@ -421,11 +422,13 @@ func TestAutoProceedStaysPutOnAScrolledBackPane(t *testing.T) {
 	}
 }
 
-// A mute keyed to the landing holds until a poll listed after it has been
-// applied, and then lapses whatever the session reads: the poll is the
-// session's own news, and a mute that outlived it would hide the session for
-// the rest of the drain.
-func TestLandedMuteLapsesWithTheFirstPollAfterIt(t *testing.T) {
+// A mute keyed to the landing holds through a poll listed after it that still
+// reads the question just answered: the agent has taken the answer and its
+// hooks have not said so yet, so handing the row over puts the operator in a
+// session already at work. It lapses after settleHold whatever the session
+// reads, so a turn the board never sees cannot hide it for the rest of the
+// drain.
+func TestLandedMuteHoldsUntilTheTurnOrTheHold(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
 	m = pressEnter(m)
@@ -446,8 +449,13 @@ func TestLandedMuteLapsesWithTheFirstPollAfterIt(t *testing.T) {
 	}
 	updated, _ = m.Update(refreshMsg{sessions: m.sessions, listedAt: mark.settle.Add(time.Millisecond)})
 	m = updated.(*Model)
+	if !m.isMuted(ask) {
+		t.Fatal("a poll still reading the answered question lifted the mute")
+	}
+	updated, _ = m.Update(refreshMsg{sessions: m.sessions, listedAt: mark.settle.Add(settleHold)})
+	m = updated.(*Model)
 	if m.isMuted(ask) {
-		t.Fatal("the mute outlived the first poll after the landing, though the session still reads waiting")
+		t.Fatal("the mute outlived the hold, though no turn was ever seen")
 	}
 }
 
@@ -636,5 +644,49 @@ func TestIdleSwitchOffNeverMovesTheOperator(t *testing.T) {
 	m := &Model{mode: modeFocus, lastInteractionAt: time.Now().Add(-time.Hour)}
 	if cmd := m.handOverOnIdle(time.Now()); cmd != nil {
 		t.Fatal("handOverOnIdle moved the operator with the idle switch off")
+	}
+}
+
+func TestCodexEnterWaitsForSubmission(t *testing.T) {
+	for _, pane := range []string{
+		"Select an option\n  › 1. Continue\n    2. Stop\n",
+		"Select model\n  › 1. Default\n    2. Fast\n",
+		"› \n",
+		"› Continue with the fix\n",
+	} {
+		t.Run(strings.TrimSpace(pane), func(t *testing.T) {
+			m := drainOnComposer(t)
+			id := focusedID(t, m)
+			tool := m.cfg.Tools["quietchat"]
+			tool.SessionStore = search.ToolCodex
+			m.cfg.Tools["quietchat"] = tool
+			for i := range m.sessions {
+				m.sessions[i].Tool = "quietchat"
+				if m.sessions[i].ID == id {
+					m.sessions[i].AgentSessionID = "choice"
+				}
+			}
+			m.rebuildRows()
+			root := t.TempDir()
+			path := filepath.Join(root, "rollout-choice.jsonl")
+			appendLandingRecord(t, path, `{"payload":{"type":"message","role":"assistant","content":[]}}`)
+			m.landingLocator = search.NewLocator("", root)
+			m.preview = pane
+
+			m = pressEnter(m)
+			pending := onlyLanding(t, m)
+			if focusedID(t, m) != id || pending.early || m.isMuted(pending.sess) {
+				t.Fatal("Codex Enter advanced before any submission")
+			}
+			lookForLanding(t, m)
+			if focusedID(t, m) != id || m.latestSubmission.sessionID != "" {
+				t.Fatal("an unsubmitted Codex choice was recorded as an answer")
+			}
+			appendLandingRecord(t, path, `{"payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Continue with the fix"}]}}`)
+			lookForLanding(t, m)
+			if focusedName(t, m) != "next" || m.latestSubmission.sessionID != id {
+				t.Fatal("Codex's recorded submission did not advance the queue")
+			}
+		})
 	}
 }

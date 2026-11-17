@@ -261,3 +261,31 @@ func TestBoardDeliversOperatorInputInOrder(t *testing.T) {
 		t.Fatalf("reported = %v, want the panic reported against its extension", reported)
 	}
 }
+
+// Where the operator is reaches a host's view subscribers in order.
+func TestBoardDeliversViewEventsInOrder(t *testing.T) {
+	board := NewEvents(NewBoard("", nil), nil)
+	host, release := board.For("ext")
+	defer release()
+	source, ok := host.(extension.ViewSource)
+	if !ok {
+		t.Fatal("the board's host does not report views")
+	}
+	var got []extension.ViewEvent
+	done := make(chan struct{})
+	source.OnView(func(e extension.ViewEvent) {
+		got = append(got, e)
+		if len(got) == 2 {
+			close(done)
+		}
+	})
+	at := time.Unix(100, 0)
+	first := extension.ViewEvent{Kind: extension.ViewChanged, Visible: true, Place: extension.ViewList, At: at}
+	second := extension.ViewEvent{Kind: extension.ViewCursor, Visible: true, Place: extension.ViewList, SessionID: "a", Rows: -1, At: at}
+	board.View(first)
+	board.View(second)
+	within(t, "two view events", done)
+	if got[0] != first || got[1] != second {
+		t.Fatalf("got %+v", got)
+	}
+}

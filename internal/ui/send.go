@@ -84,6 +84,8 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 			m.errBar.text = err.Error()
 			return nil
 		}
+		// The sentence is part of the line the operator goes on to send.
+		m.writingFor(sess.ID).paste(time.Now(), text, false)
 		m.errBar.text = "typed " + quoted + " into " + m.displayName(sess) + " — press enter to send"
 		m.requestRefresh()
 		return nil
@@ -121,6 +123,8 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 		m.errBar.text = err.Error()
 		return nil
 	}
+	// Whatever the operator had written in the composer went with it.
+	delete(m.writing, sess.ID)
 	// The agent has been given something to do, so the operator wants the
 	// alert it raises when it is done with it.
 	if err := m.store.SetAcked(sess.ID, false); err != nil {

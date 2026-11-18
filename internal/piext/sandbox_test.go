@@ -207,3 +207,24 @@ func TestPrivateTmpDirLeavesRoomForASocketPath(t *testing.T) {
 		t.Errorf("socket path %s is %d bytes", sock, len(sock))
 	}
 }
+
+// A decision the extension builds itself, as the bash tool does when the
+// sandbox cannot start, names the command: without a title and block the
+// dialog's command box is empty, and so is the preview the board relays, so
+// the person would approve a run outside the sandbox without seeing it.
+func TestTheExtensionsOwnAsksNameTheCommand(t *testing.T) {
+	src := string(Source())
+	calls := strings.Split(src, "await askUser(")[1:]
+	if len(calls) == 0 {
+		t.Fatal("the extension makes no ask of its own")
+	}
+	for _, call := range calls {
+		decision, _, ok := strings.Cut(call, "\n          id,\n          ctx,\n        );")
+		if !ok {
+			t.Fatalf("an ask that does not pass the call id and context:\n%.300s", call)
+		}
+		if !strings.Contains(decision, `title: "Bash command",`) || !strings.Contains(decision, "block: input.command,") {
+			t.Errorf("an ask without the command's title and block:\n%s", decision)
+		}
+	}
+}

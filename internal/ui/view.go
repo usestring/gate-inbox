@@ -21,7 +21,7 @@ import (
 
 func (m *Model) View() tea.View {
 	view := tea.NewView(m.frame())
-	m.notePaintedKey()
+	m.noteKeyDrawn()
 	view.AltScreen = true
 	// The app holds mouse reporting so a drag on the split divider and an
 	// Alt-click forwarded into a pane both reach handleMouse.

@@ -14,11 +14,12 @@ import (
 type recordedMove struct{ id, from, to string }
 
 type recordingObserver struct {
-	mu     sync.Mutex
-	moves  []recordedMove
-	passes [][]store.Session
-	inputs []extension.OperatorInput
-	views  []extension.ViewEvent
+	mu         sync.Mutex
+	moves      []recordedMove
+	passes     [][]store.Session
+	inputs     []extension.OperatorInput
+	views      []extension.ViewEvent
+	paneInputs []extension.PaneInput
 }
 
 func (r *recordingObserver) Transition(id, from, to string, _ time.Time) {
@@ -43,6 +44,12 @@ func (r *recordingObserver) Operator(input extension.OperatorInput) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.inputs = append(r.inputs, input)
+}
+
+func (r *recordingObserver) PaneInput(input extension.PaneInput) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.paneInputs = append(r.paneInputs, input)
 }
 
 // A pass reports each status change it stores, once, and every pass it

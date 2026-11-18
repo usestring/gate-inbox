@@ -239,6 +239,9 @@ type BoardObserver interface {
 	Operator(input extension.OperatorInput)
 	// View is the operator moving about the board, on the update loop.
 	View(event extension.ViewEvent)
+	// PaneInput is a key or paste that reached a session's pane, on the
+	// update loop.
+	PaneInput(input extension.PaneInput)
 }
 
 // StatusPins is the statuses board extensions hold the sessions they
@@ -1927,7 +1930,6 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 				SessionID: sess.ID,
 				Via:       extension.OperatorCLI,
 				Text:      msg.Body,
-				Writing:   wholeLine(msg.Body),
 				MessageID: msg.ID,
 				At:        at,
 			})

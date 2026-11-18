@@ -1,12 +1,12 @@
 package ui
 
-// The review queue: pull requests someone asked the operator to review on
-// GitHub, fetched on the ingest key and listed on a Reviews tab of the rail,
-// beside the Sessions tab.
+// The review queue holds GitHub review asks and ready pull requests opened
+// by sessions. Authored work keeps its source link so review questions can
+// return to the conversation that produced it.
 //
 // An ask is not a session: it has no pane, no status and no group, and the
-// only things to do with one are start a review, open it, or dismiss it. So it
-// gets a list of its own rather than a row among the sessions, and a key that
+// actions concern the PR and its linked conversations. It gets a list of
+// its own rather than a row among the sessions, and a key that
 // acts on a session is refused on the tab rather than taught what a pull
 // request is.
 
@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -25,8 +26,11 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/keymap"
+	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/workspec"
+	"github.com/usestring/gate-inbox/internal/worktracker"
 )
 
 // reviewsMsg carries the open asks back to the loop, after a load or an
@@ -88,7 +92,6 @@ func (m *Model) ingestReviews() tea.Cmd {
 		found, health := gh.ReviewRequests(search)
 		msg := reviewsMsg{ingested: true, found: len(found), health: health}
 		if !health.OK {
-			msg.open, msg.err = st.OpenReviewRequests()
 			return msg
 		}
 		rows := make([]store.ReviewRequest, 0, len(found))
@@ -110,7 +113,6 @@ func (m *Model) ingestReviews() tea.Cmd {
 			}
 			msg.ackErr = gh.Acknowledge(acks)
 		}
-		msg.open, msg.err = st.OpenReviewRequests()
 		return msg
 	}
 }
@@ -133,9 +135,12 @@ func reviewKey(r store.ReviewRequest) string {
 func (m *Model) finishReviews(msg reviewsMsg) (tea.Model, tea.Cmd) {
 	if msg.ingested {
 		m.reviewsFetching = false
-	}
-	if msg.err == nil {
-		m.reviews = msg.open
+		if msg.err == nil {
+			// A PR page may have refreshed its head while ingest was in flight.
+			msg.err = m.reloadReviewRequests()
+		}
+	} else if msg.err == nil {
+		m.replaceReviews(msg.open)
 	}
 	preparing := ""
 	var prepErr error
@@ -166,7 +171,7 @@ func (m *Model) finishReviews(msg reviewsMsg) (tea.Model, tea.Cmd) {
 		m.errBar.text = prepErr.Error()
 	}
 	m.rebuildRows()
-	return m, nil
+	return m, m.triagePickupCmd()
 }
 
 // prepareLimit caps how many review sessions one fetch starts, so a long
@@ -188,7 +193,7 @@ func (m *Model) prepareReviews() (prepared, left int, err error) {
 			continue
 		}
 		seen[pr] = true
-		if r.State != store.ReviewPending || m.reviewSession(r) != nil {
+		if sess, _ := m.reviewSession(r); r.State != store.ReviewPending || sess != nil {
 			continue
 		}
 		if prepared == prepareLimit {
@@ -206,37 +211,56 @@ func (m *Model) prepareReviews() (prepared, left int, err error) {
 		prepared++
 	}
 	if prepared > 0 {
-		if open, err := m.store.OpenReviewRequests(); err == nil {
-			m.reviews = open
+		if reloadErr := m.reloadReviewRequests(); reloadErr != nil && err == nil {
+			err = fmt.Errorf("review queue: %w", reloadErr)
 		}
 	}
 	return prepared, left, err
 }
 
-// reviewSession is the live session recorded for any open ask on the pull
-// request, or nil when it has none or the one it had is gone or dead.
-func (m *Model) reviewSession(r store.ReviewRequest) *store.Session {
+// reviewSession returns the live session and the head it was started on.
+// Another ask on the same pull request may be the one holding the link.
+func (m *Model) reviewSession(r store.ReviewRequest) (*store.Session, string) {
 	for _, ask := range m.reviews {
 		if ask.Repo != r.Repo || ask.Number != r.Number || ask.SessionID == "" {
 			continue
 		}
 		for i := range m.sessions {
 			if m.sessions[i].ID == ask.SessionID && m.sessions[i].Status != status.Dead {
-				return &m.sessions[i]
+				return &m.sessions[i], ask.SessionHead
 			}
 		}
 	}
-	return nil
+	return nil, ""
 }
 
-// reviewSessionLabel says where an ask's review session stands: opened by
-// the operator, or prepared ahead of them and still writing its briefing or
-// done with it.
+// reviewHead returns the latest head in the queue, even for a PR page that
+// was opened before the queue was refreshed.
+func (m *Model) reviewHead(r store.ReviewRequest) string {
+	for _, ask := range m.reviews {
+		if ask.Repo == r.Repo && ask.Number == r.Number && ask.HeadSHA != "" {
+			return ask.HeadSHA
+		}
+	}
+	return r.HeadSHA
+}
+
+func briefingStale(sessionHead, head string) bool {
+	return sessionHead != "" && head != "" && sessionHead != head
+}
+
+const staleBriefingLabel = "briefing stale"
+
+// reviewSessionLabel reports whether a briefing still describes this head
+// before reporting the session's progress.
 func (m *Model) reviewSessionLabel(r store.ReviewRequest) (string, Tone) {
+	sess, head := m.reviewSession(r)
+	if sess != nil && briefingStale(head, m.reviewHead(r)) {
+		return staleBriefingLabel, ToneWarn
+	}
 	if r.State == store.ReviewStarted {
 		return "review started", ToneWarn
 	}
-	sess := m.reviewSession(r)
 	if sess == nil {
 		return "", ToneMuted
 	}
@@ -316,11 +340,13 @@ func (m *Model) reviewsTabBar(width int) string {
 		reviews += " (" + strconv.Itoa(pending) + ")"
 	}
 	bar := spaces(railInset) + tab("Sessions", !m.reviewsTab) + subtleText(" │ ") + tab(reviews, m.reviewsTab)
-	hint := ""
-	if key := m.tightCap(keymap.ContextList, keymap.ReviewsTab); key != "" {
-		hint = subtleText(key + " switch")
+	hint := normalizeTriageContent(m.triageContent)
+	if key := m.tightCap(keymap.ContextList, keymap.TriageContent); key != "" {
+		hint = key + " " + hint
 	}
-	return paint(rowColumns(bar, hint, width-railGutter), width, panelHex())
+	available := width - railGutter
+	bar = textfmt.TruncateWidth(bar, max(available-textfmt.Width(hint)-2, 0), "…")
+	return paint(rowColumns(bar, subtleText(hint), available), width, panelHex())
 }
 
 // reviewLines is how many rail lines one ask takes.
@@ -353,8 +379,23 @@ func (m *Model) reviewTabLines(width, height int) []contentLine {
 		if i == m.reviewsCursor {
 			bg = selectedHex()
 		}
-		head, meta := reviewSpans(m.reviews[i], i == m.reviewsCursor)
-		if label, tone := m.reviewSessionLabel(m.reviews[i]); label != "" && m.reviews[i].State != store.ReviewStarted {
+		r := m.reviews[i]
+		head, meta := reviewSpans(r, i == m.reviewsCursor)
+		if tier := m.reviewPriority(r); tier != priority.Unset {
+			tone := ToneGood
+			if tier.Deferred() {
+				tone = ToneBad
+			}
+			head = slices.Insert(head, 1, Span{Text: tier.Glyph() + " ", Tone: tone})
+		}
+		if origin := m.reviewOrigin(r); origin != nil {
+			meta = append(meta, Span{Text: " · " + m.displayName(*origin), Tone: ToneAccent})
+		}
+		label, tone := m.reviewSessionLabel(m.reviews[i])
+		if label == staleBriefingLabel {
+			// Put the warning before the metadata so a narrow rail keeps it.
+			meta = append([]Span{{Text: "  "}, {Text: label, Tone: tone}, {Text: " · ", Tone: ToneMuted}}, meta[1:]...)
+		} else if label != "" && m.reviews[i].State != store.ReviewStarted {
 			meta = append(meta, Span{Text: " · ", Tone: ToneMuted}, Span{Text: label, Tone: tone})
 		}
 		lines = append(lines,
@@ -398,9 +439,11 @@ func reviewSpans(r store.ReviewRequest, selected bool) (head, meta []Span) {
 		add("by "+r.Author, ToneMuted)
 	}
 	add(reviewAge(time.Since(r.TriggeredAt)), ToneMuted)
-	meta = append(meta, Span{Text: " · ", Tone: ToneMuted},
-		Span{Text: "+" + strconv.Itoa(r.Additions), Tone: ToneGood},
-		Span{Text: " -" + strconv.Itoa(r.Deletions), Tone: ToneBad})
+	if r.Trigger != "session" {
+		meta = append(meta, Span{Text: " · ", Tone: ToneMuted},
+			Span{Text: "+" + strconv.Itoa(r.Additions), Tone: ToneGood},
+			Span{Text: " -" + strconv.Itoa(r.Deletions), Tone: ToneBad})
+	}
 	if glyph := checksGlyph(forge.ChecksState(r.Checks)); glyph != "" {
 		add(glyph, checksTone(forge.ChecksState(r.Checks)))
 	}
@@ -433,9 +476,15 @@ func (m *Model) reviewDetailLines(width int) []string {
 		out = append(out, line("by "+r.Author, ToneMuted, false))
 	}
 	out = append(out, line(triggerLabel(r.Trigger)+" "+reviewAge(time.Since(r.TriggeredAt)), ToneMuted, false))
-	change := fmt.Sprintf("+%d -%d · %s", r.Additions, r.Deletions, countOf(r.ChangedFiles, "file"))
+	change := ""
+	if r.Trigger != "session" {
+		change = fmt.Sprintf("+%d -%d · %s", r.Additions, r.Deletions, countOf(r.ChangedFiles, "file"))
+	}
 	if glyph := checksGlyph(forge.ChecksState(r.Checks)); glyph != "" {
-		change += " · " + glyph + " checks"
+		if change != "" {
+			change += " · "
+		}
+		change += glyph + " checks"
 	}
 	if r.Draft {
 		change += " · draft"
@@ -443,6 +492,16 @@ func (m *Model) reviewDetailLines(width int) []string {
 	out = append(out, line(change, ToneMuted, false))
 	if label, tone := m.reviewSessionLabel(r); label != "" {
 		out = append(out, line(label, tone, false))
+		if label == staleBriefingLabel {
+			out = append(out, line(m.pressTo(keymap.ContextReviews, keymap.ReviewStart, "refresh briefing"), ToneMuted, false))
+		}
+	}
+	if origin := m.reviewOrigin(r); origin != nil {
+		out = append(out, "", line("Session: "+m.displayName(*origin), ToneAccent, false),
+			line(m.pressTo(keymap.ContextReviews, keymap.ReviewAuthor, "ask about this PR"), ToneMuted, false))
+	}
+	if tier := m.reviewPriority(r); tier != priority.Unset {
+		out = append(out, line("Priority: "+tier.Label(), ToneGood, false))
 	}
 	if r.URL != "" {
 		out = append(out, "", line(r.URL, ToneMuted, false))
@@ -464,6 +523,8 @@ func checksTone(state forge.ChecksState) Tone {
 
 func triggerLabel(trigger string) string {
 	switch forge.Trigger(trigger) {
+	case "session":
+		return "opened by a session"
 	case forge.TriggerLabel:
 		return "labelled"
 	case forge.TriggerComment:
@@ -493,10 +554,15 @@ func (m *Model) toggleReviewsTab() tea.Cmd {
 		m.errBar.text = "the review queue is experimental: turn it on in Settings → Experimental features"
 		return nil
 	}
+	m.triageStartupEnter = false
 	if !m.reviewsTab {
+		var cmd tea.Cmd
+		if m.mode == modeFocus {
+			cmd = m.leaveFocus()
+		}
 		m.reviewsTab = true
 		m.triageResume = false
-		return nil
+		return cmd
 	}
 	return m.leaveReviewsTab(true)
 }
@@ -517,7 +583,8 @@ func (m *Model) leaveReviewsTab(advance bool) tea.Cmd {
 var reviewsTabAllows = map[keymap.Action]bool{
 	keymap.Quit: true, keymap.Settings: true, keymap.Help: true,
 	keymap.QuickActions: true, keymap.Triage: true, keymap.ReviewsTab: true,
-	keymap.IngestReviews: true, keymap.LegendPeek: true,
+	keymap.IngestReviews: true, keymap.TriageContent: true, keymap.LegendPeek: true,
+	keymap.NewSession: true, keymap.NewSessionForm: true,
 }
 
 // reviewsTabKey answers a key while the Reviews tab is up. Its own keys come
@@ -605,7 +672,7 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	case keymap.Refresh:
 		return m, m.ingestReviews()
-	case keymap.ReviewOpen, keymap.ReviewDismiss, keymap.ReviewStart, keymap.ReviewView:
+	case keymap.ReviewOpen, keymap.ReviewDismiss, keymap.ReviewStart, keymap.ReviewView, keymap.ReviewAuthor:
 	default:
 		return nil, nil
 	}
@@ -614,6 +681,8 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch action {
+	case keymap.ReviewAuthor:
+		return m.openReviewAuthor(r)
 	case keymap.ReviewOpen:
 		return m, openLink(r.URL)
 	case keymap.ReviewDismiss:
@@ -626,24 +695,35 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 	return m.startReview(r)
 }
 
-// setReviewState moves every open ask on the pull request, and reloads the
-// queue so the row and the page follow.
-func (m *Model) setReviewState(r store.ReviewRequest, state, sessionID string) {
-	if err := m.store.SetPullRequestReviewState(r.Repo, r.Number, state, sessionID, r.HeadSHA, time.Now()); err != nil {
-		m.errBar.text = "review queue: " + err.Error()
-		return
+func (m *Model) reloadReviewRequests() error {
+	open, err := m.store.OpenReviewRequests()
+	if err == nil {
+		m.replaceReviews(open)
 	}
-	if open, err := m.store.OpenReviewRequests(); err == nil {
-		m.reviews = open
-	}
-	m.rebuildRows()
+	return err
 }
 
-// startReview launches the review session for an ask, or lands on the one
-// already running for it.
+// setReviewState moves every open ask on the pull request, and reloads the
+// queue so the row and the page follow.
+func (m *Model) setReviewState(r store.ReviewRequest, state, sessionID string) bool {
+	if err := m.store.SetPullRequestReviewState(r.Repo, r.Number, state, sessionID, r.HeadSHA, time.Now()); err != nil {
+		m.errBar.text = "review queue: " + err.Error()
+		return false
+	}
+	if err := m.reloadReviewRequests(); err != nil {
+		m.errBar.text = "review queue: " + err.Error()
+		return false
+	}
+	m.rebuildRows()
+	return true
+}
+
+// startReview opens a briefing for the latest known head, starting a new
+// session if the current one was briefed on another commit.
 func (m *Model) startReview(r store.ReviewRequest) (tea.Model, tea.Cmd) {
+	r.HeadSHA = m.reviewHead(r)
 	id := ""
-	if sess := m.reviewSession(r); sess != nil {
+	if sess, head := m.reviewSession(r); sess != nil && !briefingStale(head, r.HeadSHA) {
 		id = sess.ID
 	} else {
 		launched, err := m.launchReview(r)
@@ -654,7 +734,10 @@ func (m *Model) startReview(r store.ReviewRequest) (tea.Model, tea.Cmd) {
 		id = launched
 		m.errBar.text = ""
 	}
-	m.setReviewState(r, store.ReviewStarted, id)
+	if !m.setReviewState(r, store.ReviewStarted, id) {
+		return m, nil
+	}
+	m.closePullRequest()
 	m.reviewsTab = false
 	m.statusFilter = statusFilterAll
 	m.toolFilter = ""
@@ -684,4 +767,108 @@ func (m *Model) launchReview(r store.ReviewRequest) (string, error) {
 	).Replace(cfg.PromptOrDefault())
 	name := "review-" + path.Base(r.Repo) + "-" + strconv.Itoa(r.Number)
 	return m.spawnSessionAs(tool, cfg.Model, name, dir, rootGroup, prompt, false, store.SourceUser)
+}
+
+func queueSessionReviews(st *store.Store, tracker *worktracker.Tracker, sessions []worktracker.Session, now time.Time) error {
+	var found []store.ReviewRequest
+	seen := map[string]bool{}
+	for _, sess := range sessions {
+		urls, err := st.OpenedPRs(sess.ID)
+		if err != nil {
+			return err
+		}
+		if len(urls) == 0 {
+			continue
+		}
+		work := tracker.For(sess.ID)
+		for _, ref := range work.Refs {
+			key := ref.Key()
+			pr, ok := work.PRs[key]
+			if !ok || !work.Looked[key] || ref.Kind != workspec.KindPR || seen[key] || !slices.Contains(urls, pr.URL) {
+				continue
+			}
+			seen[key] = true
+			if pr.Done() {
+				if err := st.CloseSessionReview(pr.Repo, pr.Number, now); err != nil {
+					return err
+				}
+				continue
+			}
+			if pr.State == forge.PRDraft {
+				if err := st.SetSessionReviewDraft(pr.Repo, pr.Number, now); err != nil {
+					return err
+				}
+				continue
+			}
+			if pr.State != forge.PROpen {
+				continue
+			}
+			head := ""
+			if pr.CI != nil {
+				head = pr.CI.HeadSHA
+			}
+			found = append(found, store.ReviewRequest{
+				Repo: pr.Repo, Number: pr.Number, URL: pr.URL, Title: pr.Title,
+				Trigger: "session", TriggerID: key, HeadSHA: head,
+				Checks: string(pr.Checks), TriggeredAt: now,
+			})
+		}
+	}
+	_, err := st.UpsertReviewRequests(found, now)
+	return err
+}
+
+func (m *Model) reviewOrigin(r store.ReviewRequest) *store.Session {
+	for i := range m.sessions {
+		if m.sessions[i].ID == r.OriginSessionID {
+			return &m.sessions[i]
+		}
+	}
+	return r.OriginSession
+}
+
+func (m *Model) reviewPriority(r store.ReviewRequest) priority.Tier {
+	var tier priority.Tier
+	if origin := m.reviewOrigin(r); origin != nil {
+		tier = store.EffectiveTier(m.priorityGroups, *origin)
+	}
+	if sess, _ := m.reviewSession(r); sess != nil {
+		tier = priority.Better(tier, store.EffectiveTier(m.priorityGroups, *sess))
+	}
+	return m.scale().Clamp(tier)
+}
+
+func (m *Model) replaceReviews(open []store.ReviewRequest) {
+	selected := ""
+	if m.reviewsCursor >= 0 && m.reviewsCursor < len(m.reviews) {
+		selected = reviewKey(m.reviews[m.reviewsCursor])
+	}
+	m.reviews = open
+	m.reviewsCursor = max(0, min(m.reviewsCursor, len(open)-1))
+	slices.SortStableFunc(m.reviews, func(a, b store.ReviewRequest) int {
+		return m.reviewPriority(a).Rank() - m.reviewPriority(b).Rank()
+	})
+	for i, r := range m.reviews {
+		if reviewKey(r) == selected {
+			m.reviewsCursor = i
+			break
+		}
+	}
+}
+
+func (m *Model) openReviewAuthor(r store.ReviewRequest) (tea.Model, tea.Cmd) {
+	origin := m.reviewOrigin(r)
+	if origin == nil {
+		m.errBar.text = "the originating session is no longer on the board"
+		return m, nil
+	}
+	m.closePullRequest()
+	m.reviewsTab = false
+	m.statusFilter, m.toolFilter, m.search = statusFilterAll, "", ""
+	m.showArchived = origin.Archived
+	if sessionGone(m.sessions, origin.ID) {
+		m.sessions = append(m.sessions, *origin)
+	}
+	m.reportDone("ask about " + r.URL)
+	return m.landInNewSession(origin.ID)
 }

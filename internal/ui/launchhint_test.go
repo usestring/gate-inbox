@@ -29,14 +29,14 @@ func TestReportLaunchErrorOpensInstallHintForMissingCLI(t *testing.T) {
 	if m.mode != modeLaunchHint {
 		t.Fatalf("mode = %v, want modeLaunchHint", m.mode)
 	}
-	if !strings.Contains(m.launchFix.text, "claude.ai/install.sh") {
+	if !strings.Contains(m.launchFix.text, "@anthropic-ai/claude-code") {
 		t.Fatalf("hint %q should name the install command", m.launchFix.text)
 	}
 	if !strings.Contains(m.launchFix.text, "claude") {
 		t.Fatalf("hint %q should name the missing CLI", m.launchFix.text)
 	}
 	frame := ansi.Strip(m.viewLaunchHint())
-	if !strings.Contains(frame, "claude.ai/install.sh") {
+	if !strings.Contains(frame, "npm install -g @anthropic-ai/claude-") {
 		t.Fatalf("dialog should show the install command:\n%s", frame)
 	}
 }
@@ -462,7 +462,7 @@ func TestLaunchHintNamesAWindowsOnlyInstall(t *testing.T) {
 	m.reportLaunchError(config.MissingToolError{Binary: "claude", WindowsPath: windowsPath}, nil)
 
 	frame := ansi.Strip(m.viewLaunchHint())
-	for _, want := range []string{"installed on Windows", "WSL distro", "claude.ai/install.sh"} {
+	for _, want := range []string{"installed on Windows", "WSL distro", "npm install -g @anthropic-ai/claude-"} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("dialog is missing %q:\n%s", want, frame)
 		}

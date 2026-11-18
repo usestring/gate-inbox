@@ -28,10 +28,13 @@ func (m *Model) openQuickMode() {
 
 // handleQuickKey runs while the hotkey menu is docked in the sidebar: arrows
 // keep moving the selection on the list, a snippet's key sends it, and the
-// key that opened the menu, or esc, closes it. Nothing is typed, so a key
-// that names no snippet does nothing rather than reaching some other binding
-// behind the menu.
+// key that opened the menu switches to launches; esc closes it. Nothing is
+// typed, so a key that names no snippet does nothing rather than reaching
+// some other binding behind the menu.
 func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.quick.launch {
+		return m.handleLaunchSnippetKey(msg)
+	}
 	if m.quick.fromFocus {
 		return m.handleFocusQuickKey(msg)
 	}
@@ -41,7 +44,7 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case keymap.ToggleConversation:
 			return m, m.toggleConversation()
 		case keymap.QuickInput:
-			m.quick.active = false
+			m.openLaunchSnippets()
 			return m, nil
 		case keymap.Rescind:
 			if m.canRescindLatestSubmission() {
@@ -97,8 +100,7 @@ func (m *Model) handleFocusQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if action, bound := m.action(keymap.ContextFocus, msg); bound {
 		switch action {
 		case keymap.QuickInput:
-			m.clearQuickBlockedNotice()
-			m.quick.active = false
+			m.openLaunchSnippets()
 			return m, nil
 		case keymap.ToggleConversation:
 			return m, m.toggleConversation()

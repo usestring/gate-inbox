@@ -22,14 +22,14 @@ Escape
 Sleep 1s
 
 # Seed two agents off camera.
-Type "n"
+Ctrl+n
 Sleep 2500ms
 Type "ABC-123 add CSV export to billing"
 Enter
 Sleep 2s
 Ctrl+q
 Sleep 1500ms
-Type "n"
+Ctrl+n
 Sleep 2500ms
 Type "update the install steps in the README"
 Enter

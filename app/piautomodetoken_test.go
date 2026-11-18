@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -50,5 +51,24 @@ func TestPiAutoModeTokenRefusesAMalformedCall(t *testing.T) {
 		if err := runPiAutoModeToken(args, t.TempDir()); err == nil {
 			t.Errorf("args %q ran", args)
 		}
+	}
+}
+
+const piAutoModeSecretsChildEnv = "GATE_INBOX_TEST_PI_AUTO_MODE_SECRETS_DIR"
+
+// The verb runs as gate-inbox, whose build may fill in defaults for the
+// board's own secrets on startup; pi, which the verb becomes, gets none of
+// them.
+func TestPiAutoModeTokenKeepsTheBoardsSecretsFromPi(t *testing.T) {
+	if dir := os.Getenv(piAutoModeSecretsChildEnv); dir != "" {
+		err := runPiAutoModeToken([]string{"abcd1234", "--", "/bin/sh", "-c", `env | grep -E '^(TYPESAFE_API_KEY|GATE_INBOX_TRACE_SECRET)=' ; echo pi-ran`}, dir)
+		t.Fatalf("the step did not exec its command: %v", err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestPiAutoModeTokenKeepsTheBoardsSecretsFromPi$", "-test.count=1")
+	cmd.Env = append(tmuxtest.Environ(), piAutoModeSecretsChildEnv+"="+t.TempDir(),
+		envname.TypeSafeKey+"=operator-key", envname.TraceSecret+"=SOME_SECRET_NAME")
+	out, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "pi-ran" {
+		t.Fatalf("pi saw %q, %v; want none of the board's secrets", out, err)
 	}
 }

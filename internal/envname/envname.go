@@ -33,7 +33,17 @@ const (
 	// inherited, so a session launched without it cannot pick up its
 	// parent's.
 	SkipPermissions = "GATE_INBOX_SKIP_PERMISSIONS"
+	// TypeSafeKey is the TypeSafe API key the board asks the JEV classifier
+	// with.
+	TypeSafeKey = "TYPESAFE_API_KEY"
+	// TraceSecret names the secret the board reads its trace ingest token
+	// from.
+	TraceSecret = "GATE_INBOX_TRACE_SECRET"
 )
+
+// BoardSecrets are the board's own credentials. The board uses them from its
+// own process, so no agent it launches needs them.
+var BoardSecrets = []string{TypeSafeKey, TraceSecret}
 
 // Get reads a variable, treating a blank value as unset.
 func Get(name string) string {

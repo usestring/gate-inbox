@@ -2,7 +2,9 @@ package app
 
 import (
 	"fmt"
+	"os"
 
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/launch"
 )
 
@@ -16,5 +18,11 @@ func runPiAutoModeToken(args []string, configDir string) error {
 		return fmt.Errorf("%s: want <session-id> -- <command>", launch.AutoModeTokenVerb)
 	}
 	launch.WriteAutoModeConfig(configDir, args[0])
+	// The pane started without the board's secrets, but this binary may have
+	// filled in its own defaults for them on startup, and pi inherits
+	// whatever this process holds.
+	for _, name := range envname.BoardSecrets {
+		os.Unsetenv(name)
+	}
 	return execTUI(args[2:], nil)
 }

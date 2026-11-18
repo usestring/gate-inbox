@@ -37,7 +37,7 @@ const (
 	usageAccounts      = "accounts [--tool <cli>] [--json]"
 	usageSwitchAccount = "switch-account <session-id> [--account <name>] [--json]"
 	usageArchive       = "archive <session-id> [--restore] [--json]"
-	usageMute          = "mute <session-id> [--off] [--json]"
+	usageMute          = "mute <session-id> [--for <duration> | --until <time> | --off] [--json]"
 	usageCleanup       = "cleanup-children [--status <state>] [--all] [--dry-run] [--json]"
 	usagePark          = "park [--dry-run] [--json]"
 	usageUnpark        = "unpark [--json]"
@@ -70,6 +70,7 @@ type sessionCommands interface {
 	SwitchAccount(sessionID, targetID, account string) (sessioncmd.Session, error)
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
 	Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error)
+	Snooze(sessionID, targetID string, until time.Time) (sessioncmd.Session, error)
 	Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error)
 	Unpark(sessionID string) (sessioncmd.UnparkResult, error)
 	Hibernate(sessionID, targetID string, dryRun bool) (sessioncmd.HibernateResult, error)
@@ -104,7 +105,7 @@ func sessionSection() section {
 			{name: "accounts", usage: usageAccounts, about: "list the named accounts each CLI can run on, for spawn --account and switch-account, instead of guessing a name", run: bind(newSessions, runAccounts)},
 			{name: "switch-account", usage: usageSwitchAccount, about: "move another session onto a named account, or back to its CLI's own login with no --account, when its account is spent or nearly so; restarts it, so use it on a session at rest, never your own", run: bind(newSessions, runSwitchAccount)},
 			{name: "archive", usage: usageArchive, about: "file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days", run: bind(newSessions, runArchive)},
-			{name: "mute", usage: usageMute, about: "keep a session out of triage until it is unmuted: the row stays on the list and reads muted, and --off puts it back", run: bind(newSessions, runMute)},
+			{name: "mute", usage: usageMute, about: "keep a session out of triage until it is unmuted: the row stays on the list and reads muted, and --off puts it back; --for <duration> or --until <time> makes it a snooze, which lifts on its own then, or sooner if the session stops on a dialog or errors", run: bind(newSessions, runMute)},
 			{name: "cleanup-children", usage: usageCleanup, about: "archive the sessions you spawned that are done, each with whatever it spawned: finished, idle and dead by default, --status to choose, --all for every one; a finished child you have read is archived on its own after a grace period anyway", run: bind(newSessions, runCleanupChildren)},
 			{name: "park", usage: usagePark, about: "stop every live agent session the manager started and record the set, so the machine can reboot; --dry-run only prints the plan; runs from any shell", run: bind(newSessions, runPark)},
 			{name: "unpark", usage: usageUnpark, about: "bring back every session park stopped, each on the conversation it held: work in flight first, only the ones interrupted told to continue, paced one at a time; runs from any shell", run: bind(newSessions, runUnpark)},
@@ -510,24 +511,36 @@ func runArchive(out io.Writer, sessions sessionCommands, args []string, sessionI
 
 // runMute keeps a session out of triage, or puts it back with --off. It is a
 // board command like archive: it reaches the row directly, so it works with
-// no manager running, and the manager's next poll shows the change.
+// no manager running, and the manager's next poll shows the change. A snooze
+// is the exception to the first half of that: the manager's poll is what
+// lifts one, so it holds until a board is running to end it.
 func runMute(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
 	set := cmdline.NewFlagSet(usageMute)
 	off := set.Bool("off", false, "unmute the session, putting it back in triage")
+	length := set.String("for", "", "snooze: mute for this long, such as 90m, 4h or 2d, then put it back in triage")
+	until := set.String("until", "", "snooze: mute until this time, written 15:04, 2006-01-02, 2006-01-02 15:04 or RFC3339")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	muted, err := sessions.Mute(sessionID, operands[0], !*off)
+	end, err := sessioncmd.ParseSnoozeEnd(*length, *until, time.Now())
+	if err != nil {
+		return fmt.Errorf("usage: %s %s: %w", program, usageMute, err)
+	}
+	var muted sessioncmd.Session
+	switch {
+	case end.IsZero():
+		muted, err = sessions.Mute(sessionID, operands[0], !*off)
+	case *off:
+		return fmt.Errorf("usage: %s %s: --off unmutes, so it takes no --for or --until", program, usageMute)
+	default:
+		muted, err = sessions.Snooze(sessionID, operands[0], end)
+	}
 	if err != nil {
 		return err
 	}
-	verb := "muted "
-	if !muted.Muted {
-		verb = "unmuted "
-	}
-	return cmdline.Emit(out, *asJSON, muted, verb+sessioncmd.FormatSession(muted))
+	return cmdline.Emit(out, *asJSON, muted, sessioncmd.FormatMuteState(muted))
 }
 
 func runCleanupChildren(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {

@@ -22,6 +22,7 @@ import (
 // fakeSessions records what a subcommand asked the layer for, so the tests
 // exercise argument parsing and output without a tmux socket or a store.
 type fakeSessions struct {
+	snoozedUntil time.Time
 	callerID     string
 	targetID     string
 	message      string
@@ -207,6 +208,13 @@ func (f *fakeSessions) Mute(sessionID, targetID string, muted bool) (sessioncmd.
 	f.callerID, f.targetID, f.muted = sessionID, targetID, muted
 	updated := f.session
 	updated.Muted = muted
+	return updated, f.failWith
+}
+
+func (f *fakeSessions) Snooze(sessionID, targetID string, until time.Time) (sessioncmd.Session, error) {
+	f.callerID, f.targetID, f.muted, f.snoozedUntil = sessionID, targetID, true, until
+	updated := f.session
+	updated.Muted, updated.MutedUntil = true, until.Format(time.RFC3339)
 	return updated, f.failWith
 }
 
@@ -602,6 +610,49 @@ func TestAFrontReportsWhatTheLayerDecided(t *testing.T) {
 	}
 	if fake.muted {
 		t.Fatal("--off did not clear the mute")
+	}
+}
+
+// --for and --until make the mute a snooze, which goes to its own call with
+// the end worked out; a mute that both ends and does not is refused.
+func TestMuteForAndUntilSnooze(t *testing.T) {
+	fake := &fakeSessions{}
+	out := &bytes.Buffer{}
+	asked := time.Now()
+	if err := runMute(out, fake, []string{"beef1234", "--for", "4h"}, "cafe0001"); err != nil {
+		t.Fatalf("mute --for: %v", err)
+	}
+	if left := fake.snoozedUntil.Sub(asked); fake.targetID != "beef1234" || left < 4*time.Hour || left > 4*time.Hour+time.Minute {
+		t.Fatalf("mute --for 4h snoozed %q for %v", fake.targetID, left)
+	}
+	if !strings.HasPrefix(out.String(), "muted until ") {
+		t.Fatalf("mute --for output = %q, want it to say when the session is back", out.String())
+	}
+
+	fake = &fakeSessions{}
+	if err := runMute(&bytes.Buffer{}, fake, []string{"beef1234", "--until", "2999-01-02 03:04"}, "cafe0001"); err != nil {
+		t.Fatalf("mute --until: %v", err)
+	}
+	if want := time.Date(2999, 1, 2, 3, 4, 0, 0, time.Local); !fake.snoozedUntil.Equal(want) {
+		t.Fatalf("mute --until snoozed until %v, want %v", fake.snoozedUntil, want)
+	}
+
+	for args, want := range map[string]string{
+		"--for 4h --until 23:00": "not both",
+		"--off --for 4h":         "--off unmutes",
+		"--for soon":             "not a duration",
+		"--for -1h":              "more than zero",
+		"--until 2001-01-01":     "has passed",
+		"--until teatime":        "not a time",
+	} {
+		fake = &fakeSessions{}
+		err := runMute(&bytes.Buffer{}, fake, append([]string{"beef1234"}, strings.Fields(args)...), "cafe0001")
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("mute %s: err = %v, want %q", args, err, want)
+		}
+		if fake.targetID != "" {
+			t.Errorf("mute %s reached the session", args)
+		}
 	}
 }
 

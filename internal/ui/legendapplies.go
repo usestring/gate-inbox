@@ -97,7 +97,7 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 		return row.sess.ID != "" && !row.sess.Archived &&
 			(m.isMuted(row.sess) || row.sess.Muted || row.sess.Status == status.Finished ||
 				m.triageWalkable(row.sess))
-	case keymap.Mute:
+	case keymap.Mute, keymap.Snooze:
 		return row.sess.ID != "" && !row.sess.Archived
 	case keymap.UnmuteAll:
 		for _, sess := range m.searchedListedSessions() {

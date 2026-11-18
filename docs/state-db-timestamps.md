@@ -4,7 +4,7 @@
 
 | Unit | Table | Columns |
 |---|---|---|
-| ns | `sessions` | `created_at`, `last_status_at`, `agent_launched_at`, `killed_at`, `archived_at`, `spawner_read_at` |
+| ns | `sessions` | `created_at`, `last_status_at`, `agent_launched_at`, `killed_at`, `archived_at`, `spawner_read_at`, `muted_until` |
 | ns | `session_inbox` | `sent_at`, `claimed_at`, `delivered_at`, `read_at`, `dropped_at` |
 | ns | `session_ends` | `ended_at` |
 | ns | `tasks` | `created_at`, `updated_at` |

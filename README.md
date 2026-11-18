@@ -166,6 +166,7 @@ selected agent for builds and one-off commands.
 | `ctrl+f` | Fuzzy search; `esc` closes the field, deleting the text clears it |
 | `ctrl+p` | Priority tier for a session or group; each press steps high → medium → low → none on the default scale (`priority tiers` in Settings allows up to +3 / -3). `ctrl+p` also works from a focused session, and the row flashes its new tier |
 | `ctrl+m` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
+| `alt+z` | Snooze: mute for 1h, 4h, a day, then off; it comes back then, or sooner if it asks or errors |
 | `ctrl+t` / `alt+a` | Move the conversation to another CLI / switch its subscription |
 | `ctrl+alt+t` | Shell tab under the selected agent |
 | `ctrl+x` / `ctrl+r` | Kill a session to free its RAM / revive it on its own conversation |

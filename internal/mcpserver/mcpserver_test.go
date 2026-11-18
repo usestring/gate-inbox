@@ -115,6 +115,7 @@ type fakeSessionCommands struct {
 	archivedID     string
 	archived       bool
 	mutedID        string
+	snoozedUntil   time.Time
 	muted          bool
 	groupPath      string
 	groupDir       string
@@ -279,6 +280,48 @@ func (f *fakeSessionCommands) Mute(_ string, id string, muted bool) (sessioncmd.
 	updated := f.created
 	updated.Muted = muted
 	return updated, f.err
+}
+
+func (f *fakeSessionCommands) Snooze(_ string, id string, until time.Time) (sessioncmd.Session, error) {
+	f.mutedID, f.muted, f.snoozedUntil = id, true, until
+	updated := f.created
+	updated.Muted, updated.MutedUntil = true, until.Format(time.RFC3339)
+	return updated, f.err
+}
+
+// mute_session with for or until is a snooze: the end is worked out and
+// handed to its own call, and an unmute that also names an end is refused
+// rather than guessed at.
+func TestMuteSessionSnoozesWithForOrUntil(t *testing.T) {
+	fake := &fakeSessionCommands{}
+	session := connectServer(t, newServer(t.TempDir(), "abc123", "test", &fakeTerminalCommands{}, fake))
+
+	asked := time.Now()
+	text, isError := callText(t, session, "mute_session", map[string]any{"session_id": "a1b2c3d4", "for": "90m"})
+	if isError {
+		t.Fatalf("mute_session for: %s", text)
+	}
+	if left := fake.snoozedUntil.Sub(asked); fake.mutedID != "a1b2c3d4" || left < 90*time.Minute || left > 91*time.Minute {
+		t.Fatalf("snoozed %q for %v, want 90m", fake.mutedID, left)
+	}
+	if !strings.HasPrefix(text, "muted until ") {
+		t.Fatalf("result = %q, want it to say when the session is back", text)
+	}
+
+	*fake = fakeSessionCommands{}
+	if text, isError := callText(t, session, "mute_session", map[string]any{"session_id": "a1b2c3d4", "muted": false, "until": "2999-01-02"}); !isError || !strings.Contains(text, "muted false unmutes") {
+		t.Fatalf("an unmute with an end = %q (error %v), want it refused", text, isError)
+	}
+	if text, isError := callText(t, session, "mute_session", map[string]any{"session_id": "a1b2c3d4", "for": "1h", "until": "2999-01-02"}); !isError || !strings.Contains(text, "not both") {
+		t.Fatalf("a snooze with a length and an end = %q (error %v), want it refused", text, isError)
+	}
+	if fake.mutedID != "" {
+		t.Fatal("a refused snooze reached the session")
+	}
+
+	if text, isError := callText(t, session, "mute_session", map[string]any{"session_id": "a1b2c3d4"}); isError || !strings.HasPrefix(text, "muted ") || !fake.snoozedUntil.IsZero() {
+		t.Fatalf("a plain mute = %q (error %v, snoozed until %v), want a mute with no end", text, isError, fake.snoozedUntil)
+	}
 }
 
 func (f *fakeSessionCommands) Tasks(_ string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error) {

@@ -1720,6 +1720,12 @@ func (s *Sessions) Revive(sessionID, targetID string) (revived Session, err erro
 	if err != nil {
 		return Session{}, err
 	}
+	return s.reviveRow(runtime, target)
+}
+
+// reviveRow is Revive for a row already resolved, on a runtime the caller
+// holds open.
+func (s *Sessions) reviveRow(runtime *runtime, target store.Session) (Session, error) {
 	// A live adopted pane is not gi_<id>, so without reaching it this would
 	// launch a second agent on the conversation the first is still holding.
 	if err := runtime.reach(target); err != nil {

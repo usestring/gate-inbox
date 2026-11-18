@@ -337,6 +337,20 @@ Archiving ends the agent, so `ctrl+x` asks for confirmation by default. To skip 
 
 The wide gestures keep their dialog whatever the setting says. `ctrl+x` on a group takes its whole subtree and killing every row on screen (quick actions) takes all of it, and neither is a keystroke aimed at something you picked out — which is what makes a silent answer safe. The wide kill keeps its tick for the same reason it has one.
 
+## Sweeping stale sessions
+
+`gate-inbox sweep` lists the rows nobody is using and what to do with each: archive a session idle or finished for longer than `--idle` (72h by default) or one that ended and stayed on the list, revive one that ended or errored with work or mail still due, kill one parked on a dialog longer than `--waiting`, and check on mail held for a session that is running. Each line carries the MCP call that would carry it out. It reads `state.db` read-only and changes nothing, and `/gi-sweep` runs it from inside a Claude Code session. A hibernated session is resting rather than stale, and is never listed.
+
+`gate-inbox sweep --apply` carries the safe part out, through the same code the archive, revive, kill and hibernate tools run:
+
+- A row proposed for archive that is idle or finished, and that `gate-inbox hibernate` would accept, is hibernated instead. Its row, mail and task claims stay and its next message wakes it, where an archived row is deleted after 7 days.
+- Any other row proposed for archive is archived, unless that would lose something: mail not yet typed in, a session under it that is still on the board (an archive takes those with it), a task claim it holds, a background task or shell running under it, or a `--keep` its spawner asked for. Such a row is held, and the report says why.
+- A revive starts a process and a kill loses the question a session is waiting on, so both are held unless you pass `--revive` or `--kill-waiting`. `--force` archives or kills a row despite what it would lose.
+- Terminals, panes the board adopted, the session running the sweep and the sessions above it are always left alone, and so is a row whose status moved after the sweep read it.
+- The board has to be running. Every check starts from the status it last wrote, so with no board polling an apply refuses rather than act on statuses that may be days old.
+
+The report then lists every proposal with what became of it: `hibernated`, `archived`, `revived`, `killed`, `held` or `failed`. `--json` carries the same under `applied`. `--apply --dry-run` makes every check and prints that list without changing anything. An agent running `/gi-sweep` only proposes; it passes `--apply` when you ask it to apply the sweep.
+
 ## Restarting a session on the conversation it is on
 
 `ctrl+r` on a running session ends the agent and brings it straight back on the same conversation, so the history is there and the process is new. That is the difference that matters: a session reads its skills, its settings and its MCP servers when the CLI starts, so an agent that has been up since before any of those changed is answering with the old ones and has no way to reload them from inside. Restarting from quick actions (`ctrl+k`) buys the same fresh process by throwing the conversation away, which was never the answer to "the tools are stale". It asks first, and `n` leaves the agent running.

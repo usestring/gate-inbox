@@ -466,19 +466,29 @@ usage: gate-inbox priority <urgent|high|medium|low|none|-1..3>
 $ gate-inbox sweep -h
 exit 0
 --- stdout
-usage: gate-inbox sweep [--json] [--db <path>] [--idle 72h] [--waiting 24h] [--errored 24h] [--dead 1h] [--mail 1h]
+usage: gate-inbox sweep [--apply [--dry-run] [--revive] [--kill-waiting] [--force]] [--json] [--db <path>] [--idle 72h] [--waiting 24h] [--errored 24h] [--dead 1h] [--mail 1h]
+  -apply
+    	carry out the archive proposals: hibernate each row hibernate would take, archive the rest, and hold any row with mail waiting, children on the board, task claims or work running under it
   -db string
     	state.db to read instead of the board's own, such as a copy
   -dead duration
     	how long an ended session stays on the list before it is stale (default 1h0m0s)
+  -dry-run
+    	change nothing, which is what a sweep without --apply does; with --apply, make every check and print what an apply would do
   -errored duration
     	how long an errored session sits before it is stale (default 24h0m0s)
+  -force
+    	with --apply, archive or kill a row although it has mail waiting, children on the board, task claims or work running under it
   -idle duration
     	how long an idle or finished session sits before it is stale (default 72h0m0s)
   -json
     	print the raw result as JSON instead of a sentence
+  -kill-waiting
+    	with --apply, stop sessions parked on a dialog nobody answered; the question is lost
   -mail duration
     	how old an undelivered message is before it is reported (default 1h0m0s)
+  -revive
+    	with --apply, carry out the revive proposals too; each starts a process
   -waiting duration
     	how long a session waits on a dialog before it is stale (default 24h0m0s)
 

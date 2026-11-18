@@ -60,7 +60,7 @@ func TestSessionDetailLinesLeaveTheRowItsOwnFacts(t *testing.T) {
 	m := shotModel()
 
 	wide := ansi.Strip(strings.Join(detailText(m.sessionDetailLines(70)), "\n"))
-	for _, want := range []string{"claude", "group", "dir", "started 1d ago"} {
+	for _, want := range []string{"cld", "group", "dir", "started 1d ago"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide block is missing %q: %q", want, wide)
 		}
@@ -124,9 +124,9 @@ func TestGroupRosterColumnsAlign(t *testing.T) {
 	}
 	column := -1
 	for _, row := range rows[1:] {
-		at := strings.Index(row, "claude")
+		at := strings.Index(row, "cld")
 		if at < 0 {
-			at = strings.Index(row, "codex")
+			at = strings.Index(row, "cdx")
 		}
 		if at < 0 {
 			t.Fatalf("no tool on roster row %q", row)

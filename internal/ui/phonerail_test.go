@@ -68,12 +68,12 @@ func TestACompactRowKeepsItsAgeWhole(t *testing.T) {
 	if cut := regexp.MustCompile(`· \S*…`).FindString(frame); cut != "" {
 		t.Fatalf("a meta column was cut %q:\n%s", cut, frame)
 	}
-	if m.commonTool == "" || strings.Contains(frame, "· "+m.commonTool) {
+	if m.commonTool == "" || strings.Contains(frame, "· "+shortToolName(m.commonTool)) {
 		t.Fatalf("rows name the common CLI %q:\n%s", m.commonTool, frame)
 	}
 
 	wide := undecidedFleet(t, 40, 200, 50)
-	if !strings.Contains(ansi.Strip(wide.frame()), "· "+wide.commonTool+" ·") {
+	if !strings.Contains(ansi.Strip(wide.frame()), "· "+shortToolName(wide.commonTool)+" ·") {
 		t.Fatal("a wide rail lost the CLI column")
 	}
 }
@@ -89,10 +89,10 @@ func TestACompactRowNamesAnUnusualCLI(t *testing.T) {
 	}
 	m.rebuildRows()
 	rail := ansi.Strip(railLinesText(m.railLines(m.railWidth(), m.listBodyHeight())))
-	if line := railRowLine(t, rail, "three"); !strings.Contains(line, "idle · codex ·") {
+	if line := railRowLine(t, rail, "three"); !strings.Contains(line, "idle · cdx ·") {
 		t.Fatalf("the odd CLI out is unnamed: %q", line)
 	}
-	if line := railRowLine(t, rail, "one"); strings.Contains(line, "claude") {
+	if line := railRowLine(t, rail, "one"); strings.Contains(line, "cld") {
 		t.Fatalf("the common CLI is named: %q", line)
 	}
 }

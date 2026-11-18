@@ -462,10 +462,10 @@ func (m *Model) sessionDetailLines(width int) []contentLine {
 	if !ok {
 		return nil
 	}
-	tool := sess.Tool
+	tool := shortToolName(sess.Tool)
 	if m.mode == modeRename && m.rename.sessID == sess.ID {
 		if picked := m.renameTool(); picked != "" {
-			tool = picked
+			tool = shortToolName(picked)
 		}
 	}
 	// A session on a chosen model wears it on the same chip as the CLI it
@@ -1152,7 +1152,7 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 		marks += " " + badge
 	}
 	state += marks
-	tool := metaText(" · " + sess.Tool)
+	tool := metaText(" · " + shortToolName(sess.Tool))
 	if m.rowMarks() {
 		// The tinted mark ahead of the name already says the state, so the
 		// word goes and the CLI is written as its letters. See rowdetail.go.
@@ -1304,8 +1304,19 @@ func (m *Model) summaryTag(sess store.Session, room int, style func(string) stri
 		return ""
 	}
 	text := m.sessionSummary(sess)
+	since := m.activitySince
+	if activity := m.workingActivities[sess.ID]; m.textScroll != textScrollOff &&
+		sess.Status == status.Working && activity.text != "" {
+		text, since = activity.text, activity.since
+	}
 	if text == "" {
 		return ""
+	}
+	if m.scrollsRow(sess.ID) {
+		if m.textScroll == textScrollHover && m.activityHoverSince.After(since) {
+			since = m.activityHoverSince
+		}
+		return "  " + style(scrollActivity(text, room-2, time.Since(since)))
 	}
 	return "  " + style(textfmt.TruncateWidth(text, room-2, "…"))
 }
@@ -1903,7 +1914,7 @@ func (m *Model) viewGroupAgents(group string, width, height int) string {
 		}
 		rows = append(rows, rosterRow{
 			name:  m.displayStatusText(sess, m.displayStatusGlyph(sess)) + " " + valueStyle.Render(m.displayName(sess)),
-			tool:  subtleText(sess.Tool),
+			tool:  subtleText(shortToolName(sess.Tool)),
 			state: m.displayStatusText(sess, m.displayStatusLabel(sess)) + subtleText(" · "+relSince(lastActivity(sess))),
 		})
 		shown++
@@ -2025,7 +2036,7 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 		state := m.displayStatusText(sess, m.displayStatusGlyph(sess)+" "+m.displayStatusLabel(sess))
 		target = fitColumns(
 			[]string{label("send") + lipgloss.NewStyle().Foreground(colorBright).Bold(true).Render(m.displayName(sess))},
-			[]string{state + " " + chipStyle.Render(sess.Tool), state, ""}, width)
+			[]string{state + " " + chipStyle.Render(shortToolName(sess.Tool)), state, ""}, width)
 	}
 	limit := min(maxRows, quickBarMaxRows)
 	if m.mode == modeFocus {

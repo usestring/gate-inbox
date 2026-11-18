@@ -613,7 +613,13 @@ type Model struct {
 	glyphs string
 	// rowDetail is whether session rows spell their state and CLI out or
 	// leave them to marks. See rowdetail.go.
-	rowDetail string
+	rowDetail          string
+	textScroll         string
+	workingActivities  map[string]workingActivity
+	activityAnimating  bool
+	activityHover      string
+	activityHoverSince time.Time
+	activitySince      time.Time
 	// priorityScale is the persisted tier scale, "+2/-1" by default. See
 	// tierscale.go.
 	priorityScale string
@@ -1039,6 +1045,7 @@ type settingsState struct {
 	palette              string
 	glyphs               string
 	rowDetail            string
+	textScroll           string
 	priorityScale        string
 	archiveConfirm       string
 	deleteConfirm        string
@@ -1095,6 +1102,7 @@ const (
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldRowDetail
+	settingsFieldWorkingActivity
 	settingsFieldPriorityScale
 	settingsFieldArchiveConfirm
 	settingsFieldDeleteConfirm
@@ -1161,6 +1169,7 @@ type refreshMsg struct {
 	compactWindows   map[string]compactView
 	archivedChildren map[string]int
 	searchText       map[string]string
+	workingActivity  map[string]string
 	answerableWait   map[string]bool
 	choreRests       map[string]time.Time
 	// askQuestions is each Claude session's pending AskUserQuestion call,
@@ -1458,6 +1467,8 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		palette:          storedPalette(st),
 		glyphs:           storedGlyphs(st),
 		rowDetail:        storedRowDetail(st),
+		textScroll:       storedWorkingActivity(st),
+		activitySince:    time.Now(),
 		priorityScale:    storedPriorityScale(st),
 		archiveConfirm:   storedArchiveConfirm(st),
 		deleteConfirm:    storedConfirmAsk(st, deleteConfirmSetting),
@@ -2375,6 +2386,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.setVisible(true), m.ownPaneVisibleCmd())
 
 	case tea.BlurMsg:
+		m.activityHover = ""
 		m.dismissLegendPeek()
 		return m, m.setVisible(false)
 
@@ -2397,6 +2409,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case browserOpenMsg:
 		m.handleBrowserOpen(msg)
 		return m, nil
+
+	case activityTickMsg:
+		m.activityAnimating = false
+		if !m.activityActive() {
+			m.frameUnchanged()
+		}
+		return m, m.startActivityTick()
 
 	case startupTickMsg:
 		if !m.needsLoaderTick() {
@@ -2610,6 +2629,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.compactWindows = msg.compactWindows
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
+		m.updateWorkingActivity(msg.workingActivity)
 		m.answerableWait = msg.answerableWait
 		m.choreRests = msg.choreRests
 		m.askQuestions = msg.askQuestions
@@ -2682,12 +2702,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.loadDrafts())
+			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.startActivityTick(), m.loadDrafts())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.loadDrafts())
+		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.startActivityTick(), m.loadDrafts())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)
@@ -3062,11 +3082,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
+		mouse := msg.Mouse()
+		hoverChanged := m.updateActivityHover(mouse.X, mouse.Y)
 		model, cmd := m.handleMouse(msg)
+		if hoverChanged {
+			m.frameReuse = false
+		}
 		// A click can select a session or leave focus, so the poller hears
 		// about it the same way it hears about a keystroke.
 		m.syncPollInput()
-		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
+		return model, tea.Batch(cmd, m.startActivityTick(), m.scheduleAutoSuggestion())
 
 	case tea.KeyboardEnhancementsMsg:
 		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()

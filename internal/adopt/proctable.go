@@ -166,7 +166,15 @@ func (t *ProcTable) foreground(c Candidate) (*process.Process, string, bool) {
 		if err != nil {
 			return
 		}
-		if fields := strings.Fields(line); len(fields) > 0 && filepath.Base(fields[0]) == c.Command {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			return
+		}
+		// tmux names the executable, which argv[0] need not: macOS's /bin/sh
+		// runs bash and keeps "/bin/sh" as argv[0] while tmux reports "bash".
+		if filepath.Base(fields[0]) == c.Command {
+			found, cmdline = proc, line
+		} else if name, err := proc.Name(); err == nil && name == c.Command {
 			found, cmdline = proc, line
 		}
 	})

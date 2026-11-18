@@ -140,3 +140,27 @@ func TestServerProofIsKeyedAndFresh(t *testing.T) {
 		t.Fatal("another key gave the same proof")
 	}
 }
+
+// A session's server proof is keyed by its token: the server derives it from
+// the key, and no other session's token, or none, gives the same answer.
+func TestSessionServerProofIsKeyedByTheSessionsToken(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := ServerProofForSession(dir, "s1", "n"); err == nil {
+		t.Fatal("a proof with no key minted")
+	}
+	token, err := CallerToken(dir, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := ServerProofForSession(dir, "s1", "n")
+	if err != nil || proof != SessionServerProof(token, "n") {
+		t.Fatalf("proof %q, %v", proof, err)
+	}
+	other, _ := ServerProofForSession(dir, "s2", "n")
+	if other == proof || SessionServerProof(token, "m") == proof {
+		t.Fatal("the proof did not depend on its session and nonce")
+	}
+	if plain, _ := ServerProof(dir, "n"); plain == proof || token == proof[:len(token)] {
+		t.Fatal("a session proof doubles as another credential")
+	}
+}

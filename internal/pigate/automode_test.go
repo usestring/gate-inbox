@@ -2,13 +2,17 @@ package pigate
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/usestring/gate-inbox/grant"
-	"github.com/usestring/gate-inbox/internal/jev"
+	"github.com/usestring/gate-inbox/internal/classifier"
+	"github.com/usestring/gate-inbox/internal/mcpshared"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/piauto"
 )
 
@@ -66,11 +70,11 @@ func TestHookWithAKeyButNoBoardServerAsks(t *testing.T) {
 	// reached.
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv(jev.KeyEnv, "test-key")
-	if err := os.MkdirAll(filepath.Dir(jev.KeyPath(configDir)), 0o700); err != nil {
+	t.Setenv(classifier.JEV.KeyEnv(), "test-key")
+	if err := os.MkdirAll(filepath.Dir(classifier.JEV.KeyPath(configDir)), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(jev.KeyPath(configDir), []byte("saved-key"), 0o600); err != nil {
+	if err := os.WriteFile(classifier.JEV.KeyPath(configDir), []byte("saved-key"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(bashReq(t.TempDir(), "go test ./..."))
@@ -78,7 +82,66 @@ func TestHookWithAKeyButNoBoardServerAsks(t *testing.T) {
 	if err := json.Unmarshal([]byte(Hook(strings.NewReader(string(payload)), configDir, "s1", "", nowForTest)), &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.Decision != Ask || !strings.Contains(d.Reason, "shared server is not answering") {
+	if d.Decision != Ask || !strings.Contains(d.Reason, "pi auto mode is unavailable") {
 		t.Fatalf("%+v", d)
+	}
+}
+
+// Under confinement (package keyconfine) the hook cannot read the caller key,
+// only the session's own MCP config. It proves itself with the token there,
+// checks the server with a proof keyed by that token, and so still reaches
+// the classifier; a server that cannot give that proof is never sent it.
+func TestHookAsksAutoModeWithOnlyItsOwnConfigReadable(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	token, err := parentseal.CallerToken(configDir, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
+	board := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case mcpshared.HealthPath:
+			_, _ = w.Write([]byte(parentseal.SessionServerProof(token, r.URL.Query().Get("nonce"))))
+		case piauto.Path:
+			asked = append(asked, r.Header.Get(mcpshared.CallerTokenHeader))
+			_ = json.NewEncoder(w).Encode(piauto.Answer{Allow: true, Judged: true, InScope: 0.97, Safe: 0.96})
+		}
+	}))
+	defer board.Close()
+	if err := os.WriteFile(filepath.Join(configDir, "mcp-serve.url"), []byte(board.URL), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mcpshared.WriteClaudeConfig(configDir, board.URL, "", "s1"); err != nil {
+		t.Fatal(err)
+	}
+	// What confinement hides.
+	if err := os.Remove(filepath.Join(parentseal.KeyDir(configDir), "caller.key")); err != nil {
+		t.Fatal(err)
+	}
+	decide := func() Decision {
+		payload, _ := json.Marshal(bashReq(t.TempDir(), "go version"))
+		var d Decision
+		if err := json.Unmarshal([]byte(Hook(strings.NewReader(string(payload)), configDir, "s1", "", nowForTest)), &d); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if d := decide(); d.Decision != Allow || !strings.Contains(d.Reason, "auto-allowed by JEV") || len(asked) != 1 || asked[0] != token {
+		t.Fatalf("confined hook: %+v, classifier asked with %q", d, asked)
+	}
+
+	squatter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == piauto.Path {
+			asked = append(asked, r.Header.Get(mcpshared.CallerTokenHeader))
+		}
+	}))
+	defer squatter.Close()
+	if err := os.WriteFile(filepath.Join(configDir, "mcp-serve.url"), []byte(squatter.URL), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if d := decide(); d.Decision != Ask || !strings.Contains(d.Reason, "not answering") || len(asked) != 1 {
+		t.Fatalf("squatter: %+v, tokens sent %q", d, asked)
 	}
 }

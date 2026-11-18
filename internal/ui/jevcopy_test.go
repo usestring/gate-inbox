@@ -13,89 +13,14 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/autocopy"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
-
-func TestCopyCandidatesTakesBlocksSpansAndLinksInOrder(t *testing.T) {
-	message := "Run this yourself:\n\n```bash\ngcloud auth login\n```\n\n" +
-		"Then type `! bun run deploy` and open <https://console.cloud.google.com/run>, then check `x`.\n" +
-		"The link `https://example.com/inside` is quoted once."
-	got := copyCandidates(message)
-	want := []string{"gcloud auth login", "! bun run deploy", "https://console.cloud.google.com/run", "https://example.com/inside"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("candidates = %q, want %q", got, want)
-	}
-}
-
-func TestCopyCandidatesPreservesMixedOrderBeforeLimit(t *testing.T) {
-	message := "Open https://example.com/first then run `first-command`.\n"
-	want := []string{"https://example.com/first", "first-command"}
-	for i := range jevCopyCandidates {
-		command := fmt.Sprintf("command-%d", i)
-		message += "```sh\n" + command + "\n```\n"
-		if len(want) < jevCopyCandidates {
-			want = append(want, command)
-		}
-	}
-	if got := copyCandidates(message); !slices.Equal(got, want) {
-		t.Fatalf("candidates = %q, want %q", got, want)
-	}
-}
-
-func TestCopyCandidatesPreservesURLParentheses(t *testing.T) {
-	for _, message := range []string{
-		"https://en.wikipedia.org/wiki/Foo_(bar)",
-		"[link](https://en.wikipedia.org/wiki/Foo_(bar)).",
-		"(https://en.wikipedia.org/wiki/Foo_(bar)),",
-		"https://en.wikipedia.org/wiki/Foo_(bar)).after",
-	} {
-		if got := copyCandidates(message); !slices.Equal(got, []string{"https://en.wikipedia.org/wiki/Foo_(bar)"}) {
-			t.Errorf("message %q: candidates = %q", message, got)
-		}
-	}
-	message := "[nested](https://example.com/a_(b_(c))) and <https://example.com/plain>."
-	want := []string{"https://example.com/a_(b_(c))", "https://example.com/plain"}
-	if got := copyCandidates(message); !slices.Equal(got, want) {
-		t.Fatalf("candidates = %q, want %q", got, want)
-	}
-}
-
-func TestCopyCandidatesPreservesURLTrailingPunctuation(t *testing.T) {
-	for _, suffix := range []string{"!", "?", ".", ",", ";", ":", "!!", "?q=value!"} {
-		link := "https://example.test/run" + suffix
-		for _, message := range []string{link, "[run](" + link + ").", "<" + link + ">,", "`" + link + "`"} {
-			if got := copyCandidates(message); !slices.Equal(got, []string{link}) {
-				t.Errorf("message %q: candidates = %q, want %q", message, got, link)
-			}
-		}
-	}
-}
-
-func TestCopyCandidatesStripsPunctuationBeforeContinuingProse(t *testing.T) {
-	for _, punctuation := range []string{",", ".", ";", ":", "!", "?"} {
-		link := "https://example.test/run"
-		for _, message := range []string{"Open " + link + punctuation + " then continue", link + punctuation + "\tNext step"} {
-			if got := copyCandidates(message); !slices.Equal(got, []string{link}) {
-				t.Errorf("message %q: candidates = %q, want %q", message, got, link)
-			}
-		}
-		for _, message := range []string{"<" + link + punctuation + "> then continue", "[run](" + link + punctuation + ") then continue", "`" + link + punctuation + "` then continue"} {
-			if got := copyCandidates(message); !slices.Equal(got, []string{link + punctuation}) {
-				t.Errorf("message %q: candidates = %q, want %q", message, got, link+punctuation)
-			}
-		}
-	}
-}
-
-func TestCopyCandidatesLeavesOutWhatIsTooLongRatherThanCutting(t *testing.T) {
-	long := strings.Repeat("a", jevCopyCandidateMax+1)
-	if got := copyCandidates("`" + long + "` and `ok-value`"); !slices.Equal(got, []string{"ok-value"}) {
-		t.Fatalf("candidates = %q", got)
-	}
-}
 
 func TestLatestAssistantTextNeedsTheTurnToEndOnTheAgent(t *testing.T) {
 	messages := []search.Message{{Role: "user", Text: "go"}, {Role: "assistant", Text: "run `make`"}}
@@ -110,30 +35,50 @@ func TestLatestAssistantTextNeedsTheTurnToEndOnTheAgent(t *testing.T) {
 func TestAskJevCopyKeepsOnlyConfidentPicks(t *testing.T) {
 	previous := jevHTTPClient
 	t.Cleanup(func() { jevHTTPClient = previous })
-	var questions map[string]struct{ Instructions string }
+	var body struct {
+		State     struct{ Message string }
+		Questions map[string]struct{ Instructions string }
+	}
 	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
-		var body struct {
-			Questions map[string]struct{ Instructions string }
-		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		questions = body.Questions
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
-			`{"model":"` + jevModel + `","answers":{"c1":{"type":"noul","noul":0.95},"c2":{"type":"noul","noul":0.5}}}`))}, nil
+		return copyAnswers(t, body.Questions, func(name string) float64 {
+			return map[string]float64{"c1": 0.95, "c2": 0.5}[name]
+		}), nil
 	})}
-	picked, ok := askJevCopy(t.Context(), "key", "message", []string{"gcloud auth login", "README.md"})
-	if !ok || !slices.Equal(picked, []string{"gcloud auth login"}) {
-		t.Fatalf("picked %q ok=%v", picked, ok)
+	message := "Run `gcloud auth login`, then read `README.md`."
+	plan := autocopy.Prepare(message)
+	picked, commands, ok := askJevCopy(t.Context(), classifier.JEV, "key", plan)
+	if !ok || !slices.Equal(picked, []string{"gcloud auth login"}) || !slices.Equal(commands, []string{"gcloud auth login"}) {
+		t.Fatalf("picked %q commands %q ok=%v", picked, commands, ok)
 	}
-	if !strings.HasSuffix(questions["c2"].Instructions, "README.md") {
-		t.Fatalf("question did not quote its candidate: %q", questions["c2"].Instructions)
+	if body.State.Message != message || len(body.Questions) != len(plan.Input().Questions) {
+		t.Fatalf("JEV was not sent the plan: message %q, %d questions", body.State.Message, len(body.Questions))
 	}
+	if !strings.HasSuffix(body.Questions["c2"].Instructions, "README.md") {
+		t.Fatalf("question did not quote its candidate: %q", body.Questions["c2"].Instructions)
+	}
+}
+
+// copyAnswers is a JEV reply answering every question asked with score(name).
+func copyAnswers[T any](t *testing.T, questions map[string]T, score func(string) float64) *http.Response {
+	t.Helper()
+	answers := make(map[string]any, len(questions))
+	for name := range questions {
+		answers[name] = map[string]any{"type": "noul", "noul": score(name)}
+	}
+	response, err := json.Marshal(map[string]any{"model": jevModel, "answers": answers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(string(response)))}
 }
 
 // copyTurn writes a Claude transcript whose last message is text and returns
 // a model with JEV copy on, a session for it, and a count of JEV calls that
-// answer each candidate with the matching score.
+// answer each candidate's command question with the matching score and
+// every other question with zero.
 func copyTurn(t *testing.T, text string, scores ...float64) (*Model, store.Session, *int) {
 	t.Helper()
 	t.Setenv("TYPESAFE_API_KEY", "test-key")
@@ -154,12 +99,18 @@ func copyTurn(t *testing.T, text string, scores ...float64) (*Model, store.Sessi
 	calls := 0
 	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
 		calls++
-		var answers []string
-		for i, score := range scores {
-			answers = append(answers, fmt.Sprintf(`"c%d":{"type":"noul","noul":%v}`, i+1, score))
+		var body struct{ Questions map[string]json.RawMessage }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
 		}
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
-			`{"model":"` + jevModel + `","answers":{` + strings.Join(answers, ",") + `}}`))}, nil
+		return copyAnswers(t, body.Questions, func(name string) float64 {
+			for i, score := range scores {
+				if name == fmt.Sprintf("c%d", i+1) {
+					return score
+				}
+			}
+			return 0
+		}), nil
 	})}
 	m := &Model{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}},
 		sessions: []store.Session{sess}, jevCopyOn: true,
@@ -373,19 +324,12 @@ func TestCopyWithJevCopiesDraftWithoutItsCommentary(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Fatal(err)
 				}
-				answers := make(map[string]any)
-				for name := range body.Questions {
-					score := 0.0
-					if name == "p2" || name == "p3" || name == "c1" {
-						score = 0.99
+				return copyAnswers(t, body.Questions, func(name string) float64 {
+					if name == "has_draft" || name == "p2" || name == "p3" || name == "c1" {
+						return 0.99
 					}
-					answers[name] = map[string]any{"type": "noul", "noul": score}
-				}
-				response, err := json.Marshal(map[string]any{"model": jevModel, "answers": answers})
-				if err != nil {
-					t.Fatal(err)
-				}
-				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(string(response)))}, nil
+					return 0
+				}), nil
 			})}
 			pressCopy(t, m, sess)
 			pressCopy(t, m, sess)
@@ -393,5 +337,92 @@ func TestCopyWithJevCopiesDraftWithoutItsCommentary(t *testing.T) {
 				t.Fatalf("calls=%d clipboard=%q", *calls, *wrote)
 			}
 		})
+	}
+}
+
+// pressRun presses the run key on sess, runs what it starts to the end, and
+// returns the lines it would have typed into the session.
+func pressRun(t *testing.T, m *Model, sess store.Session) []string {
+	t.Helper()
+	previous := sendJevCommand
+	t.Cleanup(func() { sendJevCommand = previous })
+	var typed []string
+	sendJevCommand = func(_ *Model, into store.Session, text, _ string) (tea.Cmd, bool) {
+		if into.ID != sess.ID {
+			t.Fatalf("typed into %q, want %q", into.ID, sess.ID)
+		}
+		typed = append(typed, text)
+		return nil, true
+	}
+	_, cmd := m.runWithJev(sess)
+	for cmd != nil {
+		msg, ok := cmd().(jevCopyResultMsg)
+		if !ok {
+			t.Fatalf("unexpected message %T", msg)
+		}
+		cmd = m.applyJevCopy(msg)
+	}
+	return typed
+}
+
+func TestRunWithJevTypesEachCommandOnceThenStops(t *testing.T) {
+	m, sess, calls := copyTurn(t, "Run `gcloud auth login`, then `! bun run deploy`, then open https://console.example.test/run.", 0.9, 0.95, 0.1)
+	m.sessions = []store.Session{sess}
+	stubClipboard(t, nil)
+	if got := pressRun(t, m, sess); !slices.Equal(got, []string{"! gcloud auth login"}) {
+		t.Fatalf("first press typed %q", got)
+	}
+	if got := pressRun(t, m, sess); !slices.Equal(got, []string{"! bun run deploy"}) {
+		t.Fatalf("second press typed %q", got)
+	}
+	if got := pressRun(t, m, sess); len(got) != 0 || !strings.Contains(m.errBar.text, "already sent all 2 commands") {
+		t.Fatalf("a third press typed %q, status %q", got, m.errBar.text)
+	}
+	if *calls != 1 {
+		t.Fatalf("the same turn was read %d times", *calls)
+	}
+	// The copy key shares that read and still walks its own picks.
+	wrote := stubClipboard(t, nil)
+	pressCopy(t, m, sess)
+	if *calls != 1 || !slices.Equal(*wrote, []string{"gcloud auth login"}) {
+		t.Fatalf("copy after run: calls %d, wrote %q", *calls, *wrote)
+	}
+}
+
+func TestRunWithJevSkipsWhatItIsNotSureOfAndMultilineBlocks(t *testing.T) {
+	m, sess, _ := copyTurn(t, "Maybe `make lint`.\n\n```sh\necho one\necho two\n```", 0.75, 0.99)
+	m.sessions = []store.Session{sess}
+	if got := pressRun(t, m, sess); len(got) != 0 || !strings.Contains(m.errBar.text, "left for you to run") {
+		t.Fatalf("typed %q, status %q", got, m.errBar.text)
+	}
+}
+
+func TestRunWithJevIsOffUntilEnabled(t *testing.T) {
+	m, sess, calls := copyTurn(t, "Run `gcloud auth login`.", 0.9)
+	m.jevCopyOn = false
+	if _, cmd := m.runWithJev(sess); cmd != nil || *calls != 0 {
+		t.Fatal("the run key acted with the experiment off")
+	}
+}
+
+// The run key reads which candidate a command question quotes from its
+// wording, which autocopy does not export; this fails if an upgrade changes it.
+func TestJevRunQuestionMatchesAutocopy(t *testing.T) {
+	questions := autocopy.Prepare("Run `example command`.").Input().Questions
+	if questions["c1"] != jevRunQuestion+"example command" {
+		t.Fatalf("autocopy's command question is now %q", questions["c1"])
+	}
+}
+
+func TestRunWithJevKeepsARefusedCommandForTheNextPress(t *testing.T) {
+	m, sess, _ := copyTurn(t, "Run `gcloud auth login`.", 0.9)
+	m.sessions = []store.Session{sess}
+	previous := sendJevCommand
+	t.Cleanup(func() { sendJevCommand = previous })
+	sendJevCommand = func(*Model, store.Session, string, string) (tea.Cmd, bool) { return nil, false }
+	_, cmd := m.runWithJev(sess)
+	m.applyJevCopy(cmd().(jevCopyResultMsg))
+	if got := pressRun(t, m, sess); !slices.Equal(got, []string{"! gcloud auth login"}) {
+		t.Fatalf("after a refused send the next press typed %q", got)
 	}
 }

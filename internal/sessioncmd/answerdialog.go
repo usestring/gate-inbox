@@ -184,9 +184,7 @@ func (s *Sessions) answerAll(sessionID, targetID string, answers []QuestionAnswe
 	if err := guard.admit(planned, questions); err != nil {
 		return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
 	}
-	answered, err := fillDialog(pane, questions, answers, submit)
-	err = guard.settle(pane, &answered, err, func() (AnsweredQuestion, error) { return fillDialog(pane, questions, answers, submit) })
-	guard.finish(err)
+	answered, err := fillGuarded(pane, questions, answers, submit, guard)
 	answered.SessionID, answered.Name = target.ID, target.Name
 	if err != nil {
 		return answered, err
@@ -256,6 +254,16 @@ type planned struct {
 	answer string
 	ticks  []string
 	typed  bool
+}
+
+// fillGuarded is fillDialog behind guard, whose rows admit has written: one
+// second look at a handoff that failed, then the rows settled.
+func fillGuarded(pane dialogPane, questions []dialog.Question, answers []QuestionAnswer, submit bool, guard *answerGuard) (AnsweredQuestion, error) {
+	pane = guard.watch(pane)
+	answered, err := fillDialog(pane, questions, answers, submit)
+	err = guard.settle(pane, &answered, err, func() (AnsweredQuestion, error) { return fillDialog(pane, questions, answers, submit) })
+	guard.finish(err)
+	return answered, err
 }
 
 // fillDialog is the sequence, over any pane. It validates every answer before

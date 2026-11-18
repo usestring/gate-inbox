@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // A withheld variable the tmux server holds reaches neither the agent nor
@@ -25,13 +27,16 @@ func TestAWithheldVariableReachesNoProcessInThePane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	window := withheld(env) + launchShell{path: "/bin/true"}.runScript(script)
-	// tmux hands the window command to its default shell, from an environment
-	// fixed when the server started.
-	cmd := exec.Command("/bin/sh", "-c", window)
-	cmd.Env = append(os.Environ(), "GI_TEST_KEY=server-value")
-	if raw, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("%s: %v\n%s", window, err, raw)
+	run := launchShell{path: "/bin/true"}.runScript(script)
+	// The launch shell's own command execs; one that did not must start too.
+	for _, window := range []string{withholding(env, run), withholding(env, strings.TrimPrefix(run, "exec "))} {
+		// tmux hands the window command to its default shell, from an
+		// environment fixed when the server started.
+		cmd := exec.Command("/bin/sh", "-c", window)
+		cmd.Env = append(tmuxtest.Environ(), "GI_TEST_KEY=server-value")
+		if raw, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", window, err, raw)
+		}
 	}
 	raw, err := os.ReadFile(out)
 	if err != nil {

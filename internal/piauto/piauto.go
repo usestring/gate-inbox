@@ -29,9 +29,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
-	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -86,7 +86,7 @@ type Answer struct {
 	Note string `json:"note,omitempty"`
 }
 
-// Asker is jev.AskNoul with the endpoint and client bound.
+// Asker is classifier.JEV.AskNoul with the endpoint and client bound.
 type Asker func(ctx context.Context, key string, state any, questions map[string]string) (map[string]float64, bool)
 
 // Classifier asks JEV and keeps the circuit breaker and the once-a-session
@@ -104,10 +104,10 @@ type Classifier struct {
 // NewClassifier asks the endpoint given, or TypeSafe's own when it is "".
 func NewClassifier(endpoint string) *Classifier {
 	if endpoint == "" {
-		endpoint = jev.Endpoint
+		endpoint = classifier.JEVEndpoint
 	}
 	return &Classifier{Ask: func(ctx context.Context, key string, state any, questions map[string]string) (map[string]float64, bool) {
-		return jev.AskNoul(ctx, jev.HTTPClient, endpoint, key, state, questions)
+		return classifier.JEV.AskNoul(ctx, classifier.HTTPClient, endpoint, key, state, questions)
 	}}
 }
 
@@ -283,7 +283,7 @@ func judge(configDir, session string, req Request, c *Classifier) Answer {
 	if !enabled {
 		return Answer{}
 	}
-	return c.Judge(session, jev.Key(configDir), req)
+	return c.Judge(session, classifier.JEV.Key(configDir), req)
 }
 
 // LogSuffix names the file beside a session's status file that records each

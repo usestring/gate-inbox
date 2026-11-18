@@ -416,7 +416,7 @@ func sandboxPlanFor(configDir, claudeHome, cwd string) Plan {
 	if err != nil {
 		return unavailable(fmt.Sprintf("no home directory: %v", err))
 	}
-	tmp := filepath.Join(os.TempDir(), "gate-inbox-pi-"+strconv.Itoa(os.Getuid()))
+	tmp := privateTmpDir(os.TempDir(), os.Getuid())
 	if err := os.MkdirAll(tmp, 0o700); err != nil {
 		return unavailable(fmt.Sprintf("cannot make %s: %v", tmp, err))
 	}
@@ -449,4 +449,19 @@ func piTool(cfg config.Config) config.Tool {
 		}
 	}
 	return found
+}
+
+// socketDirMax leaves room under the 104-byte unix socket path limit (108 on
+// Linux) for the runtime's socket names, srt-mux-<pid>-<n>.sock and the like.
+const socketDirMax = 64
+
+// privateTmpDir is the session's TMPDIR, which the runtime also binds its
+// proxy sockets under: one per user under tmp, or under /tmp when tmp is too
+// long for a socket path to fit beneath it.
+func privateTmpDir(tmp string, uid int) string {
+	name := "gate-inbox-pi-" + strconv.Itoa(uid)
+	if dir := filepath.Join(tmp, name); len(dir) <= socketDirMax {
+		return dir
+	}
+	return filepath.Join("/tmp", name)
 }

@@ -403,10 +403,9 @@ func TestAPriorityChangeFlashesTheRow(t *testing.T) {
 	}
 }
 
-// A background turn has ended -- its answer is on screen with a shell still
-// running behind it -- so whatever its tier the drain hands it over after the
-// question, and once it is back at work it is off the walk.
-func TestPriorityHandsOverBackgroundTurnsAfterAQuestion(t *testing.T) {
+// A background turn can be handed over because its answer is ready, even
+// while a shell runs behind it. A new turn takes it out of the drain.
+func TestTriageRespectsPriorityForBackgroundTurns(t *testing.T) {
 	for _, smart := range []bool{false, true} {
 		for _, tier := range []priority.Tier{priority.Urgent, priority.High, priority.Medium, priority.Unset, priority.Low} {
 			t.Run(fmt.Sprintf("smart=%v/tier=%s", smart, tier.Label()), func(t *testing.T) {
@@ -415,8 +414,12 @@ func TestPriorityHandsOverBackgroundTurnsAfterAQuestion(t *testing.T) {
 				m := smartFleet(t, monitor, smartSess("ask", status.Waiting, time.Minute))
 				m.smartTriage = smart
 				m.rebuildRows()
-				if got := drainOrder(m); !slices.Equal(got, []string{"ask", "monitor"}) {
-					t.Fatalf("drain = %v, want the question, then the background turn", got)
+				want := []string{"ask", "monitor"}
+				if tier == priority.Urgent || tier == priority.High || tier == priority.Medium {
+					want = []string{"monitor", "ask"}
+				}
+				if got := drainOrder(m); !slices.Equal(got, want) {
+					t.Fatalf("drain = %v, want %v", got, want)
 				}
 				for i := range m.sessions {
 					if m.sessions[i].ID == monitor.ID {

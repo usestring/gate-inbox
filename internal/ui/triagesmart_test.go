@@ -318,8 +318,8 @@ func TestSmartTriageDeadlineNeverJumpsAQuestion(t *testing.T) {
 	assertRail(t, m, "ask", "warm", "calm")
 }
 
-// Smart triage off keeps the strict order within each band: questions, priority, state, then
-// oldest, with a seen finish ranked as the idle row it reads as.
+// Smart triage off breaks priority ties by state and then age. A seen
+// finish ranks as idle, matching the status shown on the rail.
 func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
 	urgent := smartSess("urgent-done", status.Finished, time.Minute)
 	urgent.Priority = priority.Urgent
@@ -341,7 +341,7 @@ func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
 	m := smartFleet(t, fleet...)
 	m.smartTriage = false
 	m.rebuildRows()
-	want := []string{"q-old", "q-fresh", "urgent-done", "done-aged", "calm", "seen", "broke", "lead", "kid"}
+	want := []string{"urgent-done", "q-old", "q-fresh", "done-aged", "calm", "seen", "broke", "lead", "kid"}
 	assertRail(t, m, want...)
 	if got, want := drainOrder(m), slices.DeleteFunc(slices.Clone(want), func(n string) bool { return n == "lead" || n == "kid" }); !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want %v", got, want)

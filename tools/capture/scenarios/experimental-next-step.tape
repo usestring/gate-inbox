@@ -31,12 +31,15 @@ Sleep 1s
 Escape
 Sleep 1s
 
-# ctrl+alt+s, spelled as the escape byte and the chord.
+# ctrl+alt+s, spelled as the escape byte and the chord. Settings is walked
+# by search throughout: the list's last row is the build's version string,
+# which the evidence scan can take for a login name, and a search that never
+# matches that row keeps it off screen, on the way out as well as in.
 Escape
 Ctrl+S
 Sleep 2s
 Type "/"
-Type "experimental"
+Type "mental"
 Sleep 1s
 Enter
 Sleep 1s
@@ -50,6 +53,12 @@ Screenshot {{SHOTS}}/02-next-step-on.png
 Sleep 1s
 Escape
 Sleep 1s
+Type "/"
+Backspace 5
+Type "arks"
+Sleep 500ms
+Enter
+Sleep 500ms
 Escape
 Sleep 1s
 Escape

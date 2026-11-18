@@ -689,11 +689,11 @@ func TestFooterTogglesNameTheNextAction(t *testing.T) {
 	createSession(t, m, "toggles", dir, "work")
 	m.applyCmd(t, m.refreshCmd())
 
-	if footer := m.peekLegend(m.listBodyHeight()); !strings.Contains(footer, keyCapQuiet("w", "attention")) {
+	if footer := m.peekLegend(m.listBodyHeight()); !strings.Contains(footer, keyCapQuiet(m.tightCap(keymap.ContextList, keymap.StatusFilter), "attention")) {
 		t.Fatalf("an open tree should offer the attention filter:\n%s", ansi.Strip(footer))
 	}
 	m.cycleStatusFilter()
-	if footer := m.peekLegend(m.listBodyHeight()); !strings.Contains(footer, keyCapQuiet("w", "show all")) {
+	if footer := m.peekLegend(m.listBodyHeight()); !strings.Contains(footer, keyCapQuiet(m.tightCap(keymap.ContextList, keymap.StatusFilter), "show all")) {
 		t.Fatalf("a filtered tree should offer the way back:\n%s", ansi.Strip(footer))
 	}
 	m.cycleStatusFilter()

@@ -45,6 +45,49 @@ func newTestPollerWithSession(t *testing.T) (*poller, store.Session) {
 	return p, got
 }
 
+func TestPollFollowsAnExternallyPromotedAdoptedPane(t *testing.T) {
+	m, dbPath := buildModelWithStorePath(t)
+	const id = "borrowed"
+	socket, pane := adoptForeignPane(t, m, id, id, status.Idle)
+	m.applyCmd(t, nil)
+
+	externalStore, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer externalStore.Close()
+	sess, err := externalStore.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := tmuxOnSocket(socket, "kill-pane", "-t", pane).CombinedOutput(); err != nil {
+		t.Fatalf("end old pane: %v: %s", err, out)
+	}
+	if err := externalStore.PromoteAdopted(id, sess.Cwd, ""); err != nil {
+		t.Fatal(err)
+	}
+	relauncher := newTestDriver(t, m.tmux.SocketName())
+	if err := relauncher.Create(id, sess.Cwd, "cat", nil, 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { relauncher.Kill(id) })
+
+	m.applyCmd(t, nil)
+	if _, err := m.tmux.CapturePane(id); err != nil {
+		t.Fatalf("capture relaunched pane: %v", err)
+	}
+	current, err := m.store.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.killSession(current); err != nil {
+		t.Fatalf("kill relaunched pane: %v", err)
+	}
+	if relauncher.Exists(id) {
+		t.Fatal("relaunched pane survived the board's kill")
+	}
+}
+
 // A detached session must boot at the preview panel's width×height so its
 // pane preview fills 1:1, and follow later terminal resizes, rather than
 // staying at tmux's 80×24 default until attach.

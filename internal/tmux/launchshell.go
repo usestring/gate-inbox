@@ -55,11 +55,18 @@ func (s launchShell) readsStartupFiles() bool {
 
 // runScript is the tmux window command for the launch script. A shell that
 // cannot be trusted with it runs under sh, as every pane once did.
+//
+// tmux hands the window command to sh -c. bash execs a lone command there,
+// but dash (Debian and Ubuntu's sh) forks it and waits, which leaves an extra
+// sh as the pane pid with the launch shell under it. The poller reads the
+// pane pid as the shell and a second process as a live agent, so with that
+// wrapper an agent that has exited still looks alive. The leading exec makes
+// the launch shell the pane pid on every sh.
 func (s launchShell) runScript(script string) string {
 	if !s.readsStartupFiles() {
-		return "sh " + ShellQuote(script)
+		return "exec sh " + ShellQuote(script)
 	}
-	return ShellQuote(s.path) + " " + strings.Join(s.flags, " ") + " -c " + ShellQuote(sourceCommand(script))
+	return "exec " + ShellQuote(s.path) + " " + strings.Join(s.flags, " ") + " -c " + ShellQuote(sourceCommand(script))
 }
 
 // sourceCommand reads the script without handing it to the shell as its

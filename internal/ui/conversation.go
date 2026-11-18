@@ -81,9 +81,28 @@ func (m *Model) conversationIdentity(sess store.Session) string {
 	return conversationKey(sess.ID, id)
 }
 
+// conversationTarget finds sess's transcript off the event loop. What it
+// reads from the model is taken now, on the loop.
+func (m *Model) conversationTarget(sess store.Session) func() (search.Target, bool) {
+	c := m.conversation
+	matched := c.targets[sess.ID]
+	locator := c.locator
+	tool := historyToolFormats(m.cfg)[sess.Tool]
+	if tool == "" {
+		tool = sess.Tool
+	}
+	return func() (search.Target, bool) {
+		target, ok := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
+		if !ok && sess.AgentSessionID == "" && sess.TmuxPaneID != "" && matched.AgentID != "" {
+			return matched, true
+		}
+		return target, ok
+	}
+}
+
 func (m *Model) readConversation() tea.Cmd {
 	if !m.showsConversation() {
-		return nil
+		return m.readTokenUsage()
 	}
 	sess, _ := m.selected()
 	c := m.conversation
@@ -97,13 +116,8 @@ func (m *Model) readConversation() tea.Cmd {
 	}
 	c.busy = true
 	c.pendingKey = key
-	matched := c.targets[sess.ID]
+	locate := m.conversationTarget(sess)
 	previousKey, previousStamp := c.key, c.stamp
-	locator := c.locator
-	tool := historyToolFormats(m.cfg)[sess.Tool]
-	if tool == "" {
-		tool = sess.Tool
-	}
 	database := opencodeDBPath()
 	replacement, superseded := m.supersededBy(sess)
 	return func() tea.Msg {
@@ -115,10 +129,7 @@ func (m *Model) readConversation() tea.Cmd {
 				msg.stoppedWhy = "conversation is running in " + replacement.Name
 			}
 		}
-		target, ok := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
-		if !ok && sess.AgentSessionID == "" && sess.TmuxPaneID != "" && matched.AgentID != "" {
-			target, ok = matched, true
-		}
+		target, ok := locate()
 		if !ok {
 			if sess.Status == status.Dead {
 				if sess.AgentSessionID == "" {
@@ -149,6 +160,9 @@ func (m *Model) readConversation() tea.Cmd {
 			return msg
 		}
 		msg.messages, msg.err = search.ReadMessages(target, database)
+		// The view is the conversation between the session and its user:
+		// keep-alives and other sessions' messages are the board's, not theirs.
+		msg.messages = search.OperatorMessages(msg.messages)
 		if sess.Status == status.Dead && target.Tool != search.ToolOpenCode && msg.err == nil {
 			if prompts, err := search.ReadFirstPrompts(target, 1); err == nil && len(prompts) > 0 {
 				msg.opening = prompts[0]
@@ -215,8 +229,11 @@ func (c *conversationView) wrapped(width int) []string {
 	var groups []convoGroup
 	for _, message := range c.messages {
 		label, style := "Assistant", sectionStyle
-		if message.Role == "user" {
+		switch message.Role {
+		case "user":
 			label, style = "You", userStyle
+		case "error":
+			label, style = "Error", userStyle
 		}
 		if n := len(groups); n > 0 && groups[n-1].role == message.Role {
 			groups[n-1].texts = append(groups[n-1].texts, message.Text)
@@ -345,6 +362,9 @@ func (m *Model) conversationBody(width int) []string {
 // are the wrapped cache.
 func (m *Model) withQuestionCard(rows []string, width, height int) []string {
 	card := m.previewQuestions(width, height)
+	if len(card) == 0 {
+		card = m.previewSingleClaudeQuestion(width, height)
+	}
 	if len(card) == 0 {
 		return rows
 	}

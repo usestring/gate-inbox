@@ -218,6 +218,19 @@ func runBoard(version string, registry *extension.Registry) error {
 		"extensions", registry.IDs(),
 		"editor", cfg.Editor)
 
+	logDir := filepath.Join(dir, logging.DirName)
+	if path := logger.Path(); path != "" {
+		logDir = filepath.Dir(path)
+	}
+	// While the board is drawn, anything written to file descriptor 2 lands
+	// on top of the frame. On macOS that includes libmalloc's
+	// "MallocStackLogging: can't turn off ..." line, which every process
+	// prints from inside the system library when memory pressure turns
+	// critical, so no call site of ours can suppress it. Point fd 2 at a file
+	// for the board's lifetime instead.
+	restoreStderr := redirectStderr(logDir)
+	defer restoreStderr()
+
 	model := ui.New(cfg, st, driver, engine, hooks.NewManager(dir), version)
 	model.SetExtensionNotes(extensionReport.Notes())
 	// Mouse reporting claims the wheel for the app, so a notch neither
@@ -242,11 +255,7 @@ func runBoard(version string, registry *extension.Registry) error {
 	// `gate-inbox dump` (SIGUSR1), a hangup, a run of refused opens and a
 	// wedged event loop each write the input journal and goroutine stacks
 	// next to the log; see dump.go.
-	dumpDir := filepath.Join(dir, logging.DirName)
-	if path := logger.Path(); path != "" {
-		dumpDir = filepath.Dir(path)
-	}
-	dumps, stopDumps := startDumper(dumpDir, program.Send)
+	dumps, stopDumps := startDumper(logDir, program.Send)
 	defer stopDumps()
 	model.SetAutoDump(dumps.Trigger)
 	onHangup := dumps.OnHangup

@@ -80,13 +80,10 @@ func TestMigrationHandsTheSourcesChildrenToTheNewRow(t *testing.T) {
 		t.Fatalf("retirable = %q, want no child read as orphaned by the retired source", got)
 	}
 	pending := true
-	for id, want := range map[string]string{"moved": "child", "source": "other"} {
+	for id, want := range map[string]int{"moved": 2, "source": 0} {
 		inbox, err := st.Inbox(id, InboxFilter{Pending: &pending, Limit: 10})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(inbox) != 1 || inbox[0].SenderID != want {
-			t.Fatalf("%s inbox = %+v, want only %s's message", id, inbox, want)
+		if err != nil || len(inbox) != want {
+			t.Fatalf("%s inbox = %+v, %v; want %d", id, inbox, err, want)
 		}
 	}
 }

@@ -59,12 +59,18 @@ func welcomeIntro() []string {
 func (m *Model) welcomeFiveKeys() welcomeSection {
 	list, focus := keymap.ContextList, keymap.ContextFocus
 	peek, help := m.cap(list, keymap.LegendPeek), m.cap(list, keymap.Help)
+	// One key in the column, so its width stays a single chord's; the text
+	// names the other.
+	key := peek
+	if key == "" {
+		key = help
+	}
 	return welcomeSection{title: "the five keys that matter", rows: welcomeRows(
 		m.welcomeRow(keymap.NewSession, "start a session — pick the agent CLI, then type its task"),
 		m.welcomeRow(keymap.Open, "focus the session under the cursor; keys go to the agent"),
 		[2]string{m.cap(focus, keymap.Leave), "back to this list from inside a session"},
 		m.welcomeRow(keymap.Triage, "triage: every session waiting on you, longest-waiting first"),
-		[2]string{joinKeys(" / ", peek, help), welcomePeekText(peek, help)},
+		[2]string{key, welcomePeekText(peek, help)},
 	)}
 }
 
@@ -276,9 +282,15 @@ func welcomeRow(marker, key string, style fastStyle, description string, column,
 	indent := spaces(column + 2)
 	room := max(inner-column-2, 1)
 	var lines []string
+	// A key wider than the column takes a line of its own, the description
+	// starting under it, so neither half is cut.
+	wide := textfmt.Width(key) >= column
+	if wide {
+		lines = append(lines, marker+key)
+	}
 	for i, line := range textfmt.Wrap(description, room) {
 		prefix := indent
-		if i == 0 {
+		if i == 0 && !wide {
 			prefix = marker + padRight(key, column)
 		}
 		lines = append(lines, prefix+style.Render(line))

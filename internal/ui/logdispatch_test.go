@@ -116,7 +116,7 @@ func TestModeChangeIsLoggedWithItsReason(t *testing.T) {
 	path := logToTempAt(t, logging.LevelDebug)
 	m := dispatchModel()
 	m.cursor = 1
-	m.Update(tea.KeyPressMsg{Code: 'H', Text: "H"})
+	m.Update(key("ctrl+h"))
 
 	body := readLog(t, path)
 	if !strings.Contains(body, "became=help") {
@@ -133,13 +133,13 @@ func TestKeyPressesStayOutOfTheInfoLog(t *testing.T) {
 	m.cursor = 1
 	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-	m.Update(tea.KeyPressMsg{Code: 'H', Text: "H"})
+	m.Update(key("ctrl+h"))
 
 	body := readLog(t, path)
 	if strings.Contains(body, "msg=key") {
 		t.Fatalf("a keystroke was logged at info:\n%s", body)
 	}
-	if strings.Count(body, `msg="mode changed"`) != 1 || !strings.Contains(body, "to=help") || !strings.Contains(body, `reason="key H"`) {
+	if strings.Count(body, `msg="mode changed"`) != 1 || !strings.Contains(body, "to=help") || !strings.Contains(body, `reason="key ctrl+h"`) {
 		t.Fatalf("the key that opened help is not recorded as the mode change it caused:\n%s", body)
 	}
 }

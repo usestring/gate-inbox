@@ -62,7 +62,7 @@ func TestCallerIDFromUnderAnAdoptedCodex(t *testing.T) {
 		return
 	}
 	dir, work := t.TempDir(), t.TempDir()
-	codex := filepath.Join(work, "codex")
+	codex := filepath.Join(work, "codex", "")
 	// Waits to be told the marker is there, then runs what it was given
 	// through a shell, the way its shell tool would. It never execs away,
 	// so it stays in the process tree under its own name.
@@ -91,7 +91,7 @@ func TestCallerIDFromUnderAnAdoptedCodex(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	agent, ok := adopt.NewProcTable().ProgramPID(int32(cmd.Process.Pid), "codex")
+	agent, ok := adopt.NewProcTable().ProgramPID(int32(cmd.Process.Pid), "codex", "")
 	if !ok || agent != cmd.Process.Pid {
 		t.Fatalf("ProgramPID = %d, %v; want the stand-in codex, %d", agent, ok, cmd.Process.Pid)
 	}

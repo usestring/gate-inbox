@@ -26,13 +26,13 @@ type experiment struct {
 }
 
 var experiments = []experiment{
-	{jevAutoSuggestSetting, "JEV Auto Suggest", "Suggest the next reply in an existing session; rank New Session prompts.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends bounded text to TypeSafe.",
+	{jevAutoSuggestSetting, "Auto Suggest", "Suggest the next reply in an existing session; rank New Session prompts.\nUses the selected provider in Settings → Classifier; sends bounded text to that service.",
 		func(s *settingsState) *bool { return &s.jevAutoSuggest }},
-	{promptSuggestionsSetting, "Prompt suggestions", "Reuse recurring prompts in New Session.\nReads local history; sends matches to TypeSafe only with JEV on.",
+	{promptSuggestionsSetting, "Prompt suggestions", "Reuse recurring prompts in New Session.\nReads local history; sends matches to the selected classifier only with Auto Suggest on.",
 		func(s *settingsState) *bool { return &s.promptSuggest }},
-	{jevFinishCheckSetting, "JEV finish check", "On finish, say when a Claude session is done, asking the agent when JEV is unsure,\nand relaunch one that stopped without Chrome with --chrome. Needs a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends its last turns to TypeSafe.",
+	{jevFinishCheckSetting, "Finish check", "On finish, say when a Claude session is done, asking the agent when the classifier is unsure,\nand relaunch one that stopped without Chrome with --chrome. Uses the selected classifier; sends its last turns to that service.",
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},
-	{jevCopySetting, "JEV copy", "On a key, copy the command, link or value the agent left for you in its last message.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends that message to TypeSafe.",
+	{jevCopySetting, "Smart copy", "On a key, copy the command, link or value the agent left for you in its last message.\nUses the selected classifier; sends that message to that service.",
 		func(s *settingsState) *bool { return &s.jevCopyOn }},
 	{reviewQueueSetting, "Review queue", "Fetch the pull requests you were asked to review on GitHub onto a Reviews tab (]).\nRuns on the ingest key only; [integrations.reviews] sets what counts as an ask.",
 		func(s *settingsState) *bool { return &s.reviewQueue }},

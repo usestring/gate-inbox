@@ -54,7 +54,7 @@ func TestCheckInstalledNamesOfficialInstaller(t *testing.T) {
 	if missing.Binary != "claude" {
 		t.Fatalf("binary = %q", missing.Binary)
 	}
-	if !strings.Contains(err.Error(), "claude.ai/install.sh") {
+	if !strings.Contains(err.Error(), "@anthropic-ai/claude-code") {
 		t.Fatalf("error = %q", err)
 	}
 }

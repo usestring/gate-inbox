@@ -187,7 +187,7 @@ func Cached() Report {
 // say.
 func (r Report) UpgradeNotice() string {
 	if r.Major == 1 {
-		return "opencode v1 is not supported — upgrade to v2: curl -fsSL https://opencode.ai/v2/install | bash (config carries over)"
+		return "opencode v1 is not supported — upgrade to v2: npm uninstall -g opencode-ai && npm install -g @opencode/cli (config carries over)"
 	}
 	return ""
 }

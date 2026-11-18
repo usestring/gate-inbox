@@ -8,6 +8,9 @@ import (
 
 func ctrlN() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl} }
 
+// formKey is new_session_form's default, the key a box hands to the list.
+func formKey() tea.KeyPressMsg { return key("ctrl+alt+n") }
+
 func TestCtrlNOpensTheFormFromABoxOverTheList(t *testing.T) {
 	for name, open := range map[string]func(*Model){
 		"settings":      (*Model).openSettings,
@@ -17,9 +20,9 @@ func TestCtrlNOpensTheFormFromABoxOverTheList(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := buildModel(t)
 			open(m)
-			m.handleKey(ctrlN())
+			m.handleKey(formKey())
 			if m.mode != modeForm {
-				t.Fatalf("ctrl+n from %s left mode %v, want the new-session form (error %q)", name, m.mode, m.errBar.text)
+				t.Fatalf("ctrl+alt+n from %s left mode %v, want the new-session form (error %q)", name, m.mode, m.errBar.text)
 			}
 		})
 	}
@@ -38,8 +41,8 @@ func TestCtrlNIsBoundWhileTheKeyMapWaitsForAKey(t *testing.T) {
 	m := buildModel(t)
 	m.openHelp()
 	m.help.capturing = true
-	m.handleKey(ctrlN())
+	m.handleKey(formKey())
 	if m.mode != modeHelp {
-		t.Fatalf("ctrl+n during a rebind left mode %v, want the key map still waiting", m.mode)
+		t.Fatalf("ctrl+alt+n during a rebind left mode %v, want the key map still waiting", m.mode)
 	}
 }

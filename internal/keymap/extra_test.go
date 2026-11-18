@@ -11,16 +11,16 @@ import (
 func TestExtraBindingJoinsAScreenAndLosesACollisionToTheCatalog(t *testing.T) {
 	m, problems := NewWith(nil, []Binding{
 		{Context: ContextList, Action: "open_item", Keys: []string{"c"}, Label: "open the item"},
-		{Context: ContextList, Action: "grab_quit", Keys: []string{"q", "Q"}, Label: "wants quit's key"},
+		{Context: ContextList, Action: "grab_quit", Keys: []string{"ctrl+alt+q", "Q"}, Label: "wants quit's key"},
 	})
-	if len(problems) != 1 || problems[0].Action != "grab_quit" || problems[0].Key != "q" {
+	if len(problems) != 1 || problems[0].Action != "grab_quit" || problems[0].Key != "ctrl+alt+q" {
 		t.Fatalf("problems: %v", problems)
 	}
 	if action, ok := m.Action(ContextList, "c"); !ok || action != "open_item" {
 		t.Fatalf("c answers %q", action)
 	}
-	if action, _ := m.Action(ContextList, "q"); action != Quit {
-		t.Fatalf("q answers %q, want quit to keep it", action)
+	if action, _ := m.Action(ContextList, "ctrl+alt+q"); action != Quit {
+		t.Fatalf("ctrl+alt+q answers %q, want quit to keep it", action)
 	}
 	if action, _ := m.Action(ContextList, "Q"); action != "grab_quit" {
 		t.Fatalf("Q answers %q", action)
@@ -44,8 +44,8 @@ func TestExtraBindingOpensAScreenOfItsOwn(t *testing.T) {
 	if action, _ := m.Action("detail", "r"); action != "refresh" {
 		t.Fatalf("r on detail answers %q", action)
 	}
-	// r stays rename on the list: a screen's bindings are its own.
-	if action, _ := m.Action(ContextList, "r"); action != RenameSelf {
+	// r stays unbound on the list: a screen's bindings are its own.
+	if action, ok := m.Action(ContextList, "r"); ok {
 		t.Fatalf("r on the list answers %q", action)
 	}
 	if _, problems := m.Rebind("detail", Close, nil); len(problems) == 0 {

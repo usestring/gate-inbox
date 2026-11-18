@@ -157,7 +157,11 @@ type Env struct {
 	// AutoMode asks pi's auto-mode classifier (package piauto) about a call
 	// nothing else settled. Nil means auto mode is not asked.
 	AutoMode func(piauto.Request) piauto.Answer
-	Now      time.Time
+	// SkipPermissions is a session launched with permissions skipped. Like
+	// Claude Code's bypass mode, it allows what no deny or ask rule and no
+	// merge gate has decided.
+	SkipPermissions bool
+	Now             time.Time
 }
 
 // Decide answers one call.
@@ -228,6 +232,10 @@ func Decide(env Env, req Request) Decision {
 		d.Suggestion = ""
 		return asking(d, call, why)
 	}
+	if env.SkipPermissions {
+		d.Decision, d.Reason = Allow, "permissions are skipped for this session"
+		return d
+	}
 	grants := env.Grants
 	if grants == nil {
 		grants = sessionGrants(env)
@@ -238,6 +246,14 @@ func Decide(env Env, req Request) Decision {
 			d.Decision, d.Reason = Allow, "Gate Inbox grant: "+grant.Describe(g)
 			return d
 		}
+	}
+	// An allow rule speaks for the sandboxed command only, so a call outside
+	// the sandbox asks, and its dialog offers no rule that could not cover it.
+	// That holds for a rule approved at this session's own dialog too, which
+	// is why this comes before them.
+	if outside, _ := call.Input["dangerouslyDisableSandbox"].(bool); outside && tool == "Bash" {
+		d.Suggestion = ""
+		return asking(d, call, "Bash command, outside the sandbox (requested by the model)")
 	}
 	approvals := env.Approvals
 	if approvals == nil && env.StatusFile != "" {

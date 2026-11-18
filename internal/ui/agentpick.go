@@ -81,6 +81,7 @@ func normalizeNewSessionAgent(chosen string) string {
 // last used falls through to the default, and the default falls through to
 // the first CLI still enabled.
 func (m *Model) startNewSession() (tea.Model, tea.Cmd) {
+	m.leaveReviewsTab(false)
 	switch m.newSessionAgent {
 	case newSessionAgentLast:
 		return m.spawnInstant(m.lastTool())

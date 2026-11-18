@@ -7,8 +7,18 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/config"
 )
+
+func detailText(rows []contentLine) []string {
+	lines := make([]string, len(rows))
+	for i, row := range rows {
+		lines[i] = row.text
+	}
+	return lines
+}
 
 // Every line of the rail's own detail block has to stay inside the rail: a
 // fact that overflows tears the panel beside it.
@@ -24,8 +34,8 @@ func TestSessionDetailLinesFitTheirColumn(t *testing.T) {
 			}
 		}
 		blocks := map[string][]string{
-			"session": session.sessionDetailLines(width),
-			"group":   group.sessionDetailLines(width),
+			"session": detailText(session.sessionDetailLines(width)),
+			"group":   detailText(group.sessionDetailLines(width)),
 			"roster":  strings.Split(group.viewGroupAgents("backend", width, 12), "\n"),
 		}
 		for name, lines := range blocks {
@@ -49,8 +59,8 @@ func TestSessionDetailLinesFitTheirColumn(t *testing.T) {
 func TestSessionDetailLinesLeaveTheRowItsOwnFacts(t *testing.T) {
 	m := shotModel()
 
-	wide := ansi.Strip(strings.Join(m.sessionDetailLines(70), "\n"))
-	for _, want := range []string{"claude", "group", "dir", "started 1d ago"} {
+	wide := ansi.Strip(strings.Join(detailText(m.sessionDetailLines(70)), "\n"))
+	for _, want := range []string{"cld", "group", "dir", "started 1d ago"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide block is missing %q: %q", want, wide)
 		}
@@ -64,11 +74,11 @@ func TestSessionDetailLinesLeaveTheRowItsOwnFacts(t *testing.T) {
 	// A restart puts a new agent in the pane; the block dates that agent,
 	// not the row it runs under.
 	m.rows[m.cursor].sess.AgentLaunchedAt = time.Now().Add(-2 * time.Hour)
-	if got := ansi.Strip(strings.Join(m.sessionDetailLines(70), "\n")); !strings.Contains(got, "started 2h ago") {
+	if got := ansi.Strip(strings.Join(detailText(m.sessionDetailLines(70)), "\n")); !strings.Contains(got, "started 2h ago") {
 		t.Errorf("block dates the row instead of the agent in the pane: %q", got)
 	}
 
-	narrow := m.sessionDetailLines(20)
+	narrow := detailText(m.sessionDetailLines(20))
 	if len(narrow) == 0 {
 		t.Fatal("a 20-column rail should still carry the block")
 	}
@@ -94,11 +104,11 @@ func TestGroupDetailLinesCarryTheStateBreakdown(t *testing.T) {
 			m.cursor = i
 		}
 	}
-	wide := ansi.Strip(strings.Join(m.sessionDetailLines(70), "\n"))
+	wide := ansi.Strip(strings.Join(detailText(m.sessionDetailLines(70)), "\n"))
 	if !strings.Contains(wide, "working") {
 		t.Errorf("wide group block lost the state breakdown: %q", wide)
 	}
-	narrow := ansi.Strip(strings.Join(m.sessionDetailLines(24), "\n"))
+	narrow := ansi.Strip(strings.Join(detailText(m.sessionDetailLines(24)), "\n"))
 	if !strings.Contains(narrow, "working") {
 		t.Errorf("narrow group block lost the state breakdown: %q", narrow)
 	}
@@ -114,9 +124,9 @@ func TestGroupRosterColumnsAlign(t *testing.T) {
 	}
 	column := -1
 	for _, row := range rows[1:] {
-		at := strings.Index(row, "claude")
+		at := strings.Index(row, "cld")
 		if at < 0 {
-			at = strings.Index(row, "codex")
+			at = strings.Index(row, "cdx")
 		}
 		if at < 0 {
 			t.Fatalf("no tool on roster row %q", row)
@@ -132,5 +142,50 @@ func TestGroupRosterColumnsAlign(t *testing.T) {
 		if got := ansi.StringWidth(row); got != 76 {
 			t.Errorf("roster row is %d wide, want the full 76: %q", got, row)
 		}
+	}
+}
+
+func TestPreviewSessionIDClickCopiesTheFullConversationID(t *testing.T) {
+	original := writeClipboard
+	t.Cleanup(func() { writeClipboard = original })
+	for _, side := range []string{config.SidebarLeft, config.SidebarRight} {
+		t.Run(side, func(t *testing.T) {
+			m := shotModel()
+			m.sidebar = side
+			m.height = 60
+			id := "00000000-0000-4000-8000-000000000042"
+			m.rows[m.cursor].sess.AgentSessionID = "  " + id + "  "
+			screen := ansi.Strip(m.viewListFrame())
+			if strings.Contains(screen, id) {
+				t.Fatal("the narrow preview must shorten the ID to exercise copying its hidden suffix")
+			}
+			cursor := m.cursor
+			clicks := 0
+			for y, line := range strings.Split(screen, "\n") {
+				i := strings.Index(line, "session id")
+				if i < 0 {
+					continue
+				}
+				var copied string
+				writeClipboard = func(text string) error { copied = text; return nil }
+				_, cmd := m.handleMouse(tea.MouseClickMsg{
+					X: ansi.StringWidth(line[:i]), Y: y, Button: tea.MouseLeft,
+				})
+				if cmd == nil {
+					t.Fatal("clicking the displayed session ID did not copy it")
+				}
+				m.Update(cmd())
+				if copied != id {
+					t.Fatalf("clipboard = %q, want full conversation ID %q", copied, id)
+				}
+				if m.cursor != cursor || m.mode != modeList {
+					t.Fatal("copying the ID changed the selected session or opened its pane")
+				}
+				clicks++
+			}
+			if clicks == 0 {
+				t.Fatal("the preview did not render a clickable session ID")
+			}
+		})
 	}
 }

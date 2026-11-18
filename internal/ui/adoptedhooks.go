@@ -142,7 +142,7 @@ func (m *Model) adoptedPane(row adoptedAgentRow, procs *adopt.ProcTable, claude 
 		}
 		return hooks.AdoptedPane{ID: row.id, ServerPID: server, PaneID: row.pane, AgentPID: session.PID}, true
 	}
-	agent, ok := procs.ProgramPID(int32(panePID), row.command)
+	agent, ok := procs.ProgramPID(int32(panePID), row.command, row.tool)
 	if !ok {
 		return hooks.AdoptedPane{}, false
 	}

@@ -67,7 +67,7 @@ func TestAnUnboundWayOutNamesQuickActionsOrNothing(t *testing.T) {
 	m.width, m.height = 120, 40
 	m.showArchived = true
 	rail := ansi.Strip(railLinesText(m.railLines(36, m.listBodyHeight())))
-	if !strings.Contains(rail, ": archived view back to active") {
+	if !strings.Contains(rail, "ctrl+k archived view back to active") {
 		t.Errorf("the default badge does not name the quick actions route:\n%s", rail)
 	}
 	if label := m.archiveFinder(); label != "the archived view" {
@@ -81,9 +81,6 @@ func TestAnUnboundWayOutNamesQuickActionsOrNothing(t *testing.T) {
 	}
 }
 
-// The undo had a hint and no binding: U was compared against the action
-// name, so it never fired. As an action it answers U by default, and a
-// rebind moves the key and the hint together.
 func TestUndoArchiveAnswersItsKey(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
@@ -91,17 +88,17 @@ func TestUndoArchiveAnswersItsKey(t *testing.T) {
 	createSession(t, m, "beta", dir, "")
 	m.archiveConfirm = archiveConfirmNever
 	m.selectSessionRow(t, "alpha")
-	if _, cmd := m.archiveSelected(); cmd != nil {
+	if _, cmd := m.handleKey(ctrlX()); cmd != nil {
 		m.applyCmd(t, cmd)
 	}
-	if !strings.Contains(m.errBar.text, "U undoes it") {
-		t.Errorf("notice %q does not name U", m.errBar.text)
+	if !strings.Contains(m.errBar.text, keymap.Display("alt+x")+" undoes it") {
+		t.Errorf("notice %q does not name %s", m.errBar.text, keymap.Display("alt+x"))
 	}
-	if _, cmd := m.handleKey(runeKey("U")); cmd != nil {
+	if _, cmd := m.handleKey(runeKey("alt+x")); cmd != nil {
 		m.applyCmd(t, cmd)
 	}
 	if archived(t, m, "alpha") {
-		t.Fatalf("U did not bring alpha back; bar says %q", m.errBar.text)
+		t.Fatalf("alt+x did not bring alpha back; bar says %q", m.errBar.text)
 	}
 
 	m.keys, _ = m.km().Rebind(keymap.ContextList, keymap.UndoArchive, []string{"Q"})
@@ -109,7 +106,7 @@ func TestUndoArchiveAnswersItsKey(t *testing.T) {
 	if _, cmd := m.archiveSelected(); cmd != nil {
 		m.applyCmd(t, cmd)
 	}
-	if !strings.Contains(m.errBar.text, "Q undoes it") || strings.Contains(m.errBar.text, "U undoes") {
+	if !strings.Contains(m.errBar.text, "Q undoes it") || strings.Contains(m.errBar.text, keymap.Display("alt+x")+" undoes") {
 		t.Errorf("notice %q does not follow the rebind to Q", m.errBar.text)
 	}
 }

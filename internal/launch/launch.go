@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/classifier"
@@ -736,7 +737,13 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return "", nil, err
 	}
 	if tool.StatusSource == hooks.StatusSourcePi {
-		return withPiExtension(manager, command, env, id, write, piAutoModeWanted(tool))
+		if command, env, err = withPiExtension(manager, command, env, id, write); err != nil {
+			return "", nil, err
+		}
+		if id != "" && piAutoModeWanted(tool) {
+			command = withAutoModeToken(id, command)
+		}
+		return command, env, nil
 	}
 	if tool.StatusSource != hooks.StatusSourceClaude {
 		return command, env, nil
@@ -769,7 +776,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 // extension is written under the hooks dir with a content-stamped name, so
 // this build's launch loads this build's extension and never one an older
 // build left there; nothing is written to ~/.pi.
-func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id string, write, autoMode bool) (string, map[string]string, error) {
+func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id string, write bool) (string, map[string]string, error) {
 	path := piext.Path(manager.Dir())
 	if write {
 		var err error
@@ -783,9 +790,6 @@ func withPiExtension(manager *hooks.Manager, command string, env map[string]stri
 	// is its model's to read, including the copy the tmux server holds from
 	// the operator's environment; withheld, it reaches no process there.
 	env[classifier.JEV.KeyEnv()] = tmux.Withheld
-	if write && id != "" && autoMode {
-		writeAutoModeConfig(manager.ConfigDir(), id)
-	}
 	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
 }
 
@@ -795,7 +799,25 @@ func piAutoModeWanted(tool config.Tool) bool {
 	return !strings.EqualFold(strings.TrimSpace(tool.AutoMode), "off")
 }
 
-// writeAutoModeConfig gives a pi session the token its hook proves itself
+// AutoModeTokenVerb is the gate-inbox verb a pi pane with auto mode on runs
+// first: it writes the session's token (WriteAutoModeConfig), then execs the
+// pi command.
+const AutoModeTokenVerb = "pi-auto-mode-token"
+
+// withAutoModeToken has a pi pane write its own auto-mode token before pi
+// starts. The process composing the launch may be unable to: a session that
+// a confined session (a pi parent's own MCP server) creates is composed
+// inside that confinement, where the key dir is hidden. The pane is the tmux
+// server's child, never the composer's, so it can still see the key dir;
+// and the file must exist before pi's own confinement starts, which binds
+// only the files already there. A confinement wrapper goes inside this, not
+// around it.
+func withAutoModeToken(id, command string) string {
+	return tmux.ShellQuote(Executable()) + " " + AutoModeTokenVerb + " " + tmux.ShellQuote(id) +
+		" -- /bin/sh -c " + tmux.ShellQuote(command)
+}
+
+// WriteAutoModeConfig gives a pi session the token its hook proves itself
 // with when it asks auto mode (package piauto) on the board's shared server.
 // The token goes into the session's own MCP config in the key dir, the same
 // file a shared_mcp launch writes and the one key-dir file a confined
@@ -804,7 +826,10 @@ func piAutoModeWanted(tool config.Tool) bool {
 // it is the board's gets one: the board keeps it up while a pi tool has
 // auto mode on. Without it auto mode only asks, so a failure here is not a
 // failed launch, and an existing config (a shared_mcp launch's) is kept.
-func writeAutoModeConfig(configDir, id string) {
+func WriteAutoModeConfig(configDir, id string) {
+	if !extension.ValidSessionID(id) {
+		return
+	}
 	if _, err := os.Stat(mcpshared.ClaudeConfigPath(configDir, id)); err == nil {
 		return
 	}

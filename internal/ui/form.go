@@ -431,6 +431,7 @@ func (m *Model) openForm() {
 		m.errBar.text = m.noCLIText()
 		return
 	}
+	m.leaveReviewsTab(false)
 
 	// Not an example name: a name is the field nobody has to fill in, and one
 	// that reads like a suggestion is how "my-session" ended up on rows.

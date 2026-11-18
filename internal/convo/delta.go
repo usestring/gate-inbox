@@ -52,6 +52,11 @@ type Delta struct {
 	// the gap was larger than deltaCap. The window still ends at Next; it
 	// just does not begin where the caller asked.
 	Rewound bool
+	// latest is where the reply to the window's last prompt begins in Turns.
+	// A reply can carry no prose at all -- a model that only thinks, or only
+	// calls tools -- and without this mark LastTurn would hand back an answer
+	// to an earlier prompt as if it were the current one.
+	latest int
 }
 
 // Result is one tool_result a user record carried.
@@ -62,10 +67,11 @@ type Result struct {
 	Rejected bool
 }
 
-// LastTurn is the conversation's most recent prose, which is the closest
-// thing a transcript holds to a result.
+// LastTurn is the most recent prose of the reply to the window's last prompt,
+// which is the closest thing a transcript holds to a result. It is "" while
+// that reply has said nothing.
 func (d Delta) LastTurn() string {
-	if len(d.Turns) == 0 {
+	if len(d.Turns) <= d.latest {
 		return ""
 	}
 	return d.Turns[len(d.Turns)-1]
@@ -180,6 +186,7 @@ func parseDelta(raw []byte, partial bool) Delta {
 			}
 			if prompt := typedPrompt(rec.Message.Content); prompt != "" {
 				delta.Prompts = append(delta.Prompts, prompt)
+				delta.latest = len(delta.Turns)
 			}
 			delta.Results = append(delta.Results, toolResults(rec.Message.Content)...)
 		case "assistant":
@@ -221,6 +228,7 @@ func parsePiDelta(raw []byte, partial bool) Delta {
 		case "user":
 			if prompt := typedPrompt(entry.Message.Content); prompt != "" {
 				delta.Prompts = append(delta.Prompts, prompt)
+				delta.latest = len(delta.Turns)
 			}
 		case "assistant":
 			delta.Turns = append(delta.Turns, assistantProse(entry.Message.Content)...)

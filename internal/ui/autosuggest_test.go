@@ -14,6 +14,7 @@ import (
 
 	"charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
@@ -175,7 +176,7 @@ func TestJevRankingBoundsPayloadAndHonorsNone(t *testing.T) {
 	if len(input.Candidates) != 8 || len(input.Messages) != 4 {
 		t.Fatalf("payload sizes = %d candidates, %d messages", len(input.Candidates), len(input.Messages))
 	}
-	got := rankNextSubmissions(context.Background(), server.Client(), server.URL, "test-key", input)
+	got := rankNextSubmissions(context.Background(), classifier.JEV, server.Client(), server.URL, "test-key", input)
 	if !slices.Equal(got, []string{input.Candidates[1]}) {
 		t.Fatalf("ranked suggestion = %q", got)
 	}
@@ -193,7 +194,7 @@ func TestJevRankingBoundsPayloadAndHonorsNone(t *testing.T) {
 	input.Messages = append([]suggestMessage{{Role: "user", Text: strings.Repeat("x", 600)}}, input.Messages...)
 	input.Candidates = append(input.Candidates, "Add one more item", "Add the final item")
 	input.Draft = strings.Repeat("x", 2200)
-	_ = rankNextSubmissions(context.Background(), server.Client(), server.URL, "test-key", input)
+	_ = rankNextSubmissions(context.Background(), classifier.JEV, server.Client(), server.URL, "test-key", input)
 	request = <-requests
 	state = request["state"].(map[string]any)
 	if len(state["messages"].([]any)) != 4 || len([]rune(state["draft"].(string))) != 2000 {
@@ -204,7 +205,7 @@ func TestJevRankingBoundsPayloadAndHonorsNone(t *testing.T) {
 		t.Fatalf("oversized input sent %d choices", len(criteria))
 	}
 	choice.Store("none")
-	if got := rankNextSubmissions(context.Background(), server.Client(), server.URL, "test-key", input); len(got) != 0 {
+	if got := rankNextSubmissions(context.Background(), classifier.JEV, server.Client(), server.URL, "test-key", input); len(got) != 0 {
 		t.Fatalf("none returned %q", got)
 	}
 	<-requests

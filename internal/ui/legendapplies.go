@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"slices"
+
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -58,6 +60,13 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 			}
 		}
 		return false
+	case keymap.WakeAll:
+		for _, sess := range m.searchedListedSessions() {
+			if !sess.Archived && slices.Contains(m.hibernated, sess.ID) {
+				return true
+			}
+		}
+		return false
 	case keymap.SwitchAccount:
 		if row.sess.ID == "" || row.sess.Archived || row.sess.TmuxPaneID != "" {
 			return false
@@ -97,7 +106,7 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 			}
 		}
 		return false
-	case keymap.CopyJev:
+	case keymap.CopyJev, keymap.RunJev:
 		return m.jevCopyOn && row.sess.ID != "" && !row.sess.Archived
 	case keymap.Priority:
 		return row.isGroup || (row.sess.ID != "" && !row.sess.Archived)

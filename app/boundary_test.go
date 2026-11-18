@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -67,28 +68,78 @@ func buildFixture(t *testing.T) string {
 	return buildModule(t, fixtureSource)
 }
 
-// buildModule builds the main at sourcePath as a module of its own.
+// moduleBuild is one source's build, shared by every test that runs it.
+type moduleBuild struct {
+	once sync.Once
+	bin  string
+	err  error
+}
+
+var (
+	moduleBuildsMu  sync.Mutex
+	moduleBuilds    = map[string]*moduleBuild{}
+	moduleBuildsDir string
+)
+
+// removeModuleBuilds deletes the shared builds once the package's tests end.
+func removeModuleBuilds() {
+	if moduleBuildsDir != "" {
+		os.RemoveAll(moduleBuildsDir)
+	}
+}
+
+// buildModule builds the main at sourcePath as a module of its own. The
+// build is made once per test binary and its executable shared: the tests
+// only run it, each against a home of its own, and linking it again for
+// every test was most of this package's wall time.
 func buildModule(t *testing.T, sourcePath string) string {
 	t.Helper()
+	moduleBuildsMu.Lock()
+	b, ok := moduleBuilds[sourcePath]
+	if !ok {
+		b = &moduleBuild{}
+		moduleBuilds[sourcePath] = b
+	}
+	moduleBuildsMu.Unlock()
+	b.once.Do(func() { b.bin, b.err = buildModuleOnce(sourcePath) })
+	if b.err != nil {
+		t.Fatal(b.err)
+	}
+	return b.bin
+}
+
+func buildModuleOnce(sourcePath string) (string, error) {
 	root, err := filepath.Abs("..")
 	if err != nil {
-		t.Fatal(err)
+		return "", err
 	}
-	dir := t.TempDir()
+	moduleBuildsMu.Lock()
+	if moduleBuildsDir == "" {
+		moduleBuildsDir, err = os.MkdirTemp("", "gate-inbox-fixture-")
+	}
+	parent := moduleBuildsDir
+	moduleBuildsMu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp(parent, "module-")
+	if err != nil {
+		return "", err
+	}
 	source, err := os.ReadFile(sourcePath)
 	if err != nil {
-		t.Fatal(err)
+		return "", err
 	}
 	goMod := "module example.test/fixture\n\ngo 1.26\n\n" +
 		"require " + modulePath + " v0.0.0\n\n" +
 		"replace " + modulePath + " => " + root + "\n"
 	sum, err := os.ReadFile(filepath.Join(root, "go.sum"))
 	if err != nil {
-		t.Fatal(err)
+		return "", err
 	}
 	for name, body := range map[string][]byte{"main.go": source, "go.mod": []byte(goMod), "go.sum": sum} {
 		if err := os.WriteFile(filepath.Join(dir, name), body, 0o644); err != nil {
-			t.Fatal(err)
+			return "", err
 		}
 	}
 	bin := filepath.Join(dir, "fixture")
@@ -96,9 +147,9 @@ func buildModule(t *testing.T, sourcePath string) string {
 	build.Dir = dir
 	build.Env = append(tmuxtest.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod", "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("the fixture module does not build against the public packages: %v\n%s", err, out)
+		return "", fmt.Errorf("the fixture module does not build against the public packages: %v\n%s", err, out)
 	}
-	return bin
+	return bin, nil
 }
 
 // fixtureHome is a scratch GATE_INBOX_HOME holding config, in an environment

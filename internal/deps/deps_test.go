@@ -104,8 +104,8 @@ func TestInstallCommandSkipsApkWithoutSudo(t *testing.T) {
 func TestHintPrefersOfficialInstallerOverPackageManager(t *testing.T) {
 	stubPath(t, "brew")
 	got := hint("darwin", "claude")
-	if !strings.Contains(got, "claude.ai/install.sh") {
-		t.Fatalf("hint = %q, want the official installer", got)
+	if !strings.Contains(got, "npm install -g @anthropic-ai/claude-code") {
+		t.Fatalf("hint = %q, want the official package", got)
 	}
 	if strings.Contains(got, "brew install") {
 		t.Fatalf("official installer must win over brew, got %q", got)
@@ -123,23 +123,23 @@ func TestOfficialInstallIsPortable(t *testing.T) {
 	}
 }
 
-// The unversioned opencode installer still lands 1.x, which the board does not
-// support; a fresh install goes straight to the line it wants.
+// The opencode-ai npm package is still the 1.x line, which the board does not
+// support; a fresh install goes straight to the v2 package.
 func TestHintInstallsOpencodeV2(t *testing.T) {
 	stubPath(t, "brew")
 	got := hint("linux", "opencode")
-	if !strings.Contains(got, "https://opencode.ai/v2/install") {
-		t.Fatalf("hint = %q, want the v2 installer", got)
+	if !strings.Contains(got, "npm install -g @opencode/cli") {
+		t.Fatalf("hint = %q, want the v2 package", got)
 	}
 }
 
 // pi is a built-in tool, and no package manager ships it under that name: a
 // guessed `apt-get install pi` installs something else or nothing.
-func TestHintInstallsPiFromItsOwnInstaller(t *testing.T) {
+func TestHintInstallsPiFromItsOwnPackage(t *testing.T) {
 	stubPath(t, "apt-get")
 	got := hint("linux", "pi")
-	if !strings.Contains(got, "https://pi.dev/install.sh") || strings.Contains(got, "apt-get") {
-		t.Fatalf("hint = %q, want the pi installer", got)
+	if !strings.Contains(got, "@earendil-works/pi-coding-agent") || strings.Contains(got, "apt-get") {
+		t.Fatalf("hint = %q, want the pi package", got)
 	}
 }
 
@@ -162,5 +162,30 @@ func TestCommandWithholdsPackageManagerLines(t *testing.T) {
 	}
 	if got := hint("linux", "tmux"); !strings.Contains(got, "pacman") {
 		t.Fatalf("hint = %q, want the package manager still suggested", got)
+	}
+}
+
+// No install hint or offered command may download a script and pipe it into
+// a shell: a built-in CLI installs from its vendor's package or page.
+func TestNoPipedInstallScripts(t *testing.T) {
+	for name, got := range official {
+		if strings.Contains(got, "|") || strings.Contains(got, "curl") || strings.Contains(got, "wget") {
+			t.Errorf("%s install pipes a remote script: %s", name, got)
+		}
+		if !strings.HasPrefix(got, "npm install -g ") {
+			t.Errorf("%s install is not a package install: %s", name, got)
+		}
+	}
+}
+
+// muse publishes no package, so the board links the vendor's page and offers
+// nothing to run.
+func TestMuseLinksItsInstallPage(t *testing.T) {
+	stubPath(t, "brew")
+	if got := hint("darwin", "muse"); got != "install it from https://dev.meta.ai" {
+		t.Fatalf("hint = %q, want the vendor page", got)
+	}
+	if got := Command("muse"); got != "" {
+		t.Fatalf("Command = %q, want none to run", got)
 	}
 }

@@ -229,6 +229,25 @@ func TestSincePiReadsTheConversationForward(t *testing.T) {
 	}
 }
 
+// A reply that only thinks says nothing, so the result is empty rather than
+// the answer to an earlier prompt. Haiku ends turns this way often.
+func TestPiThinkingOnlyReplyLeavesNoResult(t *testing.T) {
+	_, path := installPiFixture(t, t.TempDir())
+	appendLines(t, path,
+		`{"type":"message","id":"c4","parentId":"5dbe7db9","timestamp":"2026-11-10T11:03:00.000Z","message":{"role":"user","content":[{"type":"text","text":"and again"}],"timestamp":3}}`,
+		`{"type":"message","id":"c5","parentId":"c4","timestamp":"2026-11-10T11:03:01.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"nothing to add"}],"timestamp":4}}`)
+	delta, err := SincePi(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := delta.LastTurn(); got != "" {
+		t.Errorf("LastTurn = %q, want empty: the latest reply carried no prose", got)
+	}
+	if len(delta.Turns) == 0 {
+		t.Error("the earlier prose should still be in Turns")
+	}
+}
+
 // A filtered copy written beside a session file is not a conversation.
 func TestPiCopiesBesideASessionAreNotConversations(t *testing.T) {
 	cwd := t.TempDir()

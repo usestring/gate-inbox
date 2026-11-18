@@ -62,7 +62,7 @@ archive and `ctrl+alt+r` rename. Keys an agent CLI relies on (`ctrl+r`, `ctrl+o`
 | `ctrl+h` | The key map for the current screen, split into common and advanced keys. It opens with its search on: type to narrow it down to one line, `enter` leaves the field, `esc` on an empty search closes it. It scrolls (`↑↓`/`jk`, `ctrl+u`/`ctrl+d`, `g`/`G`). `ctrl+h` opens it from anywhere, including inside a session, and closes it again. Inside a session only the `ctrl+h` chord reaches the key map — plain `h` and `?` go to the agent |
 | `ctrl+k` | Quick actions: type what you want to do, `↑↓` pick, `enter` runs it. Each row shows the action's current key, what it does, and the name `keys.toml` gives it, and running one leaves a note with the key that would have done it in one press. Recently run actions lead the list |
 | `ctrl+alt+p` | Fetch the pull request reviews asked of you on GitHub into the Reviews row (see [The review queue](#the-review-queue)) |
-| `ctrl+alt+q` | Quit (sessions keep running) |
+| `ctrl+q` / `ctrl+alt+q` | Quit from the board (sessions keep running) |
 
 Selecting a dead session previews its saved conversation without starting the agent. The preview
 shows why it stopped when evidence is available, its engine and conversation ID, and the original

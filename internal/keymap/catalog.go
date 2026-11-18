@@ -270,7 +270,7 @@ var Catalog = []Binding{
 	{ContextList, LegendPeek, []string{"ctrl+/"}, "peek at every available key", false},
 	{ContextList, QuickActions, []string{"ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
 	{ContextList, Help, []string{"ctrl+h"}, "this key map", true},
-	{ContextList, Quit, []string{"ctrl+alt+q"}, "quit (sessions keep running)", true},
+	{ContextList, Quit, []string{"ctrl+q", "ctrl+alt+q"}, "quit (sessions keep running)", true},
 
 	// ---- a focused session ----
 	// Every key this screen does not claim is typed into the agent, so a

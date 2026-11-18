@@ -83,6 +83,34 @@ func TestDispatchPiWritesTheStatusFile(t *testing.T) {
 	}
 }
 
+// PromptOpen follows the extension's reports: open from the dialog's start
+// until any later event, whichever way it closed.
+func TestPromptOpenLastsFromTheDialogsStartToItsEnd(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := os.MkdirAll(m.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := m.StatusFile("abcd1234")
+	if m.PromptOpen("abcd1234") {
+		t.Fatal("a session with no status file reads as holding a dialog")
+	}
+	for _, step := range []struct {
+		event, payload string
+		open           bool
+	}{
+		{"agent_start", `{}`, false},
+		{PiPromptStart, `{"kind":"select"}`, true},
+		{"ui_prompt_end", `{"idle":false}`, false},
+		{PiPromptStart, `{"kind":"confirm"}`, true},
+		{"session_start", `{"reason":"new"}`, false},
+	} {
+		DispatchPi(step.event, strings.NewReader(step.payload), file)
+		if got := m.PromptOpen("abcd1234"); got != step.open {
+			t.Fatalf("after %s PromptOpen = %v, want %v", step.event, got, step.open)
+		}
+	}
+}
+
 // An error stands through the settle that follows it, and a retry that
 // starts again says working.
 func TestDispatchPiKeepsAnErrorStanding(t *testing.T) {

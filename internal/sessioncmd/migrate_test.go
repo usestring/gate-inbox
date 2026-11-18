@@ -17,9 +17,18 @@ import (
 // claudeSource seeds a claude row with a transcript on disk under the
 // harness's own claude home, so a migration has something to point at. The
 // locator scans every project directory, so the directory name is free.
+//
+// The home is short and under /tmp rather than t.TempDir: the launched brief
+// prints the transcript path, and under macOS's long $TMPDIR the brief runs
+// past the pane's 24 rows, scrolling the head of the path off the screen the
+// tests read.
 func claudeSource(t *testing.T, h *sessionHarness) (store.Session, string) {
 	t.Helper()
-	claudeHome := t.TempDir()
+	claudeHome, err := os.MkdirTemp("/tmp", "gi-claude-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(claudeHome) })
 	h.sessions.roots = migrate.Roots{ClaudeHome: claudeHome, CodexRoot: t.TempDir()}
 	source := store.Session{
 		ID:             uuid.NewString()[:8],

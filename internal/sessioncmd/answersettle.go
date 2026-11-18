@@ -32,7 +32,7 @@ var lateRecordWait = 5 * time.Second
 // the error the answer stands on, nil when it landed after all, and fills
 // answered from the retry when there was one.
 func (g *answerGuard) settle(pane dialogPane, answered *AnsweredQuestion, err error, again func() (AnsweredQuestion, error)) error {
-	if g == nil || err == nil || len(g.rows) == 0 || errors.Is(err, errNothingKeyed) || errors.Is(err, errWrongAnswer) {
+	if g == nil || err == nil || len(g.rows) == 0 || g.nothingSent(err) || errors.Is(err, errWrongAnswer) {
 		return err
 	}
 	if g.stillAsking(pane) {

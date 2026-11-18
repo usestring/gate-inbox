@@ -89,10 +89,11 @@ func (t *ProcTable) PIDs(pid int32) []int {
 // runs command's program, judged the way Identify judges a pane. Of several,
 // it is the one nearest pid: an agent CLI shipped as a script runs its real
 // binary, under the same name, as its own child, and everything the agent
-// starts is below the outer one.
-func (t *ProcTable) ProgramPID(pid int32, command string) (int, bool) {
-	program := programName(command)
-	if program == "" || pid <= 0 {
+// starts is below the outer one. tool is the tool's block name, matched as
+// well so an agent launched through a wrapper is found (see programNames).
+func (t *ProcTable) ProgramPID(pid int32, command, tool string) (int, bool) {
+	programs := programNames(command, tool)
+	if len(programs) == 0 || pid <= 0 {
 		return 0, false
 	}
 	if t == nil {
@@ -103,7 +104,7 @@ func (t *ProcTable) ProgramPID(pid int32, command string) (int, bool) {
 		var next []int32
 		for _, p := range level {
 			if proc, err := process.NewProcess(p); err == nil {
-				if line, err := proc.Cmdline(); err == nil && namesProgram([]string{line}, program) {
+				if line, err := proc.Cmdline(); err == nil && runsAny([]string{line}, programs) {
 					return int(p), true
 				}
 			}
@@ -166,7 +167,15 @@ func (t *ProcTable) foreground(c Candidate) (*process.Process, string, bool) {
 		if err != nil {
 			return
 		}
-		if fields := strings.Fields(line); len(fields) > 0 && filepath.Base(fields[0]) == c.Command {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			return
+		}
+		// tmux names the executable, which argv[0] need not: macOS's /bin/sh
+		// runs bash and keeps "/bin/sh" as argv[0] while tmux reports "bash".
+		if filepath.Base(fields[0]) == c.Command {
+			found, cmdline = proc, line
+		} else if name, err := proc.Name(); err == nil && name == c.Command {
 			found, cmdline = proc, line
 		}
 	})

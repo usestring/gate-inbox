@@ -150,7 +150,7 @@ func Identify(c Candidate, tools []Tool, pane string, procs *ProcTable) (Match, 
 			continue
 		}
 		var signals []Signal
-		if program := programName(tool.Command); program != "" && namesProgram(argv, program) {
+		if runsAny(argv, programNames(tool.Command, tool.Name)) {
 			signals = append(signals, SignalCommand)
 		}
 		if tool.Prompt != nil && pane != "" && tool.Prompt.MatchString(pane) {
@@ -190,6 +190,37 @@ func programName(command string) string {
 		fields = set.Args()
 	}
 	return filepath.Base(fields[0])
+}
+
+// programNames is every program name a pane running this tool may show: the
+// configured command's program, and the tool's block name when that is a
+// plain program name too.
+//
+// The block name is there for wrappers. A command such as
+// "~/bin/codex-chrome" is a script that adds flags and execs codex, so the
+// process tree never holds "codex-chrome", and a codex started by hand with
+// the same flags never ran the wrapper at all. Matching only the wrapper's
+// name left every such pane to the prompt marker, which alone never adopts.
+func programNames(command, tool string) []string {
+	var names []string
+	if program := programName(command); program != "" {
+		names = append(names, program)
+	}
+	if tool != "" && filepath.Base(tool) == tool && !strings.ContainsAny(tool, " \t") &&
+		(len(names) == 0 || names[0] != tool) {
+		names = append(names, tool)
+	}
+	return names
+}
+
+// runsAny reports whether argv runs any of programs.
+func runsAny(argv, programs []string) bool {
+	for _, program := range programs {
+		if namesProgram(argv, program) {
+			return true
+		}
+	}
+	return false
 }
 
 // interpreters are the programs that run a script named by a later argv

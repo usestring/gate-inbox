@@ -102,6 +102,9 @@ func TestLeavingTriageClearsTheScope(t *testing.T) {
 	m.selectSessionRow(t, "crashed")
 
 	for range 2 {
+		if m.mode == modeForm {
+			m.handleKey(key("esc"))
+		}
 		updated, cmd := m.handleKey(key("ctrl+i"))
 		m = updated.(*Model)
 		if cmd != nil {
@@ -236,6 +239,7 @@ func TestTriageDropsTheRootRow(t *testing.T) {
 		t.Fatalf("the triage rail still paints a root row:\n%s", rail)
 	}
 	// Leaving triage is what puts the tree back, root included.
+	m.handleKey(key("esc"))
 	updated, cmd = m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
@@ -293,7 +297,7 @@ func TestTriageAdvanceWidensADrainedScope(t *testing.T) {
 
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("a board with nothing waiting handed over %q", focusedName(t, m))
+	if m.mode != modeFocus || focusedName(t, m) != "ask" {
+		t.Fatalf("the skipped question did not return after widening: mode %v", m.mode)
 	}
 }

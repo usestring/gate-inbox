@@ -22,10 +22,7 @@ func ctrlQWalk(t *testing.T, m *Model) (*Model, string) {
 	return m, focusedName(t, m)
 }
 
-// The bug this whole file exists for: three sessions all still reading
-// "waiting" because the poller has not caught up with what was typed into
-// them, and an advance that cycles over the first two forever.
-func TestTriageAdvanceNeverHandsBackASessionAlreadyDrained(t *testing.T) {
+func TestTriageSkipReturnsAfterTheRestOfTheQueue(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{
 		"first":  status.Waiting,
@@ -37,20 +34,18 @@ func TestTriageAdvanceNeverHandsBackASessionAlreadyDrained(t *testing.T) {
 	m.enterFocusOn(t, "first")
 
 	var seen []string
-	for range 3 {
+	for range 6 {
 		var name string
 		if m, name = ctrlQWalk(t, m); name == "" {
 			break
 		}
 		seen = append(seen, name)
 	}
-	// Nothing changed any status in between, so before mutes this walk read
-	// second, first, second.
-	if len(seen) != 2 || seen[0] == seen[1] {
-		t.Fatalf("ctrl+q walk = %v, want the two undrained sessions once each", seen)
+	if len(seen) != 6 || seen[0] == seen[1] || seen[2] != "first" || seen[3] != seen[0] || seen[4] != seen[1] || seen[5] != "first" {
+		t.Fatalf("ctrl+q walk = %v, want all three sessions in each pass", seen)
 	}
-	if m.mode != modeList {
-		t.Fatalf("a drained queue left the user focused on %q", focusedName(t, m))
+	if len(m.muted) != 0 {
+		t.Fatalf("skipping muted sessions: %v", m.muted)
 	}
 }
 
@@ -99,9 +94,9 @@ func TestMuteLapsesWhenTheSessionMovesOn(t *testing.T) {
 	m.rebuildRows()
 	m.enterFocusOn(t, "ask")
 
-	m, next := ctrlQWalk(t, m)
-	if next != "broke" {
-		t.Fatalf("first advance landed on %q, want broke", next)
+	m.handOverFocused(sessionNamed(t, m, "ask"))
+	if got := focusedName(t, m); got != "broke" {
+		t.Fatalf("first advance landed on %q, want broke", got)
 	}
 	asked := sessionNamed(t, m, "ask")
 	if !m.isMuted(asked) {
@@ -173,6 +168,7 @@ func TestEnteringTriageClearsTheLastDrainsMutes(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.selectSessionRow(t, "ask")
+	m.deferTriageSession(sessionNamed(t, m, "ask").ID)
 	updated, _ := m.handleKey(key("alt+."))
 	m = updated.(*Model)
 	if len(m.muted) != 1 {
@@ -189,6 +185,9 @@ func TestEnteringTriageClearsTheLastDrainsMutes(t *testing.T) {
 	}
 	if len(m.muted) != 0 {
 		t.Fatalf("entering triage kept %v muted", m.muted)
+	}
+	if len(m.triageDeferred) != 0 {
+		t.Fatalf("entering triage kept %v deferred", m.triageDeferred)
 	}
 }
 
@@ -211,7 +210,7 @@ func handoffKey() tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: []rune(triageHandoffKey)[0], Text: triageHandoffKey}
 }
 
-// § focused is ctrl+q's alias: the same mute-and-enter-the-next, so the walk
+// § focused is ctrl+q's alias: the same defer-and-enter-the-next, so the walk
 // it produces is the walk ctrl+q produces.
 func TestHandoffKeyWalksTheQueueLikeCtrlQ(t *testing.T) {
 	m := buildModel(t)
@@ -232,16 +231,14 @@ func TestHandoffKeyWalksTheQueueLikeCtrlQ(t *testing.T) {
 	if got := focusedName(t, m); got != "broke" {
 		t.Fatalf("§ landed on %q, want broke", got)
 	}
-	if !m.isMuted(sessionNamed(t, m, "ask")) {
-		t.Fatal("§ handed the session over without muting it")
+	if m.isMuted(sessionNamed(t, m, "ask")) {
+		t.Fatal("§ muted the skipped session")
 	}
 
-	// Nothing but the working session is left, so the drain has to let go
-	// rather than offer it -- the same ending ctrl+q has.
 	updated, _ = m.handleFocusKey(handoffKey())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("the queue came round again to %q", focusedName(t, m))
+	if m.mode != modeFocus || focusedName(t, m) != "ask" {
+		t.Fatalf("the skipped session did not return: mode %v", m.mode)
 	}
 }
 
@@ -316,9 +313,9 @@ func TestSkipKeyStaysOnTheListOutsideTriage(t *testing.T) {
 	}
 }
 
-// A drained queue leaves the operator on the list with nothing moving, so the
-// key that did nothing has to say why.
-func TestSkipKeyOnTheListSaysWhenTheQueueIsDrained(t *testing.T) {
+// Skipping the last gate opens the new-session prompt and says why the
+// triage queue has no further work.
+func TestSkipKeyOnTheListOpensThePromptWhenTheQueueIsDrained(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "busy": status.Working})
 	m.triage = true
@@ -330,8 +327,8 @@ func TestSkipKeyOnTheListSaysWhenTheQueueIsDrained(t *testing.T) {
 	if cmd != nil {
 		m.applyCmd(t, cmd)
 	}
-	if m.mode != modeList {
-		t.Fatalf(`"." entered %q with nothing else waiting`, focusedName(t, m))
+	if m.mode != modeForm || m.form.focus != fieldPrompt {
+		t.Fatalf("skipping the last gate left mode %v, want the new-session prompt", m.mode)
 	}
 	if !strings.Contains(m.errBar.text, "waiting on you") {
 		t.Fatalf("a drained queue said %q", m.errBar.text)

@@ -5,6 +5,7 @@ package ui
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -426,6 +427,52 @@ func (m *Model) viewSettings() string {
 	if m.settings.jevPanel {
 		return m.viewJevSettings()
 	}
+	rows := m.settingsRows(false)
+	fields := m.matchingSettings()
+	var visible []string
+	for _, field := range fields {
+		visible = append(visible, rows[field])
+	}
+	if len(visible) == 0 {
+		visible = append(visible, mutedStyle.Render("No settings match"))
+	}
+	if m.height > 0 {
+		room := max(3, m.height-12)
+		offset := max(0, slices.Index(fields, m.settings.field)-room/2)
+		visible = fitBody(visible, room, offset)
+	}
+	search := subtleStyle.Render("/ search settings")
+	if m.settings.searching {
+		search = m.settings.search.View()
+	} else if m.settings.search.Value() != "" {
+		search = valueStyle.Render("/ " + m.settings.search.Value())
+	}
+	body := search + "\n\n" + strings.Join(visible, "\n")
+	hint := [][2]string{{"↑↓", "field"}, {"←→", "change"}, {"↵/esc", "save"}}
+	switch m.settings.field {
+	case settingsFieldJev:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "classifier provider and key"}, {"esc", "save"}}
+	case settingsFieldExperimental:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "experimental features"}, {"esc", "save"}}
+	case settingsFieldSnippets:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit snippets"}, {"esc", "save"}}
+	case settingsFieldRestartFlags:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit restart flags"}, {"esc", "save"}}
+	case settingsFieldCLIs:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "manage CLIs"}, {"esc", "save"}}
+	case settingsFieldGuide:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "show the guide"}, {"esc", "save"}}
+	case settingsFieldKeys:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "rebind keys"}, {"esc", "save"}}
+	}
+	hint = append(hint, [2]string{"/", "search"})
+	if m.settings.searching {
+		hint = [][2]string{{"type", "filter"}, {"↵/↓", "results"}, {"esc", "clear"}}
+	}
+	return m.cardFlex("▣ Settings", body, hint)
+}
+
+func (m *Model) settingsRows(forSearch bool) []string {
 	density := "compact"
 	if m.settings.comfortableRows {
 		density = "comfortable"
@@ -487,6 +534,10 @@ func (m *Model) viewSettings() string {
 		labelColumn = max(room, 8)
 	}
 	lead := func(field int, name string) string {
+		// Search keeps the full label even when the terminal clips its displayed column.
+		if forSearch {
+			return name + " "
+		}
 		marker := "  "
 		labelStyle := valueStyle
 		if m.settings.field == field {
@@ -519,6 +570,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldPalette, "colour", normalizePalette(m.settings.palette)) + "\n" +
 		row(settingsFieldGlyphs, "status marks", normalizeGlyphs(m.settings.glyphs)+"  "+statusGlyph("waiting")+statusGlyph("finished")+statusGlyph("errored")) + "\n" +
 		row(settingsFieldRowDetail, "row detail", normalizeRowDetail(m.settings.rowDetail)) + "\n" +
+		row(settingsFieldWorkingActivity, "scrolling text", workingActivityLabel(m.settings.textScroll)) + "\n" +
 		row(settingsFieldPriorityScale, "priority tiers", parsePriorityScale(m.settings.priorityScale).Label()) + "\n" +
 		row(settingsFieldArchiveConfirm, "ask before killing", normalizeArchiveConfirm(m.settings.archiveConfirm)) + "\n" +
 		row(settingsFieldDeleteConfirm, "ask before deleting", normalizeConfirmAsk(m.settings.deleteConfirm)) + "\n" +
@@ -538,6 +590,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldConfirmLaunches, "confirm launches", confirmLaunches) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
+		row(settingsFieldHibernate, "hibernation", m.settings.hibernateSensitivity) + "\n" +
 		row(settingsFieldClaudeSetup, "claude code setup", claudeSetupLabel(m.cfg.ClaudeCode.SetupOn(), m.settings.claudeSetup)) + "\n" +
 		actionRow(settingsFieldJev, "Classifier", m.jevSettingsSummary()) + "\n" +
 		actionRow(settingsFieldExperimental, "experimental", "features (default off)") + "\n" +
@@ -547,24 +600,7 @@ func (m *Model) viewSettings() string {
 		actionRow(settingsFieldGuide, "welcome guide", "read the first-run introduction again") + "\n" +
 		actionRow(settingsFieldKeys, "keys", "see and rebind every key") + "\n" +
 		m.settingsVersionRow(lead)
-	hint := [][2]string{{"↑↓", "field"}, {"←→", "change"}, {"↵/esc", "save"}}
-	switch m.settings.field {
-	case settingsFieldJev:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "classifier provider and key"}, {"esc", "save"}}
-	case settingsFieldExperimental:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "experimental features"}, {"esc", "save"}}
-	case settingsFieldSnippets:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit snippets"}, {"esc", "save"}}
-	case settingsFieldRestartFlags:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit restart flags"}, {"esc", "save"}}
-	case settingsFieldCLIs:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "manage CLIs"}, {"esc", "save"}}
-	case settingsFieldGuide:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "show the guide"}, {"esc", "save"}}
-	case settingsFieldKeys:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "rebind keys"}, {"esc", "save"}}
-	}
-	return m.cardFlex("▣ Settings", body, hint)
+	return strings.Split(body, "\n")
 }
 
 // settingsVersionRow reports the running build. It carries no action: this

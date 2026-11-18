@@ -43,7 +43,21 @@ type adoptedMsg struct {
 	taken int
 	// ids are the rows the scan created.
 	ids []string
-	err error
+	// unsure are the panes that look like an agent but that the scan would
+	// not take, so the board can say they exist instead of leaving them to be
+	// found by hand. Nil when the scan did not look at every pane.
+	unsure []unsurePane
+	err    error
+}
+
+// unsurePane is a pane, not sitting at a shell, that draws a tool's prompt
+// with no process in its tree that runs the tool: usually an agent started
+// under another name. It is not adopted, but it is worth a look.
+type unsurePane struct {
+	key     string
+	session string
+	pane    string
+	tool    string
 }
 
 func (m *Model) adoptTick() tea.Cmd {
@@ -160,7 +174,14 @@ func (r *adoptRun) scan(candidates []adopt.Candidate, started time.Time, complet
 	logging.Info("adopt scan",
 		"candidates", len(candidates), "arrivals", len(r.arrivals), "taken", taken,
 		"rejected", rejectionSummary(r.rejected), "took", time.Since(started).Round(time.Millisecond).String())
-	return adoptedMsg{taken: taken, ids: r.takenIDs, err: err}
+	msg := adoptedMsg{taken: taken, ids: r.takenIDs, err: err}
+	if complete {
+		msg.unsure = r.unsure
+		if msg.unsure == nil {
+			msg.unsure = []unsurePane{}
+		}
+	}
+	return msg
 }
 
 func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candidate, procs *adopt.ProcTable, observedAfter time.Time) error {
@@ -304,6 +325,8 @@ type adoptRun struct {
 	skipForeign bool
 	// takenIDs are the rows take created.
 	takenIDs []string
+	// unsure are the panes take refused as not confident.
+	unsure []unsurePane
 	// arrivals is the agents that announced their pane, by adoptKey: the
 	// pid that announced and the tool its announcement speaks for. See
 	// arrivals.go.
@@ -366,6 +389,15 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 		}
 		if !match.Confident() {
 			r.reject(candidate, "not confident", "tool", match.Tool, "signals", signalNames(match.Signals))
+			if atShell(candidate.Command) {
+				continue
+			}
+			r.unsure = append(r.unsure, unsurePane{
+				key:     adoptKey(candidate.Socket, candidate.PaneID),
+				session: candidate.Session,
+				pane:    candidate.PaneID,
+				tool:    match.Tool,
+			})
 			continue
 		}
 		id, recovered, ok, err := r.rowID(candidate)

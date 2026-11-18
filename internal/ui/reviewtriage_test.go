@@ -155,6 +155,9 @@ func TestTriageStartupKeepsTheSelectedTab(t *testing.T) {
 			if m.triageStartupEnter {
 				t.Fatal("startup entry remained armed after the first poll")
 			}
+			if m.mode == modeForm {
+				m.handleKey(key("esc"))
+			}
 			m.Update(tea.KeyPressMsg{Code: ']', Mod: tea.ModCtrl})
 			if m.onReviewsTab() == manual {
 				t.Fatal("Ctrl+] did not toggle the tab after startup")

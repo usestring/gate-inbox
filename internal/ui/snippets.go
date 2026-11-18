@@ -50,6 +50,7 @@ func (m *Model) loadSnippets() {
 	if err != nil {
 		m.snipErr = err.Error()
 	}
+	m.loadLaunchSnippets()
 }
 
 // configDir is the directory config.toml and snippets.json share. Derived

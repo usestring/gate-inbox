@@ -234,22 +234,20 @@ func TestTriageStartupEntersTheHeadOfTheQueue(t *testing.T) {
 	}
 }
 
-// The entry is armed by the persisted mode alone: a board built over a store
-// that left triage on asks for it, and any other board does not.
 func TestTriageStartupEntryFollowsTheStoredMode(t *testing.T) {
 	m := buildModel(t)
 	if m.triageStartupEnter {
-		t.Fatal("a fresh board armed the startup entry")
+		t.Fatal("a board with triage disabled armed the startup entry")
 	}
-	if err := m.store.SetSetting(triageSetting, "on"); err != nil {
-		t.Fatalf("SetSetting: %v", err)
-	}
-	restored := New(m.cfg, m.store, m.tmux, m.engine, m.hooks, "dev")
-	if !restored.triage {
-		t.Fatal("the restored board did not pick up triage")
-	}
-	if !restored.triageStartupEnter {
-		t.Fatal("a board restored in triage did not arm the startup entry")
+	for _, setting := range []string{"", "on", "off"} {
+		if err := m.store.SetSetting(triageSetting, setting); err != nil {
+			t.Fatalf("SetSetting: %v", err)
+		}
+		restored := New(m.cfg, m.store, m.tmux, m.engine, m.hooks, "dev")
+		want := setting != "off"
+		if restored.triage != want || restored.triageStartupEnter != want {
+			t.Fatalf("stored mode %q: triage=%v, startup entry=%v; want %v", setting, restored.triage, restored.triageStartupEnter, want)
+		}
 	}
 }
 
@@ -268,10 +266,7 @@ func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 		t.Fatalf("queue = %v want %v", got, want)
 	}
 
-	// Starting from the middle proves the queue wraps to waiting sessions
-	// before handing over errors. It never comes round a second time -- each
-	// hop mutes the session it leaves, so the walk ends when the queue is drained rather
-	// than cycling over work already done. See mute.go.
+	// Starting from the middle still offers the unanswered question first.
 	m.enterFocusOn(t, "done")
 	for _, want := range []string{"ask", "broke"} {
 		updated, _ := m.handleFocusKey(ctrlQ())
@@ -285,8 +280,8 @@ func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 	}
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("the queue came round again to %q", focusedName(t, m))
+	if m.mode != modeFocus || focusedName(t, m) != "done" {
+		t.Fatalf("the skipped finish did not return: mode %v", m.mode)
 	}
 }
 
@@ -344,8 +339,8 @@ func TestTriageAutoAdvanceStopsWhenTheQueueDrains(t *testing.T) {
 
 	updated, _ = m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("a drained queue left the user in mode %v on %q", m.mode, focusedName(t, m))
+	if m.mode != modeForm || m.form.focus != fieldPrompt || !m.form.prompt.input.Focused() {
+		t.Fatalf("a drained queue left mode %v, want the focused new-session prompt", m.mode)
 	}
 }
 
@@ -378,8 +373,8 @@ func TestTriageDrainCarriesOnIntoIdleSessions(t *testing.T) {
 	}
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("the idle pass came round again to %q", focusedName(t, m))
+	if m.mode != modeFocus || focusedName(t, m) != "ask" {
+		t.Fatalf("the skipped question did not return after the idle pass: mode %v", m.mode)
 	}
 }
 
@@ -480,7 +475,7 @@ func TestNormalModeOrderAndCtrlQUnchanged(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
 	if m.triage {
-		t.Fatal("triage should be off by default")
+		t.Fatal("triage should respect the stored opt-out")
 	}
 	// The store's own order: root first, then each group's sessions in the
 	// order they were made, untouched by status.
@@ -732,7 +727,8 @@ func TestTriageDrainHandsOverIdleBeforeErrored(t *testing.T) {
 		}
 	}
 	updated, _ := m.handleFocusKey(ctrlQ())
-	if got := updated.(*Model).mode; got != modeList {
-		t.Fatalf("drained queue left the operator in mode %v", got)
+	m = updated.(*Model)
+	if m.mode != modeFocus || focusedName(t, m) != "ask" {
+		t.Fatalf("the skipped question did not return after the errored session: mode %v", m.mode)
 	}
 }

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -10,11 +11,8 @@ import (
 
 // A mute is the operator saying "I have dealt with this one, walk past it".
 //
-// A drain only converges if the queue shrinks as it is walked, and triage's
-// does not on its own: answering a session does not clear its status this
-// instant, because the poller has to see the pane change first. So without
-// a mute the third ctrl+q hands back the first session, still reading
-// "waiting", and the walk cycles over work already done.
+// Answering a session does not clear its status until the poller sees the
+// pane change, so a mute prevents the queue from returning work just answered.
 //
 // A mute is deliberately not a stored flag on the session. It says nothing
 // about the session; it records what the operator has already looked at, so
@@ -141,20 +139,26 @@ func (m *Model) isMuted(sess store.Session) bool {
 // needs them.
 func (m *Model) clearMutes() {
 	m.muted = nil
+	m.triageDeferred = nil
 }
 
-// pruneMutes drops marks for sessions the board no longer holds, so a long
-// run of killed and archived sessions cannot grow the map without bound.
-// Marks lapse on their own while a session lives; this is only for the ones
-// that leave before they ever do.
+func (m *Model) deferTriageSession(id string) {
+	m.triageDeferred = slices.DeleteFunc(m.triageDeferred, func(deferred string) bool { return deferred == id })
+	m.triageDeferred = append(m.triageDeferred, id)
+	m.rebuildRows()
+}
+
+// pruneMutes drops marks and deferrals for sessions no longer on the board,
+// so a long-lived drain does not retain every session it has seen.
 func (m *Model) pruneMutes(sessions []store.Session) {
-	if len(m.muted) == 0 {
+	if len(m.muted) == 0 && len(m.triageDeferred) == 0 {
 		return
 	}
 	live := make(map[string]bool, len(sessions))
 	for _, sess := range sessions {
 		live[sess.ID] = true
 	}
+	m.triageDeferred = slices.DeleteFunc(m.triageDeferred, func(id string) bool { return !live[id] })
 	for id := range m.muted {
 		if !live[id] {
 			delete(m.muted, id)

@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -250,10 +251,13 @@ func (m *Model) railLines(width, height int) []contentLine {
 	// row's facts sit right above the prompt it was launched with, since both
 	// answer "what is this" before the dock answers "how loaded is the
 	// machine".
-	var opening []string
+	var opening []contentLine
 	// The Reviews tab has no selected session for it to describe.
 	if tier == dockFull && !m.onReviewsTab() {
-		block := append(m.sessionDetailLines(width), m.promptLines(width)...)
+		block := m.sessionDetailLines(width)
+		for _, line := range m.promptLines(width) {
+			block = append(block, contentLine{text: line})
+		}
 		if len(block) > 0 && listHeight-len(block)-1 >= dockFullMinList {
 			opening = block
 			listHeight -= len(block) + 1
@@ -282,9 +286,7 @@ func (m *Model) railLines(width, height int) []contentLine {
 	}
 	if opening != nil {
 		rows = append(rows, contentLine{rule: true})
-		for _, line := range opening {
-			rows = append(rows, contentLine{text: line})
-		}
+		rows = append(rows, opening...)
 	}
 	if meters != nil {
 		rows = append(rows, contentLine{rule: true})
@@ -440,23 +442,30 @@ func railFact(pad, label, value string) string {
 // carries only what the row does not. Its start time stays: the row's clock
 // is the last activity, which reads the same on a session launched a minute
 // ago as on one that has been up for days.
-func (m *Model) sessionDetailLines(width int) []string {
+func (m *Model) sessionDetailLines(width int) []contentLine {
 	pad := spaces(railInset)
 	room := width - railInset - 2
 	if room < 8 {
 		return nil
 	}
+	var lines []contentLine
+	appendLines := func(texts ...string) {
+		for _, text := range texts {
+			lines = append(lines, contentLine{text: text})
+		}
+	}
 	if group, ok := m.selectedGroup(); ok {
-		return m.groupDetailLines(group, pad, room)
+		appendLines(m.groupDetailLines(group, pad, room)...)
+		return lines
 	}
 	sess, ok := m.selected()
 	if !ok {
 		return nil
 	}
-	tool := sess.Tool
+	tool := shortToolName(sess.Tool)
 	if m.mode == modeRename && m.rename.sessID == sess.ID {
 		if picked := m.renameTool(); picked != "" {
-			tool = picked
+			tool = shortToolName(picked)
 		}
 	}
 	// A session on a chosen model wears it on the same chip as the CLI it
@@ -478,23 +487,25 @@ func (m *Model) sessionDetailLines(width int) []string {
 				subtleStyle.Render(" · ")+valueStyle.Render(humanBytes(m.proc.RSS)),
 			factRoom, "…")
 	}
-	lines := []string{
+	appendLines(
 		railFact(pad, "cli", chipStyle.Render(textfmt.TruncateWidth(tool, max(factRoom-2, 1), "…"))),
 		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(homeRelative(sess.Cwd), factRoom))),
 		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.LaunchTime()), factRoom, "…"))),
-	}
+	)
 	if id := strings.TrimSpace(sess.AgentSessionID); id != "" {
-		lines = append(lines, wideFact(pad, "session id", valueStyle.Render(id), room)...)
+		for _, text := range wideFact(pad, "session id", valueStyle.Render(id)+subtleStyle.Render(" · click to copy"), room) {
+			lines = append(lines, contentLine{text: text, copyID: id})
+		}
 	}
 	if usage != "" {
-		lines = append(lines, railFact(pad, "usage", usage))
+		appendLines(railFact(pad, "usage", usage))
 	}
 	now := time.Now()
 	boardCompacts := false
 	for _, fact := range m.extFacts[sess.ID] {
 		boardCompacts = boardCompacts || fact.Label == compactLabel
-		lines = append(lines, wideFact(pad, fact.Label, extensionFactText(fact, now), room)...)
+		appendLines(wideFact(pad, fact.Label, extensionFactText(fact, now), room)...)
 	}
 	// Where an extension compacts the session itself, its line is the
 	// auto-compact one and the settings file's window is only the CLI's own
@@ -504,13 +515,13 @@ func (m *Model) sessionDetailLines(width int) []string {
 		if boardCompacts {
 			label = "claude window"
 		}
-		lines = append(lines, wideFact(pad, label, compactFact(view, now), room)...)
+		appendLines(wideFact(pad, label, compactFact(view, now), room)...)
 	}
 	// What its spawner granted it on its user's approval, one line each:
 	// a widened permission is the one fact about a session nobody should
 	// have to go looking for.
 	for _, granted := range m.granted[sess.ID] {
-		lines = append(lines, railFact(pad, "grant", annotationStyle.Render(textfmt.TruncateWidth(granted, factRoom, "…"))))
+		appendLines(railFact(pad, "grant", annotationStyle.Render(textfmt.TruncateWidth(granted, factRoom, "…"))))
 	}
 	return lines
 }
@@ -1141,7 +1152,7 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 		marks += " " + badge
 	}
 	state += marks
-	tool := metaText(" · " + sess.Tool)
+	tool := metaText(" · " + shortToolName(sess.Tool))
 	if m.rowMarks() {
 		// The tinted mark ahead of the name already says the state, so the
 		// word goes and the CLI is written as its letters. See rowdetail.go.
@@ -1293,8 +1304,19 @@ func (m *Model) summaryTag(sess store.Session, room int, style func(string) stri
 		return ""
 	}
 	text := m.sessionSummary(sess)
+	since := m.activitySince
+	if activity := m.workingActivities[sess.ID]; m.textScroll != textScrollOff &&
+		sess.Status == status.Working && activity.text != "" {
+		text, since = activity.text, activity.since
+	}
 	if text == "" {
 		return ""
+	}
+	if m.scrollsRow(sess.ID) {
+		if m.textScroll == textScrollHover && m.activityHoverSince.After(since) {
+			since = m.activityHoverSince
+		}
+		return "  " + style(scrollActivity(text, room-2, time.Since(since)))
 	}
 	return "  " + style(textfmt.TruncateWidth(text, room-2, "…"))
 }
@@ -1892,7 +1914,7 @@ func (m *Model) viewGroupAgents(group string, width, height int) string {
 		}
 		rows = append(rows, rosterRow{
 			name:  m.displayStatusText(sess, m.displayStatusGlyph(sess)) + " " + valueStyle.Render(m.displayName(sess)),
-			tool:  subtleText(sess.Tool),
+			tool:  subtleText(shortToolName(sess.Tool)),
 			state: m.displayStatusText(sess, m.displayStatusLabel(sess)) + subtleText(" · "+relSince(lastActivity(sess))),
 		})
 		shown++
@@ -1976,6 +1998,9 @@ func (m *Model) quickHoldsPane() bool {
 // that gives it back. The pane keeps its colours; the band alone says so.
 func (m *Model) quickBanner(width int) string {
 	title := "HOTKEY MENU OPEN"
+	if m.quick.launch {
+		title = "LAUNCH SNIPPETS"
+	}
 	if note := " · esc to close"; textfmt.Width(title+note) <= width {
 		title += note
 	}
@@ -2011,20 +2036,23 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 		state := m.displayStatusText(sess, m.displayStatusGlyph(sess)+" "+m.displayStatusLabel(sess))
 		target = fitColumns(
 			[]string{label("send") + lipgloss.NewStyle().Foreground(colorBright).Bold(true).Render(m.displayName(sess))},
-			[]string{state + " " + chipStyle.Render(sess.Tool), state, ""}, width)
+			[]string{state + " " + chipStyle.Render(shortToolName(sess.Tool)), state, ""}, width)
 	}
 	limit := min(maxRows, quickBarMaxRows)
 	if m.mode == modeFocus {
 		limit = min(limit, max(1, m.listBodyHeight()-6))
 	}
 	lines := m.quickMenuLines(width, limit)
-	if suggestion := m.selectedAutoSuggestion(); suggestion != "" && limit > 1 {
+	if suggestion := m.selectedAutoSuggestion(); !m.quick.launch && suggestion != "" && limit > 1 {
 		_, _, note := m.quickMenuInks()
 		lines = m.quickMenuLines(width, limit-1)
 		lines = append(lines, note(truncateTail("ctrl+y insert · "+suggestion, width)))
 	}
 	if m.quickHoldsPane() {
 		return strings.Join(lines, "\n")
+	}
+	if m.quick.launch {
+		target = rowColumns(label("launch")+mutedStyle.Render("new session · "+m.defaultTool()), "", width)
 	}
 	return target + "\n" + strings.Join(lines, "\n")
 }
@@ -2036,15 +2064,19 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 // last line says how many did not fit, and the key map lists them all.
 func (m *Model) quickMenuLines(width, limit int) []string {
 	keyInk, labelInk, noteInk := m.quickMenuInks()
-	if m.snipErr != "" {
+	set, loadErr, path := m.snips, m.snipErr, snippets.Path(m.configDir())
+	if m.quick.launch {
+		set, loadErr, path = m.launchSnips, m.launchSnipErr, snippets.LaunchPath(m.configDir())
+	}
+	if loadErr != "" {
 		errInk := errStyle.Render
 		if m.quickHoldsPane() {
 			errInk = keyInk
 		}
-		return []string{errInk(truncateTail("snippets.json could not be read: "+m.snipErr, width))}
+		return []string{errInk(truncateTail(filepath.Base(path)+" could not be read: "+loadErr, width))}
 	}
-	if len(m.snips.Snippets) == 0 {
-		return []string{labelInk(truncateTail("no snippets yet: add them to "+snippets.Path(m.configDir()), width))}
+	if len(set.Snippets) == 0 {
+		return []string{labelInk(truncateTail("no snippets yet: add them to "+path, width))}
 	}
 	type cell struct {
 		text  string
@@ -2054,7 +2086,7 @@ func (m *Model) quickMenuLines(width, limit int) []string {
 	var lines [][]cell
 	var line []cell
 	used := 0
-	for _, snip := range m.snips.Snippets {
+	for _, snip := range set.Snippets {
 		key, title := snip.Key, snip.Preview
 		if title == "" {
 			title = snip.Title()

@@ -2,12 +2,112 @@ package ui
 
 import (
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/sysstat"
 )
+
+func TestAutomaticHibernateDefaultsOnAndHonorsSavedOff(t *testing.T) {
+	m := buildModel(t)
+	m.cfg.HibernateAfter.Duration = 0
+	m.snap = sysstat.Snapshot{MemOK: true, MemTotal: 16 << 30, MemPercent: 50}
+	if got := m.hibernateSensitivity(); got != "balanced" {
+		t.Fatalf("default sensitivity = %q", got)
+	}
+	if cmd := m.settleHibernated(); cmd == nil || m.hibernateSweptAt.IsZero() {
+		t.Fatal("default policy did not schedule automatic hibernation")
+	}
+	m.hibernating = false
+	m.hibernateSweptAt = time.Time{}
+	m.openSettings()
+	m.settings.hibernateSensitivity = "off"
+	m.persistSettings()
+	m.openSettings()
+	if m.settings.hibernateSensitivity != "off" {
+		t.Fatal("saved opt-out did not survive reopening settings")
+	}
+	m.settleHibernated()
+	if !m.hibernateSweptAt.IsZero() {
+		t.Fatal("disabled policy still scheduled a sweep")
+	}
+}
+
+func TestHibernateSweepUsesCachedPressureCrossingsAndTenMinuteBackstop(t *testing.T) {
+	m := &Model{
+		cfg:  config.Config{Tools: map[string]config.Tool{"terminal": {Shell: true}}},
+		snap: sysstat.Snapshot{MemOK: true, MemTotal: 4 << 30, MemPercent: 50},
+		sessions: []store.Session{
+			{Tool: "claude", Status: status.Working},
+			{Tool: "claude", Status: status.Idle},
+			{Tool: "claude", Status: status.Dead},
+			{Tool: "claude", Status: status.Idle, Archived: true},
+			{Tool: "terminal", Status: status.Idle},
+		},
+	}
+	start := time.Unix(1_700_000_000, 0)
+	if !m.hibernateSweepDue("balanced", start) {
+		t.Fatal("startup did not run the backstop sweep")
+	}
+	if m.hibernateSweepDue("balanced", start.Add(time.Minute)) {
+		t.Fatal("healthy board repeated the full sweep after only a minute")
+	}
+	m.sessions = append(m.sessions, store.Session{Tool: "claude", Status: status.Starting})
+	if !m.hibernateSweepDue("balanced", start.Add(2*time.Minute)) {
+		t.Fatal("crossing the session budget did not trigger a sweep")
+	}
+	if m.hibernateSweepDue("balanced", start.Add(3*time.Minute)) {
+		t.Fatal("sustained pressure repeated the full sweep after only a minute")
+	}
+	if m.hibernateSweepDue("balanced", start.Add(12*time.Minute-time.Nanosecond)) {
+		t.Fatal("backstop ran before ten minutes elapsed")
+	}
+	if !m.hibernateSweepDue("balanced", start.Add(12*time.Minute)) {
+		t.Fatal("sustained pressure did not retry after ten minutes")
+	}
+	m.sessions = m.sessions[:2]
+	if m.hibernateSweepDue("balanced", start.Add(13*time.Minute)) {
+		t.Fatal("recovering below the budget triggered a sweep")
+	}
+	m.snap.MemPercent = 80
+	if !m.hibernateSweepDue("balanced", start.Add(14*time.Minute)) {
+		t.Fatal("crossing the memory threshold below the session budget did not trigger a sweep")
+	}
+	m.snap.MemPercent = 50
+	m.hibernateSweepDue("balanced", start.Add(15*time.Minute))
+	m.snap.MemPercent = 80
+	if !m.hibernateSweepDue("balanced", start.Add(16*time.Minute)) {
+		t.Fatal("a new pressure crossing after recovery did not trigger a sweep")
+	}
+	m.snap.MemPercent = 50
+	m.hibernateSweepDue("balanced", start.Add(17*time.Minute))
+	if !m.hibernateSweepDue("balanced", start.Add(26*time.Minute)) {
+		t.Fatal("healthy board did not run the ten-minute backstop")
+	}
+}
+
+func TestHibernateSweepRequiresEnabledPolicyAndMemoryReading(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		sensitivity string
+		memory      sysstat.Snapshot
+	}{
+		{"disabled", "off", sysstat.Snapshot{MemOK: true, MemTotal: 1 << 30, MemPercent: 99}},
+		{"missing reading", "balanced", sysstat.Snapshot{}},
+		{"missing total", "balanced", sysstat.Snapshot{MemOK: true, MemPercent: 99}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &Model{snap: tc.memory, sessions: []store.Session{{Status: status.Idle}}}
+			if m.hibernateSweepDue(tc.sensitivity, time.Unix(1_700_000_000, 0)) || !m.hibernateSweptAt.IsZero() {
+				t.Fatal("disabled or unreadable policy scheduled a sweep")
+			}
+		})
+	}
+}
 
 // hibernatedRow is a board session whose pane hibernate stopped: the row
 // dead in the store and in m.sessions, its id on the hibernated set.

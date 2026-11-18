@@ -628,11 +628,10 @@ type Config struct {
 	// the label has outlived any turn it could describe, so it is more
 	// likely a misread than a long turn.
 	StaleStatusAfter Duration `toml:"stale_status_after"`
-	// HibernateAfter is how long a session must rest, idle or finished,
-	// before the board hibernates it: stops its process to give the memory
-	// back, keeping its row, mail and claims, and waking it on its next
-	// message. Zero, the default, leaves every session running.
-	HibernateAfter Duration `toml:"hibernate_after"`
+	// HibernateAfter retains the age cutoff for manual parking; automatic
+	// hibernation uses HibernateSensitivity instead.
+	HibernateAfter       Duration `toml:"hibernate_after"`
+	HibernateSensitivity string   `toml:"hibernate_sensitivity"`
 	// CloseCommand is a shell command run, detached, in a session's working
 	// directory after the board closes it for good: a kill, a stop, an
 	// archive, or a child filed away. A hibernate, restart or migration is

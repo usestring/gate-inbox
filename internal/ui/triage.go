@@ -337,6 +337,7 @@ func (m *Model) triageBefore(ka, kb triageKey, a, b store.Session, now time.Time
 	// Oldest first puts every walkable row in one state, so a deadline there
 	// would order the whole walk, which is the bug above over again.
 	if normalizeTriageOrder(m.triageOrder) != triageOrderOldest &&
+		ka.deferred == kb.deferred &&
 		ka.errored == kb.errored && ka.band == triageBandScored && kb.band == triageBandScored &&
 		ka.asking == kb.asking && ka.priority == kb.priority && ka.tier == kb.tier {
 		if before, differ := m.deadlineBefore(a.ID, b.ID, now); differ {
@@ -368,6 +369,7 @@ const (
 // tier at once. See priority.Rank.
 type triageKey struct {
 	band, priority, tier int
+	deferred             int
 	errored              bool
 	// hibernating is a session hibernate stopped. It sorts after every other
 	// unmuted row, errored ones included: handing it over relaunches it, so it
@@ -401,6 +403,9 @@ func (k triageKey) before(o triageKey) bool {
 	if rest, oRest := k.band == triageBandRest, o.band == triageBandRest; rest != oRest {
 		return oRest
 	}
+	if k.deferred != o.deferred {
+		return k.deferred < o.deferred
+	}
 	if k.hibernating != o.hibernating {
 		return !k.hibernating
 	}
@@ -431,7 +436,8 @@ func (k triageKey) before(o triageKey) bool {
 func (m *Model) triageKeyOf(sess store.Session, now time.Time) triageKey {
 	key := triageKey{
 		band: triageBandRest, priority: m.tierOf(sess).Rank(),
-		tier: m.triageRankOf(sess), errored: m.triageStateOf(sess) == status.Errored,
+		deferred: slices.Index(m.triageDeferred, sess.ID) + 1,
+		tier:     m.triageRankOf(sess), errored: m.triageStateOf(sess) == status.Errored,
 		hibernating: m.triageStateOf(sess) == status.Hibernating,
 	}
 	key.pastBackground = key.tier > triageRank(status.Background)
@@ -516,6 +522,10 @@ func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string
 				continue
 			}
 			k := m.triageKeyOf(kid, now)
+			// A child's new question cannot undo a skip of its parent.
+			if deferred := slices.Index(m.triageDeferred, sess.ID) + 1; deferred > 0 {
+				k.deferred = deferred
+			}
 			// A child's question can lift the branch's state, but cannot
 			// undo the operator deferring the whole branch.
 			if tier := m.tierOf(sess); tier.Deferred() {
@@ -601,15 +611,9 @@ func storedSmartTriage(st *store.Store) bool {
 	return err != nil || chosen != "off"
 }
 
-// storedTriage reads the persisted mode. Off is the default: triage
-// rearranges the whole rail, so it is never something a user arrives at
-// without having asked for it.
 func storedTriage(st *store.Store) bool {
 	chosen, err := st.Setting(triageSetting)
-	if err != nil {
-		return false
-	}
-	return chosen == "on"
+	return err != nil || chosen != "off"
 }
 
 // storedTriageScope reads the group the queue was last narrowed to. An unset
@@ -715,8 +719,8 @@ func (m *Model) toggleTriage() tea.Cmd {
 	if m.triage {
 		// Asking for the queue is asking for the work at the head of it, so
 		// the drain opens inside that session rather than on a list the
-		// operator then has to press enter on. A queue with nothing waiting
-		// enters nothing, and the cursor rules below stand.
+		// operator then has to press enter on. An exhausted queue opens the
+		// new-session prompt instead.
 		if enter := m.enterTriageHead(); enter != nil {
 			return tea.Batch(persist, enter)
 		}
@@ -746,9 +750,9 @@ func (m *Model) toggleTriage() tea.Cmd {
 // The session just left is skipped even while it still requires input:
 // answering its question is what unfocused it, and the status it is left
 // showing lags a poll behind, so honouring it would drop the user straight
-// back into the session they just dealt with. Leaving it also muted it, which
-// is what keeps it skipped for the rest of the drain rather than for this one
-// hop; see mute.go. tried holds the candidates this advance already failed to
+// back into the session they just dealt with. Explicit skips return after the
+// remaining queue; answered sessions stay muted until their next turn.
+// tried holds the candidates this advance already failed to
 // enter, so a dead pane cannot be offered twice.
 //
 // The walk once ran a ring from leftID, with a pass of its own per raised
@@ -762,16 +766,26 @@ func (m *Model) toggleTriage() tea.Cmd {
 // reviewsTurn rather than an index.
 func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool) {
 	at, reviews := m.reviewsSlot(tried)
+	deferred, deferredOrder := -1, 0
 	for i, row := range m.rows {
 		if reviews && i >= at {
 			return reviewsTurn, true
 		}
 		if m.triageHandable(row, leftID, tried) && m.triageWalkable(row.sess) && m.inTriageRotation(row.sess) {
+			if order := slices.Index(m.triageDeferred, row.sess.ID) + 1; order > 0 {
+				if deferred < 0 || order < deferredOrder {
+					deferred, deferredOrder = i, order
+				}
+				continue
+			}
 			return i, true
 		}
 	}
 	if reviews {
 		return reviewsTurn, true
+	}
+	if deferred >= 0 && (!m.triage || m.triageScope == "") {
+		return deferred, true
 	}
 	return 0, false
 }
@@ -836,11 +850,11 @@ func isSubagent(sess store.Session) bool {
 	return sess.ParentID != "" && !sessionhooks.Role(sess.Role).OnScreen
 }
 
-// triagePickupCmd re-enters the head of the queue when a drain that ran
-// out of work left the operator on the list and a later poll brought a new
-// session needing a person. The queue is one live queue: work that reaches
-// waiting or finished while the first pass is walked joins it where the rail
-// sorts it, rather than stranding the operator on the list.
+// triagePickupCmd re-enters a drained queue once the operator is back on
+// the list and a later poll brought a new session needing a person. Work
+// that reaches waiting or finished while the first pass is walked joins
+// the same queue where the rail sorts it, rather than stranding the
+// operator on the list.
 //
 // It fires only for work needing a person: a new review ask, a question or a
 // finished turn. A newly idle session can wait for the next explicit pass.
@@ -881,8 +895,7 @@ func (m *Model) enterTriageHead() tea.Cmd {
 }
 
 // advanceTriage hands over the next session or the Reviews tab. A nil command
-// means there was none, and the caller's unfocus stands: the user lands back
-// on the list rather than in some arbitrary session they never asked for.
+// means there was none; in triage the new-session prompt takes the keyboard.
 //
 // A scoped queue that has run dry widens rather than stopping: the scope is
 // where the drain starts, not a promise that nothing else needs the operator,
@@ -891,25 +904,31 @@ func (m *Model) enterTriageHead() tea.Cmd {
 // nearest related work, up to the whole board, and only a board with nothing
 // to hand over ends the drain.
 func (m *Model) advanceTriage(leftID string) tea.Cmd {
-	if cmd := m.advanceTriageInScope(leftID); cmd != nil || !m.triage || m.triageScope == "" {
+	if cmd := m.advanceTriageInScope(leftID); cmd != nil || !m.triage {
 		return cmd
 	}
-	drained := m.triageScope
-	for m.triageScope != "" {
-		m.triageScope = parentGroup(m.triageScope)
-		m.rebuildRows()
-		if cmd := m.advanceTriageInScope(leftID); cmd != nil {
-			widened := "the whole board"
-			if m.triageScope != "" {
-				widened = m.triageScope
+	if m.triageScope != "" {
+		drained := m.triageScope
+		for m.triageScope != "" {
+			m.triageScope = parentGroup(m.triageScope)
+			m.rebuildRows()
+			if cmd := m.advanceTriageInScope(leftID); cmd != nil {
+				widened := "the whole board"
+				if m.triageScope != "" {
+					widened = m.triageScope
+				}
+				m.reportDone(drained + " drained — triaging " + widened)
+				return tea.Batch(m.persistTriage(), cmd)
 			}
-			m.reportDone(drained + " drained — triaging " + widened)
-			return tea.Batch(m.persistTriage(), cmd)
 		}
+		// Keep the operator's queue selected after searching outside it.
+		m.triageScope = drained
+		m.rebuildRows()
 	}
-	// Nothing anywhere: the drain ends on the queue the operator asked for.
-	m.triageScope = drained
-	m.rebuildRows()
+	m.openForm()
+	if m.mode == modeForm {
+		m.formFocus(fieldPrompt - m.form.focus)
+	}
 	return nil
 }
 

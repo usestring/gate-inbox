@@ -267,6 +267,17 @@ func TestDecideSuggestsARule(t *testing.T) {
 	}
 }
 
+func TestDecideOffersNoRuleOnAnAskRuleDialog(t *testing.T) {
+	cwd := t.TempDir()
+	env := Env{Rules: sources(t, cwd, map[string]map[string][]string{
+		"user settings": {"ask": {"Bash(echo rig-ask:*)"}},
+	}), Grants: []grant.Grant{}, Approvals: []string{"Bash(echo:*)"}}
+	d := Decide(env, bashReq(cwd, "echo rig-ask two"))
+	if d.Decision != Ask || d.Suggestion != "" {
+		t.Errorf("an ask-rule call = %+v, want an ask that offers no rule", d)
+	}
+}
+
 func TestHookAsksOnAnUnreadablePayload(t *testing.T) {
 	for _, in := range []string{"", "not json", `{"tool_input":{}}`} {
 		var d Decision

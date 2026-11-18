@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/deps"
 )
 
 // stubVersion answers lookPath and --version for one binary and counts the
@@ -33,7 +35,7 @@ func TestCheckVersionRefusesPiBelowTheFloor(t *testing.T) {
 	if outdated != (OutdatedToolError{Binary: "pi", Version: "0.85.1", Floor: "1.5.0"}) {
 		t.Fatalf("refusal = %+v", outdated)
 	}
-	if !strings.Contains(err.Error(), "pi.dev/install.sh") {
+	if !strings.Contains(err.Error(), deps.Command("pi")) {
 		t.Fatalf("error %q should name the upgrade command", err)
 	}
 }

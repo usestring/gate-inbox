@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -42,7 +43,7 @@ func TestReportLaunchErrorOpensInstallHintForMissingCLI(t *testing.T) {
 }
 
 // A pi below the board's floor opens the same dialog as a missing one: the
-// vendor installer is also the upgrade, so it offers that command to run.
+// installer is also the upgrade, so it offers that command to run.
 func TestReportLaunchErrorOffersTheUpgradeForAnOutdatedCLI(t *testing.T) {
 	m := buildModel(t)
 
@@ -54,7 +55,12 @@ func TestReportLaunchErrorOffersTheUpgradeForAnOutdatedCLI(t *testing.T) {
 	if m.launchFix.command != deps.Command("pi") || m.launchFix.binary != "pi" {
 		t.Fatalf("fix = %+v, want the pi installer", m.launchFix)
 	}
-	if frame := ansi.Strip(m.viewLaunchHint()); !strings.Contains(frame, "pi.dev/install.sh") {
+	// The card wraps a long command, so compare the text without the
+	// whitespace and borders the wrap adds.
+	unwrapped := func(s string) string {
+		return strings.Join(strings.FieldsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || r == '│' }), "")
+	}
+	if frame := ansi.Strip(m.viewLaunchHint()); !strings.Contains(unwrapped(frame), unwrapped(deps.Command("pi"))) {
 		t.Fatalf("dialog should show the upgrade command:\n%s", frame)
 	}
 }

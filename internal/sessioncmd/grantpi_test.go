@@ -89,6 +89,32 @@ func TestAGrantReachesAPiChildLiveWithoutARestart(t *testing.T) {
 	}
 }
 
+// A standing grant to a pi child is asked for with the pi wording: the child
+// takes it from its next call, and nothing is restarted.
+func TestAStandingGrantToAPiChildPromisesNoRestart(t *testing.T) {
+	h, child := piGrantHarness(t)
+	push := grant.Grant{Kind: grant.KindRule, Value: "Bash(git push origin:*)"}
+	question := PiApprovalQuestion(child, push, 0)
+	if strings.Contains(question.Question, "restarts") || !strings.Contains(question.Question, "without a restart") ||
+		!strings.Contains(question.Question, "until revoked") {
+		t.Fatalf("a standing grant to a pi child asks: %s", question.Question)
+	}
+	asked := time.Now().Add(-time.Minute)
+	(&transcript{}).ask("toolu_pi_standing", asked, question).
+		answer("toolu_pi_standing", asked.Add(time.Second), map[string]string{question.Question: "Grant"}).
+		write(t, h.sessions.claudeHome, "conv-parent")
+	result, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{Kind: string(push.Kind), Value: push.Value})
+	if err != nil {
+		t.Fatalf("approved standing grant: %v", err)
+	}
+	if result.Action != "granted" || !result.Standing || result.Restarted || result.Question != question.Question {
+		t.Fatalf("result = %+v, want a standing grant taken live", result)
+	}
+	if got := piPush(h, child); got != pigate.Allow {
+		t.Fatalf("after the standing grant: %s", got)
+	}
+}
+
 func TestAPiChildIsRefusedTheKindsItsGateCannotUse(t *testing.T) {
 	h, child := piGrantHarness(t)
 	for kind, says := range map[string]string{

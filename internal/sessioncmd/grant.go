@@ -156,7 +156,7 @@ func PiApprovalQuestion(target store.Session, g grant.Grant, ttl time.Duration) 
 // grant on its next call with no restart (a pi session).
 func approvalQuestion(target store.Session, gs []grant.Grant, ttl time.Duration, live bool) convo.AskQuestion {
 	if ttl == 0 {
-		return standingQuestion(target, gs)
+		return standingQuestion(target, gs, live)
 	}
 	what, it, write := "", "it", "Write this one permission for that session; it can be revoked later"
 	if len(gs) == 1 {
@@ -192,7 +192,7 @@ func approvalQuestion(target store.Session, gs []grant.Grant, ttl time.Duration,
 
 // standingQuestion asks for a standing grant. It says the scope out loud --
 // every session, until revoked -- because that is what the answer settles.
-func standingQuestion(target store.Session, gs []grant.Grant) convo.AskQuestion {
+func standingQuestion(target store.Session, gs []grant.Grant, live bool) convo.AskQuestion {
 	what := grant.Describe(grant.Normalise(gs[0]))
 	if len(gs) > 1 {
 		parts := make([]string, len(gs))
@@ -201,11 +201,18 @@ func standingQuestion(target store.Session, gs []grant.Grant) convo.AskQuestion 
 		}
 		what = fmt.Sprintf("these %d permissions: %s", len(gs), strings.Join(parts, "; "))
 	}
+	question := fmt.Sprintf("Grant, until revoked, %s to every Claude Code session Gate Inbox launches, starting "+
+		"with child session %q (%s)? Gate Inbox writes it into each session's own settings, restarts that child "+
+		"to apply it, and does not ask for it again.", what, target.Name, target.ID)
+	if live {
+		// A pi child reads grants on each call, so it is not restarted.
+		question = fmt.Sprintf("Grant, until revoked, %s to every session Gate Inbox launches, starting with "+
+			"child session %q (%s)? That child applies it from its next tool call without a restart, Claude Code "+
+			"sessions get it in their own settings, and Gate Inbox does not ask for it again.", what, target.Name, target.ID)
+	}
 	return convo.AskQuestion{
-		Header: dialog.ApprovalHeader,
-		Question: fmt.Sprintf("Grant, until revoked, %s to every Claude Code session Gate Inbox launches, starting "+
-			"with child session %q (%s)? Gate Inbox writes it into each session's own settings, restarts that child "+
-			"to apply it, and does not ask for it again.", what, target.Name, target.ID),
+		Header:   dialog.ApprovalHeader,
+		Question: question,
 		Options: []convo.AskOption{
 			{Label: grantOption, Description: "Write it for every session until it is revoked"},
 			{Label: refuseOption, Description: "Leave the permissions as they are; this answer covers only this request"},

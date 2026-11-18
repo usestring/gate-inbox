@@ -18,7 +18,6 @@ import {
   createBashToolDefinition,
   createLocalBashOperations,
   type ExtensionAPI,
-  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
@@ -138,6 +137,58 @@ export default function gateInbox(pi: ExtensionAPI) {
   pi.on("session_shutdown", async (event, ctx) => {
     await report("session_shutdown", { reason: event.reason, cwd: ctx.cwd });
   });
+  registerToolGate(pi);
+}
+
+// gateTimeoutMs bounds one PreToolUse decision. It is longer than a status
+// event's: the merge gate asks GitHub, and the answer is worth waiting for.
+const gateTimeoutMs = 30000;
+
+type GateDecision = {
+  permissionDecision: "allow" | "deny" | "ask";
+  reason?: string;
+  tool?: string;
+  ruleSuggestion?: string;
+};
+
+// decide asks `hook pi PreToolUse` about one call. Anything but a
+// well-formed answer, including no answer at all, is "ask": the gate fails
+// closed, never open.
+async function decide(payload: Record<string, unknown>): Promise<GateDecision> {
+  const answer = (await runHook("PreToolUse", payload, gateTimeoutMs)) as Partial<GateDecision> | undefined;
+  const verdict = answer?.permissionDecision;
+  if (verdict === "allow" || verdict === "deny" || verdict === "ask") {
+    return answer as GateDecision;
+  }
+  return { permissionDecision: "ask", reason: "Gate Inbox did not answer" };
+}
+
+// registerToolGate holds every tool call until the board decides it. The
+// decision is the board's, in Go; this only carries the call there and the
+// answer back.
+function registerToolGate(pi: ExtensionAPI) {
+  pi.on("tool_call", async (event, ctx) => {
+    const tool = pi.getAllTools().find((t) => t.name === event.toolName);
+    const d = await decide({
+      tool_name: event.toolName,
+      tool_input: event.input,
+      cwd: ctx.cwd,
+      tool_use_id: event.toolCallId,
+      read_only: tool?.annotations?.readOnlyHint === true,
+    });
+    if (ctx.signal?.aborted) return { block: true, reason: "cancelled" };
+    if (d.permissionDecision === "allow") return undefined;
+    if (d.permissionDecision === "deny") {
+      return { block: true, reason: `Gate Inbox refused this call: ${d.reason ?? "denied"}` };
+    }
+    return askUser(d);
+  });
+}
+
+// askUser is what an "ask" does. Until the board can draw a permission
+// dialog in the pane, a call that needs approval is refused with why.
+async function askUser(d: GateDecision): Promise<{ block: true; reason: string }> {
+  return { block: true, reason: `This call needs approval, which Gate Inbox cannot ask for yet: ${d.reason ?? "no rule allows it"}` };
 }
 
 // The sandboxed bash tool.
@@ -228,14 +279,6 @@ function sandboxedOperations(state: Extract<SandboxState, { mode: "on" }>, local
   };
 }
 
-// askToRunUnsandboxed asks the person at the pane whether one command may run
-// outside the sandbox. With no one to ask, the answer is no.
-async function askToRunUnsandboxed(ctx: ExtensionContext, why: string, command: string, signal?: AbortSignal): Promise<boolean> {
-  if (!ctx.hasUI) return false;
-  const choice = await ctx.ui.select(`Bash command, outside the sandbox (${why})\n  ${command}\nDo you want to proceed?`, ["Yes", "No"], { signal });
-  return choice === "Yes";
-}
-
 function sandboxedBash(pi: ExtensionAPI) {
   const local = createLocalBashOperations();
   const ready = (cwd: string) => (sandbox ??= startSandbox(cwd));
@@ -266,14 +309,20 @@ function sandboxedBash(pi: ExtensionAPI) {
     async execute(id, params, signal, onUpdate, ctx) {
       const { dangerouslyDisableSandbox, ...input } = params as typeof params & { dangerouslyDisableSandbox?: boolean };
       const state = await ready(ctx.cwd);
+      // The board's gate has already decided this call, asking the user when
+      // it ran outside the sandbox by request, so only a sandbox that could
+      // not start is asked about here, through the gate's own dialog.
+      const outside = dangerouslyDisableSandbox === true;
       let operations = local;
-      if (state.mode === "on" && !(dangerouslyDisableSandbox === true && state.allowUnsandboxed)) {
+      if (state.mode === "on" && !(outside && state.allowUnsandboxed)) {
         operations = sandboxedOperations(state, local);
-      } else if (state.mode !== "off") {
-        const why = state.mode === "unavailable" ? `sandbox unavailable: ${state.reason}` : "requested by the model";
-        if (!skipPermissions && !(await askToRunUnsandboxed(ctx, why, input.command, signal))) {
-          throw new Error(`Not run: the user did not allow it outside the sandbox (${why}).`);
-        }
+      } else if (state.mode === "unavailable" && !outside && !skipPermissions) {
+        const refused = await askUser({
+          permissionDecision: "ask",
+          tool: "Bash",
+          reason: `Bash command, outside the sandbox (sandbox unavailable: ${state.reason})`,
+        });
+        if (refused) throw new Error(`Not run: ${refused.reason}`);
       }
       return createBashToolDefinition(ctx.cwd, { operations }).execute(id, input, signal, onUpdate, ctx);
     },

@@ -305,8 +305,9 @@ type Model struct {
 	// hibernating is set while a settleHibernated pass is out, and
 	// hibernateSweptAt is when the last one swept for idle sessions. See
 	// hibernate.go.
-	hibernating      bool
-	hibernateSweptAt time.Time
+	hibernating       bool
+	hibernateSweptAt  time.Time
+	hibernatePressure bool
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.

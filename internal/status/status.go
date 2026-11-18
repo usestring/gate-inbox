@@ -24,8 +24,8 @@ const (
 	// of after the next poll.
 	Starting = "starting"
 	// Background is a session whose turn has ended with only a shell,
-	// monitor or task left running behind it: nothing is on screen and
-	// nothing spends tokens, but Claude wakes itself when that work ends.
+	// monitor or task left running behind it: the agent is at rest and may
+	// resume when that work ends.
 	// The pane reads it as working; the poller settles it here through
 	// SettleBackground.
 	Background = "background"
@@ -38,6 +38,14 @@ const (
 	// because the machine is offline. Like Delegating it is never derived
 	// from a pane or stored; store.ApplyOutbox lays it over the row.
 	Pending = "pending"
+	// Hibernating is a session hibernate stopped to give its memory back.
+	// The store keeps it dead, because its process is gone and everything
+	// that treats a dead row as having no pane must go on doing so, but it
+	// is resting, not over: the next message or the operator entering it
+	// relaunches it on its own conversation. Like Delegating it is never
+	// derived from a pane or stored; store.ApplyHibernated lays it over the
+	// row for display.
+	Hibernating = "hibernating"
 )
 
 type rule struct {
@@ -118,9 +126,9 @@ func NewEngine(cfg config.Config) (*Engine, error) {
 }
 
 // Match derives a status and reports whether any signal matched, so the
-// caller can distinguish a real signal from the default fallback. A usage
-// or rate-limit banner is errored even when a turn-end summary or a limit
-// dialog would otherwise settle the turn. Rules then run scoped to the
+// caller can distinguish a real signal from the default fallback. Usage,
+// rate-limit and latest Codex failure banners are errored even when a
+// turn-end summary or a limit dialog would otherwise settle the turn. Rules then run scoped to the
 // current turn. If the first matching rule is working, a matching waiting
 // rule later in the list overrides it so persisted rule order cannot mask
 // a user prompt. Every other first match returns as configured. When no
@@ -133,6 +141,11 @@ func (e *Engine) Match(tool, pane string) (string, bool) {
 	}
 	if tr.isLimit(pane) || e.CapacityBanner(tool, pane) != "" {
 		return Errored, true
+	}
+	if tool == "codex" && !e.ViewportDisplaced(tool, pane) {
+		if codexFailed(tr, pane) {
+			return Errored, true
+		}
 	}
 	if state, ok := tr.matchRules(tr.matchScope(pane)); ok {
 		return state, true
@@ -193,6 +206,22 @@ func (e *Engine) LimitBanner(tool, pane string) string {
 		return banner
 	}
 	return strings.Join(strings.Fields(strings.Join(tr.limitLines(pane), " ")), " ")
+}
+
+var codexFailureLine = &matcher{re: regexp.MustCompile(`(?m)^[ \t]*■[ \t]+\S`)}
+
+// codexInterruptLine is the ■ row Codex draws when the operator presses Esc
+// ("■ Conversation interrupted - tell the model what to do differently"). It
+// wears the failure marker, but it is a turn stopped on purpose and waiting on
+// the operator, not a failure.
+var codexInterruptLine = regexp.MustCompile(`^[ \t]*■[ \t]+Conversation interrupted\b`)
+
+// codexFailed reports whether the newest ■ banner on a Codex pane is a
+// failure rather than the operator's own interrupt.
+func codexFailed(tr toolRules, pane string) bool {
+	tr.limitLine = codexFailureLine
+	lines := tr.limitLines(pane)
+	return len(lines) != 0 && !codexInterruptLine.MatchString(lines[0])
 }
 
 var codexCapacityLine = &matcher{re: regexp.MustCompile(`(?m)^[ \t]*■[ \t]+The selected model is at capacity\b`)}
@@ -316,8 +345,8 @@ func (tr toolRules) isBusy(pane string) bool {
 	return busy
 }
 
-// busyText is the line isBusy found, wrap and all, or "" for a busy line
-// read from the footer below the content region.
+// busyText is the line isBusy found, including a wrapped line or a footer
+// below the content region.
 func (tr toolRules) busyText(pane string) (string, bool) {
 	if tr.busyLine == nil {
 		return "", false
@@ -328,7 +357,7 @@ func (tr toolRules) busyText(pane string) (string, bool) {
 	}
 	_, footer, _ := strings.Cut(pane[len(region):], "\n")
 	if tr.busyLine.MatchString(footer) {
-		return "", true
+		return footer, true
 	}
 	lines := strings.Split(region, "\n")
 	for i, line := range lines {
@@ -350,8 +379,10 @@ func (tr toolRules) busyText(pane string) (string, bool) {
 // the turn: "✻ Baked for 26s · done 15:14 · 1 shell still running".
 var stillRunningTail = regexp.MustCompile(`· \d+ [^·]*still running\b`)
 
+var openCodeShellFooter = regexp.MustCompile(`↓ \d+ shells?\b`)
+
 // BackgroundRest is the status the pane would read if the "still running"
-// tail on its newest turn-end summary were gone, and whether that tail is
+// tail or terminal footer were gone, and whether that background work is
 // the only thing keeping it working. A wait line for background agents or
 // workflows is not such a tail: those spend tokens while they run. The
 // caller decides when a tail has gone on long enough to stop believing it;
@@ -366,7 +397,26 @@ func (e *Engine) BackgroundRest(tool, pane string) (string, bool) {
 		return "", false
 	}
 	line, busy := tr.busyText(pane)
-	if !busy || !tr.turnEnd.MatchString(line) || !stillRunningTail.MatchString(line) {
+	if !busy {
+		return "", false
+	}
+	if tool == "codex" {
+		lines := strings.Split(pane, "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			if tr.busyLine.MatchString(lines[i]) {
+				lines[i] = ""
+				break
+			}
+		}
+		return tr.turnState(strings.Join(lines, "\n"))
+	}
+	if tool == "opencode" {
+		if !openCodeShellFooter.MatchString(line) || strings.Contains(line, "subagent") {
+			return "", false
+		}
+		return tr.turnState(pane)
+	}
+	if !tr.turnEnd.MatchString(line) || !stillRunningTail.MatchString(line) {
 		return "", false
 	}
 	state, ok := tr.turnState(pane)
@@ -382,16 +432,18 @@ func (e *Engine) BackgroundRest(tool, pane string) (string, bool) {
 // wait loops nothing would end, or shells that had already died.
 const BackgroundTailTrust = 2 * time.Hour
 
-// SettleBackground is what a pane working on a "still running" tail alone
-// reads as: Background while the tail is believed, and BackgroundRest once it
-// has outlived BackgroundTailTrust by quiet, which reports how long since the
-// conversation was last written. A quiet that cannot be read keeps the tail
-// believed. ok is false when the pane is working on anything else. quiet is
-// only asked when the pane is working on a tail alone.
+// SettleBackground is what a pane working on background shells alone
+// reads as: Background for a live terminal footer or a believed Claude tail.
+// Claude tails expire after BackgroundTailTrust of transcript quiet; an
+// unreadable age keeps the tail believed. Other work leaves ok false.
 func SettleBackground(e *Engine, tool, pane string, quiet func() (time.Duration, bool)) (string, bool) {
 	rest, ok := e.BackgroundRest(tool, pane)
 	if !ok {
 		return "", false
+	}
+	// Terminal footers redraw as work ends; Claude's transcript-age heuristic does not apply.
+	if tool == "codex" || tool == "opencode" {
+		return Background, true
 	}
 	if age, known := quiet(); !known || age < BackgroundTailTrust {
 		return Background, true

@@ -158,9 +158,9 @@ func (m *Model) noteHandoverFrame(sessID string) {
 }
 
 // moveOnFrom leaves sess and enters the next session that needs a person.
-// When the queue is drained the operator lands on the list with the drain
-// still open (see triageResume), so work arriving on a later poll joins the
-// same queue instead of waiting for another explicit pass.
+// When the queue is drained the new-session prompt opens with the drain
+// still armed (see triageResume), so work arriving while the operator types
+// can be picked up after they leave the form.
 func (m *Model) moveOnFrom(sess store.Session) tea.Cmd {
 	leave := m.leaveFocus()
 	if next := m.advanceTriage(sess.ID); next != nil {
@@ -238,7 +238,7 @@ func (m *Model) handOverOnIdle(now time.Time) tea.Cmd {
 	}
 	next := -1
 	for i, row := range m.rows {
-		if !m.triageHandable(row, current.ID, nil) || !m.needsPerson(row.sess) {
+		if !m.triageHandable(row, current.ID, nil) || !m.needsPerson(row.sess) || !m.inTriageContent(row.sess) {
 			continue
 		}
 		if next < 0 || m.triageLess(row.sess, m.rows[next].sess) {

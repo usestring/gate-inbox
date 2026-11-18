@@ -58,6 +58,9 @@ type answerGuard struct {
 	call     convo.AskCall
 	haveCall bool
 	rows     []int64
+	// watching is set once the keys go through watch, and sent once any of
+	// them reaches the child.
+	watching, sent bool
 }
 
 func (s *Sessions) guard(st *store.Store, caller, target store.Session, relay bool) *answerGuard {
@@ -202,7 +205,7 @@ func (g *answerGuard) finish(err error) {
 		state = store.AnswerFailed
 	}
 	for _, id := range g.rows {
-		if errors.Is(err, errNothingKeyed) {
+		if g.nothingSent(err) {
 			if releaseErr := g.store.ReleaseAnswer(id); releaseErr != nil {
 				logging.Warn("could not release an unkeyed dialog answer", "id", id, "err", releaseErr)
 			}
@@ -213,6 +216,57 @@ func (g *answerGuard) finish(err error) {
 		}
 	}
 	g.rows = nil
+}
+
+// A failed answer keeps the user's answer spent, because some of its keys may
+// have reached the child. The check is whether any key did, not whether the
+// error says none did. Marking each refusal by hand missed the ones that
+// refuse a typed answer before the first key: no free-text row to type into,
+// a multi-select given text, a tick naming no option. Each left the answer
+// spent with nothing typed, so the parent's corrected relay was refused as
+// already relayed and the user was asked the same question again.
+
+// watch returns pane with every key sent through it noted on g, so finish can
+// tell an answer that never reached the child from one that partly did.
+func (g *answerGuard) watch(pane dialogPane) dialogPane {
+	if g == nil {
+		return pane
+	}
+	g.watching = true
+	return sentPane{pane, &g.sent}
+}
+
+// nothingSent reports whether err ended an answer before any of its keys
+// reached the child.
+func (g *answerGuard) nothingSent(err error) bool {
+	return errors.Is(err, errNothingKeyed) || (err != nil && g.watching && !g.sent)
+}
+
+// sentPane is a dialogPane that notes when a key or text is sent through it.
+type sentPane struct {
+	pane dialogPane
+	sent *bool
+}
+
+func (p sentPane) Capture() (string, error) { return p.pane.Capture() }
+
+func (p sentPane) Keys(keys ...string) error {
+	*p.sent = true
+	return p.pane.Keys(keys...)
+}
+
+func (p sentPane) Type(text string) error {
+	*p.sent = true
+	return p.pane.Type(text)
+}
+
+// Recorded passes the child's own record through, so confirmEcho still reads
+// it on a watched pane.
+func (p sentPane) Recorded() (map[string]string, bool) {
+	if recorded, ok := p.pane.(recordedPane); ok {
+		return recorded.Recorded()
+	}
+	return nil, false
 }
 
 // question is the child's question at index, from its transcript when that

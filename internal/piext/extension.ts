@@ -190,10 +190,17 @@ async function startSandbox(cwd: string): Promise<SandboxState> {
     const timedOut = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error("the sandbox did not start in time")), sandboxStartMs);
     });
+    // The runtime binds its proxy's unix socket under os.tmpdir() while it
+    // starts, and a long TMPDIR pushes that path past the 108-byte limit, so
+    // it starts under the board's short private directory instead.
+    const tmpdir = process.env.TMPDIR;
+    process.env.TMPDIR = plan.tmpDir;
     try {
       await Promise.race([manager.initialize(plan.config), timedOut]);
     } finally {
       clearTimeout(timer);
+      if (tmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = tmpdir;
     }
     return { mode: "on", manager, tmpDir: plan.tmpDir, allowUnsandboxed: plan.allowUnsandboxed === true };
   } catch (err) {

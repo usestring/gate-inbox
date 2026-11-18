@@ -191,3 +191,19 @@ func TestRuntimeBundleExportsTheSandboxManager(t *testing.T) {
 		t.Fatalf("sandbox-runtime.mjs (%d bytes) does not end by exporting SandboxManager; rerun sandboxruntime/build.sh", len(runtimeSource))
 	}
 }
+
+// A long TMPDIR would push the runtime's proxy socket past the unix path
+// limit, so the private directory falls back to /tmp.
+func TestPrivateTmpDirLeavesRoomForASocketPath(t *testing.T) {
+	if got := privateTmpDir("/tmp", 1000); got != "/tmp/gate-inbox-pi-1000" {
+		t.Errorf("short TMPDIR: %s", got)
+	}
+	long := filepath.Join(strings.Repeat("d", 40), strings.Repeat("e", 40))
+	got := privateTmpDir(long, 1000)
+	if got != "/tmp/gate-inbox-pi-1000" {
+		t.Errorf("long TMPDIR: %s", got)
+	}
+	if sock := filepath.Join(got, "srt-mux-4194304-zz.sock"); len(sock) >= 104 {
+		t.Errorf("socket path %s is %d bytes", sock, len(sock))
+	}
+}

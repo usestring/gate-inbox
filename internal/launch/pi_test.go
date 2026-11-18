@@ -2,12 +2,16 @@ package launch
 
 import (
 	"bytes"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mcpshared"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/piext"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
@@ -19,7 +23,7 @@ import (
 func TestEnvironmentLoadsThePiExtension(t *testing.T) {
 	home := t.TempDir()
 	manager := hooks.NewManager(home)
-	pi := config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi}
+	pi := config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi, AutoMode: "off"}
 	path := piext.Path(manager.Dir())
 	want := piext.Argv(tmux.ShellQuote(path))
 
@@ -88,5 +92,60 @@ func TestAPiLaunchWithholdsTheTypeSafeKey(t *testing.T) {
 	claude := config.Tool{Command: "cat"}
 	if _, env, err = Compose(manager, "plain", claude, claude.Command, "abcd1234", "", "", false, nil); err != nil || env["TYPESAFE_API_KEY"] != "operator-key" {
 		t.Fatalf("a non-pi launch lost the operator's key: %q, %v", env["TYPESAFE_API_KEY"], err)
+	}
+}
+
+// A pi pane with auto mode on writes its own token before pi starts: the
+// process composing the launch may be a confined session's MCP server, which
+// cannot see the key dir, while the pane is the tmux server's child. With
+// auto mode off the pane runs pi directly.
+func TestAPiLaunchWithAutoModeWritesItsTokenFromThePane(t *testing.T) {
+	manager := hooks.NewManager(t.TempDir())
+	pi := config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi}
+	command, _, err := Compose(manager, "pi", pi, pi.Command, "abcd1234", "", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := tmux.ShellQuote(Executable()) + " " + AutoModeTokenVerb + " " + tmux.ShellQuote("abcd1234") + " -- /bin/sh -c "
+	inner, ok := strings.CutPrefix(command, step)
+	if !ok || !strings.HasPrefix(inner, "'cat ") || !strings.Contains(inner, " -e ") {
+		t.Fatalf("command = %q, want it to start with %q and run pi after", command, step)
+	}
+	if _, err := os.Stat(mcpshared.ClaudeConfigPath(manager.ConfigDir(), "abcd1234")); !os.IsNotExist(err) {
+		t.Fatalf("composing the launch wrote the token itself: %v", err)
+	}
+	pi.AutoMode = "off"
+	if command, _, err = Compose(manager, "pi", pi, pi.Command, "abcd1234", "", "", false, nil); err != nil || strings.Contains(command, AutoModeTokenVerb) {
+		t.Fatalf("auto mode off: command = %q, %v", command, err)
+	}
+}
+
+// The token is written only for a well-formed id, and only when the board's
+// own shared server answers; an existing config is kept.
+func TestWriteAutoModeConfigNeedsTheBoardsServer(t *testing.T) {
+	dir := t.TempDir()
+	path := mcpshared.ClaudeConfigPath(dir, "abcd1234")
+	WriteAutoModeConfig(dir, "abcd1234")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("wrote a token with no server running: %v", err)
+	}
+	listener, lock, err := mcpshared.Listen(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proof, _ := parentseal.ServerProof(dir, r.URL.Query().Get("nonce"))
+		_, _ = w.Write([]byte(proof))
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+	WriteAutoModeConfig(dir, "../escape")
+	WriteAutoModeConfig(dir, "abcd1234")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("no token with the board's server up: %v", err)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "*escape*")); len(matches) > 0 {
+		t.Fatalf("a malformed id got a token: %v", matches)
 	}
 }

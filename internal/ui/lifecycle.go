@@ -76,11 +76,19 @@ func (m *Model) attachSelected() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	// Entering a hibernated session is asking for it back: it wakes on its
+	// conversation and the attach lands on the relaunched pane.
 	if !m.tmux.Exists(sess.ID) {
-		m.errBar.text = m.deadSessionHint()
-		return m, nil
+		if !m.isHibernated(sess) {
+			m.errBar.text = m.deadSessionHint()
+			return m, nil
+		}
+		if !m.wakeForFocus(sess) {
+			return m, nil
+		}
+	} else {
+		m.errBar.text = ""
 	}
-	m.errBar.text = ""
 	if err := m.store.AcknowledgeFinished(sess.ID); err != nil {
 		m.errBar.text = err.Error()
 		return m, nil
@@ -104,6 +112,7 @@ func (m *Model) attachCmd(id string) tea.Cmd {
 		m.errBar.text = prepErr.Error()
 	}
 	since := time.Now()
+	m.attachedID = id
 	return tea.ExecProcess(m.tmux.AttachCommand(id), func(err error) tea.Msg {
 		return attachDoneMsg{sessID: id, since: since, err: err}
 	})
@@ -1175,7 +1184,29 @@ func (m *Model) sweepArchivesBefore(cutoff time.Time) tea.Cmd {
 	if len(expired) > 0 || len(removed) > 0 {
 		m.rebuildRows()
 	}
+	m.pruneOrphanHookFiles()
 	return nil
+}
+
+// pruneOrphanHookFiles clears the hooks directory of files left by sessions
+// the store no longer holds. It rides the archive sweep's cadence because
+// both are tidying with nobody waiting on them.
+func (m *Model) pruneOrphanHookFiles() {
+	if m.hooks == nil {
+		return
+	}
+	rows, err := m.store.ListSessions(true)
+	if err != nil {
+		m.errBar.text = "hook file sweep: " + err.Error()
+		return
+	}
+	live := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		live[row.ID] = true
+	}
+	if _, err := m.hooks.PruneOrphans(live, time.Now()); err != nil {
+		m.errBar.text = "hook file sweep: " + err.Error()
+	}
 }
 
 func (m *Model) sessionAndChildren(sess store.Session) ([]store.Session, error) {

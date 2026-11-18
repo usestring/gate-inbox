@@ -130,6 +130,22 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 	return out
 }
 
+// ReadSingleClaudeQuestion reads one live AskUserQuestion without a transcript.
+func ReadSingleClaudeQuestion(pane string) (Question, bool) {
+	plain := unwrapLegend(ansi.Strip(pane))
+	kind, legend := dialogLegend(plain)
+	// A legend followed by more output belongs to an old question.
+	if kind != KindAsk || strings.TrimSpace(plain[legend[1]:]) != "" {
+		return Question{}, false
+	}
+	questions := Questions(pane, nil)
+	if len(questions) != 1 {
+		return Question{}, false
+	}
+	q := questions[0]
+	return q, q.OnScreen && q.Question != "" && len(q.Options) > 0
+}
+
 // callShows reports whether asked is the call behind the dialog on the
 // screen: the question it puts where the screen's question is reads as the
 // prompt, and offers every choice the screen draws. A call is read from the

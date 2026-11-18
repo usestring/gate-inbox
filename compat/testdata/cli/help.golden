@@ -119,6 +119,12 @@ Remote inbox
   gate-inbox inbox serve [--listen <host:port>]
       serve POST /inbox on loopback until stopped; configured under [inbox], tokens from the environment or a 0600 file
 
+Pull request custody
+  gate-inbox pr-owner <canonical-url> [--json]
+      resolve recorded PR custody to one live session; never revive or infer ownership from mentions
+  gate-inbox pr-feedback <canonical-url> --event-key <key> --expect-session-id <id> --message-file <path> [--json]
+      queue feedback once for a proven PR owner; acceptance is durable, delivery uses normal inbox guards
+
 Options:
   -h, --help     Show this help text
   -v, --version  Print the installed version

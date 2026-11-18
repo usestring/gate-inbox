@@ -92,27 +92,6 @@ gate-inbox
 Sessions live in tmux, so quitting the board leaves them running. Start `gate-inbox` again and it
 picks them back up.
 
-## Experimental features
-
-Gate Inbox uses TypeSafe's Jev as the default classifier for three opt-in features. Add a Jev API
-key under Settings → Classifier, then enable the features you want under Settings → Experimental.
-You can also select Clef as the classifier.
-
-- **Finish check.** When a Claude Code session finishes, Gate Inbox can ask Jev whether the task
-  is done and whether the agent stopped because it needed Chrome access. If Jev is confident that
-  missing Chrome access blocked unfinished work, Gate Inbox can resume the same conversation
-  with Chrome enabled.
-- **Auto Suggest.** Jev ranks earlier prompts from an existing session against the recent
-  conversation to suggest a next reply. With **Prompt suggestions** also enabled, Jev ranks
-  matching prompts from local history against the draft in the New Session form. You can edit
-  the suggestion before sending it.
-- **Smart copy.** When you press the copy key, Jev identifies commands, links, or values the agent
-  left for you in its latest reply. A separate run key lets you run a selected one-line command
-  in the session.
-
-See the [usage guide](docs/usage.md#hotkey-menu) for the controls and what text each feature sends
-to the classifier.
-
 ## The core loop
 
 ![Spawning two agents, watching their status, then answering the one that is waiting from the queue](docs/demo/core-loop.gif)
@@ -350,6 +329,27 @@ Keep that checkout available at the linked path. Merge these entries into the pr
 ```
 
 Run `bash hooks/skill-gate-inbox-priority.test.sh` from the Gate Inbox checkout to test the hook.
+
+## Experimental features
+
+Gate Inbox uses TypeSafe's Jev as the default classifier for three opt-in features. Add a Jev API
+key under Settings → Classifier, then enable the features you want under Settings → Experimental.
+You can also select Clef as the classifier.
+
+- **Finish check.** When a Claude Code session finishes, Gate Inbox can ask Jev whether the task
+  is done and whether the agent stopped because it needed Chrome access. If Jev is confident that
+  missing Chrome access blocked unfinished work, Gate Inbox can resume the same conversation
+  with Chrome enabled.
+- **Auto Suggest.** Jev ranks earlier prompts from an existing session against the recent
+  conversation to suggest a next reply. With **Prompt suggestions** also enabled, Jev ranks
+  matching prompts from local history against the draft in the New Session form. You can edit
+  the suggestion before sending it.
+- **Smart copy.** When you press the copy key, Jev identifies commands, links, or values the agent
+  left for you in its latest reply. A separate run key lets you run a selected one-line command
+  in the session.
+
+See the [usage guide](docs/usage.md#hotkey-menu) for the controls and what text each feature sends
+to the classifier.
 
 ## Development
 

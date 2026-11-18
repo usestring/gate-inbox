@@ -61,7 +61,7 @@
 # archive_all         = []  # kill every session listed
 # restore             = ["ctrl+u"]  # restore it out of the archive
 # restore_all         = ["alt+d"]  # restore every dead session: revive the dead, bring the archived back
-# undo_archive        = ["ctrl+alt+u"]  # bring back what the last kill filed away
+# undo_archive        = ["alt+x"]  # bring back what the last kill filed away
 # dismiss             = ["alt+."]  # skip
 # priority            = ["ctrl+p"]  # cycle priority: high → medium → low → none (tiers set in Settings)
 # mute                = ["ctrl+m"]  # mute / unmute: keep it out of triage until unmuted
@@ -138,7 +138,7 @@
 # revive_all          = ["ctrl+alt+v"]  # revive every dead session
 # wake_all            = ["ctrl+alt+w"]  # wake every hibernated session listed
 # ingest_reviews      = ["ctrl+alt+p"]  # fetch reviews asked of you on GitHub
-# undo_archive        = ["ctrl+alt+u"]  # bring back what the last kill filed away
+# undo_archive        = ["alt+x"]  # bring back what the last kill filed away
 # rename_from_agent   = ["ctrl+alt+r"]  # rename it after its conversation
 # attach              = ["ctrl+a"]  # attach: the pane takes the terminal
 

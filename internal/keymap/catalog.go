@@ -224,7 +224,7 @@ var Catalog = []Binding{
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"ctrl+u"}, "restore it out of the archive", false},
 	{ContextList, RestoreAll, []string{"alt+d"}, "restore every dead session: revive the dead, bring the archived back", false},
-	{ContextList, UndoArchive, []string{"ctrl+alt+u"}, "bring back what the last kill filed away", false},
+	{ContextList, UndoArchive, []string{"alt+x"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"alt+."}, "skip", false},
 	{ContextList, Priority, []string{"ctrl+p"}, "cycle priority: high → medium → low → none (tiers set in Settings)", false},
 	{ContextList, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
@@ -334,10 +334,10 @@ var Catalog = []Binding{
 	{ContextFocus, PreviewTop, []string{"alt+home"}, "oldest history", false},
 	{ContextFocus, PreviewBottom, []string{"alt+end"}, "back to the live bottom", false},
 	// The board's own chords, so a drain reaches the board without a trip
-	// back to it: each leaves the pane and runs the list's action. Each is
-	// ctrl or ctrl+option, never a bare letter, and none takes a key an
-	// agent CLI leans on -- interrupt, paste, history search, the line-edit
-	// keys -- so those actions stay list-only. See runBoardActionFromFocus.
+	// back to it: each leaves the pane and runs the list's action. Modified
+	// keys leave ordinary typing to the agent. Chords the agent relies on
+	// for interrupt, paste, history search and line editing stay with it.
+	// See runBoardActionFromFocus.
 	{ContextFocus, Triage, []string{"ctrl+i"}, "triage this group as one queue", false},
 	{ContextFocus, Search, []string{"ctrl+f"}, "fuzzy session search", false},
 	{ContextFocus, QuickActions, []string{"ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
@@ -347,7 +347,7 @@ var Catalog = []Binding{
 	{ContextFocus, ReviveAll, []string{"ctrl+alt+v"}, "revive every dead session", false},
 	{ContextFocus, WakeAll, []string{"ctrl+alt+w"}, "wake every hibernated session listed", false},
 	{ContextFocus, IngestReviews, []string{"ctrl+alt+p"}, "fetch reviews asked of you on GitHub", false},
-	{ContextFocus, UndoArchive, []string{"ctrl+alt+u"}, "bring back what the last kill filed away", false},
+	{ContextFocus, UndoArchive, []string{"alt+x"}, "bring back what the last kill filed away", false},
 	{ContextFocus, RenameSelf, []string{"ctrl+alt+r"}, "rename it after its conversation", false},
 	// The list's attach, so a focused pane takes the whole terminal without a
 	// trip back to the list. It takes readline's line-start from the agent;

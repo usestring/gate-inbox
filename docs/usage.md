@@ -14,14 +14,14 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 
 ## Keys
 
-Every board key is a chord: `ctrl`, or `ctrl+alt` where the `ctrl` letter is already taken, and
-`alt` for punctuation. Only `j`/`k` stay bare letters, beside the arrows. `ctrl+c` and `ctrl+v` are
-never bound, so interrupt and paste keep working. `ctrl+i`, `ctrl+m` and `ctrl+/` need a terminal
-with an enhanced keyboard protocol (Ghostty, kitty, WezTerm, iTerm2 with CSI u); elsewhere the
-terminal sends them as `tab`, `enter` and `ctrl+_`. Inside a focused session the board's own chords
+Most board shortcuts use `ctrl` or `ctrl+alt`. For do and undo pairs, press `ctrl` with the
+action's key and `alt` (Option on Mac) with that same key to undo. The cursor keys `j` and `k`
+also work without modifiers. The terminal keeps `ctrl+c` for interrupt and `ctrl+v` for paste.
+`ctrl+i`, `ctrl+m` and `ctrl+/` need an enhanced keyboard protocol (Ghostty, kitty, WezTerm,
+iTerm2 with CSI u). Other terminals send them as `tab`, `enter` and `ctrl+_`. Inside a focused session the board's own chords
 work too and leave the pane for the board: `ctrl+i` triage, `ctrl+f` search, `ctrl+k` quick
 actions, `ctrl+alt+s` settings, `ctrl+alt+g` new group, `ctrl+alt+t` new terminal, `ctrl+alt+v`
-revive all, `ctrl+alt+w` wake all hibernated, `ctrl+alt+p` fetch reviews, `ctrl+alt+u` undo
+revive all, `ctrl+alt+w` wake all hibernated, `ctrl+alt+p` fetch reviews, `alt+x` undo
 archive and `ctrl+alt+r` rename. Keys an agent CLI relies on (`ctrl+r`, `ctrl+o`, `ctrl+w`,
 `ctrl+u`, `ctrl+e`, `ctrl+t`) still reach the agent there.
 
@@ -49,10 +49,10 @@ archive and `ctrl+alt+r` rename. Keys an agent CLI relies on (`ctrl+r`, `ctrl+o`
 | `ctrl+p` | Priority: each press cycles the tier — by default `high`, `medium`, `low`, then none. `priority tiers` in Settings (store `priority_scale`, e.g. `"+2/-1"`) chooses one to three tiers above the default (`medium`, `high`, `urgent`) and zero to three below (`low`, `lower`, `lowest`); a stored tier past the scale shows and sorts as the scale's edge, and keeps its value if the scale is widened again. Higher tiers sort first in the list. In triage, sessions ready for input come first, then priority orders each band (see triage below). `ctrl+p` also works from a focused session; the changed row shows its new tier as a solid badge for a few seconds and the status bar names it |
 | `ctrl+alt+r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent, start and default path |
 | `ctrl+x` | Kill the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive. A group with no session filed under it, live or archived, is deleted instead, so its name is free straight away |
+| `alt+x` | Undo the last kill and restore the affected sessions. Works from the list and from inside a focused session |
 | `ctrl+r` | Revive a dead session. On a session that is still running it restarts the agent on the conversation it is already on |
 | `ctrl+alt+a` / `ctrl+o` | On a pane started outside the board, or on the toast naming one the board just adopted: `ctrl+alt+a` brings it in (resumed as a board session once idle), `ctrl+o` leaves it off the board, still running (see [Panes started outside the board](#panes-started-outside-the-board)) |
 | `ctrl+u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can. A row left in the archive is deleted for good after 7 days |
-| `ctrl+alt+u` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `ctrl+s` | Hotkey menu: send one of your snippets to the selected session (`ctrl+s` also opens it inside a focused session) |
 | `ctrl+alt+s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, row detail, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, experimental features, snippets, restart flags, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `ctrl+w` | Filter to sessions that need attention (`waiting`, stuck, `finished`, `errored`); press again to show all |
@@ -333,7 +333,7 @@ The exit status comes from the pane's launch script, which records the agent's s
 
 ## Archiving without being asked
 
-Archiving ends the agent, so `ctrl+x` asks first. It asks every time because until now nothing could take the answer back — a dialog is the price of an act with no undo. Settings (`ctrl+alt+s`) has an `ask before archiving` row that drops the dialog for `ctrl+x` on a single session, and `ctrl+alt+u` is what pays for it: the last archive out of the archive and running again, offered whether the archive was silent or confirmed.
+Archiving ends the agent, so `ctrl+x` asks for confirmation by default. To skip the prompt for a single session, change **ask before archiving** in Settings (`ctrl+alt+s`). Press `alt+x` (Option+X on Mac) to undo the last kill, with or without confirmation.
 
 The wide gestures keep their dialog whatever the setting says. `ctrl+x` on a group takes its whole subtree and killing every row on screen (quick actions) takes all of it, and neither is a keystroke aimed at something you picked out — which is what makes a silent answer safe. The wide kill keeps its tick for the same reason it has one.
 

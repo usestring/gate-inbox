@@ -211,6 +211,7 @@ func (m *Model) openSettings() {
 		jevFinishCheck:       m.jevFinishCheck,
 		jevCopyOn:            m.jevCopyOn,
 		promptSuggest:        m.promptSuggest,
+		nextStep:             m.nextStepOn,
 		reviewQueue:          m.reviewQueue,
 		ciFeedback:           storedExperiment(m.store, store.CIFeedbackSetting),
 		arrowsStay:           m.arrowsStay,
@@ -529,6 +530,10 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.promptSuggest = m.settings.promptSuggest
 	if !m.promptSuggest {
 		m.promptSnips = nil
+	}
+	m.nextStepOn = m.settings.nextStep
+	if !m.nextStepOn {
+		m.nextStep = nextStepState{}
 	}
 	m.jevAutoSuggest = m.settings.jevAutoSuggest
 	if !m.promptSuggest || !m.jevAutoSuggest {

@@ -159,6 +159,9 @@ type Model struct {
 	jevFinish      jevFinishState
 	jevCopyOn      bool
 	jevCopy        jevCopyState
+	// nextStepOn is the Next step experiment; nextStep is what it remembers.
+	nextStepOn bool
+	nextStep   nextStepState
 	// reviewQueue is the Review queue experiment: off, the ingest key
 	// refuses and the rail draws no Reviews tab.
 	reviewQueue    bool
@@ -1078,6 +1081,7 @@ type settingsState struct {
 	jevFinishCheck     bool
 	jevCopyOn          bool
 	promptSuggest      bool
+	nextStep           bool
 	reviewQueue        bool
 	ciFeedback         bool
 	arrowsStay         bool
@@ -1462,6 +1466,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		jevCopyOn:        storedJevCopy(st),
 		reviewQueue:      reviewQueue,
 		promptSuggest:    storedPromptSuggestions(st),
+		nextStepOn:       storedNextStep(st),
 		comfortableRows:  storedComfortableRows(st),
 		layout:           storedLayout(st),
 		sidebar:          storedSidebar(st, cfg.Board.Sidebar),
@@ -2519,7 +2524,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.readConversation(), conversationTick(), m.startStartupTick())
 	case conversationMsg:
 		m.applyConversation(msg)
-		return m, m.scheduleAutoSuggestion()
+		return m, tea.Batch(m.scheduleAutoSuggestion(), m.scheduleNextStepLocal())
+	case nextStepLocalMsg:
+		m.applyNextStepLocal(msg)
+		return m, nil
 	case tokenUsageMsg:
 		m.applyTokenUsage(msg)
 		return m, nil
@@ -3092,7 +3100,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A click can select a session or leave focus, so the poller hears
 		// about it the same way it hears about a keystroke.
 		m.syncPollInput()
-		return model, tea.Batch(cmd, m.startActivityTick(), m.scheduleAutoSuggestion())
+		return model, tea.Batch(cmd, m.startActivityTick(), m.scheduleAutoSuggestion(), m.scheduleNextStepLocal())
 
 	case tea.KeyboardEnhancementsMsg:
 		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()
@@ -3109,7 +3117,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		model, cmd := m.handleKey(msg)
 		m.syncPollInput()
-		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
+		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev(), m.scheduleNextStepLocal())
 
 	case tea.PasteMsg:
 		if m.mode == modeSettings && m.settings.searching {

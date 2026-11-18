@@ -14,7 +14,9 @@
 //     it, and otherwise it asks, with no rule offered. Nothing below can
 //     allow a merge the gate refused.
 //  4. Board grants in force for the session, and standing grants, read on
-//     every call so a new one applies on the next call with no restart.
+//     every call so a new one applies on the next call with no restart; then
+//     the rules a person approved at this session's own dialog with "don't
+//     ask again".
 //  5. Allow rules from the settings files.
 //  6. The read-only fast path: reading or searching inside the working
 //     directory, simple read-only shell commands that stay inside it, and an
@@ -70,6 +72,10 @@ type Decision struct {
 	// Suggestion is a rule that would allow calls like this one, offered
 	// with an ask as "don't ask again for".
 	Suggestion string `json:"ruleSuggestion,omitempty"`
+	// Title and Block are what the permission dialog shows for an ask: what
+	// kind of call it is, and the full command, path or URL it is about.
+	Title string `json:"title,omitempty"`
+	Block string `json:"block,omitempty"`
 }
 
 // piTools maps pi's built-in tool names to Claude Code's, so the operator's
@@ -124,13 +130,19 @@ var onlyAsks = map[string]bool{"AskUserQuestion": true}
 // Env is everything a decision reads beyond the call itself.
 type Env struct {
 	ConfigDir, SessionID string
-	Home, ClaudeHome     string
+	// StatusFile is the session's status file, beside which its dialog
+	// approvals are kept.
+	StatusFile       string
+	Home, ClaudeHome string
 	// Rules are the settings files' permission lists. Nil means load them
 	// from Sources for the call's cwd.
 	Rules []Rules
 	// Grants are the board grants in force on the session. Nil means read
 	// them from the store.
 	Grants []grant.Grant
+	// Approvals are the rules a person approved at the session's own
+	// dialog with "don't ask again". Nil means read them from the file.
+	Approvals []string
 	// MergeGate reports whether the standing merge authority covers a
 	// gh pr merge command, and why, or why not. Nil means no merge is
 	// covered.
@@ -175,18 +187,20 @@ func Decide(env Env, req Request) Decision {
 			}
 		}
 	}
-	if mergeCommand(call) == "" {
-		d.Suggestion = suggest(call)
-	}
+	// An ask rule is checked before any approval, so a "don't ask again"
+	// rule offered on its dialog would be saved and never apply; like
+	// Claude Code, that dialog offers no rule.
 	for _, r := range rules {
 		c := call
 		c.RuleBase = r.Source.Base
 		for _, rule := range r.Ask {
 			if grant.MatchesDeny(mcpForm(rule), c) {
-				d.Decision, d.Reason = Ask, fmt.Sprintf("the ask rule %s in the %s", rule, r.Source.Label)
-				return d
+				return asking(d, call, fmt.Sprintf("the ask rule %s in the %s", rule, r.Source.Label))
 			}
 		}
+	}
+	if mergeCommand(call) == "" {
+		d.Suggestion = suggest(call)
 	}
 	if onlyAsks[tool] {
 		d.Decision, d.Reason = Allow, "it only asks the user"
@@ -206,8 +220,7 @@ func Decide(env Env, req Request) Decision {
 			return d
 		}
 		d.Suggestion = ""
-		d.Decision, d.Reason = Ask, why
-		return d
+		return asking(d, call, why)
 	}
 	if env.SkipPermissions {
 		d.Decision, d.Reason = Allow, "permissions are skipped for this session"
@@ -226,10 +239,21 @@ func Decide(env Env, req Request) Decision {
 	}
 	// An allow rule speaks for the sandboxed command only, so a call outside
 	// the sandbox asks, and its dialog offers no rule that could not cover it.
+	// That holds for a rule approved at this session's own dialog too, which
+	// is why this comes before them.
 	if outside, _ := call.Input["dangerouslyDisableSandbox"].(bool); outside && tool == "Bash" {
 		d.Suggestion = ""
-		d.Decision, d.Reason = Ask, "Bash command, outside the sandbox (requested by the model)"
-		return d
+		return asking(d, call, "Bash command, outside the sandbox (requested by the model)")
+	}
+	approvals := env.Approvals
+	if approvals == nil && env.StatusFile != "" {
+		approvals = readApprovals(env.StatusFile + hooks.PiApprovalsSuffix)
+	}
+	for _, rule := range approvals {
+		if grant.Allows(grant.Grant{Kind: grant.KindRule, Value: rule}, call) {
+			d.Decision, d.Reason = Allow, "approved at this session's dialog: "+rule
+			return d
+		}
 	}
 	for _, r := range rules {
 		c := call
@@ -245,7 +269,13 @@ func Decide(env Env, req Request) Decision {
 		d.Decision, d.Reason = Allow, why
 		return d
 	}
-	d.Decision, d.Reason = Ask, "no rule or grant allows it"
+	return asking(d, call, "no rule or grant allows it")
+}
+
+// asking is d as an ask, with what its dialog shows.
+func asking(d Decision, call grant.Call, reason string) Decision {
+	d.Decision, d.Reason = Ask, reason
+	d.Title, d.Block = prompt(call)
 	return d
 }
 

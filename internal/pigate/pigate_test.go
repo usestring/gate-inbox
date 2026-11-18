@@ -192,14 +192,14 @@ func TestDecideMergeGate(t *testing.T) {
 		d.Reason != "merge gate: PR #1 has a failing check" {
 		t.Errorf("refused merge: %+v, want the gate's own reason", d)
 	}
-	// A refusal is terminal: no grant or allow rule lets
+	// A refusal is terminal: no grant, dialog approval or allow rule lets
 	// the merge through, and the dialog offers no rule to remember.
 	allowing := sources(t, cwd, map[string]map[string][]string{"user settings": {"allow": {"Bash(gh pr:*)", "Bash"}}})
 	env := Env{Rules: allowing, MergeGate: refused,
 		Grants: []grant.Grant{{Kind: grant.KindRule, Value: "Bash(gh pr merge:*)"}}}
 	for _, cmd := range []string{"gh pr merge 1 --squash", "git fetch && gh pr merge 2"} {
 		if d := Decide(env, bashReq(cwd, cmd)); d.Decision != Ask || d.Suggestion != "" {
-			t.Errorf("%s with an allow rule and grant: %+v, want an ask with no rule offered", cmd, d)
+			t.Errorf("%s with an allow rule, grant and approval: %+v, want an ask with no rule offered", cmd, d)
 		}
 	}
 	if d := Decide(Env{Rules: allowing, Grants: []grant.Grant{}}, bashReq(cwd, "gh pr merge 1")); d.Decision != Ask {
@@ -258,6 +258,22 @@ func TestDecideAsksForACallOutsideTheSandbox(t *testing.T) {
 	}
 }
 
+// A rule approved at this session's own dialog is an allow rule too: it
+// covers the sandboxed command and not the same command outside the sandbox,
+// which still asks, and draws the session's numbered dialog.
+func TestADialogApprovalDoesNotCoverACallOutsideTheSandbox(t *testing.T) {
+	cwd := t.TempDir()
+	env := Env{Rules: sources(t, cwd, nil), Grants: []grant.Grant{}, Approvals: []string{"Bash(touch:*)"}}
+	if d := Decide(env, bashReq(cwd, "touch x")); d.Decision != Allow {
+		t.Fatalf("sandboxed touch: %+v, want allow by the dialog approval", d)
+	}
+	req := Request{ToolName: "bash", Cwd: cwd, ToolInput: map[string]any{"command": "touch x", "dangerouslyDisableSandbox": true}}
+	d := Decide(env, req)
+	if d.Decision != Ask || !strings.Contains(d.Reason, "outside the sandbox") || d.Suggestion != "" || d.Title == "" {
+		t.Fatalf("unsandboxed touch under a dialog approval: %+v, want an outside-the-sandbox ask with a dialog and no rule", d)
+	}
+}
+
 func TestHookReadsSkipPermissionsFromTheLaunch(t *testing.T) {
 	cwd := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
@@ -266,7 +282,7 @@ func TestHookReadsSkipPermissionsFromTheLaunch(t *testing.T) {
 	for value, want := range map[string]string{"1": Allow, "": Ask} {
 		t.Setenv(envname.SkipPermissions, value)
 		var d Decision
-		if err := json.Unmarshal([]byte(Hook(strings.NewReader(in), t.TempDir(), "s1", time.Now())), &d); err != nil {
+		if err := json.Unmarshal([]byte(Hook(strings.NewReader(in), t.TempDir(), "s1", "", time.Now())), &d); err != nil {
 			t.Fatal(err)
 		}
 		if d.Decision != want {
@@ -336,10 +352,21 @@ func TestDecideSuggestsARule(t *testing.T) {
 	}
 }
 
+func TestDecideOffersNoRuleOnAnAskRuleDialog(t *testing.T) {
+	cwd := t.TempDir()
+	env := Env{Rules: sources(t, cwd, map[string]map[string][]string{
+		"user settings": {"ask": {"Bash(echo rig-ask:*)"}},
+	}), Grants: []grant.Grant{}, Approvals: []string{"Bash(echo:*)"}}
+	d := Decide(env, bashReq(cwd, "echo rig-ask two"))
+	if d.Decision != Ask || d.Suggestion != "" {
+		t.Errorf("an ask-rule call = %+v, want an ask that offers no rule", d)
+	}
+}
+
 func TestHookAsksOnAnUnreadablePayload(t *testing.T) {
 	for _, in := range []string{"", "not json", `{"tool_input":{}}`} {
 		var d Decision
-		if err := json.Unmarshal([]byte(Hook(strings.NewReader(in), t.TempDir(), "s1", nowForTest)), &d); err != nil {
+		if err := json.Unmarshal([]byte(Hook(strings.NewReader(in), t.TempDir(), "s1", "", nowForTest)), &d); err != nil {
 			t.Fatal(err)
 		}
 		if d.Decision != Ask {

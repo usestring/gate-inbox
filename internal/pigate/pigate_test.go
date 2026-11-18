@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/grant"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 )
 
@@ -203,6 +204,74 @@ func TestDecideMergeGate(t *testing.T) {
 	}
 	if d := Decide(Env{Rules: allowing, Grants: []grant.Grant{}}, bashReq(cwd, "gh pr merge 1")); d.Decision != Ask {
 		t.Errorf("no merge gate wired: %+v, want ask", d)
+	}
+}
+
+// Skipped permissions allow what nothing else decided, as Claude Code's
+// bypass mode does, and still keep every deny rule, ask rule and the merge
+// gate.
+func TestDecideSkipPermissionsKeepsRulesAndTheMergeGate(t *testing.T) {
+	cwd := t.TempDir()
+	rules := sources(t, cwd, map[string]map[string][]string{"user settings": {
+		"deny": {"Bash(rm -rf:*)"}, "ask": {"Bash(git push:*)"}}})
+	refused := func(string, string) (string, bool) { return "merge gate: PR #1 has a failing check", false }
+	env := Env{Rules: rules, Grants: []grant.Grant{}, MergeGate: refused, SkipPermissions: true}
+	outside := Request{ToolName: "bash", Cwd: cwd, ToolInput: map[string]any{"command": "make", "dangerouslyDisableSandbox": true}}
+	for _, c := range []struct {
+		req  Request
+		want string
+	}{
+		{bashReq(cwd, "mkdir -p skip621"), Allow},
+		{Request{ToolName: "write", ToolInput: map[string]any{"path": "a.go", "content": "x"}, Cwd: cwd}, Allow},
+		{outside, Allow},
+		{bashReq(cwd, "rm -rf build"), Deny},
+		{bashReq(cwd, "git push origin x"), Ask},
+		{bashReq(cwd, "gh pr merge 1 --squash"), Ask},
+	} {
+		if d := Decide(env, c.req); d.Decision != c.want {
+			t.Errorf("%v under skip: %+v, want %s", c.req.ToolInput, d, c.want)
+		}
+	}
+	env.SkipPermissions = false
+	if d := Decide(env, bashReq(cwd, "mkdir -p skip621")); d.Decision != Ask {
+		t.Errorf("without skip: %+v, want ask", d)
+	}
+}
+
+// A call outside the sandbox asks once, here, saying so, even when an allow
+// rule names the command, and offers no rule, since none could cover it.
+func TestDecideAsksForACallOutsideTheSandbox(t *testing.T) {
+	cwd := t.TempDir()
+	env := Env{Rules: sources(t, cwd, map[string]map[string][]string{"user settings": {"allow": {"Bash(touch:*)"}}}),
+		Grants: []grant.Grant{}}
+	req := Request{ToolName: "bash", Cwd: cwd, ToolInput: map[string]any{"command": "touch x", "dangerouslyDisableSandbox": true}}
+	d := Decide(env, req)
+	if d.Decision != Ask || !strings.Contains(d.Reason, "outside the sandbox") || d.Suggestion != "" {
+		t.Fatalf("unsandboxed touch with Bash(touch:*) allowed: %+v, want an outside-the-sandbox ask with no rule", d)
+	}
+	env.Grants = []grant.Grant{{Kind: grant.KindUnsandboxed, Value: "touch"}}
+	if d := Decide(env, req); d.Decision != Allow {
+		t.Errorf("with an unsandboxed_command grant: %+v, want allow", d)
+	}
+	if d := Decide(env, bashReq(cwd, "touch x")); d.Decision != Allow {
+		t.Errorf("sandboxed touch: %+v, want allow by the rule", d)
+	}
+}
+
+func TestHookReadsSkipPermissionsFromTheLaunch(t *testing.T) {
+	cwd := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	in := `{"tool_name":"bash","tool_input":{"command":"mkdir -p skip621"},"cwd":"` + cwd + `"}`
+	for value, want := range map[string]string{"1": Allow, "": Ask} {
+		t.Setenv(envname.SkipPermissions, value)
+		var d Decision
+		if err := json.Unmarshal([]byte(Hook(strings.NewReader(in), t.TempDir(), "s1", time.Now())), &d); err != nil {
+			t.Fatal(err)
+		}
+		if d.Decision != want {
+			t.Errorf("%s=%q: %+v, want %s", envname.SkipPermissions, value, d, want)
+		}
 	}
 }
 

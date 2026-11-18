@@ -11,6 +11,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/mergegate"
 )
 
@@ -26,8 +27,9 @@ func Hook(in io.Reader, configDir, sessionID string, now time.Time) string {
 		d = Decide(Env{
 			ConfigDir: configDir, SessionID: sessionID,
 			Home: home, ClaudeHome: convo.ClaudeHome(),
-			MergeGate: func(command, cwd string) (string, bool) { return mergeGate(configDir, command, cwd) },
-			Now:       now,
+			MergeGate:       func(command, cwd string) (string, bool) { return mergeGate(configDir, command, cwd) },
+			SkipPermissions: os.Getenv(envname.SkipPermissions) == "1",
+			Now:             now,
 		}, req)
 	}
 	out, err := json.Marshal(d)

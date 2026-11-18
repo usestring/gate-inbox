@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -322,5 +323,34 @@ func TestLoadTokensRefusesASharedToken(t *testing.T) {
 	}
 	if _, err := LoadTokens(Config{}, dir); err == nil {
 		t.Fatal("two clients sharing a token were accepted")
+	}
+}
+
+func TestPostLogsRejectionReasonNotText(t *testing.T) {
+	var buf bytes.Buffer
+	server, err := New(Config{}, testTokens, "", &fakeSpawner{}, slog.New(slog.NewTextHandler(&buf, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := post(server, "phone-token", `{"text":"   "}`); code != http.StatusBadRequest {
+		t.Fatalf("blank text: code = %d", code)
+	}
+	if got := buf.String(); !strings.Contains(got, `reason="text is required"`) {
+		t.Errorf("rejection log lacks the reason: %s", got)
+	}
+	buf.Reset()
+	if code, _ := post(server, "phone-token", `{"text":"secret dictation","meta":"x"}`); code != http.StatusBadRequest {
+		t.Fatalf("bad meta: code = %d", code)
+	}
+	got := buf.String()
+	if !strings.Contains(got, `reason="meta must be an object"`) || strings.Contains(got, "secret dictation") {
+		t.Errorf("bad-meta log = %s", got)
+	}
+	buf.Reset()
+	if code, _ := post(server, "phone-token", `{"text":"hi"}`); code != http.StatusOK {
+		t.Fatalf("ok post: code = %d", code)
+	}
+	if strings.Contains(buf.String(), "reason=") {
+		t.Errorf("accepted post logged a reason: %s", buf.String())
 	}
 }

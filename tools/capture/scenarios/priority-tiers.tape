@@ -1,32 +1,51 @@
+# The default scale is two tiers above the default and one below, so ctrl+p
+# steps high, medium, low and back to none. Settings' "priority tiers" row
+# then widens the scale to the full +3 / -3.
+
 Screenshot {{SHOTS}}/01-default.png
 Sleep 1s
 Down
 Sleep 600ms
 Down
 Sleep 900ms
-Type "p"
+Ctrl+p
 Sleep 1500ms
-Screenshot {{SHOTS}}/02-urgent.png
+Screenshot {{SHOTS}}/02-high.png
 Sleep 1s
-Type "p"
+Ctrl+p
 Sleep 1500ms
-Screenshot {{SHOTS}}/03-high.png
+Screenshot {{SHOTS}}/03-medium.png
 Sleep 1s
-Type "p"
+Ctrl+p
 Sleep 1500ms
-Screenshot {{SHOTS}}/04-medium.png
+Screenshot {{SHOTS}}/04-low.png
 Sleep 1s
-Type "p"
+Ctrl+p
 Sleep 1500ms
-Screenshot {{SHOTS}}/05-low.png
+Screenshot {{SHOTS}}/05-default.png
 Sleep 1s
-Type "p"
+
+# "priority tiers" is the twelfth field, eleven rows below the first.
+# vhs cannot type ctrl+alt+s, so Settings opens from quick actions.
+Ctrl+k
 Sleep 1500ms
-Screenshot {{SHOTS}}/06-default.png
+Type "settings"
 Sleep 1s
-Type "i"
+Enter
 Sleep 2s
-Screenshot {{SHOTS}}/07-triage.png
+Down 11
 Sleep 1s
-Ctrl+\
+Screenshot {{SHOTS}}/06-scale-default.png
+Sleep 1s
+Right 6
+Sleep 1s
+Screenshot {{SHOTS}}/07-scale-widened.png
+Sleep 1s
+Enter
+Sleep 1500ms
+
+# On +3 / -3 the cycle starts at urgent again.
+Ctrl+p
+Sleep 1500ms
+Screenshot {{SHOTS}}/08-urgent-on-full-scale.png
 Sleep 1s

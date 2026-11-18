@@ -73,9 +73,8 @@ func (s *Sessions) Hibernate(sessionID, targetID string, dryRun bool) (result Hi
 }
 
 // HibernateIdle hibernates every session on the board that has rested at
-// least after and passes every check Hibernate makes. It is the opt-in
-// sweep: the board runs it on [sessions] hibernate_after, and an operator
-// can run it by hand, with dryRun for the plan alone.
+// least after and passes every check Hibernate makes. An operator can run
+// it by hand, with dryRun for the plan alone; the board uses HibernateAdaptive.
 func (s *Sessions) HibernateIdle(after time.Duration, dryRun bool) (result HibernateResult, err error) {
 	defer start("sessioncmd.hibernate_idle").done(&err)
 	if after <= 0 {

@@ -169,7 +169,7 @@ func TestGroupRowRendersGroupPane(t *testing.T) {
 		}
 	}
 
-	detail := ansi.Strip(strings.Join(m.sessionDetailLines(60), "\n"))
+	detail := ansi.Strip(strings.Join(detailText(m.sessionDetailLines(60)), "\n"))
 	if !strings.Contains(detail, filepath.Base(dir)) {
 		t.Fatalf("group detail missing path %q:\n%s", dir, detail)
 	}
@@ -243,7 +243,7 @@ func TestSettingsTogglesListDensity(t *testing.T) {
 
 	lines := railText(t, m)
 	head := lineWith(t, lines, "alpha")
-	if !strings.Contains(lines[head], "claude") {
+	if !strings.Contains(lines[head], "cld") {
 		t.Fatalf("compact row should carry its meta inline: %q", lines[head])
 	}
 	if got := m.entryHeight(m.rows[0]); got != 1 {
@@ -281,14 +281,14 @@ func TestSettingsTogglesListDensity(t *testing.T) {
 
 	lines = railText(t, m)
 	head = lineWith(t, lines, "alpha")
-	if strings.Contains(lines[head], "claude") {
+	if strings.Contains(lines[head], "cld") {
 		t.Fatalf("comfortable name line should not carry meta: %q", lines[head])
 	}
 	if head+1 >= len(lines) {
 		t.Fatalf("comfortable row has no meta line:\n%s", strings.Join(lines, "\n"))
 	}
 	meta := lines[head+1]
-	if !strings.Contains(meta, "claude") || !strings.Contains(meta, statusLabel(m.rows[0].sess.Status)) {
+	if !strings.Contains(meta, "cld") || !strings.Contains(meta, statusLabel(m.rows[0].sess.Status)) {
 		t.Fatalf("meta line = %q", meta)
 	}
 	metaContent := strings.Replace(meta, selectionBorder.Left, " ", 1)
@@ -335,7 +335,7 @@ func TestComfortableRowSurvivesShortRail(t *testing.T) {
 		t.Fatalf("selected entry should start the window, got line %d", head)
 	}
 	meta := ansi.Strip(lines[1].text)
-	if !strings.Contains(meta, "claude") {
+	if !strings.Contains(meta, "cld") {
 		t.Fatalf("selected entry lost its meta line: %q", meta)
 	}
 }
@@ -1106,7 +1106,7 @@ func TestSessionTokenMetersFollowSelectionAndUsage(t *testing.T) {
 	if got := draw(); !strings.Contains(got, "25%") || !strings.Contains(got, "50.0k/200.0k") {
 		t.Fatalf("missing usage: %s", got)
 	}
-	if got := ansi.Strip(m.computerBrief(40)); !strings.Contains(got, "tok 50.0k") {
+	if got := ansi.Strip(m.computerBrief(64)); !strings.Contains(got, "ctx 50.0k") {
 		t.Fatalf("compact tokens missing: %s", got)
 	}
 	c.usage.Tokens = 100000
@@ -1123,7 +1123,24 @@ func TestSessionTokenMetersFollowSelectionAndUsage(t *testing.T) {
 		t.Fatalf("count without capacity missing: %s", got)
 	}
 	m.rows = nil
-	if got := draw(); strings.Contains(got, "tokens") {
-		t.Fatalf("tokens without selection: %s", got)
+	if got := draw(); strings.Contains(got, "context") {
+		t.Fatalf("context without selection: %s", got)
+	}
+}
+
+func TestContextLineReadsWhileConversationIsOffScreen(t *testing.T) {
+	m := drainFleet(t)
+	sess, _ := m.selected()
+	m.conversation.key = "another-session"
+	draw := func() string { return ansi.Strip(strings.Join(m.computerLines(40), "\n")) }
+	if got := draw(); !strings.Contains(got, "context") || !strings.Contains(got, "n/a") {
+		t.Fatalf("unread context should say n/a: %s", got)
+	}
+	m.applyTokenUsage(tokenUsageMsg{key: m.conversationIdentity(sess), stamp: "s", usage: search.TokenUsage{Tokens: 91000, Known: true}})
+	if got := draw(); !strings.Contains(got, "91.0k tokens") {
+		t.Fatalf("off-screen reading missing: %s", got)
+	}
+	if strings.Contains(draw(), "sessions") {
+		t.Fatalf("dock still counts sessions: %s", draw())
 	}
 }

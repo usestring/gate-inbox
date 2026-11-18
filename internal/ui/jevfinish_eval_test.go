@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usestring/gate-inbox/internal/jev"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -230,7 +230,7 @@ func TestJevFinishEval(t *testing.T) {
 		t.Skip("set JEV_FINISH_EVAL to an output directory to run against live JEV")
 	}
 	configDir := os.Getenv("JEV_EVAL_CONFIG")
-	key := jev.Key(configDir)
+	key := classifier.JEV.Key(configDir)
 	if key == "" {
 		t.Skip("no TypeSafe key")
 	}
@@ -289,7 +289,7 @@ func TestJevFinishEval(t *testing.T) {
 				state := jevEvalTurns(j.c.msgs, j.v.Turns, j.v.Chars)
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				start := time.Now()
-				answers, ok := askJevNoul(ctx, jevHTTPClient, jevEndpoint, key, map[string]any{"messages": state}, map[string]string{
+				answers, ok := askJevNoul(ctx, classifier.JEV, jevHTTPClient, jevEndpoint, key, map[string]any{"messages": state}, map[string]string{
 					"finished":       jevEvalQuestions[j.v.Question],
 					"missing_chrome": jevMissingChromeQuestion,
 				})

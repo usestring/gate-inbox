@@ -63,7 +63,7 @@ func (m *Model) promptSuggestionLine(c *composer, width int) string {
 	index := c.suggestionIndex % len(suggestions)
 	label := "^N/P ^Y " + strconv.Itoa(index+1) + "/" + strconv.Itoa(len(suggestions)) + "  "
 	if choice != "" && suggestions[index].Key == choice {
-		label += "jev  "
+		label += strings.ToLower(m.classifierProvider().Name()) + "  "
 	}
 	line := label + strings.Join(strings.Fields(suggestions[index].Text), " ")
 	return subtleStyle.Render(textfmt.TruncateWidth(line, width, "…"))

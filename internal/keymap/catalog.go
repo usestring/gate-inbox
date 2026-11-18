@@ -51,6 +51,7 @@ const (
 
 	Revive        Action = "revive"
 	ReviveAll     Action = "revive_all"
+	WakeAll       Action = "wake_all"
 	SwitchAccount Action = "switch_account"
 	Restart       Action = "restart"
 	RestartWith   Action = "restart_with"
@@ -65,6 +66,7 @@ const (
 	UnmuteAll     Action = "unmute_all"
 	CopySessionID Action = "copy_session_id"
 	CopyJev       Action = "copy_jev"
+	RunJev        Action = "run_jev"
 	HandOver      Action = "hand_over"
 	QuickInput    Action = "quick_prompt"
 	RenameSelf    Action = "rename_from_agent"
@@ -93,7 +95,8 @@ const (
 	// and queues the new ones: see reviews.go in the ui package.
 	IngestReviews Action = "ingest_reviews"
 	// ReviewsTab switches the rail between the sessions and the review queue.
-	ReviewsTab Action = "reviews_tab"
+	ReviewsTab    Action = "reviews_tab"
+	TriageContent Action = "triage_content"
 )
 
 // Review queue actions.
@@ -102,6 +105,7 @@ const (
 	ReviewDismiss Action = "review_dismiss"
 	ReviewStart   Action = "review_start"
 	ReviewView    Action = "review_view"
+	ReviewAuthor  Action = "review_author"
 	// The tabs of a pull request's page, as GitHub names them.
 	ReviewConversation Action = "review_conversation"
 	ReviewFiles        Action = "review_files"
@@ -162,17 +166,25 @@ const (
 
 var Catalog = []Binding{
 	// ---- the list ----
+	// Every action key is a chord: ctrl, or ctrl+option where ctrl+<letter>
+	// is taken, and option only for punctuation no terminal sends with ctrl.
+	// A bare letter is a key the operator meant to type somewhere else, and a
+	// chord reads the same here as in a focused session, where the same
+	// action can answer it too. The cursor's j and k stay as the one
+	// exception: moving is not an act, and the arrows sit beside them.
+	// ctrl+c and ctrl+v are never bound: interrupt and paste stay the
+	// terminal's.
 	{ContextList, CursorUp, []string{"up", "k"}, "move the cursor up", true},
 	{ContextList, CursorDown, []string{"down", "j"}, "move the cursor down", true},
 	// Rarely-run actions ship unbound: they stay runnable from quick
-	// actions (:) and rebindable from the key map (h), but they hold no
+	// actions (ctrl+k) and rebindable from the key map (ctrl+h), but they hold no
 	// key by default. A key nobody presses often is a key hit by accident.
 	{ContextList, CursorTop, []string{}, "jump to the top of the list", false},
 	{ContextList, CursorBottom, []string{}, "jump to the bottom", false},
 	{ContextList, Open, []string{"enter"}, "focus the session, or fold the group", true},
 	{ContextList, StepIn, []string{"right"}, "step in: a session's work, then focus it", false},
 	{ContextList, StepOut, []string{"left"}, "step out: fold the work, close the group", false},
-	{ContextList, LastPane, []string{"l"}, "back to the previous pane; again walks further back", false},
+	{ContextList, LastPane, []string{"ctrl+l"}, "back to the previous pane; again walks further back", false},
 	{ContextList, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
 	{ContextList, PreviousPane, []string{"ctrl+up", "ctrl+alt+up"}, "previous pane in list order, from any screen", false},
 	{ContextList, NextPane, []string{"ctrl+down", "ctrl+alt+down"}, "next pane in list order, from any screen", false},
@@ -184,8 +196,8 @@ var Catalog = []Binding{
 	{ContextList, JumpIdle, []string{}, "enter the next idle session", false},
 	{ContextList, JumpWorking, []string{}, "enter the next working session", false},
 	{ContextList, Attach, []string{"ctrl+a"}, "attach: the pane takes the terminal", false},
-	{ContextList, ReorderUp, []string{"K", "shift+k", "shift+up"}, "reorder the row up", false},
-	{ContextList, ReorderDown, []string{"J", "shift+j", "shift+down"}, "reorder the row down", false},
+	{ContextList, ReorderUp, []string{"shift+up"}, "reorder the row up", false},
+	{ContextList, ReorderDown, []string{"shift+down"}, "reorder the row down", false},
 	{ContextList, PreviewUp, []string{"alt+up"}, "scroll the preview up", false},
 	{ContextList, PreviewDown, []string{"alt+down"}, "scroll the preview down", false},
 	{ContextList, PreviewPageUp, []string{}, "scroll the preview a page up", false},
@@ -193,46 +205,49 @@ var Catalog = []Binding{
 	{ContextList, PreviewTop, []string{}, "scroll the preview to its oldest", false},
 	{ContextList, PreviewBottom, []string{}, "scroll the preview back to live", false},
 
-	{ContextList, NewSession, []string{"n"}, "new session: asks which agent, unless settings names one", false},
-	{ContextList, NewSessionForm, []string{"ctrl+n"}, "new session, asking name, CLI, directory, task", false},
-	{ContextList, NewGroup, []string{"g"}, "new group", false},
-	{ContextList, NewTerminal, []string{"T", "shift+t"}, "new terminal tab", false},
+	{ContextList, NewSession, []string{"ctrl+n"}, "new session: asks which agent, unless settings names one", false},
+	{ContextList, NewSessionForm, []string{"ctrl+alt+n"}, "new session, asking name, CLI, directory, task", false},
+	{ContextList, NewGroup, []string{"ctrl+alt+g"}, "new group", false},
+	{ContextList, NewTerminal, []string{"ctrl+alt+t"}, "new terminal tab", false},
 	{ContextList, Fork, []string{}, "fork the session into a new one", false},
 	{ContextList, Migrate, []string{"ctrl+t"}, "migrate it to another CLI", false},
 
-	{ContextList, Revive, []string{"v"}, "revive it, or restart a live one on its own conversation", false},
-	{ContextList, ReviveAll, []string{"V", "shift+v"}, "revive every dead session", false},
-	{ContextList, IngestReviews, []string{"P", "shift+p"}, "fetch reviews asked of you on GitHub", false},
-	{ContextList, ReviewsTab, []string{"]"}, "switch between the Sessions and Reviews tabs", false},
+	{ContextList, Revive, []string{"ctrl+r"}, "revive it, or restart a live one on its own conversation", false},
+	{ContextList, ReviveAll, []string{"ctrl+alt+v"}, "revive every dead session", false},
+	{ContextList, WakeAll, []string{"ctrl+alt+w"}, "wake every hibernated session listed", false},
+	{ContextList, IngestReviews, []string{"ctrl+alt+p"}, "fetch reviews asked of you on GitHub", false},
+	{ContextList, ReviewsTab, []string{"ctrl+]"}, "switch between the Sessions and Reviews tabs", false},
 	{ContextList, SwitchAccount, []string{"alt+a"}, "switch its account: restarts it on its own conversation", false},
 	{ContextList, Restart, []string{}, "restart it on an empty context", false},
 	{ContextList, RestartWith, []string{}, "restart it with extra flags…", false},
-	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
+	{ContextList, Archive, []string{"ctrl+x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
-	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
-	{ContextList, RestoreAll, []string{"D", "shift+d", "alt+d"}, "restore every dead session: revive the dead, bring the archived back", false},
-	{ContextList, UndoArchive, []string{"U", "shift+u"}, "bring back what the last kill filed away", false},
-	{ContextList, Dismiss, []string{"."}, "skip", false},
-	{ContextList, Priority, []string{"ctrl+p", "p"}, "cycle priority: urgent → high → medium → low → none", false},
-	{ContextList, Mute, []string{"M", "shift+m", "ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	{ContextList, Restore, []string{"ctrl+u"}, "restore it out of the archive", false},
+	{ContextList, RestoreAll, []string{"alt+d"}, "restore every dead session: revive the dead, bring the archived back", false},
+	{ContextList, UndoArchive, []string{"alt+x"}, "bring back what the last kill filed away", false},
+	{ContextList, Dismiss, []string{"alt+."}, "skip", false},
+	{ContextList, Priority, []string{"ctrl+p"}, "cycle priority: high → medium → low → none (tiers set in Settings)", false},
+	{ContextList, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	{ContextList, UnmuteAll, []string{"alt+m"}, "unmute every muted session listed", false},
-	{ContextList, QuickInput, []string{" ", "space", "ctrl+s"}, "hotkey menu", false},
-	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
+	{ContextList, QuickInput, []string{"ctrl+s"}, "hotkey menu", false},
+	{ContextList, RenameSelf, []string{"ctrl+alt+r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{}, "name sweep over idle adopted panes", false},
 	{ContextList, TakeOver, []string{}, "take over the adopted panes now; busy ones once they go idle", false},
-	// A pane started outside the board stays as it is until asked: a brings
-	// the one under the cursor, or the ones a toast just named, in, and o
-	// leaves them off the board.
-	{ContextList, BringIn, []string{"a"}, "bring an outside pane in: resume it as a board session once idle", false},
-	{ContextList, LeaveOut, []string{"o"}, "leave an outside pane off the board, still running", false},
-	{ContextList, Move, []string{"m"}, "move it to a group", false},
-	{ContextList, CopyJev, []string{"'"}, "copy what JEV reads as left for you to copy", false},
+	// A pane started outside the board stays as it is until asked: ctrl+alt+a
+	// brings the one under the cursor, or the ones a toast just named, in,
+	// and ctrl+o leaves them off the board.
+	{ContextList, BringIn, []string{"ctrl+alt+a"}, "bring an outside pane in: resume it as a board session once idle", false},
+	{ContextList, LeaveOut, []string{"ctrl+o"}, "leave an outside pane off the board, still running", false},
+	{ContextList, Move, []string{"ctrl+e"}, "move it to a group", false},
+	{ContextList, CopyJev, []string{"alt+'"}, "copy what JEV reads as left for you to copy", false},
+	{ContextList, RunJev, []string{"alt+\""}, "run the next command JEV reads as left for you to run", false},
 
 	{ContextList, ShowAllWork, []string{}, "show every pull request and ticket, not the first few", false},
-	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
-	{ContextList, ToolFilter, []string{"Y"}, "filter to one CLI, or show all", false},
-	{ContextList, Triage, []string{"i"}, "triage this group as one queue", false},
+	{ContextList, StatusFilter, []string{"ctrl+w"}, "filter to what needs attention", false},
+	{ContextList, ToolFilter, []string{"ctrl+y"}, "filter to one CLI, or show all", false},
+	{ContextList, Triage, []string{"ctrl+i"}, "triage this group as one queue", false},
+	{ContextList, TriageContent, []string{"alt+]"}, "cycle triage: sessions, reviews, or both", false},
 	{ContextList, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
 	{ContextList, EmptyGroups, []string{}, "hide / show empty groups", false},
 	{ContextList, RecentSort, []string{}, "sort by your last interaction / back to the previous order", false},
@@ -241,21 +256,21 @@ var Catalog = []Binding{
 	// retention, visited deliberately rather than toggled past. Quick
 	// actions opens it, and Restore brings a row back out of it.
 	{ContextList, ArchivedView, []string{}, "archived view", false},
-	{ContextList, Search, []string{"/", "ctrl+f"}, "fuzzy session search", false},
+	{ContextList, Search, []string{"ctrl+f"}, "fuzzy session search", false},
 	// No key: esc closes the search field and keeps the filter; the text
 	// itself is cleared by deleting it (ctrl+u wipes the field). A
 	// filter with no visible field used to read as sessions gone missing.
 	{ContextList, ClearSearch, []string{}, "clear the search", false},
 	{ContextList, Resize, []string{}, "resize the split", false},
-	{ContextList, Settings, []string{"s"}, "settings", false},
+	{ContextList, Settings, []string{"ctrl+alt+s"}, "settings", false},
 	// No key: what is installed changes rarely, and quick actions finds it.
 	{ContextList, RefreshCLIs, []string{}, "refresh installed CLIs: look on PATH again for each agent CLI", false},
 	{ContextList, ToggleChrome, []string{}, "hide / show the key hints along the foot", false},
 	{ContextList, ToggleRail, []string{}, "hide / show the list beside the pane", false},
-	{ContextList, LegendPeek, []string{"?"}, "peek at every available key", false},
-	{ContextList, QuickActions, []string{":", "ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
-	{ContextList, Help, []string{"h", "H", "shift+h", "ctrl+h"}, "this key map", true},
-	{ContextList, Quit, []string{"q"}, "quit (sessions keep running)", true},
+	{ContextList, LegendPeek, []string{"ctrl+/"}, "peek at every available key", false},
+	{ContextList, QuickActions, []string{"ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
+	{ContextList, Help, []string{"ctrl+h"}, "this key map", true},
+	{ContextList, Quit, []string{"ctrl+q", "ctrl+alt+q"}, "quit (sessions keep running)", true},
 
 	// ---- a focused session ----
 	// Every key this screen does not claim is typed into the agent, so a
@@ -281,7 +296,7 @@ var Catalog = []Binding{
 	// The list's ctrl+p, so the tier moves from wherever the operator is. It
 	// takes the agent's ctrl+p, which every agent CLI also answers on the up
 	// arrow.
-	{ContextFocus, Priority, []string{"ctrl+p"}, "cycle priority: urgent → high → medium → low → none", false},
+	{ContextFocus, Priority, []string{"ctrl+p"}, "cycle priority: high → medium → low → none (tiers set in Settings)", false},
 	// The list's mute on the same chord. A terminal without an enhanced
 	// keyboard protocol sends ctrl+m as enter, so there it stays a submit.
 	{ContextFocus, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
@@ -304,9 +319,12 @@ var Catalog = []Binding{
 	// ui package's focusactions.go. Option+letter belongs to snippet chords,
 	// so these sit on ctrl or option+punctuation.
 	{ContextFocus, NewSession, []string{"ctrl+n"}, "new session in this one's group", false},
+	{ContextFocus, TriageContent, []string{"alt+]"}, "cycle triage: sessions, reviews, or both", false},
+	{ContextFocus, ReviewsTab, []string{"ctrl+]"}, "switch to the Reviews tab", false},
 	{ContextFocus, CopySessionID, []string{"alt+/"}, "copy the agent's session id", false},
 	{ContextFocus, CopyJev, []string{"alt+'"}, "copy what JEV reads as left for you to copy", false},
-	{ContextFocus, LastPane, []string{"alt+;"}, "back to the previous pane; again walks further back", false},
+	{ContextFocus, RunJev, []string{"alt+\""}, "run the next command JEV reads as left for you to run", false},
+	{ContextFocus, LastPane, []string{"ctrl+l", "alt+;"}, "back to the previous pane; again walks further back", false},
 	{ContextFocus, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
 	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "at a prompt edge, leave; in triage Right advances a finished one", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},
@@ -315,6 +333,22 @@ var Catalog = []Binding{
 	{ContextFocus, PreviewPageDown, []string{"alt+pgdown"}, "scroll a page down", false},
 	{ContextFocus, PreviewTop, []string{"alt+home"}, "oldest history", false},
 	{ContextFocus, PreviewBottom, []string{"alt+end"}, "back to the live bottom", false},
+	// The board's own chords, so a drain reaches the board without a trip
+	// back to it: each leaves the pane and runs the list's action. Modified
+	// keys leave ordinary typing to the agent. Chords the agent relies on
+	// for interrupt, paste, history search and line editing stay with it.
+	// See runBoardActionFromFocus.
+	{ContextFocus, Triage, []string{"ctrl+i"}, "triage this group as one queue", false},
+	{ContextFocus, Search, []string{"ctrl+f"}, "fuzzy session search", false},
+	{ContextFocus, QuickActions, []string{"ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
+	{ContextFocus, Settings, []string{"ctrl+alt+s"}, "settings", false},
+	{ContextFocus, NewGroup, []string{"ctrl+alt+g"}, "new group", false},
+	{ContextFocus, NewTerminal, []string{"ctrl+alt+t"}, "new terminal tab", false},
+	{ContextFocus, ReviveAll, []string{"ctrl+alt+v"}, "revive every dead session", false},
+	{ContextFocus, WakeAll, []string{"ctrl+alt+w"}, "wake every hibernated session listed", false},
+	{ContextFocus, IngestReviews, []string{"ctrl+alt+p"}, "fetch reviews asked of you on GitHub", false},
+	{ContextFocus, UndoArchive, []string{"alt+x"}, "bring back what the last kill filed away", false},
+	{ContextFocus, RenameSelf, []string{"ctrl+alt+r"}, "rename it after its conversation", false},
 	// The list's attach, so a focused pane takes the whole terminal without a
 	// trip back to the list. It takes readline's line-start from the agent;
 	// home still sends that.
@@ -349,6 +383,7 @@ var Catalog = []Binding{
 	{ContextReviews, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextReviews, CursorDown, []string{"down", "j"}, "move down", true},
 	{ContextReviews, ReviewView, []string{"enter"}, "open the pull request", true},
+	{ContextReviews, ReviewAuthor, []string{"f"}, "ask the originating session", false},
 	{ContextReviews, ReviewStart, []string{"s"}, "start the review", false},
 	{ContextReviews, ReviewOpen, []string{"o"}, "open on GitHub", false},
 	{ContextReviews, ReviewDismiss, []string{"x"}, "dismiss", false},
@@ -377,6 +412,7 @@ var Catalog = []Binding{
 	{ContextReviewPage, ReviewApprove, []string{"a"}, "approve", false},
 	{ContextReviewPage, ReviewRequestChanges, []string{"r"}, "request changes", false},
 	{ContextReviewPage, ReviewCommentOnly, []string{"C", "shift+c"}, "submit as a comment", false},
+	{ContextReviewPage, ReviewAuthor, []string{"f"}, "ask the originating session", false},
 	{ContextReviewPage, ReviewStart, []string{"s"}, "start the review", false},
 	{ContextReviewPage, ReviewOpen, []string{"o"}, "open on GitHub", false},
 	{ContextReviewPage, ReviewDismiss, []string{"x"}, "dismiss", false},

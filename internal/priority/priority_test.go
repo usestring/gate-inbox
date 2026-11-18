@@ -3,7 +3,7 @@ package priority
 import "testing"
 
 func TestPriorityOrdering(t *testing.T) {
-	tiers := []Tier{Urgent, High, Medium, Unset, Low}
+	tiers := []Tier{Urgent, High, Medium, Unset, Low, Lower, Lowest}
 	for i := 1; i < len(tiers); i++ {
 		if tiers[i-1].Rank() >= tiers[i].Rank() {
 			t.Fatalf("%q does not rank above %q", tiers[i-1], tiers[i])
@@ -24,15 +24,15 @@ func TestParse(t *testing.T) {
 		{"  High ", High, true},
 		{"MEDIUM", Medium, true},
 		{"low", Low, true},
-		{"lower", Unset, false},
-		{"lowest", Unset, false},
+		{"lower", Lower, true},
+		{"lowest", Lowest, true},
 		{"3", Urgent, true},
 		{"+2", High, true},
 		{"1", Medium, true},
 		{"0", Unset, true},
 		{"-1", Low, true},
-		{"-2", Unset, false},
-		{"-3", Unset, false},
+		{"-2", Lower, true},
+		{"-3", Lowest, true},
 		{"-4", Unset, false},
 		{"4", Unset, false},
 		{"none", Unset, true},
@@ -54,11 +54,11 @@ func TestParse(t *testing.T) {
 func TestNextCyclesThroughUnset(t *testing.T) {
 	seen := []Tier{}
 	tier := Unset
-	for range len(Order) + 1 {
-		tier = Next(tier)
+	for range len(DefaultScale.Tiers()) + 1 {
+		tier = DefaultScale.Next(tier)
 		seen = append(seen, tier)
 	}
-	want := []Tier{Urgent, High, Medium, Low, Unset}
+	want := []Tier{High, Medium, Low, Unset}
 	for i := range want {
 		if seen[i] != want[i] {
 			t.Fatalf("cycle = %v, want %v", seen, want)
@@ -93,5 +93,72 @@ func TestGlyphs(t *testing.T) {
 func TestNegativePrioritySurvivesUnset(t *testing.T) {
 	if Better(Low, Unset) != Low || Better(Unset, Low) != Low {
 		t.Fatal("unset overrides negative priority")
+	}
+}
+
+func TestScaleTiers(t *testing.T) {
+	for _, tc := range []struct {
+		scale Scale
+		want  []Tier
+	}{
+		{DefaultScale, []Tier{High, Medium, Low}},
+		{Scale{3, 3}, []Tier{Urgent, High, Medium, Low, Lower, Lowest}},
+		{Scale{1, 0}, []Tier{Medium}},
+		{Scale{9, -4}, []Tier{Urgent, High, Medium}},
+		{Scale{0, 2}, []Tier{Medium, Low, Lower}},
+	} {
+		got := tc.scale.Tiers()
+		if len(got) != len(tc.want) {
+			t.Fatalf("%+v.Tiers() = %v, want %v", tc.scale, got, tc.want)
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Fatalf("%+v.Tiers() = %v, want %v", tc.scale, got, tc.want)
+			}
+		}
+	}
+}
+
+// A stored tier off the scale reads as the scale's edge, so narrowing the
+// scale never hides a session's statement entirely.
+func TestScaleClamp(t *testing.T) {
+	for _, tc := range []struct {
+		scale Scale
+		in    Tier
+		want  Tier
+	}{
+		{DefaultScale, Urgent, High},
+		{DefaultScale, High, High},
+		{DefaultScale, Lowest, Low},
+		{DefaultScale, Unset, Unset},
+		{Scale{1, 0}, Low, Unset},
+		{Scale{3, 3}, Lowest, Lowest},
+		{DefaultScale, Tier("bogus"), Unset},
+	} {
+		if got := tc.scale.Clamp(tc.in); got != tc.want {
+			t.Fatalf("%+v.Clamp(%q) = %q, want %q", tc.scale, tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestScaleNextFromOffScaleTier(t *testing.T) {
+	if got := DefaultScale.Next(Urgent); got != Medium {
+		t.Fatalf("Next(urgent) on +2/-1 = %q, want medium (urgent reads as high)", got)
+	}
+	if got := (Scale{3, 3}).Next(Low); got != Lower {
+		t.Fatalf("Next(low) on +3/-3 = %q, want lower", got)
+	}
+}
+
+func TestDeferred(t *testing.T) {
+	for _, tier := range []Tier{Low, Lower, Lowest} {
+		if !tier.Deferred() {
+			t.Fatalf("%q is not deferred", tier)
+		}
+	}
+	for _, tier := range []Tier{Urgent, Medium, Unset} {
+		if tier.Deferred() {
+			t.Fatalf("%q is deferred", tier)
+		}
 	}
 }

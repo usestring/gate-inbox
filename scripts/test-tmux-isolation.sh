@@ -15,7 +15,7 @@
 #      windows and panes it had before.
 #
 # Usage:
-#   scripts/test-tmux-isolation.sh                 # go test -count=1 ./...
+#   scripts/test-tmux-isolation.sh                 # go test -short -p 1 ./...
 #   scripts/test-tmux-isolation.sh -- CMD [ARGS]   # any command instead
 #
 # The command's stdout is passed through untouched (CI pipes go test -json
@@ -32,7 +32,8 @@ if [ "${1:-}" = "--" ]; then
 	shift
 fi
 if [ $# -eq 0 ]; then
-	set -- go test -count=1 ./...
+	export GOMAXPROCS="${GOMAXPROCS:-2}"
+	set -- go test -short -p 1 ./...
 fi
 
 # Short on purpose: a tmux socket path is capped near 104 bytes.

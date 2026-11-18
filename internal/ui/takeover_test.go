@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -311,5 +313,54 @@ func TestTakeoverKeyWithNothingAdoptedSaysSo(t *testing.T) {
 	pressKey(t, m, key("O"))
 	if m.mode != modeList || !strings.Contains(m.errBar.text, "no adopted panes") {
 		t.Fatalf("mode = %v status = %q", m.mode, m.errBar.text)
+	}
+}
+
+// A pane started with its prompt on the command line is filed idle before
+// any poll reads its screen. Taking it over then would kill its first
+// request, and the resumed conversation would sit at its prompt with that
+// request unanswered, so the pass waits for the transcript to close the turn.
+func TestTakeoverWaitsForAnOpenTurnInTheTranscript(t *testing.T) {
+	m := buildModel(t)
+	claudeHome := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeHome)
+	transcript := filepath.Join(claudeHome, "projects", "-work", "conv-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	prompt := `{"type":"user","message":{"role":"user","content":"Use the advance-goals skill for scoped goal x."}}` + "\n"
+	if err := os.WriteFile(transcript, []byte(prompt), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	socket, pane := uiForeignServer(t, "cat")
+	if err := m.store.CreateSession(store.Session{
+		ID: "launched", Name: "launched", Tool: "claude", Cwd: t.TempDir(),
+		Status: status.Idle, CreatedAt: time.Now(), LastStatusAt: time.Now(),
+		TmuxSocket: socket, TmuxPaneID: pane, AgentSessionID: "conv-1",
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if err := m.tmux.Adopt("launched", tmux.Target{Socket: socket, Name: pane}); err != nil {
+		t.Fatalf("Adopt: %v", err)
+	}
+	m.applyCmd(t, nil)
+	m.oweTakeover("launched")
+
+	if result := m.takeoverPass(); result.taken != 0 || result.owed != 1 || len(result.failed) != 0 {
+		t.Fatalf("a pane with an unanswered prompt was taken: %+v", result)
+	}
+	if !foreignPaneAlive(t, socket, pane) {
+		t.Fatal("the pane was ended while its first request was in flight")
+	}
+
+	reply := `{"type":"assistant","message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}` + "\n"
+	if err := os.WriteFile(transcript, []byte(prompt+reply), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if result := m.takeoverPass(); result.taken != 1 || result.owed != 0 {
+		t.Fatalf("the pane was not taken once its turn closed: %+v", result)
+	}
+	if foreignPaneAlive(t, socket, pane) {
+		t.Fatal("the pane is still up after its turn closed")
 	}
 }

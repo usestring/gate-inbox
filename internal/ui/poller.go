@@ -237,6 +237,11 @@ type BoardObserver interface {
 	// sizing each session's sizing tier as the pass held it.
 	Pass(at time.Time, sessions []store.Session, groupTiers map[string]priority.Tier, sizing map[string]store.Sizing)
 	Operator(input extension.OperatorInput)
+	// View is the operator moving about the board, on the update loop.
+	View(event extension.ViewEvent)
+	// PaneInput is a key or paste that reached a session's pane, on the
+	// update loop.
+	PaneInput(input extension.PaneInput)
 }
 
 // StatusPins is the statuses board extensions hold the sessions they
@@ -773,6 +778,15 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	// A CLI or MCP process can relaunch an adopted row as managed while
+	// this board still has its old pane registered.
+	for _, sess := range sessions {
+		if sess.TmuxPaneID == "" {
+			if _, adopted := p.tmux.AdoptedTarget(sess.ID); adopted {
+				p.tmux.Release(sess.ID)
+			}
+		}
+	}
 	p.setHistoryTargets(p.historyTargets(sessions))
 	phases.list = lap(&mark)
 
@@ -804,6 +818,11 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	delivered, err := p.store.LastDelivered()
+	if err != nil {
+		return errMsg{err}
+	}
+	choreRests := choreRestsOf(sessions, delivered)
 	limitContinuations := 0
 	limitRecoveries, err := p.store.LimitRecoveries()
 	if err != nil {
@@ -872,6 +891,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	var agents agentStats
 	paneHashes := make(map[string]uint64, len(sessions))
 	searchText := make(map[string]string, len(sessions))
+	workingActivity := make(map[string]string, len(sessions))
 	childPane := make(map[string]string)
 	// answerableWait marks each child holding a wait its parent could take
 	// off it, which is what lets triage leave that row to the parent. Built
@@ -962,6 +982,16 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 			// The pane pid is the shell; the agent runs as its child. A
 			// tree of one process means the agent is gone. A failed ps
 			// sample proves nothing, so it counts as alive.
+			//
+			// An exit record is the last agent's word on how it ended, and
+			// it outlives that agent: an operator who quits and starts the
+			// CLI again from the pane's shell leaves it behind, and nothing
+			// removes it. A tree still holding a process under the shell is
+			// an agent running now, so the record is an earlier one's and
+			// says nothing about this one. A failed sample leaves it believed.
+			if exited && stat.OK && stat.Procs > 1 {
+				exited = false
+			}
 			agentAlive := !exited && (!stat.OK || stat.Procs > 1)
 			if hooklessTree(sess, p.statusSources[sess.Tool], agentAlive, stat) {
 				p.hookless[sess.ID] = true
@@ -1007,6 +1037,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 					askReads[sess.ID] = read
 				}
 				searchText[sess.ID] = strings.ToLower(clean)
+				if region, ok := p.engine.ActivityRegion(sess.Tool, clean); ok {
+					workingActivity[sess.ID] = activityExcerpt(region)
+				}
 				p.notePaneMode(paneModes, sess, clean)
 				// A child's pane is kept off the same capture, for the same
 				// reason: relaying its question to its parent has to read the
@@ -1098,7 +1131,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 						newStatus = pinned
 					}
 					// Any real transition re-arms the finished alert.
-					if sess.Acked && newStatus != status.Idle && newStatus != status.Finished {
+					// A background rest is the turn the operator already saw end,
+					// with a shell still running behind it.
+					if sess.Acked && newStatus != status.Idle && newStatus != status.Finished && newStatus != status.Background {
 						step = time.Now()
 						unacked := false
 						rowState = append(rowState, store.DerivedState{ID: sess.ID, Acked: &unacked})
@@ -1257,6 +1292,10 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	hibernated, err := p.store.Hibernated()
+	if err != nil {
+		return errMsg{err}
+	}
 	if p.offline() {
 		recoveries, err := p.store.LimitRecoveries()
 		if err != nil {
@@ -1279,11 +1318,14 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		previewAt:        previewAt,
 		agents:           agents,
 		queuedMessages:   queued,
+		hibernated:       hibernated,
 		granted:          granted,
 		compactWindows:   p.compactViews,
 		archivedChildren: archivedKids,
 		searchText:       searchText,
+		workingActivity:  workingActivity,
 		answerableWait:   answerableWait,
+		choreRests:       choreRests,
 		askQuestions:     askQuestions,
 		authFailures:     authFailures,
 		hookless:         p.hooklessRows(),

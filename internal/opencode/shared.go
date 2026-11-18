@@ -315,12 +315,28 @@ func (s Server) alive(ctx context.Context) bool {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	resp, err := s.request(ctx, http.MethodGet, "/api/health", nil)
-	if err != nil {
-		return false
+	return s.answering(ctx)
+}
+
+// answering is whether the server answers its liveness probe. opencode
+// moved it from /api/health to /api/info, so a server either side of that
+// move is alive; only a 404 falls through, while a refusal or a server
+// error means this is not a server to hand sessions.
+func (s Server) answering(ctx context.Context) bool {
+	for _, path := range []string{"/api/info", "/api/health"} {
+		resp, err := s.request(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return true
+		}
+		if resp.StatusCode != http.StatusNotFound {
+			return false
+		}
 	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	return false
 }
 
 // supervising is pid a running supervisor of a shared server.
@@ -381,6 +397,20 @@ func startSupervisor(ctx context.Context, home, exe, bin, config string) (int, e
 	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
 	if err != nil || pid <= 0 {
 		return 0, fmt.Errorf("opencode: start shared server: no pid in %q", out)
+	}
+	// The shell reports the background pid as soon as it forks, possibly
+	// before that child has exec'd gate-inbox. Until it does, its argv is
+	// still the shell's, which awaitServer reads as a supervisor that has
+	// already exited. Wait for the exec rather than just the fork.
+	deadline := time.Now().Add(2 * time.Second)
+	for !supervising(ctx, pid) {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if time.Now().After(deadline) {
+			return 0, fmt.Errorf("opencode: start shared server: supervisor %d did not start; see %s", pid, logPath)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	return pid, nil
 }

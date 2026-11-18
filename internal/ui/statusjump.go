@@ -55,10 +55,9 @@ var statusJumps = map[keymap.Action]statusJump{
 	// the walk carries on past it to the next one that can.
 	keymap.JumpErrored: {label: "errored", delta: 1, wants: jumpStatus(status.Errored, status.Dead)},
 	keymap.JumpIdle:    {label: "idle", delta: 1, wants: jumpStatus(status.Idle)},
-	// Starting rides with working for the same reason: it is the first
-	// second of a turn, and nobody looking for what is running means to skip
-	// the session that has just been launched.
-	keymap.JumpWorking: {label: "working", delta: 1, wants: jumpStatus(status.Working, status.Starting)},
+	// Starting and background shells ride with working so the operator can
+	// inspect everything still running, including a shell waiting for input.
+	keymap.JumpWorking: {label: "working", delta: 1, wants: jumpStatus(status.Working, status.Starting, status.Background)},
 }
 
 // jumpStatus builds the predicate for a jump that is only about the mark on

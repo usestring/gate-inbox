@@ -86,25 +86,25 @@ func TestPortableReorderKeysSwapVisibleSessions(t *testing.T) {
 	loadStoredRows(t, m)
 	m.selectSessionRow(t, "keep-charlie")
 
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'K', Text: "K"})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModShift})
 	m = updated.(*Model)
 	if got, want := []string{m.sessionRows()[0].ID, m.sessionRows()[1].ID}, []string{"c", "a"}; !slices.Equal(got, want) {
-		t.Fatalf("visible order after K = %v want %v", got, want)
+		t.Fatalf("visible order after shift+up = %v want %v", got, want)
 	}
-	if got, want := listSessionIDs(t, m.store), []string{"c", "hidden", "a"}; !slices.Equal(got, want) {
-		t.Fatalf("stored order after K = %v want %v", got, want)
-	}
-
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: 'J', Text: "J"})
-	m = updated.(*Model)
-	if got, want := listSessionIDs(t, m.store), []string{"a", "hidden", "c"}; !slices.Equal(got, want) {
-		t.Fatalf("stored order after J = %v want %v", got, want)
-	}
-
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModShift})
-	m = updated.(*Model)
 	if got, want := listSessionIDs(t, m.store), []string{"c", "hidden", "a"}; !slices.Equal(got, want) {
 		t.Fatalf("stored order after shift+up = %v want %v", got, want)
+	}
+
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModShift})
+	m = updated.(*Model)
+	if got, want := listSessionIDs(t, m.store), []string{"a", "hidden", "c"}; !slices.Equal(got, want) {
+		t.Fatalf("stored order after shift+down = %v want %v", got, want)
+	}
+
+	updated, _ = m.handleKey(key("shift+up"))
+	m = updated.(*Model)
+	if got, want := listSessionIDs(t, m.store), []string{"c", "hidden", "a"}; !slices.Equal(got, want) {
+		t.Fatalf("stored order after the second shift+up = %v want %v", got, want)
 	}
 }
 
@@ -130,10 +130,10 @@ func TestReorderGroupSkipsFilteredSibling(t *testing.T) {
 	loadStoredRows(t, m)
 	m.selectGroupRow(t, "gamma")
 
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'K', Text: "K"})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModShift})
 	m = updated.(*Model)
 	if got, want := m.groupRowPaths(), []string{"gamma", "alpha"}; !slices.Equal(got, want) {
-		t.Fatalf("visible group order after K = %v want %v", got, want)
+		t.Fatalf("visible group order after shift+up = %v want %v", got, want)
 	}
 	groups, err := m.store.Groups()
 	if err != nil {
@@ -144,7 +144,7 @@ func TestReorderGroupSkipsFilteredSibling(t *testing.T) {
 		got[i] = group.Name
 	}
 	if want := []string{"gamma", "hidden", "alpha"}; !slices.Equal(got, want) {
-		t.Fatalf("stored group order after K = %v want %v", got, want)
+		t.Fatalf("stored group order after shift+up = %v want %v", got, want)
 	}
 }
 
@@ -158,7 +158,7 @@ func TestReorderSyntheticGroupUpdatesImmediately(t *testing.T) {
 	loadStoredRows(t, m)
 	m.selectGroupRow(t, "gamma")
 
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'K', Text: "K"})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModShift})
 	m = updated.(*Model)
 	var roots []string
 	for _, group := range m.groupRowPaths() {
@@ -167,7 +167,7 @@ func TestReorderSyntheticGroupUpdatesImmediately(t *testing.T) {
 		}
 	}
 	if want := []string{"alpha", "gamma", "beta"}; !slices.Equal(roots, want) {
-		t.Fatalf("root order after K = %v want %v", roots, want)
+		t.Fatalf("root order after shift+up = %v want %v", roots, want)
 	}
 }
 

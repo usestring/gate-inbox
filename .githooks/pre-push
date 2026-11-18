@@ -3,10 +3,11 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 export CGO_ENABLED=0
+export GOMAXPROCS="${GOMAXPROCS:-2}"
 status=0
 
-echo "pre-push: running all Go tests (including E2E)"
-scripts/test-tmux-isolation.sh -- go test -count=1 -timeout 15m ./... || status=$?
+echo "pre-push: running cached short Go tests (full E2E remains in CI)"
+scripts/test-tmux-isolation.sh -- go test -short -p 1 -timeout 15m ./... || status=$?
 
 for test_script in scripts/*.test.sh; do
     echo "pre-push: running $test_script"

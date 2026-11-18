@@ -205,7 +205,8 @@ type OperatorInput struct {
 	SessionID string
 	Via       OperatorVia
 	// Text is the line sent. It is empty for input typed into a focused
-	// pane, where the board passes keystrokes on and never holds the line.
+	// pane, where the board passes keystrokes on and never holds the line;
+	// PaneInputSource reports those keys as they go, masked.
 	Text string
 	// Dialog is set when the input answered a dialog the pane was holding,
 	// rather than a line at the session's prompt.

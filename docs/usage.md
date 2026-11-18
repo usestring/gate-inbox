@@ -14,14 +14,14 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 
 ## Keys
 
-Every board key is a chord: `ctrl`, or `ctrl+alt` where the `ctrl` letter is already taken, and
-`alt` for punctuation. Only `j`/`k` stay bare letters, beside the arrows. `ctrl+c` and `ctrl+v` are
-never bound, so interrupt and paste keep working. `ctrl+i`, `ctrl+m` and `ctrl+/` need a terminal
-with an enhanced keyboard protocol (Ghostty, kitty, WezTerm, iTerm2 with CSI u); elsewhere the
-terminal sends them as `tab`, `enter` and `ctrl+_`. Inside a focused session the board's own chords
+Most board shortcuts use `ctrl` or `ctrl+alt`. For do and undo pairs, press `ctrl` with the
+action's key and `alt` (Option on Mac) with that same key to undo. The cursor keys `j` and `k`
+also work without modifiers. The terminal keeps `ctrl+c` for interrupt and `ctrl+v` for paste.
+`ctrl+i`, `ctrl+m` and `ctrl+/` need an enhanced keyboard protocol (Ghostty, kitty, WezTerm,
+iTerm2 with CSI u). Other terminals send them as `tab`, `enter` and `ctrl+_`. Inside a focused session the board's own chords
 work too and leave the pane for the board: `ctrl+i` triage, `ctrl+f` search, `ctrl+k` quick
 actions, `ctrl+alt+s` settings, `ctrl+alt+g` new group, `ctrl+alt+t` new terminal, `ctrl+alt+v`
-revive all, `ctrl+alt+w` wake all hibernated, `ctrl+alt+p` fetch reviews, `ctrl+alt+u` undo
+revive all, `ctrl+alt+w` wake all hibernated, `ctrl+alt+p` fetch reviews, `alt+x` undo
 archive and `ctrl+alt+r` rename. Keys an agent CLI relies on (`ctrl+r`, `ctrl+o`, `ctrl+w`,
 `ctrl+u`, `ctrl+e`, `ctrl+t`) still reach the agent there.
 
@@ -49,10 +49,10 @@ archive and `ctrl+alt+r` rename. Keys an agent CLI relies on (`ctrl+r`, `ctrl+o`
 | `ctrl+p` | Priority: each press cycles the tier — by default `high`, `medium`, `low`, then none. `priority tiers` in Settings (store `priority_scale`, e.g. `"+2/-1"`) chooses one to three tiers above the default (`medium`, `high`, `urgent`) and zero to three below (`low`, `lower`, `lowest`); a stored tier past the scale shows and sorts as the scale's edge, and keeps its value if the scale is widened again. Higher tiers sort first in the list. In triage, sessions ready for input come first, then priority orders each band (see triage below). `ctrl+p` also works from a focused session; the changed row shows its new tier as a solid badge for a few seconds and the status bar names it |
 | `ctrl+alt+r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent, start and default path |
 | `ctrl+x` | Kill the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive. A group with no session filed under it, live or archived, is deleted instead, so its name is free straight away |
+| `alt+x` | Undo the last kill and restore the affected sessions. Works from the list and from inside a focused session |
 | `ctrl+r` | Revive a dead session. On a session that is still running it restarts the agent on the conversation it is already on |
 | `ctrl+alt+a` / `ctrl+o` | On a pane started outside the board, or on the toast naming one the board just adopted: `ctrl+alt+a` brings it in (resumed as a board session once idle), `ctrl+o` leaves it off the board, still running (see [Panes started outside the board](#panes-started-outside-the-board)) |
 | `ctrl+u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can. A row left in the archive is deleted for good after 7 days |
-| `ctrl+alt+u` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `ctrl+s` | Hotkey menu: send one of your snippets to the selected session (`ctrl+s` also opens it inside a focused session) |
 | `ctrl+alt+s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, row detail, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, experimental features, snippets, restart flags, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `ctrl+w` | Filter to sessions that need attention (`waiting`, stuck, `finished`, `errored`); press again to show all |
@@ -62,7 +62,7 @@ archive and `ctrl+alt+r` rename. Keys an agent CLI relies on (`ctrl+r`, `ctrl+o`
 | `ctrl+h` | The key map for the current screen, split into common and advanced keys. It opens with its search on: type to narrow it down to one line, `enter` leaves the field, `esc` on an empty search closes it. It scrolls (`↑↓`/`jk`, `ctrl+u`/`ctrl+d`, `g`/`G`). `ctrl+h` opens it from anywhere, including inside a session, and closes it again. Inside a session only the `ctrl+h` chord reaches the key map — plain `h` and `?` go to the agent |
 | `ctrl+k` | Quick actions: type what you want to do, `↑↓` pick, `enter` runs it. Each row shows the action's current key, what it does, and the name `keys.toml` gives it, and running one leaves a note with the key that would have done it in one press. Recently run actions lead the list |
 | `ctrl+alt+p` | Fetch the pull request reviews asked of you on GitHub into the Reviews row (see [The review queue](#the-review-queue)) |
-| `ctrl+alt+q` | Quit (sessions keep running) |
+| `ctrl+q` / `ctrl+alt+q` | Quit from the board (sessions keep running) |
 
 Selecting a dead session previews its saved conversation without starting the agent. The preview
 shows why it stopped when evidence is available, its engine and conversation ID, and the original
@@ -333,7 +333,7 @@ The exit status comes from the pane's launch script, which records the agent's s
 
 ## Archiving without being asked
 
-Archiving ends the agent, so `ctrl+x` asks first. It asks every time because until now nothing could take the answer back — a dialog is the price of an act with no undo. Settings (`ctrl+alt+s`) has an `ask before archiving` row that drops the dialog for `ctrl+x` on a single session, and `ctrl+alt+u` is what pays for it: the last archive out of the archive and running again, offered whether the archive was silent or confirmed.
+Archiving ends the agent, so `ctrl+x` asks for confirmation by default. To skip the prompt for a single session, change **ask before archiving** in Settings (`ctrl+alt+s`). Press `alt+x` (Option+X on Mac) to undo the last kill, with or without confirmation.
 
 The wide gestures keep their dialog whatever the setting says. `ctrl+x` on a group takes its whole subtree and killing every row on screen (quick actions) takes all of it, and neither is a keystroke aimed at something you picked out — which is what makes a silent answer safe. The wide kill keeps its tick for the same reason it has one.
 
@@ -676,7 +676,7 @@ The preview is not lost. Focusing a session still opens its pane, full width, an
 
 `\` is that setting under a key, for the times you want the width for a moment rather than for good: it puts the rail away and brings back the layout you were on, and `alt+\` does the same from inside a focused session, where the rail is the only thing between the pane and the whole terminal. A `WIDE` badge on the board names the key back. The setting is persisted either way, so a rail put away with the key is still away after a restart.
 
-The list sits on the right of the pane by default. Settings (`ctrl+alt+s`) has a `sidebar` row that moves it to the left, or back: the rail moves as you step the row, so the board behind the panel is the preview, and closing Settings keeps it. Only the side changes. The split keeps its size, because the stored ratio is the list's share whichever side it is on, so the agents' panes keep their width and nothing is redrawn inside them. The divider drags the same way on either side, and either prompt-edge arrow leaves a focused session — `←` at the head of the prompt and `→` at the end, whichever side the list is on. The list's own arrows follow the side: stepping into a row, which opens its work and then focuses its pane, is the arrow pointing at the pane (`←` with the list on the right, `→` with it on the left), and folding is the other one. The divider's arrows move it the way they point on either side. To set the side in the config file instead, `[board] sidebar = "left"` in [config.toml](configuration.md); the Settings row outranks the file on the machine it was changed on, and picking the file's side there again hands the choice back to the file.
+The list sits on the right of the pane by default and takes 40% of the terminal width unless you have saved a divider position. Settings (`ctrl+alt+s`) has a `sidebar` row that moves it to the left, or back: the rail moves as you step the row, so the board behind the panel is the preview, and closing Settings keeps it. Only the side changes. The split keeps its size, because the stored ratio is the list's share whichever side it is on, so the agents' panes keep their width and nothing is redrawn inside them. The divider drags the same way on either side, and either prompt-edge arrow leaves a focused session — `←` at the head of the prompt and `→` at the end, whichever side the list is on. The list's own arrows follow the side: stepping into a row, which opens its work and then focuses its pane, is the arrow pointing at the pane (`←` with the list on the right, `→` with it on the left), and folding is the other one. The divider's arrows move it the way they point on either side. To set the side in the config file instead, `[board] sidebar = "left"` in [config.toml](configuration.md); the Settings row outranks the file on the machine it was changed on, and picking the file's side there again hands the choice back to the file.
 
 In triage `→` on a finished session opens the next item; every other prompt-edge arrow returns to the list with triage still on.
 
@@ -716,7 +716,13 @@ Each session wears one mark for its state, and by default those are geometric sh
 
 The cost is that a shape only carries state to somebody who has learned it, and colour does most of the work — which leaves nothing on a terminal drawing none. Settings (`ctrl+alt+s`) has a `status marks` row that switches to an emoji set that names each state instead of ranking it. It is opt-in rather than the default because turning it on is a claim about your terminal's font that only you can make; the picker shows the marks as you step it, so you can see whether your terminal draws them before saving. Every emoji mark is the same width as every other, so the column stays a column.
 
-Once the marks are familiar, the state word beside each row repeats what the tinted mark already says. The `row detail` row in Settings switches from `words` to `marks`: a row drops its state word, writes Claude, Codex and OpenCode as `CC`, `CX` and `OC` in each CLI's own colour, and a group's state rollup reads in marks instead of words. Other CLIs keep their names. Under the quiet colour setting the letters take the row's muted tint.
+Once the marks are familiar, the state word beside each row repeats what the tinted mark already says. The `row detail` row in Settings switches from `words` to `marks`: a row drops its state word, writes Claude, Codex and OpenCode as `cld`, `cdx` and `oc` in each CLI's own colour, and a group's state rollup reads in marks instead of words. Other CLIs keep their names. Under the quiet colour setting the letters take the row's muted tint.
+
+## Scrolling text
+
+The text beside a session's name scrolls horizontally like a billboard when you hover over that row. Settings (`ctrl+alt+s`) has a `scrolling text` row with three saved modes: `off`, `on`, and `on hover` (the default). `on` scrolls without hovering; `off` keeps the usual static summaries. Text that fits stays still, and names, status and row heights stay fixed.
+
+Working sessions show up to four recent nonblank output lines in that same text slot. New output restarts the marquee; leaving a hovered row restores the start of its text. The board reuses its existing pane captures above the agent's input box. Tools without a recognized input box keep their conversation summaries. The list labels Claude, Codex and OpenCode as `cld`, `cdx` and `oc`; their launch commands and stored identities keep their full names.
 
 ## Themes
 

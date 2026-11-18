@@ -89,7 +89,7 @@ func unlinkMigration(tx *sql.Tx, id string) error {
 
 // CompleteMigration files fromID away now that toID, the row a migration
 // made of it, is up: toID takes over the sessions fromID spawned and drew
-// under it and the reports they queued for it that nothing has started
+// under it and all messages queued for it that nothing has started
 // delivering, gets a copy of the pull requests fromID opened, and fromID is
 // archived. Until this runs the source is left
 // exactly as it was, so a migration that fails on the way loses nothing.
@@ -106,13 +106,28 @@ func (s *Store) CompleteMigration(fromID, toID string) error {
 		return err
 	}
 	defer tx.Rollback()
+	var replaced string
+	if err := tx.QueryRow(`SELECT replaced_by FROM sessions WHERE id = ?`, fromID).Scan(&replaced); err != nil {
+		return err
+	}
+	if replaced == toID {
+		return nil
+	}
+	if replaced != "" {
+		return fmt.Errorf("session %s: %w", fromID, ErrAlreadyReplaced)
+	}
+	var available bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ? AND archived = 0 AND status != 'dead' AND replaced_by = '')`, toID).Scan(&available); err != nil {
+		return err
+	}
+	if !available {
+		return ErrReplacementNotRunning
+	}
 	if err := adoptMigratedChildren(tx, fromID, toID); err != nil {
 		return err
 	}
-	// The board finds a session's pull requests by its id, and they are the
-	// new row's work as much as the old one's; the source keeps its record.
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO session_prs (session_id, url, first_seen)
-		 SELECT ?, url, first_seen FROM session_prs WHERE session_id = ?`, toID, fromID); err != nil {
+	// Keep direct associations for older readers; lineage is the custody record.
+	if err := copyOpenedPRs(tx, fromID, toID); err != nil {
 		return err
 	}
 	if err := copySessionWork(tx, fromID, toID); err != nil {
@@ -121,7 +136,7 @@ func (s *Store) CompleteMigration(fromID, toID string) error {
 	if err := moveTaskClaims(tx, fromID, toID, time.Now()); err != nil {
 		return err
 	}
-	res, err := tx.Exec(`UPDATE sessions SET archived = 1, archived_at = ? WHERE id = ?`, encodeTime(time.Now()), fromID)
+	res, err := tx.Exec(`UPDATE sessions SET archived = 1, archived_at = ?, replaced_by = ? WHERE id = ?`, encodeTime(time.Now()), toID, fromID)
 	if err != nil {
 		return err
 	}
@@ -143,7 +158,7 @@ func (s *Store) CompleteMigration(fromID, toID string) error {
 
 // adoptMigratedChildren hands what fromID tracks to toID, the row a
 // migration just made of it: the sessions it spawned and drew under it, and
-// the reports they queued for it that nothing has started delivering. A
+// all messages queued for it that nothing has started delivering. A
 // detached spawn stays a record of who made it. A message already claimed is
 // being typed into fromID and is left to finish there.
 func adoptMigratedChildren(tx *sql.Tx, fromID, toID string) error {
@@ -155,8 +170,7 @@ func adoptMigratedChildren(tx *sql.Tx, fromID, toID string) error {
 	}
 	_, err := tx.Exec(`
 UPDATE session_inbox SET session_id = ?
- WHERE session_id = ? AND delivered_at = 0 AND dropped_at = 0 AND claimed_at = 0
-   AND sender_id IN (SELECT s.id FROM sessions s WHERE s.parent_id != '' AND `+spawnerColumnOf("s")+` = ?)`,
-		toID, fromID, toID)
+ WHERE session_id = ? AND delivered_at = 0 AND dropped_at = 0 AND claimed_at = 0`,
+		toID, fromID)
 	return err
 }

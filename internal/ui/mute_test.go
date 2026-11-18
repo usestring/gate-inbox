@@ -313,9 +313,9 @@ func TestSkipKeyStaysOnTheListOutsideTriage(t *testing.T) {
 	}
 }
 
-// A drained queue leaves the operator on the list with nothing moving, so the
-// key that did nothing has to say why.
-func TestSkipKeyOnTheListSaysWhenTheQueueIsDrained(t *testing.T) {
+// Skipping the last gate opens the new-session prompt and says why the
+// triage queue has no further work.
+func TestSkipKeyOnTheListOpensThePromptWhenTheQueueIsDrained(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "busy": status.Working})
 	m.triage = true
@@ -327,8 +327,8 @@ func TestSkipKeyOnTheListSaysWhenTheQueueIsDrained(t *testing.T) {
 	if cmd != nil {
 		m.applyCmd(t, cmd)
 	}
-	if m.mode != modeList {
-		t.Fatalf(`"." entered %q with nothing else waiting`, focusedName(t, m))
+	if m.mode != modeForm || m.form.focus != fieldPrompt {
+		t.Fatalf("skipping the last gate left mode %v, want the new-session prompt", m.mode)
 	}
 	if !strings.Contains(m.errBar.text, "waiting on you") {
 		t.Fatalf("a drained queue said %q", m.errBar.text)

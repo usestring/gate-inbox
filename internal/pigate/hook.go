@@ -13,6 +13,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/mergegate"
 	"github.com/usestring/gate-inbox/internal/parentseal"
@@ -31,9 +32,10 @@ func Hook(in io.Reader, configDir, sessionID, statusFile string, now time.Time) 
 		d = Decide(Env{
 			ConfigDir: configDir, SessionID: sessionID, StatusFile: statusFile,
 			Home: home, ClaudeHome: convo.ClaudeHome(),
-			MergeGate: func(command, cwd string) (string, bool) { return mergeGate(configDir, command, cwd) },
-			AutoMode:  func(r piauto.Request) piauto.Answer { return askAutoMode(configDir, sessionID, r) },
-			Now:       now,
+			MergeGate:       func(command, cwd string) (string, bool) { return mergeGate(configDir, command, cwd) },
+			AutoMode:        func(r piauto.Request) piauto.Answer { return askAutoMode(configDir, sessionID, r) },
+			SkipPermissions: os.Getenv(envname.SkipPermissions) == "1",
+			Now:             now,
 		}, req)
 	}
 	out, err := json.Marshal(d)

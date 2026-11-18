@@ -12,6 +12,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -145,12 +146,35 @@ func (m *Model) previewQuestions(width, height int) []string {
 		}
 		return nil
 	}
+	return m.cachedQuestionCard(sess, asked, width, height)
+}
+
+func (m *Model) previewSingleClaudeQuestion(width, height int) []string {
+	sess, ok := m.selected()
+	if !ok || sess.Tool != "claude" || sess.Archived || sess.Status == status.Dead ||
+		m.mode == modeFocus || m.preview == "" {
+		return nil
+	}
+	return m.cachedQuestionCard(sess, nil, width, height)
+}
+
+func (m *Model) cachedQuestionCard(sess store.Session, asked []convo.AskQuestion, width, height int) []string {
+	var first *convo.AskQuestion
+	if len(asked) > 0 {
+		first = &asked[0]
+	}
 	c := &m.questionCard
-	if c.sessID == sess.ID && c.pane == m.preview && c.asked == &asked[0] && c.count == len(asked) &&
+	if c.sessID == sess.ID && c.pane == m.preview && c.asked == first && c.count == len(asked) &&
 		c.width == width && c.height == height && c.theme == renderGen {
 		return c.lines
 	}
-	*c = questionCard{sessID: sess.ID, pane: m.preview, asked: &asked[0], count: len(asked), width: width, height: height, theme: renderGen}
+	*c = questionCard{sessID: sess.ID, pane: m.preview, asked: first, count: len(asked), width: width, height: height, theme: renderGen}
+	if len(asked) == 0 {
+		if q, ok := dialog.ReadSingleClaudeQuestion(m.preview); ok {
+			c.lines = questionCardLines([]dialog.Question{q}, false, width, cardFull)
+		}
+		return c.lines
+	}
 	reading, ok := dialog.ReadQuestions(sess.Tool, m.preview, asked)
 	if !ok || len(reading.Questions) != len(asked) {
 		return nil

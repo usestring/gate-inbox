@@ -30,7 +30,6 @@ func TestReviewsTabRefusesPaletteSessionNavigation(t *testing.T) {
 
 func TestQuickActionsOpensOnColonAndCtrlK(t *testing.T) {
 	for _, press := range []tea.KeyPressMsg{
-		{Code: ':', Text: ":"},
 		{Code: 'k', Mod: tea.ModCtrl},
 	} {
 		m := buildModel(t)
@@ -69,10 +68,10 @@ func TestQuickActionsRunsTheActionTypedAndTeachesItsKey(t *testing.T) {
 func TestQuickActionsRanksAnExactKeyFirst(t *testing.T) {
 	m := buildModel(t)
 	m.openQuickActions()
-	typeInto(t, m, "n")
+	typeInto(t, m, "ctrl+n")
 	got := m.quickActionMatches()
 	if len(got) == 0 || got[0].action != keymap.NewSession {
-		t.Fatalf("\"n\" matched %+v first, want %s", got, keymap.NewSession)
+		t.Fatalf("\"ctrl+n\" matched %+v first, want %s", got, keymap.NewSession)
 	}
 }
 

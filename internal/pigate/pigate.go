@@ -193,9 +193,9 @@ func Decide(env Env, req Request) Decision {
 			}
 		}
 	}
-	if mergeCommand(call) == "" {
-		d.Suggestion = suggest(call)
-	}
+	// An ask rule is checked before any approval, so a "don't ask again"
+	// rule offered on its dialog would be saved and never apply; like
+	// Claude Code, that dialog offers no rule.
 	for _, r := range rules {
 		c := call
 		c.RuleBase = r.Source.Base
@@ -204,6 +204,9 @@ func Decide(env Env, req Request) Decision {
 				return asking(d, call, fmt.Sprintf("the ask rule %s in the %s", rule, r.Source.Label))
 			}
 		}
+	}
+	if mergeCommand(call) == "" {
+		d.Suggestion = suggest(call)
 	}
 	if onlyAsks[tool] {
 		d.Decision, d.Reason = Allow, "it only asks the user"

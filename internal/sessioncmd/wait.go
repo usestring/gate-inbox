@@ -58,7 +58,7 @@ const (
 // the only way not to miss the moment. Delegating and background are not
 // among them: those sessions ended their turns, but a child's result or a
 // shell left running is still coming back into them.
-var restingStates = []string{status.Finished, status.Waiting, status.Idle, status.Errored, status.Dead}
+var restingStates = []string{status.Finished, status.Waiting, status.Idle, status.Errored, status.Dead, status.Hibernating}
 
 // WaitOptions says what one wait is parked on. Children is the set a parent
 // means when it asks whether its wave is done; naming ids is for a subset of
@@ -86,6 +86,7 @@ type WaitStanding struct {
 var knownStates = map[string]bool{
 	status.Starting: true, status.Working: true, status.Waiting: true, status.Delegating: true,
 	status.Background: true, status.Finished: true, status.Idle: true, status.Errored: true, status.Dead: true,
+	status.Hibernating: true,
 }
 
 func normalizeState(raw string) (string, error) {
@@ -246,6 +247,13 @@ func (s *Sessions) Wait(ctx context.Context, sessionID string, opts WaitOptions)
 				current[i].Status = status.Delegating
 			}
 		}
+		// A hibernated session is resting, not dead: it stopped only once
+		// it was at rest, and it comes back on its next message.
+		hibernated, err := runtime.store.Hibernated()
+		if err != nil {
+			return WaitResult{}, err
+		}
+		current = store.ApplyHibernated(current, hibernated)
 		if tick%existsEvery == 0 {
 			runtime.refreshLive(live)
 		}
@@ -301,7 +309,7 @@ func observeWait(current []store.Session, live, wanted map[string]bool, pending 
 	for _, sess := range current {
 		running := live[sess.ID]
 		state := sess.Status
-		if !running {
+		if !running && state != status.Hibernating {
 			state = status.Dead
 		}
 		observed := waitObservation{session: sess, running: running, state: state, outcome: WaitTimedOut}
@@ -316,7 +324,7 @@ func observeWait(current []store.Session, live, wanted map[string]bool, pending 
 		switch {
 		case reached:
 			observed.outcome = WaitReached
-		case !running:
+		case !running && state != status.Hibernating:
 			observed.outcome = WaitDied
 		}
 		if observed.outcome != WaitTimedOut {

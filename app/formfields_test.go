@@ -1,10 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -32,6 +34,7 @@ func TestExternalBuildAddsANewSessionFormField(t *testing.T) {
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
 	seedSessions(t, filepath.Join(home, "state.db"))
 	skipWelcome(t, filepath.Join(home, "state.db"))
+	setSetting(t, filepath.Join(home, "state.db"), "triage_mode", "off")
 	// "never" keeps the died-while-closed marks off the seeded dead rows,
 	// so the rows read as they did before the board was closed.
 	setSetting(t, filepath.Join(home, "state.db"), "reopen_sessions", "never")
@@ -71,14 +74,27 @@ func TestExternalBuildAddsANewSessionFormField(t *testing.T) {
 	// typed on started.txt can be lost. The list's first polled row is drawn
 	// by the running program, which is reading keys by then.
 	waitForDrawn(t, out, 0, "noop:dead", exited)
+	started := waitForFile(t, filepath.Join(data, "started.txt"), "", exited, out)
+	var pid int
+	if _, err := fmt.Sscan(started, &pid); err != nil {
+		t.Fatalf("started.txt = %q: %v", started, err)
+	}
+	// Killing script alone can leave its board child writing into the home
+	// during TempDir cleanup. Let the board finish before its wrapper exits.
+	t.Cleanup(func() {
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+			t.Errorf("signal the board: %v", err)
+		}
+		<-exited
+	})
 
-	// ctrl+n opens the form on the CLI picker; typing picks envecho, up
+	// ctrl+alt+n opens the form on the CLI picker; typing picks envecho, up
 	// wraps onto the extension's field after the form's own, space turns
 	// it on, and enter launches. Each key waits for the frame the one
 	// before it drew. The board redraws only the cells that changed, so
 	// space's frame is the "n" of "on".
 	for _, step := range []struct{ key, drawn string }{
-		{"\x0e", "items ◂ off ▸"},
+		{"\x1b\x0e", "items ◂ off ▸"},
 		{"envecho", "[envecho]"},
 		{"\x1b[A", "❯ items"},
 		{" ", "n ▸"},

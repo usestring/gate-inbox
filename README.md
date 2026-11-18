@@ -11,7 +11,7 @@
   One priority queue for every coding agent waiting on you. Answer one, and the next comes up on its own.
 </p>
 
-![Triage working through four agents in priority order: the urgent question first, then the next question, then a high-priority finished session, each answer advancing the queue on its own](docs/demo/triage.gif)
+![Triage handing off questions and finished work, with each answer advancing the queue](docs/demo/triage.gif)
 
 <p align="center"><em><code>ctrl+i</code> opens the queue at its head. Each answer hands that session back to its agent and brings up the next.</em></p>
 
@@ -85,7 +85,7 @@ gate-inbox
 
 1. `ctrl+n` starts an agent in the group under the cursor and focuses it. Type the task.
 2. `ctrl+q` goes back to the list. Each row shows its status as the agent works.
-3. `ctrl+i` opens the queue at its head: questions first, then by priority.
+3. `ctrl+i` opens the queue at its head: higher priority first, with questions first within each tier.
 4. Answer it. The queue advances to the next one on its own.
 5. `ctrl+h` shows every key for the current screen, and `ctrl+alt+s` opens settings.
 
@@ -121,16 +121,15 @@ remembers the choice. Shell sessions always show the terminal. `ctrl+w` filters 
 to what needs attention, and `ctrl+f` searches names, titles, groups, statuses and what the sessions have said.
 
 **Work the queue.** `ctrl+i` flattens the group under the cursor into one queue and opens its head.
-A session stopped on a question comes first unless it is marked low priority. After that, a higher
-priority goes ahead of a lower one, and within one priority a question goes ahead of a finished
-session, which goes ahead of an idle one. Sessions still working wait below everything ready for
-you. Picking an option in a dialog, or sending a reply, hands that session back to its agent and
+A higher priority goes ahead of a lower one. By default, within the same tier, a question
+goes ahead of a finished session, which goes ahead of an idle one. Sessions still working wait below
+everything ready for you. Picking an option in a dialog, or sending a reply, hands that session back to its agent and
 advances the queue to the next one. A session that becomes ready while you work joins the queue in
 place, and when the group is empty the queue widens to the rest of the board. `ctrl+q` moves a
 session to the back without answering; it returns after the rest of the queue. Restarting triage
 clears that order. `ctrl+\` stops. `alt+\` puts the list away for full-width work, and `alt+,`
-hides the key hints. `triage order` in Settings switches to priority first, oldest first, or
-questions only; [`docs/usage.md`](docs/usage.md#walking-the-queue) has the full ordering.
+hides the key hints. `triage order` in Settings chooses how to order work within a tier or
+limits handoffs to questions. [`docs/usage.md`](docs/usage.md#walking-the-queue) has the full ordering.
 
 **Set priority.** `ctrl+p` steps a session or group through high, medium, low and none, from the
 list or from inside the session. `priority tiers` in Settings picks up to three tiers above the

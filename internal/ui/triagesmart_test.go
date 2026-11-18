@@ -139,8 +139,7 @@ func TestSmartTriagePutsUrgentAtTheHead(t *testing.T) {
 		urgent,
 		smartSess("q-fresh", status.Waiting, time.Minute),
 	)
-	// The questions lead whatever their tier; urgent heads the rest.
-	assertRail(t, m, "q-fresh", "q-old", "urgent", "done-old")
+	assertRail(t, m, "urgent", "q-fresh", "q-old", "done-old")
 }
 
 // Idle is on the walk like everything else, so a session wrongly read as

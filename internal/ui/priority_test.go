@@ -24,10 +24,8 @@ func sessionID(t *testing.T, m *Model, name string) string {
 	return ""
 }
 
-// Among sessions ready for input, a raised tier goes ahead of lower tiers,
-// after the questions: an urgent finished session and an urgent idle one both
-// go before every other untiered row, but behind an untiered question. The
-// rail has to read in the order the drain walks.
+// The strict order respects priority even when a lower-tier session has a
+// question. The rail shows the same order the drain walks.
 func TestPriorityLiftsAheadOfLowerTiers(t *testing.T) {
 	m := buildModel(t)
 	m.smartTriage = false     // the strict order; smart triage has triagesmart_test.go
@@ -42,7 +40,7 @@ func TestPriorityLiftsAheadOfLowerTiers(t *testing.T) {
 	loadStoredRows(t, m)
 	pressKey(t, m, key("ctrl+i"))
 
-	want := []string{"old-block", "new-block", "reviewme", "napping", "crashed", "grinder", "booting", "gone"}
+	want := []string{"reviewme", "napping", "old-block", "new-block", "crashed", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -227,11 +225,7 @@ func TestPriorityKeyTogglesTheGroupAndRefusesRoot(t *testing.T) {
 	}
 }
 
-// A tier ranks a session ahead of every lower tier, but never past a
-// question: an agent stopped on a dialog is stalled this second, and an urgent
-// session that keeps finishing would otherwise hold it unreached. Turning
-// triage on hands over the untiered question first, then the urgent rows.
-func TestARaisedTierStaysBehindAQuestion(t *testing.T) {
+func TestTriageHandsOverRaisedTierBeforeUntieredQuestion(t *testing.T) {
 	m := buildModel(t)
 	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	liveTriageFleet(t, m, map[string]string{
@@ -249,16 +243,16 @@ func TestARaisedTierStaysBehindAQuestion(t *testing.T) {
 	loadStoredRows(t, m)
 	pressKey(t, m, key("ctrl+i"))
 
-	if got, want := sessionNames(m), []string{"ask", "done", "rest", "broke"}; !slices.Equal(got, want) {
+	if got, want := sessionNames(m), []string{"done", "rest", "ask", "broke"}; !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
 	if m.mode != modeFocus {
 		t.Fatalf("turning triage on entered nothing: %s", m.errBar.text)
 	}
-	if got := focusedName(t, m); got != "ask" {
-		t.Fatalf("the queue opened on %q want ask", got)
+	if got := focusedName(t, m); got != "done" {
+		t.Fatalf("the queue opened on %q want done", got)
 	}
-	for _, want := range []string{"done", "rest", "broke"} {
+	for _, want := range []string{"rest", "ask", "broke"} {
 		updated, _ := m.handleFocusKey(ctrlQ())
 		m = updated.(*Model)
 		if m.mode != modeFocus {

@@ -34,6 +34,7 @@ const (
 	ToolClaude   = "claude"
 	ToolCodex    = "codex"
 	ToolOpenCode = "opencode"
+	ToolPi       = "pi"
 )
 
 // Kind is who or what wrote a piece of a transcript, which is how much a
@@ -96,6 +97,8 @@ func LineSegments(tool string, line []byte, lim Limits) []Segment {
 		return claudeSegments(line, lim)
 	case ToolCodex:
 		return codexSegments(line, lim)
+	case ToolPi:
+		return piSegments(line, lim)
 	default:
 		return genericSegments(line, lim)
 	}
@@ -392,6 +395,93 @@ func codexSegments(line []byte, lim Limits) []Segment {
 		return segment(KindResult, resultText(p.Output, lim.Result))
 	}
 	return nil
+}
+
+var (
+	piMessageMark       = []byte(`"type":"message"`)
+	piCustomMessageMark = []byte(`"type":"custom_message"`)
+	piSystemMark        = []byte(`"role":"system"`)
+	piToolResultMark    = []byte(`"role":"toolResult"`)
+)
+
+// piSegments reads a pi session entry. Every message entry is indexed,
+// whichever branch of the session tree it sits on: a term the operator typed
+// on an abandoned branch is still something they may search for. System
+// messages are the prompt and tool loadout, not conversation, and are
+// skipped before any decode; they are the largest lines in a pi session.
+func piSegments(line []byte, lim Limits) []Segment {
+	head := line
+	if len(head) > 256 {
+		head = head[:256]
+	}
+	if bytes.Contains(head, piCustomMessageMark) {
+		// An extension's message in the model's context: the board's seal
+		// notes and steering, never typed by the operator.
+		var row struct {
+			Content json.RawMessage `json:"content"`
+		}
+		if json.Unmarshal(line, &row) != nil {
+			return nil
+		}
+		return segment(KindSystem, resultText(row.Content, lim.Text))
+	}
+	if !bytes.Contains(head, piMessageMark) || bytes.Contains(head, piSystemMark) {
+		return nil
+	}
+	if len(line) > hugeLine && bytes.Contains(head, piToolResultMark) {
+		if text, ok := hugeStringHead(line, piToolResultMark, contentMark, lim.Result); ok {
+			return segment(KindResult, text)
+		}
+	}
+	var row struct {
+		Message *struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(line, &row) != nil || row.Message == nil {
+		return nil
+	}
+	switch row.Message.Role {
+	case "user":
+		return contentSegments(row.Message.Content, KindUser, lim)
+	case "assistant":
+		return piAssistantSegments(row.Message.Content, lim)
+	case "toolResult":
+		return segment(KindResult, resultText(row.Message.Content, lim.Result))
+	}
+	return nil
+}
+
+// piAssistantSegments is an assistant message's text blocks and its
+// toolCall blocks ({type:toolCall, name, arguments}); thinking is left out,
+// as it is for the other tools.
+func piAssistantSegments(content json.RawMessage, lim Limits) []Segment {
+	var blocks []struct {
+		Type      string          `json:"type"`
+		Text      string          `json:"text"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if len(content) == 0 || content[0] != '[' {
+		return contentSegments(content, KindAssistant, lim)
+	}
+	if json.Unmarshal(content, &blocks) != nil {
+		return nil
+	}
+	var out []Segment
+	for _, block := range blocks {
+		switch block.Type {
+		case "text":
+			out = append(out, segment(KindAssistant, capBytes(block.Text, lim.Text))...)
+		case "toolCall":
+			var sb strings.Builder
+			appendPart(&sb, block.Name)
+			appendPart(&sb, inputText(block.Arguments, lim.Input))
+			out = append(out, segment(KindInput, sb.String())...)
+		}
+	}
+	return out
 }
 
 // genericKeys are the fields a transcript of unknown layout is read through.

@@ -823,10 +823,16 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		}
 		return command, env, nil
 	}
+	if tool.Shell {
+		command = terminalShell(command)
+	}
 	if tool.StatusSource != hooks.StatusSourceClaude {
 		command, err = confine(manager.ConfigDir(), style, id, command)
 		if err != nil {
 			return "", nil, fmt.Errorf("%s cannot be launched: %w", toolName, err)
+		}
+		if tool.Shell {
+			command = "exec " + command
 		}
 		if pi && id != "" && piAutoModeWanted(tool) {
 			command = withAutoModeToken(id, command)
@@ -854,6 +860,22 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	// somebody restarted by hand inside its pane. One spelling, so the check
 	// cannot go quietly false by this line changing.
 	return command + " " + hooks.SettingsArgv(tmux.ShellQuote(manager.LaunchSettingsPath(id))), env, nil
+}
+
+// terminalShell is what a terminal's pane runs inside the confinement: its
+// command, or the user's login shell when that is empty. Naming the shell
+// matters because the launch script drops to an unconfined shell once its
+// command exits, and an agent drives its terminals through send_terminal;
+// compose execs the result so the pane ends with the confined shell.
+func terminalShell(command string) string {
+	if strings.TrimSpace(command) != "" {
+		return command
+	}
+	shell := strings.TrimSpace(os.Getenv("SHELL"))
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	return tmux.ShellQuote(shell) + " -l"
 }
 
 // withPiExtension loads the board's pi extension (package piext) into a pi

@@ -219,7 +219,12 @@ type Tool struct {
 	// AutoMode = "off" stops a pi-hooks tool's undecided calls going to the
 	// JEV classifier (package piauto), whatever the board setting says;
 	// they ask instead.
-	AutoMode       string `toml:"auto_mode"`
+	AutoMode string `toml:"auto_mode"`
+	// Sandbox is "off" to run a pi session's bash tool outside the sandbox
+	// the board's pi extension wraps it in; "" and "on" keep it. Any other
+	// value keeps it too and makes every command ask. Only read for a tool
+	// whose status_source is pi's (see internal/piext).
+	Sandbox        string `toml:"sandbox"`
 	DefaultStatus  string `toml:"default_status"`
 	ActivityCutoff string `toml:"activity_cutoff"`
 	// InputLine is the marker a tool draws at the start of the row its

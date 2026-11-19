@@ -150,11 +150,9 @@ func permission(screen dialog.Screen, about Screen, labels []string) *Input {
 	kind := what + " command"
 	// Running outside the sandbox is what the prompt asks about, so the
 	// relayed question says so rather than reading like any other command.
-	for _, line := range screen.Lines {
-		if strings.Contains(line, "outside the sandbox") {
-			kind += " outside the sandbox"
-			break
-		}
+	// Compared compacted, because a narrow pane breaks the phrase mid-word.
+	if strings.Contains(dialog.Compact(strings.Join(screen.Lines, "")), dialog.Compact("outside the sandbox")) {
+		kind += " outside the sandbox"
 	}
 	var question strings.Builder
 	if description != "" {

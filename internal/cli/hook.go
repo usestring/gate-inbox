@@ -36,10 +36,23 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 		}
 		return nil
 	}
-	if len(args) == 2 && args[0] == "pi" && args[1] == "PreToolUse" {
-		// The extension waits on this answer before pi runs a tool call.
-		fmt.Fprintln(out, pigate.Hook(in, configDir, sessionID, time.Now()))
-		return nil
+	if len(args) == 2 && args[0] == "pi" {
+		statusFile := os.Getenv(envname.StatusFile)
+		switch args[1] {
+		case "PreToolUse":
+			// The extension waits on this answer before pi runs a tool call.
+			fmt.Fprintln(out, pigate.Hook(in, configDir, sessionID, statusFile, time.Now()))
+			return nil
+		case "permission-pending":
+			pigate.PermissionPending(in, statusFile)
+			return nil
+		case "permission-resolved":
+			pigate.PermissionResolved(statusFile)
+			return nil
+		case "grant-session":
+			pigate.GrantSession(in, statusFile)
+			return nil
+		}
 	}
 	if len(args) == 2 && args[0] == "pi" {
 		// The board's pi extension (package piext) reports pi's lifecycle

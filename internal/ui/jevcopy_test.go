@@ -17,6 +17,7 @@ import (
 	"github.com/usestring/autocopy"
 	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -424,5 +425,40 @@ func TestRunWithJevKeepsARefusedCommandForTheNextPress(t *testing.T) {
 	m.applyJevCopy(cmd().(jevCopyResultMsg))
 	if got := pressRun(t, m, sess); !slices.Equal(got, []string{"! gcloud auth login"}) {
 		t.Fatalf("after a refused send the next press typed %q", got)
+	}
+}
+
+// A command the agent put in a question dialog lives in the AskUserQuestion
+// call, not in a message, and is still offered while the dialog waits.
+func TestCopyWithJevReadsTheQuestionTheAgentIsWaitingOn(t *testing.T) {
+	m, sess, calls := copyTurn(t, "", 0.95)
+	command := `pbpaste | tr -d '\n' | gcloud secrets versions add API_KEY --project example --data-file=-`
+	input, _ := json.Marshal(map[string]any{"questions": []map[string]any{{
+		"header":   "Key",
+		"question": "Click Create, then the copy button. Next, type this at this prompt and press Enter: `! " + command + "`. Let me know when it's done.",
+		"options": []map[string]any{
+			{"label": "Stored it", "description": "I created the key and ran the command."},
+			{"label": "Something went wrong", "description": "Tell me what happened in the notes."},
+		},
+	}}})
+	lines := `{"type":"user","message":{"role":"user","content":"make the key"}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-11-14T21:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_ask","name":"AskUserQuestion","input":` + string(input) + `}]}}` + "\n"
+	path := filepath.Join(m.conversation.locator.ClaudeHome, "projects", "project", sess.AgentSessionID+".jsonl")
+	if err := os.WriteFile(path, []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wrote := stubClipboard(t, nil)
+	pressCopy(t, m, sess)
+	if *calls != 1 || len(*wrote) != 1 || !strings.HasSuffix((*wrote)[0], command) {
+		t.Fatalf("calls %d, wrote %q, status %q", *calls, *wrote, m.errBar.text)
+	}
+}
+
+func TestWithPendingQuestionsKeepsTheMessageAndOptions(t *testing.T) {
+	got := withPendingQuestions("Filled in the form.", []convo.AskQuestion{{Question: "Run `make`?",
+		Options: []convo.AskOption{{Label: "Ran it", Description: "done"}, {Label: "Skip"}}}})
+	want := "Filled in the form.\n\nRun `make`?\n- Ran it: done\n- Skip"
+	if got != want {
+		t.Fatalf("got %q", got)
 	}
 }

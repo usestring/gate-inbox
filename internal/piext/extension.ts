@@ -15,10 +15,21 @@ import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { pathToFileURL } from "node:url";
+import {
+  type BashOperations,
+  createBashToolDefinition,
+  createLocalBashOperations,
+  type ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
 const bin = process.env.GATE_INBOX_BIN ?? "";
 const statusFile = process.env.GATE_INBOX_STATUS_FILE ?? "";
+// skipPermissions is a launch with its permission prompts off. Every gate in
+// this extension stops asking under it; what still holds is what never asks:
+// the sandbox around bash, and the OS confinement around the whole session.
+const skipPermissions = process.env.GATE_INBOX_SKIP_PERMISSIONS === "1";
 
 // hookTimeoutMs bounds one hook call. A hook that hangs must never hold pi
 // up: the call is killed and answers undefined, as a failed one does.
@@ -403,6 +414,7 @@ export default function gateInbox(pi: ExtensionAPI) {
   sessionNotes(pi);
   boardSkills(pi);
   askUserQuestion(pi);
+  sandboxedBash(pi);
 
   pi.on("session_start", async (event, ctx) => {
     await report("session_start", { reason: event.reason, cwd: ctx.cwd, session_id: ctx.sessionManager.getSessionId() });
@@ -1087,4 +1099,148 @@ function renderReview(questions: AskQuestion[], states: AskState[], cursor: numb
   lines.push(`${cursor === 0 ? "❯ " : "  "}1. Submit answers`, `${cursor === 1 ? "❯ " : "  "}2. Cancel`);
   lines.push("", ...wrapWords(askLegendSingle, w));
   return lines;
+}
+
+// The sandboxed bash tool.
+//
+// pi's bash runs every command with pi's own permissions. This replaces it
+// with the same tool whose commands run inside @anthropic-ai/sandbox-runtime
+// (bubblewrap on Linux, sandbox-exec on macOS), the runtime Claude Code's own
+// sandbox is built on. What a command may read, write and reach is the
+// board's answer to `hook pi sandbox` (piext.Plan): the operator's Claude
+// sandbox settings plus the board's key directory, and no tmux socket.
+//
+// It fails closed. When the board does not answer, the runtime will not
+// load, or bubblewrap or socat is missing, every command asks first and
+// says why. A command the model asks to run outside the sandbox
+// (dangerouslyDisableSandbox) asks too. Only `[tools.pi] sandbox = "off"` in
+// the board's config runs commands unsandboxed without asking, or a launch
+// with permissions skipped, which still runs every other command sandboxed.
+
+type SandboxManagerLike = {
+  isSupportedPlatform(): boolean;
+  checkDependencies(): { errors: string[]; warnings: string[] };
+  initialize(config: unknown): Promise<void>;
+  wrapWithSandbox(command: string, binShell?: string, customConfig?: unknown, abortSignal?: AbortSignal): Promise<string>;
+  cleanupAfterCommand(): void;
+  reset(): Promise<void>;
+};
+
+type SandboxState =
+  | { mode: "on"; manager: SandboxManagerLike; tmpDir: string; allowUnsandboxed: boolean }
+  | { mode: "off" }
+  | { mode: "unavailable"; reason: string };
+
+// sandboxStartMs bounds the board's answer, and separately the runtime's
+// start (its network proxies); past either the sandbox is unavailable.
+const sandboxStartMs = 20000;
+
+let sandbox: Promise<SandboxState> | undefined;
+
+async function startSandbox(cwd: string): Promise<SandboxState> {
+  const plan = (await runHook("sandbox", { cwd }, sandboxStartMs)) as
+    | { mode?: string; reason?: string; runtime?: string; tmpDir?: string; allowUnsandboxed?: boolean; config?: unknown }
+    | undefined;
+  if (!plan || typeof plan !== "object") return { mode: "unavailable", reason: "the board did not answer" };
+  if (plan.mode === "off") return { mode: "off" };
+  if (plan.mode !== "on" || !plan.runtime || !plan.tmpDir) {
+    return { mode: "unavailable", reason: plan.reason || "the board gave no sandbox" };
+  }
+  try {
+    const runtime = (await import(pathToFileURL(plan.runtime).href)) as { SandboxManager: SandboxManagerLike };
+    const manager = runtime.SandboxManager;
+    if (!manager.isSupportedPlatform()) return { mode: "unavailable", reason: `${process.platform} is not supported` };
+    const deps = manager.checkDependencies();
+    if (deps.errors.length > 0) return { mode: "unavailable", reason: deps.errors.join("; ") };
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("the sandbox did not start in time")), sandboxStartMs);
+    });
+    // The runtime binds its proxy's unix socket under os.tmpdir() while it
+    // starts, and a long TMPDIR pushes that path past the 108-byte limit, so
+    // it starts under the board's short private directory instead.
+    const tmpdir = process.env.TMPDIR;
+    process.env.TMPDIR = plan.tmpDir;
+    try {
+      await Promise.race([manager.initialize(plan.config), timedOut]);
+    } finally {
+      clearTimeout(timer);
+      if (tmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = tmpdir;
+    }
+    return { mode: "on", manager, tmpDir: plan.tmpDir, allowUnsandboxed: plan.allowUnsandboxed === true };
+  } catch (err) {
+    return { mode: "unavailable", reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// sandboxedOperations runs each command through the runtime's wrapper, with
+// the session's private TMPDIR.
+function sandboxedOperations(state: Extract<SandboxState, { mode: "on" }>, local: BashOperations): BashOperations {
+  return {
+    exec: async (command, cwd, options) => {
+      const wrapped = await state.manager.wrapWithSandbox(command, undefined, undefined, options.signal);
+      try {
+        return await local.exec(wrapped, cwd, { ...options, env: { ...(options.env ?? process.env), TMPDIR: state.tmpDir } });
+      } finally {
+        state.manager.cleanupAfterCommand();
+      }
+    },
+  };
+}
+
+function sandboxedBash(pi: ExtensionAPI) {
+  const local = createLocalBashOperations();
+  const ready = (cwd: string) => (sandbox ??= startSandbox(cwd));
+  const base = createBashToolDefinition(process.cwd());
+  pi.on("session_start", async (_event, ctx) => {
+    void ready(ctx.cwd);
+  });
+  // reset stops the runtime's proxies, so the next session pi starts in this
+  // process builds its sandbox afresh rather than wrapping commands for
+  // proxies that are gone.
+  pi.on("session_shutdown", async () => {
+    const state = await sandbox;
+    sandbox = undefined;
+    if (state?.mode === "on") await state.manager.reset().catch(() => undefined);
+  });
+  pi.registerTool({
+    ...base,
+    description:
+      `${base.description} Commands run in a sandbox: writes are limited to the working directory and $TMPDIR, ` +
+      "network to allowed hosts, and some paths cannot be read. If a command fails because of the sandbox, " +
+      "retry it with dangerouslyDisableSandbox: true, which asks the user first.",
+    parameters: Type.Object({
+      ...base.parameters.properties,
+      dangerouslyDisableSandbox: Type.Optional(
+        Type.Boolean({ description: "Run this command outside the sandbox. The user is asked first." }),
+      ),
+    }),
+    async execute(id, params, signal, onUpdate, ctx) {
+      const { dangerouslyDisableSandbox, ...input } = params as typeof params & { dangerouslyDisableSandbox?: boolean };
+      const state = await ready(ctx.cwd);
+      // The board's gate has already decided this call, asking the user when
+      // it ran outside the sandbox by request, so only a sandbox that could
+      // not start is asked about here, through the gate's own dialog.
+      const outside = dangerouslyDisableSandbox === true;
+      let operations = local;
+      if (state.mode === "on" && !(outside && state.allowUnsandboxed)) {
+        operations = sandboxedOperations(state, local);
+      } else if (state.mode === "unavailable" && !outside && !skipPermissions) {
+        const refused = await askUser(
+          {
+            permissionDecision: "ask",
+            tool: "Bash",
+            title: "Bash command",
+            block: input.command,
+            reason: `Bash command, outside the sandbox (sandbox unavailable: ${state.reason})`,
+          },
+          id,
+          ctx,
+        );
+        if (refused) throw new Error(`Not run: ${refused.reason}`);
+      }
+      return createBashToolDefinition(ctx.cwd, { operations }).execute(id, input, signal, onUpdate, ctx);
+    },
+  });
 }

@@ -219,7 +219,12 @@ type Tool struct {
 	// AutoMode = "off" stops a pi-hooks tool's undecided calls going to the
 	// JEV classifier (package piauto), whatever the board setting says;
 	// they ask instead.
-	AutoMode       string `toml:"auto_mode"`
+	AutoMode string `toml:"auto_mode"`
+	// Sandbox is "off" to run a pi session's bash tool outside the sandbox
+	// the board's pi extension wraps it in; "" and "on" keep it. Any other
+	// value keeps it too and makes every command ask. Only read for a tool
+	// whose status_source is pi's (see internal/piext).
+	Sandbox        string `toml:"sandbox"`
 	DefaultStatus  string `toml:"default_status"`
 	ActivityCutoff string `toml:"activity_cutoff"`
 	// InputLine is the marker a tool draws at the start of the row its
@@ -619,6 +624,14 @@ type Board struct {
 	OfferCLIOnLimit bool `toml:"offer_cli_on_limit"`
 }
 
+// PiOperationRules names operator-trusted commands for routine creates and
+// the exact GitHub repositories where a checked PR command can also push.
+type PiOperationRules struct {
+	LinearIssueCreate string   `toml:"linear_issue_create"`
+	PullRequestCreate string   `toml:"pull_request_create"`
+	PushRepositories  []string `toml:"push_repositories"`
+}
+
 type Config struct {
 	PollInterval       Duration `toml:"poll_interval"`
 	OutboxProbeTargets []string `toml:"outbox_probe_targets"`
@@ -672,7 +685,8 @@ type Config struct {
 	// MergeGate is the standing merge authority the merge-gate mod enforces
 	// ([merge_gate]). Empty owners or authors turns the gate off, and the
 	// mod is not loaded into launched sessions then.
-	MergeGate mergegate.Config `toml:"merge_gate"`
+	MergeGate        mergegate.Config `toml:"merge_gate"`
+	PiOperationRules PiOperationRules `toml:"pi_operation_rules"`
 	// Inbox configures `gate-inbox inbox serve` ([inbox]). Its tokens are
 	// never kept here: see inbox.LoadTokens.
 	Inbox inbox.Config    `toml:"inbox"`

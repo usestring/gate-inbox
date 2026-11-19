@@ -16,15 +16,35 @@ import (
 	"github.com/usestring/gate-inbox/internal/sweep"
 )
 
+const usagePiRuleCounts = "pi-rule-counts"
+
 const usageSweep = `sweep [--apply [--dry-run] [--revive] [--kill-waiting] [--force]] [--json] [--db <path>] [--idle 72h] [--waiting 24h] [--errored 24h] [--dead 1h] [--mail 1h]`
 
 func sweepSection() section {
 	return section{
 		title: "Board hygiene",
 		commands: []command{
+			{name: "pi-rule-counts", usage: usagePiRuleCounts, about: "show how many tool calls each Pi operation rule allowed", run: configCommand(runPiRuleCounts)},
 			{name: "sweep", usage: usageSweep, about: "list stale sessions and undelivered mail with the call that would clear each; reads state.db read-only and changes nothing unless --apply is passed, which hibernates or archives the rows nobody is using and holds every row that would lose mail, children, task claims or running work", run: configCommand(runSweep)},
 		},
 	}
+}
+
+func runPiRuleCounts(out io.Writer, args []string, _, configDir string) error {
+	set := cmdline.NewFlagSet(usagePiRuleCounts)
+	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
+		return err
+	}
+	st, err := store.OpenReadOnly(filepath.Join(configDir, "state.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	counts, err := st.PiOperationRuleCounts()
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(out).Encode(counts)
 }
 
 func runSweep(out io.Writer, args []string, sessionID, configDir string) error {

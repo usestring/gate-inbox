@@ -87,10 +87,10 @@ or the job fails. That keeps a suite that silently skipped from counting as a pa
 
 ## Pull request titles and releases
 
-Pull requests are squash-merged, so the title becomes the commit subject on `main`, and releases are
-versioned from those subjects. A title must follow [Conventional Commits](https://www.conventionalcommits.org/):
-`type(optional scope): subject`, for example `fix(ui): keep the triage drain open`. The `PR title`
-check fails a pull request whose title does not parse.
+A pull request title becomes the commit subject on `main` when squash-merged.
+[Conventional Commit](https://www.conventionalcommits.org/) prefixes are optional.
+A title such as `fix(ui): keep the triage drain open` gives release automation a type to use
+when choosing a version bump and grouping release notes.
 
 | Type | Release |
 | --- | --- |
@@ -105,11 +105,11 @@ release. When they call for one, it opens a Release PR titled `chore(main): rele
 updates the one already open. That PR bumps `.release-please-manifest.json` and adds the release
 notes, grouped by type, to `CHANGELOG.md`. Merging it tags the merge commit `v<version>` and
 publishes a GitHub Release with those notes, and goreleaser then attaches the binaries to it.
-Commits that only carry non-releasing types open no Release PR; they appear in the next release's
-compare link. Pushing a `v*` tag by hand still releases that tag through goreleaser alone.
+Commits with an unrecognized subject or a non-releasing type appear in the next release's compare
+link. Pushing a `v*` tag by hand still releases that tag through goreleaser alone.
 
-The Release PR is opened with the workflow's `GITHUB_TOKEN`, so GitHub starts no workflows for it:
-CI and the `PR title` check do not run on it.
+The release workflow dispatches CI for the Release PR because GitHub suppresses pull request
+workflow triggers for PRs opened with the workflow's `GITHUB_TOKEN`.
 
 ## Licence
 

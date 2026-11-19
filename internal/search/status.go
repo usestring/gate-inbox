@@ -29,12 +29,7 @@ const (
 // content keeps its wrapper in the transcript, so the tag is looked for
 // inside it too.
 func ClassifyTurn(text string) Turn {
-	t := strings.TrimSpace(text)
-	if strings.HasPrefix(t, "<pasted_content") {
-		if _, rest, ok := strings.Cut(t, ">"); ok {
-			t = strings.TrimSpace(rest)
-		}
-	}
+	t := unwrapPasted(text)
 	switch {
 	case strings.HasPrefix(t, "Auto wake-up:"):
 		return TurnNudge

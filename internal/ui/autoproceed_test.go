@@ -565,8 +565,8 @@ func TestFailedEarlyComposerHandoverResumesTheWaitingQueue(t *testing.T) {
 			id := focusedID(t, m)
 			stageComposer(m)
 			m = pressEnter(m)
-			if m.mode != modeList || !m.triageResume {
-				t.Fatal("the lone session did not leave the drain open on the list")
+			if m.mode != modeForm || !m.triageResume {
+				t.Fatal("the lone session did not open the new-session form with the drain armed")
 			}
 			for i := range m.sessions {
 				m.sessions[i].Status = status.Waiting
@@ -579,7 +579,12 @@ func TestFailedEarlyComposerHandoverResumesTheWaitingQueue(t *testing.T) {
 			} else {
 				pending.deadline = time.Now().Add(-time.Millisecond)
 			}
-			cmd := m.applyLandingCheck(landingCheckMsg{id: id, gen: pending.gen, verdict: verdict})
+			m.applyLandingCheck(landingCheckMsg{id: id, gen: pending.gen, verdict: verdict})
+			if m.mode != modeForm {
+				t.Fatal("the failed answer interrupted the new-session form")
+			}
+			m.handleFormKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+			cmd := m.triagePickupCmd()
 			if cmd == nil || m.mode != modeFocus || focusedID(t, m) != id {
 				t.Fatal("the failed answer did not immediately reopen the lone session")
 			}

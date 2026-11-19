@@ -339,8 +339,8 @@ func TestTriageAutoAdvanceStopsWhenTheQueueDrains(t *testing.T) {
 
 	updated, _ = m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("a drained queue left the user in mode %v on %q", m.mode, focusedName(t, m))
+	if m.mode != modeForm || m.form.focus != fieldPrompt || !m.form.prompt.input.Focused() {
+		t.Fatalf("a drained queue left mode %v, want the focused new-session prompt", m.mode)
 	}
 }
 

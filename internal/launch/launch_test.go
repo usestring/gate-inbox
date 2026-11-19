@@ -14,6 +14,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/keyconfine"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -23,7 +24,12 @@ import (
 // process inherited are cleared -- several driver paths act on what they find
 // there, and the pane they would find is the operator's own -- TMUX_TMPDIR is
 // private, and control clients earlier runs left on dead servers are swept.
+//
+// Launches run unconfined here, so the plans stay about what each test checks
+// and do not depend on the host having bwrap; confine_test.go puts the
+// confinement back for the tests about it.
 func TestMain(m *testing.M) {
+	keyconfine.UseForTests(keyconfine.Unconfined, nil)
 	os.Exit(tmuxtest.Run(m.Run))
 }
 

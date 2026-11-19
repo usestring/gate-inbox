@@ -159,6 +159,7 @@ func TestAClashWithAnExtensionKeyNamesTheExtensionAction(t *testing.T) {
 // press, not offered and then refused: ctrl+alt+q is quit's only key.
 func TestTheLastKeyOfARequiredActionIsRefusedWithoutAsking(t *testing.T) {
 	m := buildModel(t)
+	m.keys, _ = m.km().Rebind(keymap.ContextList, keymap.Quit, []string{"ctrl+alt+q"})
 	armOn(t, m, "show all of a session", keymap.ShowAllWork)
 	m.handleHelpKey(runeKey("ctrl+alt+q"))
 	if m.help.clash != nil {

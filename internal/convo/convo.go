@@ -40,7 +40,7 @@ import (
 
 // Conversation is one agent conversation as its own tool recorded it.
 type Conversation struct {
-	// Tool is the manager's name for the CLI: "claude", "opencode".
+	// Tool is the manager's name for the CLI: "claude", "opencode", "pi".
 	Tool string
 	// ID is the tool's own conversation id, which is also what revive resumes.
 	ID string
@@ -116,6 +116,8 @@ type Cost struct {
 type Index struct {
 	claude   string
 	opencode string
+	// pi is pi's sessions directory; empty contributes nothing.
+	pi string
 
 	// refreshMu serialises refreshes. The naming ticker re-arms without
 	// waiting for the pass it started, so on a loaded machine a second pass
@@ -134,12 +136,21 @@ type Index struct {
 	// them is final; one still short of the count is re-read once the file
 	// has grown.
 	heads map[string]head
+	// piFiles caches each pi session file as far as it has been read.
+	piFiles map[string]*piFile
 }
 
 // New builds an index over a Claude Code home directory and an opencode
 // database. Either may be empty, which simply contributes no conversations.
 func New(claudeHome, opencodeDB string) *Index {
-	return &Index{claude: claudeHome, opencode: opencodeDB, tails: map[string]tail{}, heads: map[string]head{}}
+	return &Index{claude: claudeHome, opencode: opencodeDB, tails: map[string]tail{}, heads: map[string]head{}, piFiles: map[string]*piFile{}}
+}
+
+// WithPi adds pi's sessions directory to the index, so pi panes are linked
+// and named from pi's own session files. Empty adds nothing.
+func (ix *Index) WithPi(sessionsDir string) *Index {
+	ix.pi = sessionsDir
+	return ix
 }
 
 // Refresh re-reads the agents' state. It does file and database I/O and must
@@ -159,6 +170,7 @@ func (ix *Index) Refresh(dirs []string) error {
 	oc, err := ix.opencodeConversations(&cost)
 	cost.OpenCode = time.Since(ocStart)
 	convos = append(convos, oc...)
+	convos = append(convos, ix.piConversations(dirs, &cost)...)
 	cost.Elapsed = time.Since(started)
 	ix.pruneTails(convos)
 
@@ -195,6 +207,11 @@ func (ix *Index) pruneTails(convos []Conversation) {
 	for path := range ix.heads {
 		if !live[path] {
 			delete(ix.heads, path)
+		}
+	}
+	for path := range ix.piFiles {
+		if !live[path] {
+			delete(ix.piFiles, path)
 		}
 	}
 }

@@ -891,6 +891,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	var agents agentStats
 	paneHashes := make(map[string]uint64, len(sessions))
 	searchText := make(map[string]string, len(sessions))
+	workingActivity := make(map[string]string, len(sessions))
 	childPane := make(map[string]string)
 	// answerableWait marks each child holding a wait its parent could take
 	// off it, which is what lets triage leave that row to the parent. Built
@@ -1036,6 +1037,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 					askReads[sess.ID] = read
 				}
 				searchText[sess.ID] = strings.ToLower(clean)
+				if region, ok := p.engine.ActivityRegion(sess.Tool, clean); ok {
+					workingActivity[sess.ID] = activityExcerpt(region)
+				}
 				p.notePaneMode(paneModes, sess, clean)
 				// A child's pane is kept off the same capture, for the same
 				// reason: relaying its question to its parent has to read the
@@ -1319,6 +1323,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		compactWindows:   p.compactViews,
 		archivedChildren: archivedKids,
 		searchText:       searchText,
+		workingActivity:  workingActivity,
 		answerableWait:   answerableWait,
 		choreRests:       choreRests,
 		askQuestions:     askQuestions,
@@ -2354,9 +2359,9 @@ func (p *poller) seal(sess store.Session, msg store.InboxMessage, text string) s
 	if p.hooks == nil {
 		return text
 	}
-	key, err := parentseal.Key(p.hooks.ConfigDir(), sess.ID)
+	key, err := parentseal.SigningKey(p.hooks.ConfigDir())
 	if err != nil {
-		logging.Warn("could not mint a session's sealing key", "session", sess.ID, logging.Err(err))
+		logging.Warn("could not read or mint the seal key", "session", sess.ID, logging.Err(err))
 		return text
 	}
 	return parentseal.Seal(key, msg.ID, sess.ID, msg.SenderID, text)

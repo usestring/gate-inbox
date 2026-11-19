@@ -235,6 +235,7 @@ func TestTriageDropsTheNumbersWithTheGroupRows(t *testing.T) {
 	if len(m.groupByNumber) != 0 {
 		t.Fatalf("triage has no group rows to number: %v", m.groupByNumber)
 	}
+	m.handleKey(key("esc"))
 	m.pressList(t, "1")
 	if m.errBar.text == "" {
 		t.Fatal("a digit in a view with no groups should say so")

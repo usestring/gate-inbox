@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/grant"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/envname"
@@ -18,6 +21,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mergegate"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/piauto"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // Hook answers `gate-inbox hook pi PreToolUse`: the call on in, the decision
@@ -33,16 +37,35 @@ func Hook(in io.Reader, configDir, sessionID, statusFile string, now time.Time) 
 			ConfigDir: configDir, SessionID: sessionID, StatusFile: statusFile,
 			Home: home, ClaudeHome: convo.ClaudeHome(),
 			MergeGate:       func(command, cwd string) (string, bool) { return mergeGate(configDir, command, cwd) },
+			OperationRules:  func(call grant.Call) []store.PiOperationRule { return configuredOperationRules(configDir, call) },
 			AutoMode:        func(r piauto.Request) piauto.Answer { return askAutoMode(configDir, sessionID, r) },
 			SkipPermissions: os.Getenv(envname.SkipPermissions) == "1",
 			Now:             now,
 		}, req)
+	}
+	if len(d.OperationRules) != 0 {
+		if err := recordOperationRules(configDir, d.OperationRules); err != nil {
+			slog.Warn("record Pi operation rules", "error", err)
+		}
 	}
 	out, err := json.Marshal(d)
 	if err != nil {
 		return `{"permissionDecision":"ask"}`
 	}
 	return string(out)
+}
+
+func recordOperationRules(configDir string, rules []store.PiOperationRule) error {
+	path := filepath.Join(configDir, "state.db")
+	if _, err := os.Stat(path); err != nil {
+		return err
+	}
+	st, err := store.OpenExisting(path)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	return st.CountPiOperationRules(rules)
 }
 
 // mergeGate is the merge-gate mod's check (merge-gate-check) for a pi call.

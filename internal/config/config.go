@@ -624,6 +624,14 @@ type Board struct {
 	OfferCLIOnLimit bool `toml:"offer_cli_on_limit"`
 }
 
+// PiOperationRules names operator-trusted commands for routine creates and
+// the exact GitHub repositories where a checked PR command can also push.
+type PiOperationRules struct {
+	LinearIssueCreate string   `toml:"linear_issue_create"`
+	PullRequestCreate string   `toml:"pull_request_create"`
+	PushRepositories  []string `toml:"push_repositories"`
+}
+
 type Config struct {
 	PollInterval       Duration `toml:"poll_interval"`
 	OutboxProbeTargets []string `toml:"outbox_probe_targets"`
@@ -677,7 +685,8 @@ type Config struct {
 	// MergeGate is the standing merge authority the merge-gate mod enforces
 	// ([merge_gate]). Empty owners or authors turns the gate off, and the
 	// mod is not loaded into launched sessions then.
-	MergeGate mergegate.Config `toml:"merge_gate"`
+	MergeGate        mergegate.Config `toml:"merge_gate"`
+	PiOperationRules PiOperationRules `toml:"pi_operation_rules"`
 	// Inbox configures `gate-inbox inbox serve` ([inbox]). Its tokens are
 	// never kept here: see inbox.LoadTokens.
 	Inbox inbox.Config    `toml:"inbox"`

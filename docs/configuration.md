@@ -67,6 +67,23 @@ exclude_repos = ["usestring/partiful"]
 
 Covered is one `gh pr merge <n> --squash` with nothing but `--delete-branch`, `--repo` and `--match-head-commit` beside it (a leading `cd <dir> &&`, a trailing `2>&1` and one `| tail` or `| head` are tolerated); never `--admin`. The repository's owner must be in `owners` and the repository must not be in `exclude_repos`. The pull request must be open, not a draft, authored by one of `authors`, and targeting the repository's default branch, which must not be a `deploy-*` branch. GitHub must report it CLEAN with every check green. Anything else, and any error reaching GitHub, refuses, which leaves the merge to the normal permission flow. An empty `owners` or `authors` turns the gate off, and the mod is not loaded then.
 
+### Pi operation rules
+
+Gate Inbox checks these rules before asking the model about a Pi tool call. Reads inside the working directory and MCP tools marked read-only are covered by default. Configure absolute paths to operator-managed create wrappers and name each repository that opts in to branch pushes.
+
+```toml
+[pi_operation_rules]
+linear_issue_create = "/opt/local/agent-tools/linear-create.sh"
+pull_request_create = "/opt/local/agent-tools/gh-pr-create.sh"
+push_repositories = ["example/project"]
+```
+
+Use tools you control outside agent-writable checkouts. The Linear wrapper takes `--team`, `--title`, and `--body`. The GitHub wrapper takes `--title` and `--body` or `--body-file` and must enforce the repository's publication and disclosure policy. Calls use the configured executable path directly and pass literal arguments. An empty path disables that create rule, and an empty repository list disables the push rule.
+
+For an opted-in repository, the rule can cover the PR wrapper's `--push` to publish the current feature branch. For a private repository, it can also cover a standalone `git push origin <full-head-sha>:refs/heads/<current-branch>` when the outgoing commits carry signatures. Gate Inbox checks the GitHub destination and the current default branch. Default branches, deployment branches, extra refs, and force pushes are outside this rule. A rule match lets the call run and creates no follow-up prompt.
+
+Run `gate-inbox pi-rule-counts` for cumulative counts on this board. A checked PR call with `--push` increments both counters. Counts measure permissions granted by these rules, so the operation can still fail after it starts.
+
 <a id="resource-hogs"></a>`[hogs]` sets when the board tells a session its processes are holding the machine (see [Resource hogs](usage.md#status)). It reads `/proc`, so it is Linux only (WSL2 included); elsewhere it is off. `enabled` (default on) switches it off with `false`. `sample_every` (default `"10s"`) is how often the trees are read, `reset_after` (default `"2m"`) is how long every rule of a kind must stay below before its episode ends -- a shorter dip keeps each rule's window open -- and `cooldown` (default `"30m"`) is the least time between two notices of the same tier to one session. Each tier of `[hogs.cpu]` and `[hogs.memory]` is a list of alternative rules; any one held for its `for` puts the session at that tier (`for` left out means the first sample that finds it). A CPU rule sets `percent`, summed over the tree, 100 being one full core. A memory rule sets `gib` (the tree's PSS), `growth_gib_per_min` (its growth over the last minute) and `available_below` (the host's `MemAvailable` as a percentage of RAM), and every one it sets must hold. A tier left out takes the built-in rules below; `stop = []` switches that tier off.
 
 | Kind | Tier | Built-in rules (any one) |

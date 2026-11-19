@@ -50,9 +50,10 @@ func TestTriagePicksUpABackgroundFinish(t *testing.T) {
 	m.applyCmd(t, m.toggleTriage())
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList || !m.triageResume {
-		t.Fatalf("draining left mode %v resume %v, want the list with the drain open", m.mode, m.triageResume)
+	if m.mode != modeForm || !m.triageResume {
+		t.Fatalf("draining left mode %v resume %v, want the form with the drain open", m.mode, m.triageResume)
 	}
+	m.handleKey(key("esc"))
 
 	if err := m.store.UpdateStatus(later.ID, status.Background); err != nil {
 		t.Fatal(err)

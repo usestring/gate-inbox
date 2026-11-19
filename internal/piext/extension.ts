@@ -30,6 +30,17 @@ const hookTimeoutMs = 5000;
 // caller treats it as "the board said nothing". A gate built on it (the
 // PreToolUse call) must read undefined as its fail-closed answer.
 function runHook(verb: string, payload: unknown, timeoutMs = hookTimeoutMs): Promise<unknown> {
+  return runBin(["hook", "pi", verb], payload, timeoutMs);
+}
+
+// runClaudeHook runs one of the `$GATE_INBOX_BIN hook <verb>` commands the
+// board's Claude Code hooks run, on the same payload Claude Code sends, so a
+// pi session gets the very note a claude one does.
+function runClaudeHook(verb: string, payload: unknown): Promise<unknown> {
+  return runBin(["hook", verb], payload, hookTimeoutMs);
+}
+
+function runBin(args: string[], payload: unknown, timeoutMs: number): Promise<unknown> {
   return new Promise((resolve) => {
     if (!bin) {
       resolve(undefined);
@@ -44,7 +55,7 @@ function runHook(verb: string, payload: unknown, timeoutMs = hookTimeoutMs): Pro
     };
     let child;
     try {
-      child = spawn(bin, ["hook", "pi", verb], { stdio: ["pipe", "pipe", "ignore"] });
+      child = spawn(bin, args, { stdio: ["pipe", "pipe", "ignore"] });
     } catch {
       done(undefined);
       return;
@@ -229,9 +240,75 @@ function boardTools(pi: ExtensionAPI) {
   });
 }
 
+// hookNote reads the model-facing text out of a Claude Code hook answer:
+// the context a UserPromptSubmit hook adds, or the reason a Stop hook blocks
+// with.
+function hookNote(answer: unknown): string {
+  const a = answer as { hookSpecificOutput?: { additionalContext?: unknown }; reason?: unknown } | undefined;
+  const note = a?.hookSpecificOutput?.additionalContext ?? a?.reason;
+  return typeof note === "string" ? note : "";
+}
+
+const noteType = "gate-inbox-note";
+
+// sessionNotes gives a pi session the notes Claude Code's prompt and stop
+// hooks give a claude one: who a message typed into the session is from,
+// checked against its Gate Inbox seal (`hook prompt-submit`), and which of
+// the session's children wait on a dialog (`hook child-dialogs`). Each note
+// is the Go side's, word for word.
+function sessionNotes(pi: ExtensionAPI) {
+  // Notes for the run the submitted prompt is about to start.
+  let pending: string[] = [];
+  let piSession = "";
+
+  pi.on("session_start", async (_event, ctx) => {
+    piSession = ctx.sessionManager.getSessionId();
+  });
+
+  // The prompt as typed, before pi expands it: the seal is in the text the
+  // board pasted, and an expansion could move or drop it.
+  pi.on("input", async (event) => {
+    if (event.source === "extension") return { action: "continue" };
+    const [seal, children] = await Promise.all([
+      runClaudeHook("prompt-submit", { hook_event_name: "UserPromptSubmit", session_id: piSession, prompt: event.text }),
+      runClaudeHook("child-dialogs", { hook_event_name: "UserPromptSubmit", session_id: piSession }),
+    ]);
+    const notes = [hookNote(seal), hookNote(children)].filter(Boolean);
+    if (notes.length === 0) return { action: "continue" };
+    if (event.streamingBehavior) {
+      // Typed while a run goes on: the note follows the message into it.
+      pi.sendMessage({ customType: noteType, content: notes.join("\n\n"), display: true }, { deliverAs: event.streamingBehavior });
+    } else {
+      pending = notes;
+    }
+    return { action: "continue" };
+  });
+
+  pi.on("before_agent_start", async (event) => {
+    if (event.messageType !== "user" || pending.length === 0) return;
+    const content = pending.join("\n\n");
+    pending = [];
+    return { message: { customType: noteType, content, display: true } };
+  });
+
+  // Claude Code's Stop hook can keep a turn going with a reason; pi's last
+  // chance to do the same is agent_before_settle, which may append a message
+  // and ask for one more provider request. turn_end would fire after every
+  // tool round, not once the run is over.
+  pi.on("agent_before_settle", async (event) => {
+    const note = hookNote(await runClaudeHook("child-dialogs", { hook_event_name: "Stop", session_id: piSession }));
+    if (!note) return;
+    return {
+      entries: [...event.entries, { type: "custom_message", customType: noteType, content: note, display: true }],
+      continue: true,
+    };
+  });
+}
+
 export default function gateInbox(pi: ExtensionAPI) {
   if (!bin || !statusFile) return;
   boardTools(pi);
+  sessionNotes(pi);
 
   pi.on("session_start", async (event, ctx) => {
     await report("session_start", { reason: event.reason, cwd: ctx.cwd, session_id: ctx.sessionManager.getSessionId() });

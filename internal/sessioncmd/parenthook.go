@@ -80,8 +80,18 @@ func verifySealed(st *store.Store, configDir, sessionID, text string, messageID 
 	if !claimed {
 		return unverified(fmt.Sprintf("Gate Inbox never typed a message %d into this session", messageID))
 	}
-	key, err := parentseal.ExistingKey(configDir, sessionID)
-	if err != nil || !parentseal.Verify(key, messageID, sessionID, sender, text, token) {
+	// A key that cannot be read says nothing about the message, so it is not
+	// reported as tampering: a session would refuse its own parent's word.
+	key, err := parentseal.PublicKey(configDir)
+	if err != nil {
+		return unverified("Gate Inbox's public seal key cannot be read in this session, so the seal could not " +
+			"be checked")
+	}
+	if key == nil {
+		return unverified("this session cannot see Gate Inbox's public seal key, so the seal could not be " +
+			"checked")
+	}
+	if !parentseal.Verify(key, messageID, sessionID, sender, text, token) {
 		return unverified("its seal does not match the text above it, so the text was altered or the seal " +
 			"was copied from another message")
 	}

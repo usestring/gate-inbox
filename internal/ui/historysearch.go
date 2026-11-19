@@ -110,7 +110,7 @@ func newHistoryLocator() *search.Locator {
 // as claude. A tool the index has no reader for keeps its own name and takes
 // the generic reader.
 func historyToolFormats(cfg config.Config) map[string]string {
-	readers := map[string]bool{search.ToolClaude: true, search.ToolCodex: true, search.ToolOpenCode: true}
+	readers := map[string]bool{search.ToolClaude: true, search.ToolCodex: true, search.ToolOpenCode: true, search.ToolPi: true}
 	formats := make(map[string]string, len(cfg.Tools))
 	for name, tool := range cfg.Tools {
 		format := tool.SessionStore

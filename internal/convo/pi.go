@@ -149,6 +149,11 @@ func piFilesFor(root, cwd string, since time.Time, limit int) []string {
 	for _, folder := range folders {
 		paths, _ := filepath.Glob(filepath.Join(root, folder, "*.jsonl"))
 		for _, path := range paths {
+			// A session file is <timestamp>_<id>.jsonl; a name with a second
+			// ".jsonl" in it is a copy somebody wrote beside one.
+			if strings.Count(filepath.Base(path), ".jsonl") != 1 {
+				continue
+			}
 			info, err := os.Stat(path)
 			if err != nil || info.ModTime().Before(since) {
 				continue

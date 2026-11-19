@@ -42,7 +42,7 @@ func TestArchiveSessionReleasesItsInProgressClaims(t *testing.T) {
 	claimFor(t, st, "a", "worker")
 	claimFor(t, st, "b", "worker")
 	claimFor(t, st, "done", "worker")
-	if _, err := st.FinishTask("done", "worker", time.Now()); err != nil {
+	if _, err := st.FinishTask("done", "worker", "", time.Now()); err != nil {
 		t.Fatalf("FinishTask: %v", err)
 	}
 	claimFor(t, st, "theirs", "other")

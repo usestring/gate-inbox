@@ -27,6 +27,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -123,6 +124,62 @@ func Healthy(configDir, url string) bool {
 	defer resp.Body.Close()
 	got, err := io.ReadAll(io.LimitReader(resp.Body, 256))
 	return err == nil && resp.StatusCode == http.StatusOK && hmac.Equal(bytes.TrimSpace(got), []byte(want))
+}
+
+// HealthyFor reports whether the server at url is the board's own, checked
+// by a client that holds only session's caller token and not the key: the
+// server answers with the proof keyed by that token
+// (parentseal.SessionServerProof), which only a holder of the key can
+// derive. A session confined away from the key dir checks the server this
+// way before it sends the token there.
+func HealthyFor(url, session, token string) bool {
+	if url == "" || session == "" || token == "" {
+		return false
+	}
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return false
+	}
+	nonce := hex.EncodeToString(raw)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	query := neturl.Values{"nonce": {nonce}, "session": {session}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+HealthPath+"?"+query.Encode(), nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	got, err := io.ReadAll(io.LimitReader(resp.Body, 256))
+	want := parentseal.SessionServerProof(token, nonce)
+	return err == nil && resp.StatusCode == http.StatusOK && hmac.Equal(bytes.TrimSpace(got), []byte(want))
+}
+
+// SessionToken is session id's caller token as its own MCP config
+// (ClaudeConfigPath) holds it, or "" when there is none. A session confined
+// away from the key dir can still read that one file, so this is how it
+// proves itself to the shared server without the key.
+func SessionToken(configDir, id string) string {
+	data, err := os.ReadFile(ClaudeConfigPath(configDir, id))
+	if err != nil {
+		return ""
+	}
+	var doc struct {
+		Servers map[string]struct {
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	if json.Unmarshal(data, &doc) != nil {
+		return ""
+	}
+	entry := doc.Servers[mcpreg.ServerName]
+	if entry.Headers[CallerHeader] != id {
+		return ""
+	}
+	return entry.Headers[CallerTokenHeader]
 }
 
 // Ensure is the URL of a server serving configDir, starting exe's when none

@@ -485,6 +485,9 @@ func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
+	if err := config.CheckVersion(baseCommand); err != nil {
+		return "", nil, err
+	}
 	// Refused before anything is removed or written: a style nothing
 	// implements is a config mistake, not a launch half made.
 	if err := tooldrivers.CheckTool(toolName, tool); err != nil {
@@ -672,6 +675,9 @@ var resolveAccount = accounts.Resolve
 
 func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, skip bool, contributed map[string]string, profile string, write bool) (string, map[string]string, error) {
 	if err := config.CheckInstalled(baseCommand); err != nil {
+		return "", nil, err
+	}
+	if err := config.CheckVersion(baseCommand); err != nil {
 		return "", nil, err
 	}
 	if err := checkContributed(tool, contributed); err != nil {

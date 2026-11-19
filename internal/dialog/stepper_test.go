@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
@@ -292,5 +293,49 @@ func TestAClippedReviewPageNeedsItsChoicesAtTheFoot(t *testing.T) {
 	prose := "   → Deploy search\nI asked: Ready to submit your answers?\n\n❯ 1. Submit answers\n  2. Cancel\n\nmore output\n"
 	if _, ok := ParseReview(prose); ok {
 		t.Error("prose quoting the review page read as one")
+	}
+}
+
+// A review page Claude Code 2.1.328 scrolled inside its own box, measured
+// live in a 110x22 pane with four long questions: the box draws "↑ 6 more
+// lines" over the choices, so "Ready to submit your answers?" is out of sight
+// as well as the heading and the tab row.
+const reviewScrolledInBox = ` │   recorded in the rollout log, is read back by the next session that picks up this work, and cannot be
+ │   changed later without opening a new review, so please pick the option you would still stand behind next
+ │   week.
+   → North
+ │ ● Round A: how often should the survey run once it starts? Before you answer, keep in mind that this choice
+ │   is recorded in the rollout log, is read back by the next session that picks up this work, and cannot be
+ │   changed later without opening a new review, so please pick the option you would still stand behind next
+ │   week.
+   → Weekly
+ │ ● Round A: which format should the survey report use? Before you answer, keep in mind that this choice is
+ │   recorded in the rollout log, is read back by the next session that picks up this work, and cannot be
+ │   changed later without opening a new review, so please pick the option you would still stand behind next
+ │   week.
+   → Table
+ ↑ 6 more lines
+❯ 1. Submit answers
+  2. Cancel
+`
+
+func TestAReviewPageScrolledInItsBoxReadsAsAReviewPage(t *testing.T) {
+	review, ok := OnReview(reviewScrolledInBox)
+	if !ok || !review.Clipped || review.Submit != 1 || review.Cursor != 1 {
+		t.Fatalf("review = %+v ok = %v", review, ok)
+	}
+	var answers []string
+	for _, answer := range review.Answers {
+		answers = append(answers, answer.Answer)
+	}
+	if want := []string{"North", "Weekly", "Table"}; !slices.Equal(answers, want) {
+		t.Errorf("answers = %q, want %q", answers, want)
+	}
+}
+
+func TestAScrollMarkerOverOtherChoicesIsNotAReviewPage(t *testing.T) {
+	pane := "   → North\n ↑ 6 more lines\n❯ 1. Yes\n  2. No\n"
+	if _, ok := ParseReview(pane); ok {
+		t.Error("a scroll marker over choices other than Submit read as a review page")
 	}
 }

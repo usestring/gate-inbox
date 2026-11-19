@@ -256,8 +256,9 @@ func ParseReview(pane string) (Review, bool) {
 		case strings.HasPrefix(text, "→ ") && current != nil && !inAnswer:
 			current.Answer = strings.TrimSpace(text[len("→ "):])
 			inAnswer = true
-		case strings.HasPrefix(text, "Ready to submit your"):
-			// Whole, or the first row of it wrapped on a narrow pane.
+		case strings.HasPrefix(text, "Ready to submit your"), reviewScroll.MatchString(text):
+			// Whole, or the first row of it wrapped on a narrow pane; or the
+			// marker of a page scrolled inside its own box.
 			current, inAnswer = nil, false
 		case inAnswer && current != nil && !askOption.MatchString(line):
 			// An answer longer than the pane is wide wraps under its arrow.
@@ -286,12 +287,19 @@ func ParseReview(pane string) (Review, bool) {
 	return review, true
 }
 
+// reviewScroll is the marker Claude Code draws over the review page's choices
+// when it scrolls the page inside its own box: on 2.1.328 the page then ends
+// "↑ 6 more lines" with "Ready to submit your answers?" out of sight.
+var reviewScroll = regexp.MustCompile(`^[\x{2191}\x{2193}] \d+ more lines?$`)
+
 // endsOnReviewChoices reports whether the pane ends the way the review page
-// does: "Ready to submit your answers?" (whole or wrapped), then nothing but
-// its numbered choices.
+// does: "Ready to submit your answers?" (whole or wrapped), or the page's
+// scroll marker over a first choice of "Submit answers", then nothing but its
+// numbered choices.
 func endsOnReviewChoices(lines []string) bool {
 	end := len(lines) - 1
 	choices := 0
+	first := ""
 	for ; end >= 0; end-- {
 		text := strings.TrimSpace(lines[end])
 		switch {
@@ -299,6 +307,7 @@ func endsOnReviewChoices(lines []string) bool {
 			continue
 		case askOption.MatchString(lines[end]):
 			choices++
+			first = askOption.FindStringSubmatch(lines[end])[3]
 			continue
 		}
 		break
@@ -309,6 +318,9 @@ func endsOnReviewChoices(lines []string) bool {
 	text := strings.TrimSpace(lines[end])
 	if text == reviewPrompt {
 		return true
+	}
+	if reviewScroll.MatchString(text) {
+		return normalise(first) == "submit answers"
 	}
 	return text == "answers?" && end > 0 && strings.TrimSpace(lines[end-1]) == "Ready to submit your"
 }

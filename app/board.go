@@ -164,7 +164,7 @@ func runBoard(version string, registry *extension.Registry) error {
 	// An opencode started outside the board gets the same from a plugin in
 	// its global config, kept by the same passes.
 	stopClaudeSetup := keepClaudeSetup(dir, cfg.ClaudeCode.SetupOn(), cfg.Codex.SetupOn(), newOpencodeSetup(cfg))
-	stopSharedMCP := keepSharedMCP(dir, cfg.ClaudeCode.SharedMCPOn())
+	stopSharedMCP := keepSharedMCP(dir, cfg.ClaudeCode.SharedMCPOn() || piAutoModeConfigured(cfg))
 	defer stopSharedMCP()
 	defer stopClaudeSetup()
 	// A board that quits lets go of its adopted panes: their hooks stop

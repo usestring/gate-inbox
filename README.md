@@ -108,8 +108,9 @@ directory, first prompt, group). Agents name their own sessions after the task.
 accepting does not launch the session. Suggestions come from the newest 16 MiB of each CLI's
 submission log within the past 30 days. A whole prompt or a line in a multi-line prompt must occur
 at least four times to qualify. Counting ignores case and repeated whitespace, and each submission
-counts once per candidate. The logs are reread in the background every minute. History and matching
-stay local; this feature makes no network requests. The hotkey-only snippet menu is unchanged.
+counts once per candidate. The logs are reread in the background every minute. Gate Inbox matches
+prompts against history locally. Enable **Auto Suggest** as well to rank those matches with the selected
+classifier. The hotkey-only snippet menu is unchanged.
 
 **See status.** Every row shows whether its agent is working, waiting on you, finished or idle,
 read from the pane itself. The preview beside the list shows the conversation as **You** and
@@ -227,6 +228,31 @@ enabled = false
 enabled = false
 ```
 
+**PR custody for automation.** A confirmed replacement or account migration hands the original
+session's recorded pull requests to its successor. The original records remain, and ordinary
+restarts keep the same identity. Parallel migrations do not transfer custody until completed.
+
+`gate-inbox pr-owner https://github.com/owner/repo/pull/1 --json` returns `status` as `owned`,
+`none`, or `ambiguous`, with a lowercase `url`. An owned result has a flat `session_id`;
+an ambiguous result lists `session_ids`. Only recorded creation evidence and explicit handoffs
+count. The recipient must be a live, nonarchived agent. Broken lineage and an unavailable board
+are errors, never evidence that nobody owns the PR. GitHub owner/repository casing is ignored.
+
+To queue feedback, use `gate-inbox pr-feedback <url> --event-key <key>
+--expect-session-id <id> --message-file <path> --json`. Keys contain 1–128 letters, digits,
+underscores or hyphens; files contain 1–8000 bytes of UTF-8 text. The response contains `status`
+(`accepted` or `duplicate`), a positive integer `message_id`, `session_id`, `url`, and `event_key`.
+A new acceptance atomically checks the resolved owner and queues an ordinary noninterrupting
+system message. Approval and input guards still govern delivery. It never revives a session.
+
+Retry the same key and exact file after an uncertain response. Reusing a key for different
+content or another PR fails. Receipts survive restarts and handoffs; a duplicate reports the
+message's current recipient while its inbox row exists, otherwise its original accepted recipient.
+Acceptance does not promise delivery. Pending messages follow committed handoffs once; migration
+leaves messages already being delivered with the source. Receipts remain in the existing settings
+store without expiry so an old retry cannot silently enqueue again. A changed or ambiguous owner
+refuses new feedback; callers should defer on errors rather than infer permission to start work.
+
 Pages a session publishes hang under it too, below its pull requests and tickets. The board reads
 Claude artifacts from Claude Code's own `Artifact` tool itself, and only those the session's own
 publish call returned: a page it merely linked does not count. Pages hosted elsewhere arrive from
@@ -304,6 +330,27 @@ Keep that checkout available at the linked path. Merge these entries into the pr
 ```
 
 Run `bash hooks/skill-gate-inbox-priority.test.sh` from the Gate Inbox checkout to test the hook.
+
+## Experimental features
+
+Gate Inbox uses TypeSafe's Jev as the default classifier for three opt-in features. Add a Jev API
+key under Settings → Classifier, then enable the features you want under Settings → Experimental.
+You can also select Clef as the classifier.
+
+- **Finish check.** When a Claude Code session finishes, Gate Inbox can ask Jev whether the task
+  is done and whether the agent stopped because it needed Chrome access. If Jev is confident that
+  missing Chrome access blocked unfinished work, Gate Inbox can resume the same conversation
+  with Chrome enabled.
+- **Auto Suggest.** Jev ranks earlier prompts from an existing session against the recent
+  conversation to suggest a next reply. With **Prompt suggestions** also enabled, Jev ranks
+  matching prompts from local history against the draft in the New Session form. You can edit
+  the suggestion before sending it.
+- **Smart copy.** When you press the copy key, Jev identifies commands, links, or values the agent
+  left for you in its latest reply. A separate run key lets you run a selected one-line command
+  in the session.
+
+See the [usage guide](docs/usage.md#hotkey-menu) for the controls and what text each feature sends
+to the classifier.
 
 ## Development
 

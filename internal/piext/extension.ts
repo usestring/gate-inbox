@@ -12,6 +12,9 @@
 // without it.
 
 import { spawn } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   type BashOperations,
@@ -38,6 +41,17 @@ const hookTimeoutMs = 5000;
 // caller treats it as "the board said nothing". A gate built on it (the
 // PreToolUse call) must read undefined as its fail-closed answer.
 function runHook(verb: string, payload: unknown, timeoutMs = hookTimeoutMs): Promise<unknown> {
+  return runBin(["hook", "pi", verb], payload, timeoutMs);
+}
+
+// runClaudeHook runs one of the `$GATE_INBOX_BIN hook <verb>` commands the
+// board's Claude Code hooks run, on the same payload Claude Code sends, so a
+// pi session gets the very note a claude one does.
+function runClaudeHook(verb: string, payload: unknown): Promise<unknown> {
+  return runBin(["hook", verb], payload, hookTimeoutMs);
+}
+
+function runBin(args: string[], payload: unknown, timeoutMs: number): Promise<unknown> {
   return new Promise((resolve) => {
     if (!bin) {
       resolve(undefined);
@@ -52,7 +66,7 @@ function runHook(verb: string, payload: unknown, timeoutMs = hookTimeoutMs): Pro
     };
     let child;
     try {
-      child = spawn(bin, ["hook", "pi", verb], { stdio: ["pipe", "pipe", "ignore"] });
+      child = spawn(bin, args, { stdio: ["pipe", "pipe", "ignore"] });
     } catch {
       done(undefined);
       return;
@@ -110,8 +124,296 @@ function endedInError(messages: unknown): boolean {
   return false;
 }
 
+// The board's MCP server, under the name Claude Code knows it by. Pi turns
+// every character of a tool name other than letters, digits and _ into _,
+// so its tools reach the model as mcp__gate_inbox__*; the steering names
+// them by their bare names (report_status, rename), which read the same in
+// both.
+const mcpServer = "gate-inbox";
+const renameTool = `mcp__${mcpServer.replace(/[^A-Za-z0-9_]/g, "_")}__rename`;
+
+type McpServerConfig = Parameters<ExtensionAPI["registerMcpServer"]>[1];
+
+// mcpConfigFile is the launch's MCP config for this session (Go:
+// piext.MCPConfigEnv), in the mcpServers shape Claude Code reads: the
+// shared server with this session's caller token, or a server of its own.
+const mcpConfigFile = process.env.GATE_INBOX_MCP_CONFIG ?? "";
+
+// boardServerConfig turns the launch's mcpServers entry into what
+// pi.registerMcpServer takes. The shapes match but for the timeout, which
+// Claude Code reads in milliseconds and pi in seconds. Every tool is
+// declared to the model directly, as Claude Code declares them.
+function boardServerConfig(): McpServerConfig {
+  const parsed = JSON.parse(readFileSync(mcpConfigFile, "utf8")) as {
+    mcpServers?: Record<string, ClaudeServerEntry>;
+  };
+  const entry = parsed.mcpServers?.[mcpServer];
+  if (!entry) throw new Error(`${mcpConfigFile} has no ${mcpServer} server`);
+  const shared = { exposure: "direct", description: "Gate Inbox board: sessions, status, permissions" } as const;
+  if (entry.url) {
+    const timeout = entry.timeout ? Math.ceil(entry.timeout / 1000) : undefined;
+    return { ...shared, url: entry.url, headers: entry.headers, timeout };
+  }
+  if (!entry.command) throw new Error(`${mcpConfigFile}: the ${mcpServer} server has neither url nor command`);
+  return { ...shared, command: entry.command, args: entry.args, env: entry.env };
+}
+
+// ClaudeServerEntry is the part of a Claude Code mcpServers entry the
+// launch writes; timeout is in milliseconds.
+type ClaudeServerEntry = {
+  url?: string;
+  headers?: Record<string, string>;
+  timeout?: number;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+};
+
+// overridingConfigs names the pi config files that define a server under
+// the board's name. Pi lets a file-configured server win over one an
+// extension registers, and counts - and _ as the same character, so such an
+// entry would silently take the board's tools over.
+function overridingConfigs(cwd: string): string[] {
+  const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+  const same = (name: string) => name.replace(/-/g, "_") === mcpServer.replace(/-/g, "_");
+  const found: string[] = [];
+  for (const file of [join(agentDir, "mcp.json"), join(cwd, ".pi", "mcp.json")]) {
+    try {
+      const parsed = JSON.parse(readFileSync(file, "utf8")) as { mcpServers?: Record<string, unknown> };
+      if (Object.keys(parsed.mcpServers ?? {}).some(same)) found.push(file);
+    } catch {
+      // No file, or one pi will report itself.
+    }
+  }
+  return found;
+}
+
+// boardTools gives the session the board's MCP tools and standing
+// instructions, and keeps the session's name and the board row's in step.
+// Its registration is for this run only; nothing is written to ~/.pi.
+function boardTools(pi: ExtensionAPI) {
+  let registerError = "";
+  if (mcpConfigFile) {
+    try {
+      pi.registerMcpServer(mcpServer, boardServerConfig());
+    } catch (err) {
+      registerError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  // Fetched once a session: the text is the board's, fixed for the build.
+  let steering = "";
+  // The name last mirrored either way, so the change pi raises for a name
+  // the extension set is not sent back as a rename of its own.
+  let mirrored: string | undefined;
+
+  pi.on("session_start", async (_event, ctx) => {
+    if (registerError) {
+      ctx.ui.notify(`Gate Inbox: the board's MCP tools are not registered: ${registerError}`, "error");
+    }
+    const overrides = overridingConfigs(ctx.cwd);
+    if (overrides.length > 0) {
+      ctx.ui.notify(
+        `Gate Inbox: ${overrides.join(" and ")} defines a "${mcpServer}" MCP server, which overrides the board's; this session's board tools come from that entry.`,
+        "warning",
+      );
+      await runHook("mcp_override", { sources: overrides });
+    }
+    mirrored = pi.getSessionName();
+    if (!steering) {
+      const answer = (await runHook("steering", {})) as { steering?: unknown } | undefined;
+      if (typeof answer?.steering === "string") steering = answer.steering;
+    }
+  });
+
+  // A section rather than a rewritten prompt: pi patches only a section
+  // that changed, so the model's cached prefix survives every turn after
+  // the first.
+  pi.on("before_agent_start", async (event) => {
+    if (steering) event.systemPromptOptions.sections[mcpServer] = steering;
+  });
+
+  // The board's rename names the row; the session's own name follows it,
+  // so pi's session list and the board agree.
+  pi.on("tool_result", async (event) => {
+    if (event.toolName !== renameTool || event.isError) return;
+    const name = typeof event.input?.name === "string" ? event.input.name.trim() : "";
+    if (!name || name === mirrored) return;
+    mirrored = name;
+    pi.setSessionName(name);
+  });
+
+  // Pi's own /name renames the board row too.
+  pi.on("session_info_changed", async (event) => {
+    if (!event.name || event.name === mirrored) return;
+    mirrored = event.name;
+    await runHook("session_info_changed", { name: event.name });
+  });
+}
+
+// hookNote reads the model-facing text out of a Claude Code hook answer:
+// the context a UserPromptSubmit hook adds, or the reason a Stop hook blocks
+// with.
+function hookNote(answer: unknown): string {
+  const a = answer as { hookSpecificOutput?: { additionalContext?: unknown }; reason?: unknown } | undefined;
+  const note = a?.hookSpecificOutput?.additionalContext ?? a?.reason;
+  return typeof note === "string" ? note : "";
+}
+
+const noteType = "gate-inbox-note";
+
+// sessionNotes gives a pi session the notes Claude Code's prompt and stop
+// hooks give a claude one: who a message typed into the session is from,
+// checked against its Gate Inbox seal (`hook prompt-submit`), and which of
+// the session's children wait on a dialog (`hook child-dialogs`). Each note
+// is the Go side's, word for word.
+function sessionNotes(pi: ExtensionAPI) {
+  // Notes for the run the submitted prompt is about to start.
+  let pending: string[] = [];
+  let piSession = "";
+
+  pi.on("session_start", async (_event, ctx) => {
+    piSession = ctx.sessionManager.getSessionId();
+  });
+
+  // The prompt as typed, before pi expands it: the seal is in the text the
+  // board pasted, and an expansion could move or drop it.
+  pi.on("input", async (event) => {
+    if (event.source === "extension") return { action: "continue" };
+    const [seal, children] = await Promise.all([
+      runClaudeHook("prompt-submit", { hook_event_name: "UserPromptSubmit", session_id: piSession, prompt: event.text }),
+      runClaudeHook("child-dialogs", { hook_event_name: "UserPromptSubmit", session_id: piSession }),
+    ]);
+    const notes = [hookNote(seal), hookNote(children)].filter(Boolean);
+    if (notes.length === 0) return { action: "continue" };
+    if (event.streamingBehavior) {
+      // Typed while a run goes on: the note follows the message into it.
+      pi.sendMessage({ customType: noteType, content: notes.join("\n\n"), display: true }, { deliverAs: event.streamingBehavior });
+    } else {
+      pending = notes;
+    }
+    return { action: "continue" };
+  });
+
+  pi.on("before_agent_start", async (event) => {
+    if (event.messageType !== "user" || pending.length === 0) return;
+    const content = pending.join("\n\n");
+    pending = [];
+    return { message: { customType: noteType, content, display: true } };
+  });
+
+  // Claude Code's Stop hook can keep a turn going with a reason; pi's last
+  // chance to do the same is agent_before_settle, which may append a message
+  // and ask for one more provider request. turn_end would fire after every
+  // tool round, not once the run is over.
+  pi.on("agent_before_settle", async (event) => {
+    const note = hookNote(await runClaudeHook("child-dialogs", { hook_event_name: "Stop", session_id: piSession }));
+    if (!note) return;
+    return {
+      entries: [...event.entries, { type: "custom_message", customType: noteType, content: note, display: true }],
+      continue: true,
+    };
+  });
+}
+
+// pluginDir is the board's Claude Code plugin (Go: piext.PluginDirEnv).
+const pluginDir = process.env.GATE_INBOX_PLUGIN_DIR ?? "";
+
+// commandTimeoutMs bounds one shell line a command template runs.
+const commandTimeoutMs = 30000;
+
+// runShell runs one line of a command template with sh and answers what it
+// printed, its errors included, as Claude Code puts a !`command` line's
+// output into the prompt.
+function runShell(line: string, cwd: string): Promise<string> {
+  return new Promise((resolve) => {
+    let out = "";
+    let child;
+    try {
+      child = spawn("sh", ["-c", line], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    } catch (err) {
+      resolve(`(could not run: ${err instanceof Error ? err.message : String(err)})`);
+      return;
+    }
+    const timer = setTimeout(() => child.kill("SIGKILL"), commandTimeoutMs);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => (out += chunk));
+    child.stderr.on("data", (chunk: string) => (out += chunk));
+    child.on("error", (err: Error) => {
+      clearTimeout(timer);
+      resolve(`(could not run: ${err.message})`);
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      resolve(out.trimEnd());
+    });
+  });
+}
+
+// commandTemplate splits a Claude Code command file into its frontmatter
+// description and its body.
+function commandTemplate(file: string): { description: string; body: string } {
+  const text = readFileSync(file, "utf8");
+  const match = /^---\n([\s\S]*?)\n---\n?/.exec(text);
+  const front = match?.[1] ?? "";
+  const description = /^description:\s*(.*)$/m.exec(front)?.[1]?.trim() ?? "";
+  return { description, body: match ? text.slice(match[0].length) : text };
+}
+
+// expandTemplate does what Claude Code does to a command body: $ARGUMENTS
+// becomes the arguments, and each !`command` line becomes its output.
+async function expandTemplate(body: string, args: string, cwd: string): Promise<string> {
+  const lines = body.replaceAll("$ARGUMENTS", args).split("\n");
+  const expanded = await Promise.all(
+    lines.map((line) => {
+      const shell = /^!`(.+)`\s*$/.exec(line);
+      return shell ? runShell(shell[1], cwd) : Promise.resolve(line);
+    }),
+  );
+  return expanded.join("\n").trim();
+}
+
+// boardSkills offers a pi session the board's skills and slash commands from
+// the plugin a claude launch loads, so the two CLIs read one copy: skills/
+// through resources_discover (as /skill:<name>), and each commands/<name>.md
+// as /<name>, expanded the way Claude Code expands it and sent as the prompt.
+function boardSkills(pi: ExtensionAPI) {
+  if (!pluginDir) return;
+  pi.on("resources_discover", async () => ({ skillPaths: [join(pluginDir, "skills")] }));
+
+  let files: string[] = [];
+  try {
+    files = readdirSync(join(pluginDir, "commands")).filter((f) => f.endsWith(".md"));
+  } catch {
+    return;
+  }
+  for (const file of files) {
+    const path = join(pluginDir, "commands", file);
+    let template;
+    try {
+      template = commandTemplate(path);
+    } catch {
+      continue;
+    }
+    const { description, body } = template;
+    pi.registerCommand(basename(file, ".md"), {
+      description,
+      handler: async (args, ctx) => {
+        const prompt = await expandTemplate(body, args.trim(), ctx.cwd);
+        if (ctx.isIdle()) pi.sendUserMessage(prompt);
+        else pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+      },
+    });
+  }
+}
+
 export default function gateInbox(pi: ExtensionAPI) {
   if (!bin || !statusFile) return;
+  boardTools(pi);
+  sessionNotes(pi);
+  boardSkills(pi);
+  askUserQuestion(pi);
   sandboxedBash(pi);
 
   pi.on("session_start", async (event, ctx) => {
@@ -177,6 +479,7 @@ function registerToolGate(pi: ExtensionAPI) {
       cwd: ctx.cwd,
       tool_use_id: event.toolCallId,
       read_only: tool?.annotations?.readOnlyHint === true,
+      ...userMessages(ctx.sessionManager.getBranch()),
     });
     if (ctx.signal?.aborted) return { block: true, reason: "cancelled" };
     if (d.permissionDecision === "allow") return undefined;
@@ -185,6 +488,25 @@ function registerToolGate(pi: ExtensionAPI) {
     }
     return askUser(d, event.toolCallId, ctx);
   });
+}
+
+// userMessages is the session's first user message and its latest three,
+// which auto mode shows the classifier as what the user asked for. The board
+// leaves out any a session or the board itself wrote.
+function userMessages(entries: unknown[]): { brief?: string; recent?: string[] } {
+  const texts: string[] = [];
+  for (const entry of entries as { type?: string; message?: { role?: string; content?: unknown } }[]) {
+    if (entry?.type !== "message" || entry.message?.role !== "user") continue;
+    const content = entry.message.content;
+    const text =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content.filter((p) => p?.type === "text").map((p) => String(p.text ?? "")).join("\n")
+          : "";
+    if (text.trim()) texts.push(text.slice(0, 4000));
+  }
+  return texts.length ? { brief: texts[0], recent: texts.slice(-3) } : {};
 }
 
 type Answer = { choice: "yes" | "always" | "no" | "cancel"; reason?: string };
@@ -314,6 +636,469 @@ function renderPermission(spec: DialogSpec, labels: string[], cursor: number, re
   });
   lines.push("", ` ${permissionLegend}`);
   return lines.map((line) => (Array.from(line).length > w ? Array.from(line).slice(0, w).join("") : line));
+}
+
+// ---- AskUserQuestion ----
+//
+// Pi has no question tool of its own. This one takes Claude Code's schema
+// and draws Claude Code's question dialog, row for row, so everything the
+// board already does with a claude child's question applies to a pi child's
+// unchanged: read_session reads it, a parent relays it, answer_session keys
+// it, and an Approval-headed question only takes a relayed answer. Its call
+// goes through `hook ask-pending` before the dialog draws and `hook
+// ask-answered` after, with the payloads Claude Code's own hooks send.
+
+type AskOption = { label: string; description?: string; preview?: string };
+type AskQuestion = { question: string; header: string; options: AskOption[]; multiSelect?: boolean };
+
+const askParameters = {
+  type: "object",
+  properties: {
+    questions: {
+      type: "array",
+      minItems: 1,
+      maxItems: 4,
+      description: "Questions to ask the user (1-4 questions)",
+      items: {
+        type: "object",
+        properties: {
+          question: {
+            type: "string",
+            description: "The complete question to ask the user. Should be clear, specific, and end with a question mark.",
+          },
+          header: { type: "string", description: "Very short label displayed as a chip/tag (max 12 chars)." },
+          options: {
+            type: "array",
+            minItems: 2,
+            maxItems: 4,
+            description: "The available choices. Each should be a distinct, mutually exclusive choice; the user can always type their own answer instead.",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string", description: "The display text for this option (1-5 words)." },
+                description: { type: "string", description: "What this option means or what will happen if chosen." },
+                preview: { type: "string", description: "Optional content shown while the option is focused, such as a code snippet or mockup." },
+              },
+              required: ["label", "description"],
+            },
+          },
+          multiSelect: { type: "boolean", default: false, description: "Allow more than one option to be selected." },
+        },
+        required: ["question", "header", "options", "multiSelect"],
+      },
+    },
+  },
+  required: ["questions"],
+};
+
+// askTimeoutMs bounds `hook ask-pending`. It can hold the call while a gate
+// channel consumer answers it, for up to 50 seconds (gatechannel.MaxHold);
+// a hold cut short only means the dialog draws.
+const askTimeoutMs = 60000;
+
+type AskOutcome =
+  | { kind: "answered"; answers: Record<string, string> }
+  | { kind: "chat" }
+  | { kind: "cancel" };
+
+type AskDetails = { questions: AskQuestion[]; answers?: Record<string, string>; outcome: AskOutcome["kind"] | "declined" };
+
+function askUserQuestion(pi: ExtensionAPI) {
+  // The approval note a spawned claude child gets from its SessionStart
+  // hook. It tells the child to ask with this tool, so it is given here,
+  // beside the tool, as a system prompt section.
+  let childNote = "";
+  pi.on("session_start", async () => {
+    childNote = hookNote(await runClaudeHook("session-start", { hook_event_name: "SessionStart" }));
+  });
+  pi.on("before_agent_start", async (event) => {
+    if (childNote) event.systemPromptOptions.sections["gate-inbox-child"] = childNote;
+  });
+
+  pi.registerTool({
+    name: "AskUserQuestion",
+    label: "AskUserQuestion",
+    description:
+      "Ask the user 1-4 multiple-choice questions and wait for their answers. Use it to settle ambiguous " +
+      "instructions, get their preferences or decisions, and ask for approval of an action (header " +
+      '"Approval"). The user can always type an answer of their own instead of an option.',
+    parameters: askParameters as never,
+    async execute(toolCallId: string, params: { questions: AskQuestion[] }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: any) {
+      const questions = params.questions;
+      const hookInput = { tool_name: "AskUserQuestion", tool_use_id: toolCallId, tool_input: { questions } };
+      const held = (await runBin(["hook", "ask-pending"], { hook_event_name: "PreToolUse", ...hookInput }, askTimeoutMs)) as
+        | { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string; updatedInput?: { answers?: Record<string, string> } } }
+        | undefined;
+      let outcome: AskOutcome = { kind: "cancel" };
+      let declined = "";
+      try {
+        const decision = held?.hookSpecificOutput;
+        if (decision?.permissionDecision === "allow" && decision.updatedInput?.answers) {
+          outcome = { kind: "answered", answers: decision.updatedInput.answers };
+        } else if (decision?.permissionDecision === "deny") {
+          declined = decision.permissionDecisionReason || "The user declined to answer.";
+        } else if (!ctx.hasUI) {
+          return askResult("This session has no screen to ask the user on, so the question was not asked.", { questions, outcome: "cancel" });
+        } else {
+          outcome = (await ctx.ui.custom(
+            (_tui: unknown, _theme: unknown, keybindings: Keybindings, done: (o: AskOutcome) => void) =>
+              askDialog(questions, keybindings, done, signal),
+            { blocked: { kind: "question", message: questions[0]?.header || "Question" } },
+          )) as AskOutcome;
+        }
+      } finally {
+        await runHook("ask_resolved", { tool_use_id: toolCallId });
+      }
+      if (declined) return askResult(declined, { questions, outcome: "declined" });
+      if (outcome?.kind === "chat") {
+        return askResult(
+          "The user wants to talk this over rather than pick an answer. Ask them in plain words what they have in mind.",
+          { questions, outcome: "chat" },
+        );
+      }
+      if (outcome?.kind !== "answered") {
+        return askResult("The user cancelled the question without answering. Wait for their instructions.", { questions, outcome: "cancel" });
+      }
+      // Who keyed the answer: a parent agent's answer is marked as not the
+      // user's, for the model as for Claude Code's classifier.
+      const provenance = (await runClaudeHook("ask-answered", { hook_event_name: "PostToolUse", ...hookInput })) as
+        | { hookSpecificOutput?: { classifierContext?: unknown } }
+        | undefined;
+      const note = provenance?.hookSpecificOutput?.classifierContext;
+      const listed = Object.entries(outcome.answers).map(([q, a]) => `"${q}"="${a}"`).join(", ");
+      const text =
+        `User has answered your questions: ${listed}. You can now continue with the user's answers in mind.` +
+        (typeof note === "string" && note ? `\n\n${note}` : "");
+      return askResult(text, { questions, answers: outcome.answers, outcome: "answered" });
+    },
+    renderResult(result: { details?: AskDetails; content?: { type: string; text?: string }[] }) {
+      return { render: (width: number) => renderAnswered(result, width), invalidate() {} };
+    },
+  } as never);
+}
+
+function askResult(text: string, details: AskDetails) {
+  return { content: [{ type: "text", text }], details };
+}
+
+// renderAnswered is the record Claude Code prints once its dialog closes,
+// under pi's name, which the board reads an answer back from
+// (dialog.ParseAnswered).
+function renderAnswered(result: { details?: AskDetails; content?: { type: string; text?: string }[] }, width: number): string[] {
+  const d = result.details;
+  const w = Math.max(20, width - 1);
+  if (!d?.answers) {
+    const text = result.content?.find((c) => c.type === "text")?.text ?? "";
+    return wrapWords(text, w);
+  }
+  const lines = ["User answered pi's questions:"];
+  // A pair too long for one line puts the answer on its own, under an
+  // arrow, as Claude Code does.
+  Object.entries(d.answers).forEach(([q, a], i) => {
+    const head = i === 0 ? "  ⎿  · " : "     · ";
+    const pair = `${q} → ${a}`;
+    if (Array.from(pair).length <= w - head.length) {
+      lines.push(head + pair);
+      return;
+    }
+    wrapWords(q, w - head.length).forEach((part, j) => lines.push((j === 0 ? head : "       ") + part));
+    wrapWords(`→ ${a}`, w - 5).forEach((part) => lines.push("     " + part));
+  });
+  return lines;
+}
+
+// visibleLength is a line's width on screen: escapes take none.
+function visibleLength(line: string): number {
+  return Array.from(line.replace(/\x1b\[[0-9;:]*m/g, "")).length;
+}
+
+// wrapWords wraps text at spaces into lines of at most width, breaking a
+// word only when it is wider than a whole line, as Claude Code does.
+function wrapWords(text: string, width: number): string[] {
+  const out: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    let line = "";
+    for (const word of paragraph.split(/ +/)) {
+      if (!word) continue;
+      const pieces = Array.from(word).length > width ? chunk(word, width) : [word];
+      for (const piece of pieces) {
+        if (!line) line = piece;
+        else if (Array.from(line).length + 1 + Array.from(piece).length <= width) line += " " + piece;
+        else {
+          out.push(line);
+          line = piece;
+        }
+      }
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+type AskRow = { kind: "option"; index: number } | { kind: "free" } | { kind: "submit" } | { kind: "chat" };
+
+type AskState = { cursor: number; ticked: Set<number>; typed: string; answer?: string; picked?: number };
+
+// The legend Claude Code draws under a question; dialog.askLegend reads it.
+const askLegendSingle = "Enter to select · ↑/↓ to navigate · Esc to cancel";
+const askLegendTabs = "Enter to select · Tab/Arrow keys to navigate · Esc to cancel";
+
+// The background the shown tab is drawn on: it is the only thing that marks
+// which tab is shown (dialog.ParseStepper), as in Claude Code.
+const tabOn = "\x1b[38;5;16m\x1b[48;5;153m";
+const tabOff = "\x1b[39m\x1b[49m";
+
+function askRows(q: AskQuestion): AskRow[] {
+  const rows: AskRow[] = q.options.map((_, index) => ({ kind: "option", index }));
+  rows.push({ kind: "free" });
+  if (q.multiSelect) rows.push({ kind: "submit" });
+  rows.push({ kind: "chat" });
+  return rows;
+}
+
+// askNumber is the number a row is drawn with; Submit has none.
+function askNumber(q: AskQuestion, row: AskRow): number {
+  switch (row.kind) {
+    case "option":
+      return row.index + 1;
+    case "free":
+      return q.options.length + 1;
+    case "chat":
+      return q.options.length + 2;
+  }
+  return 0;
+}
+
+// pasted is the text of a bracketed paste, or of typed characters, with
+// line breaks read as spaces; undefined for a key that is not text.
+function pasted(data: string): string | undefined {
+  let text = data;
+  if (text.startsWith("\x1b[200~")) text = text.slice(6).replace(/\x1b\[201~$/, "");
+  else if (text.includes("\x1b") || /^[\x00-\x1f\x7f]/.test(text)) return undefined;
+  return text.replace(/\r\n|\r|\n/g, " ");
+}
+
+// askDialog is the dialog's component: one question, or a row of tabs with
+// a Submit page when there are several. Up/Down and Enter, a row's digit,
+// Tab or Left/Right between tabs, Esc to cancel. On the free-text row every
+// key that is text is typed.
+function askDialog(questions: AskQuestion[], keys: Keybindings, done: (o: AskOutcome) => void, signal?: AbortSignal) {
+  const tabs = questions.length > 1;
+  const states: AskState[] = questions.map(() => ({ cursor: 0, ticked: new Set<number>(), typed: "" }));
+  let tab = 0;
+  let reviewCursor = 0;
+  let finished = false;
+  const finish = (o: AskOutcome) => {
+    if (!finished) {
+      finished = true;
+      done(o);
+    }
+  };
+  signal?.addEventListener("abort", () => finish({ kind: "cancel" }), { once: true });
+
+  const answers = (): Record<string, string> => {
+    const out: Record<string, string> = {};
+    questions.forEach((q, i) => {
+      if (states[i].answer !== undefined) out[q.question] = states[i].answer as string;
+    });
+    return out;
+  };
+  const advance = () => {
+    if (!tabs) finish({ kind: "answered", answers: answers() });
+    else {
+      tab += 1;
+      reviewCursor = 0;
+    }
+  };
+  // act is Enter on row r of the shown question.
+  const act = (r: number) => {
+    const q = questions[tab];
+    const st = states[tab];
+    const row = askRows(q)[r];
+    st.cursor = r;
+    switch (row.kind) {
+      case "option":
+        if (q.multiSelect) {
+          if (st.ticked.has(row.index)) st.ticked.delete(row.index);
+          else st.ticked.add(row.index);
+          return;
+        }
+        st.answer = q.options[row.index].label;
+        st.picked = row.index;
+        advance();
+        return;
+      case "free":
+        if (!st.typed.trim()) return;
+        if (q.multiSelect) {
+          const free = q.options.length;
+          if (st.ticked.has(free)) st.ticked.delete(free);
+          else st.ticked.add(free);
+          return;
+        }
+        st.answer = st.typed.trim();
+        st.picked = undefined;
+        advance();
+        return;
+      case "submit": {
+        const picked = q.options.map((o, i) => (st.ticked.has(i) ? o.label : "")).filter(Boolean);
+        if (st.ticked.has(q.options.length) && st.typed.trim()) picked.push(st.typed.trim());
+        if (picked.length === 0) return;
+        st.answer = picked.join(", ");
+        advance();
+        return;
+      }
+      case "chat":
+        finish({ kind: "chat" });
+    }
+  };
+  const moveTab = (by: number) => {
+    if (!tabs) return;
+    tab = Math.max(0, Math.min(questions.length, tab + by));
+    reviewCursor = 0;
+  };
+
+  return {
+    render(width: number): string[] {
+      const w = Math.max(20, width - 1);
+      const lines = tabs && tab === questions.length ? renderReview(questions, states, reviewCursor, tab, w) : renderAsk(questions, states, tab, w);
+      return lines.map((line) => fitLine(line, w));
+    },
+    handleInput(data: string): void {
+      if (keys.matches(data, "tui.select.cancel")) {
+        finish({ kind: "cancel" });
+        return;
+      }
+      if (tabs && tab === questions.length) {
+        if (keys.matches(data, "tui.select.up")) reviewCursor = 0;
+        else if (keys.matches(data, "tui.select.down")) reviewCursor = 1;
+        else if (data === "\x1b[D" || data === "\x1b[Z") moveTab(-1);
+        else if (data === "1" || (keys.matches(data, "tui.select.confirm") && reviewCursor === 0)) finish({ kind: "answered", answers: answers() });
+        else if (data === "2" || keys.matches(data, "tui.select.confirm")) finish({ kind: "cancel" });
+        return;
+      }
+      const q = questions[tab];
+      const st = states[tab];
+      const rows = askRows(q);
+      const onFree = rows[st.cursor].kind === "free";
+      if (keys.matches(data, "tui.select.up")) st.cursor = Math.max(0, st.cursor - 1);
+      else if (keys.matches(data, "tui.select.down")) st.cursor = Math.min(rows.length - 1, st.cursor + 1);
+      else if (keys.matches(data, "tui.select.confirm")) act(st.cursor);
+      else if (onFree && (data === "\x7f" || data === "\b")) st.typed = Array.from(st.typed).slice(0, -1).join("");
+      else if (tabs && (data === "\t" || data === "\x1b[C") && !(onFree && st.typed)) moveTab(1);
+      else if (tabs && (data === "\x1b[Z" || data === "\x1b[D") && !(onFree && st.typed)) moveTab(-1);
+      else if (onFree && pasted(data) !== undefined) {
+        // A paste and the Enter after it can arrive as one chunk.
+        const enter = /\r$/.test(data) && !data.startsWith("\x1b[200~");
+        st.typed += pasted(enter ? data.slice(0, -1) : data) ?? "";
+        if (enter) act(st.cursor);
+      } else if (/^[1-9]$/.test(data)) {
+        const r = rows.findIndex((row) => askNumber(q, row) === Number(data));
+        if (r >= 0) {
+          if (rows[r].kind === "free") st.cursor = r;
+          else act(r);
+        }
+      }
+    },
+    invalidate() {},
+  };
+}
+
+// fitLine cuts a line to width visible characters, keeping its escapes.
+function fitLine(line: string, width: number): string {
+  if (visibleLength(line) <= width) return line;
+  let out = "";
+  let seen = 0;
+  for (const part of line.split(/(\x1b\[[0-9;:]*m)/)) {
+    if (part.startsWith("\x1b[")) {
+      out += part;
+      continue;
+    }
+    for (const ch of Array.from(part)) {
+      if (seen >= width) break;
+      out += ch;
+      seen++;
+    }
+  }
+  return out + tabOff;
+}
+
+// renderTabs is the row of tabs a dialog asking several questions draws:
+// ☐ until a question is answered, ☒ after, then Submit, the shown one on
+// its background.
+function renderTabs(questions: AskQuestion[], states: AskState[], tab: number): string {
+  const entries = questions.map((q, i) => `${states[i].answer !== undefined ? "☒" : "☐"} ${q.header}`);
+  entries.push("✔ Submit");
+  return "←  " + entries.map((e, i) => (i === tab ? `${tabOn} ${e} ${tabOff}` : ` ${e} `)).join("") + "  →";
+}
+
+// renderAsk draws the shown question in Claude Code's shape: a rule, the
+// header or the tabs, the question, numbered options with their
+// descriptions, the free-text row (and Submit, for a multi-select), a rule,
+// "Chat about this", the legend, and the focused option's preview below it,
+// where the board's reader does not look for options.
+function renderAsk(questions: AskQuestion[], states: AskState[], tab: number, w: number): string[] {
+  const q = questions[tab];
+  const st = states[tab];
+  const rows = askRows(q);
+  const lines = ["─".repeat(w)];
+  lines.push(questions.length > 1 ? renderTabs(questions, states, tab) : ` ${st.answer !== undefined ? "☒" : "☐"} ${q.header} `, "");
+  lines.push(...wrapWords(q.question, w), "");
+  const box = (i: number) => (q.multiSelect ? (st.ticked.has(i) ? "[✔] " : "[ ] ") : "");
+  rows.forEach((row, r) => {
+    const marker = r === st.cursor ? "❯ " : "  ";
+    if (row.kind === "submit") {
+      lines.push(`${r === st.cursor ? "❯" : " "}    Submit`);
+      return;
+    }
+    if (row.kind === "chat") {
+      lines.push("─".repeat(w));
+    }
+    const head = `${marker}${askNumber(q, row)}. `;
+    const pad = " ".repeat(head.length);
+    let label: string;
+    let description = "";
+    if (row.kind === "option") {
+      const o = q.options[row.index];
+      label = box(row.index) + o.label + (!q.multiSelect && st.picked === row.index ? " ✔" : "");
+      description = o.description ?? "";
+    } else if (row.kind === "free") {
+      label = st.typed ? box(q.options.length) + st.typed : box(q.options.length) + (q.multiSelect ? "Type something" : "Type something.");
+    } else {
+      label = "Chat about this";
+    }
+    wrapWords(label, w - head.length).forEach((part, j) => lines.push(j === 0 ? head + part : pad + part));
+    if (description) {
+      const indent = pad + (q.multiSelect ? "    " : "");
+      for (const part of wrapWords(description, w - indent.length)) lines.push(indent + part);
+    }
+  });
+  // A narrow pane wraps the legend at a space, as Claude Code does, and the
+  // board's reader joins it back (dialog.unwrapLegend).
+  lines.push("", ...wrapWords(questions.length > 1 ? askLegendTabs : askLegendSingle, w));
+  const focused = rows[st.cursor];
+  const preview = focused?.kind === "option" ? q.options[focused.index].preview : undefined;
+  if (preview) {
+    lines.push("", " Preview:");
+    for (const row of preview.split("\n")) for (const part of chunk(row, w - 4)) lines.push(` │ ${part}`);
+  }
+  return lines;
+}
+
+// renderReview is the Submit page: each answered question with its answer,
+// a warning when one is not answered, and "Submit answers" or "Cancel"
+// (dialog.ParseReview).
+function renderReview(questions: AskQuestion[], states: AskState[], cursor: number, tab: number, w: number): string[] {
+  const lines = ["─".repeat(w), renderTabs(questions, states, tab), "", "Review your answers", ""];
+  if (states.some((s) => s.answer === undefined)) lines.push("⚠ You have not answered all questions", "");
+  questions.forEach((q, i) => {
+    if (states[i].answer === undefined) return;
+    wrapWords(q.question, w - 3).forEach((part, j) => lines.push(j === 0 ? ` ● ${part}` : `   ${part}`));
+    wrapWords(states[i].answer as string, w - 5).forEach((part, j) => lines.push(j === 0 ? `   → ${part}` : `   ${part}`));
+  });
+  lines.push("", "Ready to submit your answers?", "");
+  lines.push(`${cursor === 0 ? "❯ " : "  "}1. Submit answers`, `${cursor === 1 ? "❯ " : "  "}2. Cancel`);
+  lines.push("", ...wrapWords(askLegendSingle, w));
+  return lines;
 }
 
 // The sandboxed bash tool.

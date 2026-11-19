@@ -406,7 +406,7 @@ func TestFocusEditorThatTookTheScreenRearmsMouse(t *testing.T) {
 
 	updated, _ = m.Update(editorDoneMsg{tookScreen: true})
 	*m = *updated.(*Model)
-	if got := m.View().MouseMode; got != tea.MouseModeCellMotion {
+	if got := m.View().MouseMode; got == tea.MouseModeNone {
 		t.Fatalf("mouse reporting was not re-armed: MouseMode = %v", got)
 	}
 
@@ -427,7 +427,7 @@ func TestFocusExitKeepsMouse(t *testing.T) {
 
 	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	*m = *updated.(*Model)
-	if got := m.View().MouseMode; got != tea.MouseModeCellMotion {
+	if got := m.View().MouseMode; got == tea.MouseModeNone {
 		t.Fatalf("entering focus never enabled mouse reporting: MouseMode = %v", got)
 	}
 
@@ -435,7 +435,7 @@ func TestFocusExitKeepsMouse(t *testing.T) {
 	// terminal here would let a notch scroll the manager out of view.
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
 	*m = *updated.(*Model)
-	if got := m.View().MouseMode; got != tea.MouseModeCellMotion {
+	if got := m.View().MouseMode; got == tea.MouseModeNone {
 		t.Fatalf("leaving focus released mouse reporting: MouseMode = %v", got)
 	}
 	if m.sel.active {

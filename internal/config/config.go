@@ -101,6 +101,13 @@ type Tool struct {
 	// and exits on the add_dir_flag the divert hands it. Its trust dialog is
 	// then a waiting dialog like any other, relayed to the spawner.
 	LaunchInPlace bool `toml:"launch_in_place"`
+	// TrustFlag is the flag that settles the CLI's project-trust question
+	// for one launch (pi "--approve"). A spawn carries it when the spawning
+	// session vouches for the directory: the directory lies in the caller's
+	// own tree, or is a worktree of the caller's repository, such as one a
+	// manager made for its child. The pane then opens there, past the
+	// dialog. Any other launch gets the dialog, read as waiting.
+	TrustFlag string `toml:"trust_flag"`
 	// ModelFlag launches a session on a chosen model rather than the CLI's
 	// own default (claude/codex/opencode "--model <name>"). Left unset, this
 	// tool has no way to be told, and a session asking for a model on it is
@@ -209,6 +216,10 @@ type Tool struct {
 	// Empty uses the tool's config key when it names a known style.
 	MCP          string `toml:"mcp"`
 	StatusSource string `toml:"status_source"`
+	// AutoMode = "off" stops a pi-hooks tool's undecided calls going to the
+	// JEV classifier (package piauto), whatever the board setting says;
+	// they ask instead.
+	AutoMode string `toml:"auto_mode"`
 	// Sandbox is "off" to run a pi session's bash tool outside the sandbox
 	// the board's pi extension wraps it in; "" and "on" keep it. Any other
 	// value keeps it too and makes every command ask. Only read for a tool
@@ -227,11 +238,18 @@ type Tool struct {
 	// has no head of a prompt to find and is forwarded to the pane forever,
 	// which is what kept Left from leaving an opencode session. Left unset,
 	// the cutoff is used, so tools that need no distinction say nothing.
-	InputLine    string `toml:"input_line"`
-	TurnEnd      string `toml:"turn_end"`
-	ChromeLine   string `toml:"chrome_line"`
-	BlockedLine  string `toml:"blocked_line"`
-	TrailingNote string `toml:"trailing_note"`
+	InputLine string `toml:"input_line"`
+	// InputBetweenRules says the composer is the rows between the last two
+	// chrome_line rules on screen, for a tool that draws no prompt marker at
+	// all. pi frames its editor with a rule above and below and leaves an
+	// empty one a bare blank row with the caret in column 0, so nothing
+	// input_line could match is there. Without this, Left never finds the
+	// head of a prompt and stays with the pane.
+	InputBetweenRules bool   `toml:"input_between_rules"`
+	TurnEnd           string `toml:"turn_end"`
+	ChromeLine        string `toml:"chrome_line"`
+	BlockedLine       string `toml:"blocked_line"`
+	TrailingNote      string `toml:"trailing_note"`
 	// BusyLine marks work that outlives the turn which started it, such as
 	// background agents and shells. Matching it in the newest turn keeps a
 	// turn-end summary from resolving to finished while that work runs.
@@ -319,6 +337,8 @@ type Children struct {
 	// KeepFinished turns that off board-wide: finished children stay until
 	// someone archives them.
 	KeepFinished bool `toml:"keep_finished"`
+	// DryRun records proposed child archives so the closure policy can be reviewed safely.
+	DryRun bool `toml:"dry_run"`
 }
 
 // Work configures how the board follows its sessions' pull requests and tickets.
@@ -983,6 +1003,8 @@ func mergeTool(name string, user, def Tool) Tool {
 	user.SkipRenameDirective = user.SkipRenameDirective || def.SkipRenameDirective
 	user.TypeAhead = user.TypeAhead || def.TypeAhead
 	user.LaunchInPlace = user.LaunchInPlace || def.LaunchInPlace
+	user.InputBetweenRules = user.InputBetweenRules || def.InputBetweenRules
+	fill(&user.TrustFlag, def.TrustFlag)
 	fill(&user.MCP, def.MCP)
 	fill(&user.StatusSource, def.StatusSource)
 	fill(&user.DefaultStatus, def.DefaultStatus)
@@ -1824,3 +1846,9 @@ command = ""
 shell = true
 default_status = "idle"
 `
+
+// IsPiTool reports whether the tool named name runs pi: its block is
+// [tools.pi] or it keeps its conversations in pi's session store.
+func IsPiTool(tools map[string]Tool, name string) bool {
+	return name == "pi" || tools[name].SessionStore == "pi"
+}

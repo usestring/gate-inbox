@@ -266,7 +266,86 @@ func FormatTask(task Task) string {
 	case task.CreatedBy != "":
 		line += " created by " + task.CreatedBy
 	}
+	if task.Note != "" {
+		line += "; note: " + oneLine(task.Note, taskNoteExcerptBytes)
+	}
 	return line
+}
+
+// taskNoteExcerptBytes is how much of a finish note a task's row shows in
+// text. The note is up to MaxTaskNoteBytes, and a list of finished work
+// read as text is a list of rows; the structured reply, and include_body,
+// carry it whole.
+const taskNoteExcerptBytes = 160
+
+// FormatTaskFinish is a finish as text: the task with its note whole, what
+// the finish made claimable, and whether the creator was told.
+func FormatTaskFinish(finish TaskFinish) string {
+	task := finish.Task
+	task.Note = ""
+	lines := []string{"finished " + FormatTask(task)}
+	if finish.Task.Note != "" {
+		lines = append(lines, "note: "+finish.Task.Note)
+	}
+	for _, dep := range finish.Unblocked {
+		lines = append(lines, "now claimable: "+FormatTask(dep))
+	}
+	switch {
+	case finish.Notified != "":
+		lines = append(lines, "told its creator "+finish.Notified)
+	case finish.NotNotified != "":
+		lines = append(lines, "did not tell its creator: "+finish.NotNotified)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// FormatTaskDeletion is a delete as text, with the dependents it unblocked.
+func FormatTaskDeletion(deletion TaskDeletion) string {
+	lines := []string{"deleted " + FormatTask(deletion.Task)}
+	for _, dep := range deletion.Unblocked {
+		lines = append(lines, "now claimable: "+FormatTask(dep))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// maxPrunedRows bounds the rows a prune prints; the structured reply
+// carries every one.
+const maxPrunedRows = 50
+
+// FormatTaskPrune is a prune as text: the count, then each task's row.
+func FormatTaskPrune(prune TaskPrune) string {
+	verb := "deleted"
+	if prune.DryRun {
+		verb = "would delete"
+	}
+	head := fmt.Sprintf("%s %d stale %s: pending, older than %d days, created by a session that is archived, deleted or unrecorded",
+		verb, prune.Count, plural(prune.Count, "task", "tasks"), prune.OlderThanDays)
+	if prune.DryRun {
+		head += "; dry run, nothing was deleted"
+	}
+	lines := []string{head}
+	lines = append(lines, prunedRows(prune.Tasks)...)
+	if len(prune.Kept) > 0 {
+		lines = append(lines, fmt.Sprintf("kept %d stale %s a task in progress depends on:", len(prune.Kept), plural(len(prune.Kept), "task", "tasks")))
+		lines = append(lines, prunedRows(prune.Kept)...)
+	}
+	for _, dep := range prune.Unblocked {
+		lines = append(lines, "now claimable: "+FormatTask(dep))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// prunedRows is the tasks as list rows, up to maxPrunedRows.
+func prunedRows(tasks []Task) []string {
+	lines := make([]string, 0, min(len(tasks), maxPrunedRows)+1)
+	for i, task := range tasks {
+		if i == maxPrunedRows {
+			lines = append(lines, fmt.Sprintf("(and %d more)", len(tasks)-i))
+			break
+		}
+		lines = append(lines, "- "+FormatTask(task))
+	}
+	return lines
 }
 
 func FormatTaskList(list TaskList) string {
@@ -286,6 +365,11 @@ func FormatTaskList(list TaskList) string {
 		// belongs under its own row rather than in the structured half alone.
 		if task.Body != "" {
 			lines = append(lines, "  "+strings.ReplaceAll(task.Body, "\n", "\n  "))
+		}
+		// Asking for bodies is asking for the full text, and the row above
+		// carried only the start of the note.
+		if list.Bodies && len(task.Note) > taskNoteExcerptBytes {
+			lines = append(lines, "  note: "+strings.ReplaceAll(task.Note, "\n", "\n  "))
 		}
 	}
 	if list.Truncated {

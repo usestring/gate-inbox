@@ -86,16 +86,16 @@ func TestTasksAreClaimedByExactlyOneSession(t *testing.T) {
 	}
 	// Naming the holder is what makes the refusal actionable: the reader's
 	// next move is to message that session.
-	if _, err := h.sessions.FinishTask(rival.ID, created.ID); err == nil ||
+	if _, err := h.sessions.FinishTask(rival.ID, created.ID, ""); err == nil ||
 		!strings.Contains(err.Error(), "not yours to settle; calling-agent holds it") {
 		t.Fatalf("rival finish error = %v", err)
 	}
 
-	finished, err := h.sessions.FinishTask(h.caller.ID, created.ID)
+	finished, err := h.sessions.FinishTask(h.caller.ID, created.ID, "")
 	if err != nil {
 		t.Fatalf("FinishTask: %v", err)
 	}
-	if finished.State != "done" {
+	if finished.Task.State != "done" {
 		t.Fatalf("finished task = %+v", finished)
 	}
 
@@ -111,7 +111,7 @@ func TestTasksAreClaimedByExactlyOneSession(t *testing.T) {
 		{created.ID, "is done, not in progress"},
 		{pending.ID, "is pending, not in progress"},
 	} {
-		if _, err := h.sessions.FinishTask(rival.ID, settled.id); err == nil ||
+		if _, err := h.sessions.FinishTask(rival.ID, settled.id, ""); err == nil ||
 			!strings.Contains(err.Error(), settled.want) {
 			t.Fatalf("settling %s = %v, want %q", settled.id, err, settled.want)
 		}
@@ -143,7 +143,7 @@ func TestDependenciesGateAClaimUntilTheyAreDone(t *testing.T) {
 	if next.ID != first.ID {
 		t.Fatalf("claim-next took the blocked task: %+v", next)
 	}
-	if _, err := h.sessions.FinishTask(h.caller.ID, first.ID); err != nil {
+	if _, err := h.sessions.FinishTask(h.caller.ID, first.ID, ""); err != nil {
 		t.Fatalf("FinishTask: %v", err)
 	}
 	unblocked, err := h.sessions.ClaimTask(h.caller.ID, "", ClaimOptions{})
@@ -184,7 +184,7 @@ func TestOnlyUnfinishedDependenciesAreNamedAsBlocking(t *testing.T) {
 	if _, err := h.sessions.ClaimTask(h.caller.ID, first.ID, ClaimOptions{}); err != nil {
 		t.Fatalf("ClaimTask: %v", err)
 	}
-	if _, err := h.sessions.FinishTask(h.caller.ID, first.ID); err != nil {
+	if _, err := h.sessions.FinishTask(h.caller.ID, first.ID, ""); err != nil {
 		t.Fatalf("FinishTask: %v", err)
 	}
 
@@ -232,7 +232,7 @@ func TestReleasedAndDeletedTasksLeaveTheList(t *testing.T) {
 	if released.State != "pending" || released.Owner != "" {
 		t.Fatalf("released task = %+v", released)
 	}
-	if err := h.sessions.DeleteTask(h.caller.ID, created.ID); err != nil {
+	if _, err := h.sessions.DeleteTask(h.caller.ID, created.ID, false); err != nil {
 		t.Fatalf("DeleteTask: %v", err)
 	}
 	listed, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{IncludeDone: true})
@@ -243,7 +243,7 @@ func TestReleasedAndDeletedTasksLeaveTheList(t *testing.T) {
 	if len(tasks) != 0 {
 		t.Fatalf("deleted task is still listed: %+v", tasks)
 	}
-	if err := h.sessions.DeleteTask(h.caller.ID, created.ID); err == nil {
+	if _, err := h.sessions.DeleteTask(h.caller.ID, created.ID, false); err == nil {
 		t.Fatal("deleting a task twice should report it is gone")
 	}
 }
@@ -420,7 +420,7 @@ func TestTheTaskListDefaultsToOpenWorkAndSaysWhenItWasCut(t *testing.T) {
 		if _, err := h.sessions.ClaimTask(h.caller.ID, id, ClaimOptions{}); err != nil {
 			t.Fatalf("ClaimTask: %v", err)
 		}
-		if _, err := h.sessions.FinishTask(h.caller.ID, id); err != nil {
+		if _, err := h.sessions.FinishTask(h.caller.ID, id, ""); err != nil {
 			t.Fatalf("FinishTask: %v", err)
 		}
 	}

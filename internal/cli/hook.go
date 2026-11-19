@@ -14,6 +14,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
+	"github.com/usestring/gate-inbox/internal/pigate"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -33,6 +34,11 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 		if output != "" {
 			fmt.Fprintln(out, output)
 		}
+		return nil
+	}
+	if len(args) == 2 && args[0] == "pi" && args[1] == "PreToolUse" {
+		// The extension waits on this answer before pi runs a tool call.
+		fmt.Fprintln(out, pigate.Hook(in, configDir, sessionID, time.Now()))
 		return nil
 	}
 	if len(args) == 2 && args[0] == "pi" {

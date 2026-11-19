@@ -19,6 +19,20 @@ import (
 //go:embed extension.ts
 var source []byte
 
+// MCPConfigEnv names, in a pi launch's environment, the MCP config the
+// extension registers the board's server from: a file in the mcpServers
+// shape Claude Code reads, whose gate-inbox entry is either the shared
+// server with the session's caller token (kept in the key dir) or a server
+// of the session's own.
+const MCPConfigEnv = "GATE_INBOX_MCP_CONFIG"
+
+// PluginDirEnv names, in a pi launch's environment, the board's Claude Code
+// plugin directory (package claudeplugin). The extension offers its
+// skills/ to pi and turns each commands/*.md into a pi command, so a pi
+// session gets the board's skills and commands from the files a claude one
+// loads.
+const PluginDirEnv = "GATE_INBOX_PLUGIN_DIR"
+
 // fileName is the extension's name before its content stamp
 // (hooks.GeneratedName).
 const fileName = "gate-inbox-pi-extension.ts"
@@ -37,7 +51,13 @@ func Path(hooksDir string) string {
 // Ensure writes this build's extension under hooksDir and returns its path.
 // A file already there holds the same bytes, since the name is theirs, and
 // is left alone.
+//
+// The sandbox runtime its bash tool loads is written beside it
+// (EnsureSandbox).
 func Ensure(hooksDir string) (string, error) {
+	if err := EnsureSandbox(hooksDir); err != nil {
+		return "", err
+	}
 	return hooks.WriteGenerated(hooksDir, fileName, source)
 }
 

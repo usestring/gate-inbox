@@ -39,9 +39,76 @@ type PiPayload struct {
 	Cwd  string `json:"cwd,omitempty"`
 }
 
+// PiPermissionSuffix names the file beside a pi session's status file that
+// holds the call its permission dialog is asking about, exactly as the call
+// gave it, while the dialog is up: a long command the pane wraps reads back
+// from it whole (dialog.Screen.WithExact).
+const PiPermissionSuffix = ".permission.json"
+
+// PiApprovalsSuffix names the file beside a pi session's status file that
+// holds the rules a person approved at its dialog with "don't ask again". It
+// lasts as long as the session.
+const PiApprovalsSuffix = ".pi-approvals.json"
+
+// PiPermissionFile is where id's pending permission call is kept.
+func (m *Manager) PiPermissionFile(id string) string { return m.StatusFile(id) + PiPermissionSuffix }
+
+// PiPermission is the call a pi session's permission dialog asks about.
+type PiPermission struct {
+	Tool       string `json:"tool"`
+	Title      string `json:"title"`
+	Block      string `json:"block"`
+	Cwd        string `json:"cwd,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Suggestion string `json:"ruleSuggestion,omitempty"`
+	ToolUseID  string `json:"tool_use_id,omitempty"`
+}
+
+// ReadPiPermission is the call id's dialog is asking about, if one is up.
+func (m *Manager) ReadPiPermission(id string) (PiPermission, bool) {
+	return ReadPiPermissionFile(m.PiPermissionFile(id))
+}
+
+// ReadPiPermissionFile is the call a pending-permission file holds, if any.
+func ReadPiPermissionFile(path string) (PiPermission, bool) {
+	if path == "" {
+		return PiPermission{}, false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return PiPermission{}, false
+	}
+	var p PiPermission
+	if json.Unmarshal(raw, &p) != nil || p.Block == "" {
+		return PiPermission{}, false
+	}
+	return p, true
+}
+
 // piErroredEvent is the event an errored line is logged under, which is
 // what agent_settled looks for to leave it standing.
 const piErroredEvent = "agent_end"
+
+// PiPromptStart is the event the pi extension reports as an extension draws
+// a dialog: the board's permission dialog, AskUserQuestion, or any other
+// ctx.ui prompt.
+const PiPromptStart = "ui_prompt_start"
+
+// PromptOpen reports whether a pi session's status file says a dialog is on
+// its screen: its last event is a ui_prompt_start that no later event has
+// followed.
+//
+// The pane rules cannot be relied on for this. Each extension draws its own
+// legend, and a dialog whose legend no rule knows looks like a resting
+// prompt, where a pasted message's Enter picks the focused option and pi
+// records it as the user's answer. The extension's own report does not
+// depend on the drawing, so a session it says is holding a dialog is held
+// whatever the pane shows. That holds until the next event, so a start whose
+// end never arrives keeps holding the session rather than letting it go.
+func (m *Manager) PromptOpen(id string) bool {
+	ev, ok := m.ReadEvent(id)
+	return ok && ev.Name == PiPromptStart
+}
 
 // PiStatus maps one pi lifecycle event to the line it appends to the status
 // file. remove says the file is to go, which is pi quitting; a session
@@ -69,7 +136,7 @@ func PiStatus(p PiPayload, lastState, lastEvent string) (state string, remove bo
 			return "", false
 		}
 		return status.Finished, false
-	case "ui_prompt_start":
+	case PiPromptStart:
 		return status.Waiting, false
 	case "ui_prompt_end":
 		// A dialog an extension command raised from the prompt closes onto
@@ -111,6 +178,8 @@ func DispatchPi(event string, in io.Reader, statusFile string) string {
 		_ = removeIfExists(statusFile)
 		_ = removeIfExists(statusFile + AttestPendingSuffix)
 		_ = removeIfExists(statusFile + SandboxStaleSuffix)
+		_ = removeIfExists(statusFile + PiPermissionSuffix)
+		_ = removeIfExists(statusFile + PiApprovalsSuffix)
 		pruneWorktrees(p.Cwd)
 		return ""
 	}

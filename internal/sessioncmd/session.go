@@ -970,6 +970,9 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err != nil {
 		return Session{}, err
 	}
+	if flag := trustFlagFor(tool, caller.Cwd, dir); flag != "" && launchDir == dir {
+		base += " " + flag
+	}
 	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, base, id, plan.Model, plan.Account, sess.SkipPermissions, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
@@ -1196,6 +1199,10 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 		}
 	}
 	from := sender{callerID: caller.ID, id: caller.ID, name: caller.Name}
+	// Refuse retired recipients before a send can wake or restore them.
+	if _, err := runtime.addressee(from, targetID, interrupt); err != nil {
+		return SendResult{}, err
+	}
 	// A helper an extension launched to speak for the operator -- one
 	// holding a question for them, say -- writing to the session it was
 	// filed under. What it sends is the operator's answer, not its own
@@ -1366,6 +1373,9 @@ func (r *runtime) addressee(from sender, targetID string, interrupt bool) (store
 	target, err := r.agent(targetID)
 	if err != nil {
 		return store.Session{}, err
+	}
+	if target.ReplacedBy != "" {
+		return store.Session{}, fmt.Errorf("session %s was replaced by %s; send to its successor", target.ID, target.ReplacedBy)
 	}
 	if from.callerID != "" && target.ID == from.callerID {
 		return store.Session{}, errors.New("a session cannot message itself")
@@ -1571,7 +1581,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 	pane = strings.TrimRight(ansi.Strip(pane), "\r\n")
 	noteSpawnerRead(runtime, sessionID, target)
 
-	cursor, delta, note, readable := s.readDelta(target, since)
+	cursor, delta, note, readable := s.readDelta(target, since, runtime.cfg.Tools)
 	screen = SessionScreen{
 		Session: runtime.sessionInfo(target, running, target.ID == sessionID),
 		Cursor:  cursor,

@@ -105,6 +105,7 @@ func (s *Sessions) handover(callerID, targetID string, opts BoardHandoverOptions
 	if dst == "" {
 		dst = transcript.Path + ".handover.jsonl"
 	}
+	dst = copyPath(transcript, dst)
 	if dst == transcript.Path {
 		return HandoverCopy{}, errors.New("the handover copy cannot overwrite the transcript it filters")
 	}

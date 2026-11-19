@@ -101,6 +101,13 @@ type Tool struct {
 	// and exits on the add_dir_flag the divert hands it. Its trust dialog is
 	// then a waiting dialog like any other, relayed to the spawner.
 	LaunchInPlace bool `toml:"launch_in_place"`
+	// TrustFlag is the flag that settles the CLI's project-trust question
+	// for one launch (pi "--approve"). A spawn carries it when the spawning
+	// session vouches for the directory: the directory lies in the caller's
+	// own tree, or is a worktree of the caller's repository, such as one a
+	// manager made for its child. The pane then opens there, past the
+	// dialog. Any other launch gets the dialog, read as waiting.
+	TrustFlag string `toml:"trust_flag"`
 	// ModelFlag launches a session on a chosen model rather than the CLI's
 	// own default (claude/codex/opencode "--model <name>"). Left unset, this
 	// tool has no way to be told, and a session asking for a model on it is
@@ -318,6 +325,8 @@ type Children struct {
 	// KeepFinished turns that off board-wide: finished children stay until
 	// someone archives them.
 	KeepFinished bool `toml:"keep_finished"`
+	// DryRun records proposed child archives so the closure policy can be reviewed safely.
+	DryRun bool `toml:"dry_run"`
 }
 
 // Work configures how the board follows its sessions' pull requests and tickets.
@@ -982,6 +991,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	user.SkipRenameDirective = user.SkipRenameDirective || def.SkipRenameDirective
 	user.TypeAhead = user.TypeAhead || def.TypeAhead
 	user.LaunchInPlace = user.LaunchInPlace || def.LaunchInPlace
+	fill(&user.TrustFlag, def.TrustFlag)
 	fill(&user.MCP, def.MCP)
 	fill(&user.StatusSource, def.StatusSource)
 	fill(&user.DefaultStatus, def.DefaultStatus)
@@ -1823,3 +1833,9 @@ command = ""
 shell = true
 default_status = "idle"
 `
+
+// IsPiTool reports whether the tool named name runs pi: its block is
+// [tools.pi] or it keeps its conversations in pi's session store.
+func IsPiTool(tools map[string]Tool, name string) bool {
+	return name == "pi" || tools[name].SessionStore == "pi"
+}

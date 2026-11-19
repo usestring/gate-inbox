@@ -15,7 +15,7 @@ import (
 func TestRowDetailMarksReplaceStateAndToolWords(t *testing.T) {
 	m := fleetModel(t, 12, 120, 40)
 	words := ansi.Strip(m.frame())
-	for _, want := range []string{"errored · claude", "waiting · code"} {
+	for _, want := range []string{"errored · cld", "waiting · cdx"} {
 		if !strings.Contains(words, want) {
 			t.Fatalf("words mode frame lacks %q", want)
 		}
@@ -23,12 +23,12 @@ func TestRowDetailMarksReplaceStateAndToolWords(t *testing.T) {
 
 	m.rowDetail = rowDetailMarks
 	marks := ansi.Strip(m.frame())
-	for _, gone := range []string{"errored ·", "waiting ·", "finished ·", "· claude", "· codex", "· opencode"} {
+	for _, gone := range []string{"errored ·", "waiting ·", "finished ·", "· cld", "· cdx", "· oc"} {
 		if strings.Contains(marks, gone) {
 			t.Errorf("marks mode frame still says %q", gone)
 		}
 	}
-	for _, want := range []string{"CC", "CX", "OC", "grok"} {
+	for _, want := range []string{"cld", "cdx", "oc", "grok"} {
 		if !strings.Contains(marks, want) {
 			t.Errorf("marks mode frame lacks %q", want)
 		}

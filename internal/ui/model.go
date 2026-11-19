@@ -305,8 +305,9 @@ type Model struct {
 	// hibernating is set while a settleHibernated pass is out, and
 	// hibernateSweptAt is when the last one swept for idle sessions. See
 	// hibernate.go.
-	hibernating      bool
-	hibernateSweptAt time.Time
+	hibernating       bool
+	hibernateSweptAt  time.Time
+	hibernatePressure bool
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -453,6 +454,13 @@ type Model struct {
 	adoptFinishedAt time.Time
 	// adoptBusy is set while an adopt scan is out on its own goroutine.
 	adoptBusy bool
+	// unsureFlagged is the panes an adopt scan last found looking like an
+	// agent without adopting them, by adoptKey, so each is flagged once.
+	unsureFlagged map[string]bool
+	// unsureShownAt is when the unadopted-panes line was last put up, and
+	// unsureText is that line, so the bar can hold it while it is current.
+	unsureShownAt time.Time
+	unsureText    string
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -606,7 +614,13 @@ type Model struct {
 	glyphs string
 	// rowDetail is whether session rows spell their state and CLI out or
 	// leave them to marks. See rowdetail.go.
-	rowDetail string
+	rowDetail          string
+	textScroll         string
+	workingActivities  map[string]workingActivity
+	activityAnimating  bool
+	activityHover      string
+	activityHoverSince time.Time
+	activitySince      time.Time
 	// priorityScale is the persisted tier scale, "+2/-1" by default. See
 	// tierscale.go.
 	priorityScale string
@@ -769,11 +783,9 @@ type Model struct {
 	heldSnippetsRestored bool
 	landings             map[string]*pendingLanding
 	landingGen           int
-	// writing measures the line being typed into each focused pane, by
-	// session, until the key that submits it; see writing.go. keyFrame is
-	// the line a key just went to, until the frame after that key is painted.
-	writing  map[string]*lineWriting
-	keyFrame *lineWriting
+	// lastKey is the key last handed a session's pane, for the next one's
+	// PaneInput.Ready; see paneinput.go.
+	lastKey keyStamp
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
@@ -1034,6 +1046,7 @@ type settingsState struct {
 	palette              string
 	glyphs               string
 	rowDetail            string
+	textScroll           string
 	priorityScale        string
 	archiveConfirm       string
 	deleteConfirm        string
@@ -1090,6 +1103,7 @@ const (
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldRowDetail
+	settingsFieldWorkingActivity
 	settingsFieldPriorityScale
 	settingsFieldArchiveConfirm
 	settingsFieldDeleteConfirm
@@ -1156,6 +1170,7 @@ type refreshMsg struct {
 	compactWindows   map[string]compactView
 	archivedChildren map[string]int
 	searchText       map[string]string
+	workingActivity  map[string]string
 	answerableWait   map[string]bool
 	choreRests       map[string]time.Time
 	// askQuestions is each Claude session's pending AskUserQuestion call,
@@ -1453,6 +1468,8 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		palette:          storedPalette(st),
 		glyphs:           storedGlyphs(st),
 		rowDetail:        storedRowDetail(st),
+		textScroll:       storedWorkingActivity(st),
+		activitySince:    time.Now(),
 		priorityScale:    storedPriorityScale(st),
 		archiveConfirm:   storedArchiveConfirm(st),
 		deleteConfirm:    storedConfirmAsk(st, deleteConfirmSetting),
@@ -2370,6 +2387,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.setVisible(true), m.ownPaneVisibleCmd())
 
 	case tea.BlurMsg:
+		m.activityHover = ""
 		m.dismissLegendPeek()
 		return m, m.setVisible(false)
 
@@ -2392,6 +2410,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case browserOpenMsg:
 		m.handleBrowserOpen(msg)
 		return m, nil
+
+	case activityTickMsg:
+		m.activityAnimating = false
+		if !m.activityActive() {
+			m.frameUnchanged()
+		}
+		return m, m.startActivityTick()
 
 	case startupTickMsg:
 		if !m.needsLoaderTick() {
@@ -2605,6 +2630,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.compactWindows = msg.compactWindows
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
+		m.updateWorkingActivity(msg.workingActivity)
 		m.answerableWait = msg.answerableWait
 		m.choreRests = msg.choreRests
 		m.askQuestions = msg.askQuestions
@@ -2677,12 +2703,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.loadDrafts())
+			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.startActivityTick(), m.loadDrafts())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.loadDrafts())
+		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.startActivityTick(), m.loadDrafts())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)
@@ -2709,6 +2735,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errBar.text = "adopting a pane: " + msg.err.Error()
 		}
 		m.noteAdopted(msg)
+		m.noteUnsure(msg.unsure, time.Now())
 		if msg.taken > 0 {
 			// The rows are in the store but not yet on the board; the sweep
 			// is what reads them back.
@@ -3056,11 +3083,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
+		mouse := msg.Mouse()
+		hoverChanged := m.updateActivityHover(mouse.X, mouse.Y)
 		model, cmd := m.handleMouse(msg)
+		if hoverChanged {
+			m.frameReuse = false
+		}
 		// A click can select a session or leave focus, so the poller hears
 		// about it the same way it hears about a keystroke.
 		m.syncPollInput()
-		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
+		return model, tea.Batch(cmd, m.startActivityTick(), m.scheduleAutoSuggestion())
 
 	case tea.KeyboardEnhancementsMsg:
 		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()
@@ -3304,7 +3336,8 @@ func (m *Model) ageError() {
 		return
 	}
 	m.errBar.age++
-	if m.errBar.age >= 2 && !m.offerLive(time.Now()) {
+	now := time.Now()
+	if m.errBar.age >= 2 && !m.offerLive(now) && !m.unsureLive(now) {
 		m.errBar = errBar{}
 	}
 }
@@ -3356,7 +3389,6 @@ func (m *Model) rebuildRows() {
 	// them ask, and every ask was its own fork. See holdLivePanes.
 	defer m.releaseLivePanes(m.holdLivePanes())
 	m.pruneMutes(m.sessions)
-	m.pruneWriting(m.sessions)
 	m.buildTree()
 	if m.cursorSessionID() != m.railCursorSess {
 		m.buildTree()

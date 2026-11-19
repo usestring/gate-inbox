@@ -77,9 +77,11 @@ const (
 	fakeTokenStem  = "fake-token-for-"
 )
 
-// fakeCLIs are the agent CLIs the default config names, and gh, each a
-// stub that answers --version and otherwise exits 0 without doing anything.
-var fakeCLIs = []string{"claude", "codex", "opencode", "gh"}
+// fakeCLIs are the agent CLIs the default config names, gh, and bwrap, each
+// a stub that answers --version and otherwise exits 0 without doing anything.
+// bwrap is there so a launch plan records the confinement a non-Claude
+// launch runs under (keyconfine) whatever the host has installed.
+var fakeCLIs = []string{"claude", "codex", "opencode", "gh", "bwrap"}
 
 // hostTools are the only host binaries a scratch PATH carries, resolved
 // before any test empties the environment: the account reader runs its

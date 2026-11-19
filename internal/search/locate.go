@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/convo"
 )
 
 // Locator turns a board row's tool and conversation id into a Target, and
@@ -16,6 +18,9 @@ type Locator struct {
 	ClaudeHome string
 	// CodexRoot is ~/.codex/sessions; rollouts sit in date directories under it.
 	CodexRoot string
+	// PiRoot is pi's sessions directory; its folders hold one JSONL file
+	// per conversation.
+	PiRoot string
 
 	found   map[string]string
 	missing map[string]time.Time
@@ -26,10 +31,11 @@ type Locator struct {
 // again. A session that just launched writes its transcript within seconds.
 const missTTL = 20 * time.Second
 
-// NewLocator resolves against the given roots. Either may be empty, which
-// makes that tool's rows unresolvable rather than an error.
+// NewLocator resolves against the given roots, and pi's sessions directory
+// resolved the way pi resolves it. Either root may be empty, which makes
+// that tool's rows unresolvable rather than an error.
 func NewLocator(claudeHome, codexRoot string) *Locator {
-	return &Locator{ClaudeHome: claudeHome, CodexRoot: codexRoot,
+	return &Locator{ClaudeHome: claudeHome, CodexRoot: codexRoot, PiRoot: convo.PiSessionsDir(),
 		found: map[string]string{}, missing: map[string]time.Time{}, now: time.Now}
 }
 
@@ -55,6 +61,8 @@ func (l *Locator) Target(key, tool, cwd, agentID string) (Target, bool) {
 		path = l.claudePath(cwd, agentID)
 	case ToolCodex:
 		path = l.codexPath(agentID)
+	case ToolPi:
+		path = convo.PiTranscriptFor(l.PiRoot, agentID, cwd)
 	}
 	if path == "" {
 		l.missing[cacheKey] = l.now()

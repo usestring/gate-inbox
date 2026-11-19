@@ -240,7 +240,7 @@ func (tr toolRules) limitLines(pane string) []string {
 		return nil
 	}
 	region, ok := tr.activityRegion(pane)
-	if !ok {
+	if !ok || tr.limitBelowCutoff(pane, len(region)) {
 		// No input line bounds the turn -- the limit's own menu can be what
 		// is on the screen -- so a banner anywhere counts. It is still only
 		// the banner's rows: the whole pane would hand the limit card the
@@ -269,6 +269,17 @@ func (tr toolRules) limitLines(pane string) []string {
 		return nil
 	}
 	return lines[i:end]
+}
+
+// limitBelowCutoff reports whether a limit banner starts on a row below the
+// last activity_cutoff row, which begins at offset at. An input line sits
+// below every turn, so such a row is not one: it is the limited turn's own
+// "❯" prompt echo, left last on screen because Claude's limit menu replaced
+// the input line.
+func (tr toolRules) limitBelowCutoff(pane string, at int) bool {
+	rest := pane[at:]
+	nl := strings.IndexByte(rest, '\n')
+	return nl >= 0 && tr.limitLine.MatchString(rest[nl+1:])
 }
 
 // newestLimit finds the lowest banner in lines: the row it starts on, and

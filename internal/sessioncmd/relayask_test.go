@@ -152,14 +152,14 @@ func TestTheGrantRefusalsInputIsTheApprovalTheGrantAccepts(t *testing.T) {
 	f := newRelayFixture(t, gitleaks)
 	f.parentSays(t, &transcript{})
 	gs := []grant.Grant{{Kind: grant.KindSoft, Value: "git push origin feat/x"}}
-	_, _, err := f.sessions.grantApproval(f.store, f.parent, f.child, gs, 0)
+	_, _, err := f.sessions.grantApproval(f.store, f.parent, f.child, gs, 0, false)
 	var need *ApprovalNeeded
 	if !errors.As(err, &need) || !strings.Contains(err.Error(), "no dialog of yours asks it yet") {
 		t.Fatalf("err = %v, want the grant's approval refusal", err)
 	}
 	in := relayInput(t, err)
 	f.parentSays(t, asksAndAnswers(&transcript{}, "toolu_grant", relayStart, in, grantOption))
-	evidence, _, err := f.sessions.grantApproval(f.store, f.parent, f.child, gs, 0)
+	evidence, _, err := f.sessions.grantApproval(f.store, f.parent, f.child, gs, 0, false)
 	if err != nil || evidence != "toolu_grant" {
 		t.Fatalf("grant with the refusal's input: evidence %q, %v", evidence, err)
 	}

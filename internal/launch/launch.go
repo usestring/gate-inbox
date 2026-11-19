@@ -11,18 +11,24 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/band"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/keyconfine"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/piext"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
@@ -486,6 +492,9 @@ func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
+	if err := config.CheckVersion(baseCommand); err != nil {
+		return "", nil, err
+	}
 	// Refused before anything is removed or written: a style nothing
 	// implements is a config mistake, not a launch half made.
 	if err := tooldrivers.CheckTool(toolName, tool); err != nil {
@@ -496,6 +505,13 @@ func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config
 	}
 	if err := manager.SweepNameResults(time.Now()); err != nil {
 		return "", nil, err
+	}
+	// A session kept out of the key directory is shown only the files there
+	// that exist when it starts, so the public key its hook checks seals with
+	// has to exist first. A launch from inside such a session cannot mint it,
+	// and it already sees one if the board made one before it started.
+	if err := parentseal.EnsurePublicKey(manager.ConfigDir()); err != nil {
+		logging.Warn("could not make the board's seal key before a launch", "session", id, logging.Err(err))
 	}
 	if hooks.FileStatus(tool.StatusSource) {
 		if err := manager.Remove(id); err != nil {
@@ -627,13 +643,14 @@ func Compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 
 // sharedServer is the config a launch points its claude session at to reach
 // the shared MCP server (mcpshared), or "" for a server of the session's own.
-// Only claude takes one, and only with the operator's shared_mcp on. A
+// Only claude and pi take one (takes), and only with the operator's
+// shared_mcp on; pi's extension reads the same config claude does. A
 // server that does not answer in time, or a config that cannot be written,
 // is no reason to fail or hold up the launch: the session gets its own
 // server, as it always did. A plan composed without side effects starts and
 // writes nothing, and names the config a launch would.
-func sharedServer(configDir, style, profile, id string, write bool) string {
-	if style != "claude" {
+func sharedServer(configDir string, takes bool, profile, id string, write bool) string {
+	if !takes {
 		return ""
 	}
 	cfg, err := config.LoadDir(configDir)
@@ -669,12 +686,71 @@ var ensureShared = func(configDir string) (string, error) {
 	return mcpshared.Ensure(configDir, Executable(), sharedWait)
 }
 
+// confine runs a session's command with the board's key directory hidden from
+// it (keyconfine). Only a claude session launched with the board's settings
+// is kept out of that directory by the CLI itself, so every other launch goes
+// through here, and one that cannot be confined is refused.
+//
+// An opencode pane is the exception to the wrapping, not to the refusal: it
+// runs the opencode-attach verb first, which writes the session's binding
+// into that directory and may start the shared server, so the verb runs
+// unconfined and confines the TUI it execs (app's runOpencodeAttach).
+//
+// The session keeps read-only sight of the two files there that are its own
+// to read (sessionFiles); one that does not exist when it starts stays
+// absent.
+func confine(configDir, style, id, command string) (string, error) {
+	keyDir := parentseal.KeyDir(configDir)
+	refused := func(err error) error {
+		return fmt.Errorf("it has no way to keep itself out of Gate Inbox's key directory (%s), "+
+			"and it could not be confined: %w; install bubblewrap (Linux) so the board can hide that directory from it",
+			keyDir, err)
+	}
+	if style == "opencode" {
+		if err := keyconfine.Available(); err != nil {
+			return "", refused(err)
+		}
+		return command, nil
+	}
+	run := []string{"/bin/sh", "-c", command}
+	argv, err := keyconfine.Argv(keyDir, sessionFiles(configDir, id), run)
+	if err != nil {
+		return "", refused(err)
+	}
+	if slices.Equal(argv, run) {
+		return command, nil
+	}
+	quoted := make([]string, len(argv))
+	for i, arg := range argv {
+		quoted[i] = tmux.ShellQuote(arg)
+	}
+	return strings.Join(quoted, " "), nil
+}
+
+// sealPublicKey is the public half of the board's seal key under the key
+// directory. A session's prompt hook checks every seal Gate Inbox puts on a
+// message to it with that key, and needs nothing else there to do it.
+const sealPublicKey = "seal.pub"
+
+// sessionFiles are the key directory's files a confined session reads
+// itself: the board's public seal key, and the session's own config for the
+// shared MCP server, which carries its own caller token and no other
+// session's. A pi session reads that config in its extension, which runs
+// inside the confinement. The caller key every token is made from stays
+// hidden, so the session can act as itself and nobody else.
+func sessionFiles(configDir, id string) []string {
+	return []string{filepath.Join(parentseal.KeyDir(configDir), sealPublicKey), mcpshared.ClaudeConfigPath(configDir, id)}
+}
+
 // resolveAccount reads an account's token, replaced in tests so a launch
 // plan never reaches a real secret store.
 var resolveAccount = accounts.Resolve
 
 func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, skip bool, contributed map[string]string, profile string, write bool) (string, map[string]string, error) {
 	if err := config.CheckInstalled(baseCommand); err != nil {
+		return "", nil, err
+	}
+	if err := config.CheckVersion(baseCommand); err != nil {
 		return "", nil, err
 	}
 	if err := checkContributed(tool, contributed); err != nil {
@@ -720,7 +796,8 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		// it would otherwise pass on.
 		env[tool.AccountEnv] = ""
 	}
-	sharedConfig := sharedServer(manager.ConfigDir(), style, profile, id, write)
+	pi := tool.StatusSource == hooks.StatusSourcePi
+	sharedConfig := sharedServer(manager.ConfigDir(), style == "claude" || pi, profile, id, write)
 	register := mcpreg.PreviewProfile
 	if write {
 		register = mcpreg.ApplyProfile
@@ -734,10 +811,23 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	if err != nil {
 		return "", nil, err
 	}
-	if tool.StatusSource == hooks.StatusSourcePi {
-		return withPiExtension(manager, command, env, id, write)
+	if pi {
+		if command, env, err = withPiExtension(manager, command, env, id, profile, sharedConfig, write); err != nil {
+			return "", nil, err
+		}
+		if id != "" && piAutoModeWanted(tool) {
+			command = withAutoModeToken(id, command)
+		}
+		return command, env, nil
 	}
 	if tool.StatusSource != hooks.StatusSourceClaude {
+		command, err = confine(manager.ConfigDir(), style, id, command)
+		if err != nil {
+			return "", nil, fmt.Errorf("%s cannot be launched: %w", toolName, err)
+		}
+		if pi && id != "" && piAutoModeWanted(tool) {
+			command = withAutoModeToken(id, command)
+		}
 		return command, env, nil
 	}
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)
@@ -768,7 +858,15 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 // extension is written under the hooks dir with a content-stamped name, so
 // this build's launch loads this build's extension and never one an older
 // build left there; nothing is written to ~/.pi.
-func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id string, write bool) (string, map[string]string, error) {
+//
+// It also names the MCP config the extension registers the board's server
+// from (piext.MCPConfigEnv): sharedConfig, the shared server's config holding
+// the session's caller token in the key dir, as a claude launch's is; or,
+// with the shared server off or unreachable, a config that starts a server of
+// the session's own. Only the path rides the environment, never the token.
+// It names the board's plugin directory too (piext.PluginDirEnv), whose
+// skills and commands the extension offers in pi.
+func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id, profile, sharedConfig string, write bool) (string, map[string]string, error) {
 	path := piext.Path(manager.Dir())
 	if write {
 		var err error
@@ -776,6 +874,79 @@ func withPiExtension(manager *hooks.Manager, command string, env map[string]stri
 			return "", nil, err
 		}
 	}
+	mcpConfig := sharedConfig
+	if mcpConfig == "" {
+		var err error
+		if mcpConfig, err = mcpreg.OwnServerConfig(Executable(), manager.Dir(), profile, write); err != nil {
+			return "", nil, err
+		}
+	}
+	env[piext.MCPConfigEnv] = mcpConfig
+	// The board's skills and slash commands, from the plugin a claude
+	// launch loads with --plugin-dir, so both CLIs read one copy.
+	plugin := claudeplugin.Path
+	if write {
+		plugin = claudeplugin.Ensure
+	}
+	pluginDir, err := plugin(manager.ConfigDir())
+	if err != nil {
+		return "", nil, err
+	}
+	env[piext.PluginDirEnv] = pluginDir
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)
+	// The board's TypeSafe key is the board's own: it asks the classifier
+	// from its own process. Pi has no sandbox, so a key anywhere in its pane
+	// is its model's to read, including the copy the tmux server holds from
+	// the operator's environment; withheld, it reaches no process there.
+	env[classifier.JEV.KeyEnv()] = tmux.Withheld
 	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
+}
+
+// piAutoModeWanted reports whether a pi tool's config leaves auto mode on;
+// the board setting is read on each call, on the server's side.
+func piAutoModeWanted(tool config.Tool) bool {
+	return !strings.EqualFold(strings.TrimSpace(tool.AutoMode), "off")
+}
+
+// AutoModeTokenVerb is the gate-inbox verb a pi pane with auto mode on runs
+// first: it writes the session's token (WriteAutoModeConfig), then execs the
+// pi command.
+const AutoModeTokenVerb = "pi-auto-mode-token"
+
+// withAutoModeToken has a pi pane write its own auto-mode token before pi
+// starts. The process composing the launch may be unable to: a session that
+// a confined session (a pi parent's own MCP server) creates is composed
+// inside that confinement, where the key dir is hidden. The pane is the tmux
+// server's child, never the composer's, so it can still see the key dir;
+// and the file must exist before pi's own confinement starts, which binds
+// only the files already there. A confinement wrapper goes inside this, not
+// around it.
+func withAutoModeToken(id, command string) string {
+	return tmux.ShellQuote(Executable()) + " " + AutoModeTokenVerb + " " + tmux.ShellQuote(id) +
+		" -- /bin/sh -c " + tmux.ShellQuote(command)
+}
+
+// WriteAutoModeConfig gives a pi session the token its hook proves itself
+// with when it asks auto mode (package piauto) on the board's shared server.
+// The token goes into the session's own MCP config in the key dir, the same
+// file a shared_mcp launch writes and the one key-dir file a confined
+// session can still read (package keyconfine), so auto mode works with
+// shared_mcp off and under confinement. Only a running server that proves
+// it is the board's gets one: the board keeps it up while a pi tool has
+// auto mode on. Without it auto mode only asks, so a failure here is not a
+// failed launch, and an existing config (a shared_mcp launch's) is kept.
+func WriteAutoModeConfig(configDir, id string) {
+	if !extension.ValidSessionID(id) {
+		return
+	}
+	if _, err := os.Stat(mcpshared.ClaudeConfigPath(configDir, id)); err == nil {
+		return
+	}
+	url := mcpshared.URL(configDir)
+	if !mcpshared.Healthy(configDir, url) {
+		return
+	}
+	if _, err := mcpshared.WriteClaudeConfig(configDir, url, "", id); err != nil {
+		logging.Warn("pi auto mode: could not write the session's server config", logging.Err(err))
+	}
 }

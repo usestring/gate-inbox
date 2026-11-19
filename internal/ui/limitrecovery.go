@@ -76,7 +76,7 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 	if derived != status.Errored || !inputAvailable || p.offline() || !previous.AttemptedAt.IsZero() || now.Before(recoveryDeadline(previous)) {
 		return false, nil
 	}
-	if p.engine.TypingHold(sess.Tool, clean) != "" || p.operatorEcho(sess.ID) || p.operatorTyping(sess, capture.State) {
+	if p.hookDialog(sess) || p.engine.TypingHold(sess.Tool, clean) != "" || p.operatorEcho(sess.ID) || p.operatorTyping(sess, capture.State) {
 		return false, nil
 	}
 	typing, err := p.composerCarriesDraft(sess, capture)

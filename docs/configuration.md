@@ -18,11 +18,20 @@ Top-level: `poll_interval` (default `"2s"`) sets how often panes are polled for 
 
 Set `dry_run = true` under `[children]` in `config.toml` and restart the board to review automatic child archives. Both live and already-exited children stay on the board. Gate Inbox appends each proposed archive to `child-closure-plans.jsonl` in the configuration directory. Each record includes the time, session and conversation IDs, the reason, and any other rows the archive would include. A proposal is recorded once while it remains eligible during a board run.
 
+With **Finish check** enabled under Settings → Experimental, `[finish_check]` can collect predicted completions for manual verification. Restart the board after changing this setting.
+
+```toml
+[finish_check]
+collect_only = true
+```
+
+Gate Inbox appends high-confidence completion candidates to `finish-check-positives.jsonl` in the configuration directory. Each record carries the original request, the end-state text sent to the classifier, its scores, session identifiers, and an evidence ID. The file contains transcript text and should be handled like local conversation history. In collection mode, Finish check only writes candidate records. Use `[children].dry_run` to preview automatic child archives.
+
 The optional Finish check eval includes reviewed closure scenarios. Run just those scenarios from the repository root with the current prompt and its normal transcript window.
 
 ```sh
 JEV_FINISH_EVAL=/tmp/finish-check-eval JEV_EVAL_REVIEWED_ONLY=1 \
-  JEV_EVAL_QUESTIONS=current JEV_EVAL_TURNS=4 JEV_EVAL_CHARS=1500 \
+  JEV_EVAL_QUESTIONS=current,tail-only JEV_EVAL_TURNS=4 JEV_EVAL_CHARS=1500 \
   go test ./internal/ui -run '^TestJevFinishEval$' -v
 ```
 

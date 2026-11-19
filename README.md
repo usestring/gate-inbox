@@ -337,10 +337,10 @@ Gate Inbox uses TypeSafe's Jev as the default classifier for three opt-in featur
 key under Settings → Classifier, then enable the features you want under Settings → Experimental.
 You can also select Clef as the classifier.
 
-- **Finish check.** When a Claude Code session finishes, Gate Inbox can ask Jev whether the task
-  is done and whether the agent stopped because it needed Chrome access. If Jev is confident that
-  missing Chrome access blocked unfinished work, Gate Inbox can resume the same conversation
-  with Chrome enabled.
+- **Finish check.** The selected classifier compares a Claude Code session's opening request
+  with its end state. It reports high-confidence completions and can resume aligned work blocked
+  by missing Chrome access. [Collection mode](docs/configuration.md) saves predicted completions
+  locally for verification.
 - **Auto Suggest.** Jev ranks earlier prompts from an existing session against the recent
   conversation to suggest a next reply. With **Prompt suggestions** also enabled, Jev ranks
   matching prompts from local history against the draft in the New Session form. You can edit

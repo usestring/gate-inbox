@@ -601,6 +601,11 @@ type Board struct {
 	OfferCLIOnLimit bool `toml:"offer_cli_on_limit"`
 }
 
+// FinishCheck configures collection when the experimental Finish check is enabled.
+type FinishCheck struct {
+	CollectOnly bool `toml:"collect_only"`
+}
+
 type Config struct {
 	PollInterval       Duration `toml:"poll_interval"`
 	OutboxProbeTargets []string `toml:"outbox_probe_targets"`
@@ -638,6 +643,7 @@ type Config struct {
 	Naming               Naming       `toml:"naming"`
 	Log                  Log          `toml:"log"`
 	Children             Children     `toml:"children"`
+	FinishCheck          FinishCheck  `toml:"finish_check"`
 	Work                 Work         `toml:"work"`
 	Integrations         Integrations `toml:"integrations"`
 	Hogs                 Hogs         `toml:"hogs"`
@@ -1303,6 +1309,10 @@ const defaultConfig = `poll_interval = "2s"
 # counting them as "(+N done)".
 # [children]
 # auto_archive_after = "30m"
+
+# Save Finish check candidates locally for review.
+# [finish_check]
+# collect_only = true
 
 # The board's layout. sidebar is the side of the frame the sessions list sits
 # on, "right" or "left"; the session's pane takes the other side. Settings

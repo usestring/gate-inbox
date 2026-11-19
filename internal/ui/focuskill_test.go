@@ -112,8 +112,8 @@ func TestTriageLeavesTheExitedRowWhenTheQueueIsEmpty(t *testing.T) {
 	}
 	updated, _ := m.Update(refresh)
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("an empty queue entered %q", focusedName(t, m))
+	if m.mode != modeForm || m.form.focus != fieldPrompt {
+		t.Fatalf("an empty queue left mode %v, want the new-session prompt", m.mode)
 	}
 	if got := focusedName(t, m); got != "done" {
 		t.Fatalf("the cursor landed on %q, want the queue's head rather than the exited session", got)
@@ -271,23 +271,25 @@ func TestTheKeyMapNamesTheFocusedKill(t *testing.T) {
 	}
 }
 
-// The rebind is a trade in both directions. ctrl+x is claimed from the pane --
-// TestFocusedArchiveKeyAsksBeforeItActs is that half, since a dialog is proof
-// the key never forwarded -- and alt+x is handed back to it, which is the half
-// that would otherwise rot silently into a key that does nothing at all.
-func TestAltXReachesTheAgentNowThatArchiveMovedToCtrl(t *testing.T) {
-	m := focusedKillFleet(t, true)
+func TestFocusedOptionXUndoesTheLastKill(t *testing.T) {
+	m := focusedKillFleet(t, false)
 	m.enterFocusOn(t, "ask")
-
-	altX := tea.KeyPressMsg{Code: 'x', Mod: tea.ModAlt}
-	updated, _ := m.handleKey(altX)
-	m = updated.(*Model)
-
-	if frame := ansi.Strip(m.frame()); strings.Contains(frame, "Kill session") {
-		t.Fatalf("alt+x still archives, so the agent never got the key back:\n%s", frame)
+	_, cmd := m.handleKey(ctrlX())
+	m.applyCmd(t, cmd)
+	answerDialog(t, m)
+	if !archived(t, m, "ask") {
+		t.Fatal("the confirmed kill did not archive ask")
 	}
-	if _, ok := focusKeyCommand("gi_x", altX); !ok {
-		t.Error("alt+x has no forwardable form, so freeing it bought the agent nothing")
+
+	m.enterFocusOn(t, "broke")
+	_, cmd = m.handleKey(tea.KeyPressMsg{Code: 'x', Mod: tea.ModAlt})
+	m.applyCmd(t, cmd)
+
+	if archived(t, m, "ask") {
+		t.Fatalf("alt+x left ask archived; bar says %q", m.errBar.text)
+	}
+	if m.mode != modeList {
+		t.Fatalf("alt+x left mode %v, want list navigation", m.mode)
 	}
 }
 

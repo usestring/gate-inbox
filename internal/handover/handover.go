@@ -107,6 +107,15 @@ func DeviationCut(kind, path, snippet string) (cut int, found bool, err error) {
 	return cut, found, nil
 }
 
+// Reads reports whether the filter reads transcripts of layout kind.
+func Reads(kind string) bool {
+	switch kind {
+	case "claude", "codex", "pi":
+		return true
+	}
+	return false
+}
+
 // recordSays reports whether one transcript record's conversation text
 // contains the (already normalized) snippet, dispatched on the layout.
 func recordSays(kind string, raw []byte, snippet string) bool {
@@ -119,6 +128,8 @@ func recordSays(kind string, raw []byte, snippet string) bool {
 		return claudeRecordSays(trimmed, snippet)
 	case "codex":
 		return codexRecordSays(trimmed, snippet)
+	case "pi":
+		return piRecordSays(trimmed, snippet)
 	}
 	return false
 }

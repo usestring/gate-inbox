@@ -990,7 +990,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Give one of your own spawned sessions a permission your user approved, when its permission system refused a step your brief needs -- a command that has to run outside the sandbox, a rule its auto-mode classifier will not pass, a host its sandbox cannot reach. An answer you key into the child is not its user's approval, so neither answer_session nor send_session can do this; this writes the one permission into that child's own settings file, never a shared one, and restarts it on its own conversation so it takes effect. A grant stands until revoked by default: once your user approves it, every Claude Code session Gate Inbox launches carries it, and asking again for a permission that already stands applies it to the child (restarting it) without a new question. Pass expires_in_minutes only for a permission one child should hold for a while. Call it first with the kind, value and window: unless your user already approved exactly that, it refuses with the exact question to put to them -- header Approval, the question naming the child, the window and the permission, options Grant and Don't grant. Ask your user that word for word with your own question tool, then call again; Gate Inbox checks your transcript for their Grant and spends it on this one grant. A step that runs several commands -- add, commit, push, merge -- is one decision: pass every prefix in values and the one question names them all. A prefix is one command, so chaining with \u0026\u0026 or ; is refused; list each command instead. Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code children can be granted to. A child adopted from outside the board is not restarted: rule and command-prefix grants and soft notes reach it through its hooks from its next tool call, and the result says plainly when part of a grant (a sandbox exclusion, a domain) needs a resume, which calling again with restart true does. revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: pass message with the instruction the grant is for, and it is queued for the child carrying your user's Grant as an attestation.",
+  "description": "Give one of your own spawned sessions a permission your user approved, when its permission system refused a step your brief needs -- a command that has to run outside the sandbox, a rule its auto-mode classifier will not pass, a host its sandbox cannot reach. An answer you key into the child is not its user's approval, so neither answer_session nor send_session can do this; this writes the one permission into that child's own settings file, never a shared one, and restarts it on its own conversation so it takes effect. A grant stands until revoked by default: once your user approves it, every Claude Code session Gate Inbox launches carries it, and asking again for a permission that already stands applies it to the child (restarting it) without a new question. Pass expires_in_minutes only for a permission one child should hold for a while. Call it first with the kind, value and window: unless your user already approved exactly that, it refuses with the exact question to put to them -- header Approval, the question naming the child, the window and the permission, options Grant and Don't grant. Ask your user that word for word with your own question tool, then call again; Gate Inbox checks your transcript for their Grant and spends it on this one grant. A step that runs several commands -- add, commit, push, merge -- is one decision: pass every prefix in values and the one question names them all. A prefix is one command, so chaining with \u0026\u0026 or ; is refused; list each command instead. Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code and pi children can be granted to. A pi child takes rule and unsandboxed_command grants (a soft_command or domain is refused, since pi has nothing for one to change) and is never restarted: its tool gate reads grants on every call, so a grant or revoke applies from its next tool call. A child adopted from outside the board is not restarted: rule and command-prefix grants and soft notes reach it through its hooks from its next tool call, and the result says plainly when part of a grant (a sandbox exclusion, a domain) needs a resume, which calling again with restart true does. revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: pass message with the instruction the grant is for, and it is queued for the child carrying your user's Grant as an attestation.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -2381,6 +2381,16 @@
         "additionalProperties": false,
         "description": "the session's status, the question it is holding, and its last result",
         "properties": {
+          "auto_allowed": {
+            "description": "a pi session's latest calls its JEV auto mode allowed without asking, each with its scores",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "question": {
             "description": "question the session is waiting on, with its options; empty when nothing is being asked",
             "type": "string"
@@ -3583,12 +3593,12 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. assign points a pending task at one session, the only one that may then claim it, or omitting assignee unassigns it; its creator or current assignee can do it, and create takes assignee too. A claim without task_id takes the tasks assigned to you first; create_session's tasks argument assigns work to a child as it starts, and an archived or killed session's assigned tasks go back to anyone. release hands a claimed task back for another session. delete removes work that turned out not to be needed. A session that is archived or killed gives its in-progress claims back to pending, and its assignments back to anyone, on its own, so no task waits behind an agent that is gone.",
+  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle, and pass a note saying what came of it (the outcome, a PR link, what is left): the note stays on the task, and the session that created the task is sent a message with it and with the dependents that just became claimable, unless you created it yourself or its creator is archived or gone. assign points a pending task at one session, the only one that may then claim it, or omitting assignee unassigns it; its creator or current assignee can do it, and create takes assignee too. A claim without task_id takes the tasks assigned to you first; create_session's tasks argument assigns work to a child as it starts, and an archived or killed session's assigned tasks go back to anyone. release hands a claimed task back for another session. delete removes work that turned out not to be needed; it refuses a task another session holds, and one unfinished tasks depend on, naming them, and force true deletes it anyway, taking its dependency edges along so its dependents become claimable, which the reply lists. prune clears stale work off the list: pending tasks older than older_than_days (default 14) whose creator is archived, deleted or was never recorded; it is a dry run listing them unless dry_run is false, and it keeps any task a task in progress depends on. A session that is archived or killed gives its in-progress claims back to pending, and its assignments back to anyone, on its own, so no task waits behind an agent that is gone.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "action": {
-        "description": "list, create, claim, assign, finish, release or delete",
+        "description": "list, create, claim, assign, finish, release, delete or prune",
         "type": "string"
       },
       "any": {
@@ -3621,8 +3631,19 @@
           "array"
         ]
       },
+      "dry_run": {
+        "description": "prune: true (the default) lists what would be deleted and deletes nothing; false deletes it",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
       "fleet": {
         "description": "list: keep only tasks your fleet created: you, the session that spawned you or the parent you sit under, and every session you spawned or have under you; the same set a claim without task_id takes from",
+        "type": "boolean"
+      },
+      "force": {
+        "description": "delete: delete a task another session holds, or one unfinished tasks depend on; its dependency edges go with it, so its dependents become claimable and the reply names them",
         "type": "boolean"
       },
       "include_body": {
@@ -3640,6 +3661,14 @@
       "mine": {
         "description": "list: keep only tasks this session holds or finished",
         "type": "boolean"
+      },
+      "note": {
+        "description": "finish: what came of the work, for whoever reads the list and for the task's creator, who is sent it: the outcome, a PR link, what is left undone; at most 4000 bytes",
+        "type": "string"
+      },
+      "older_than_days": {
+        "description": "prune: sweep only stale tasks created more than this many days ago (default 14)",
+        "type": "integer"
       },
       "state": {
         "description": "list: keep only tasks in these states: pending, in_progress or done; omit for pending and in_progress, which is the work still open",
@@ -3672,6 +3701,318 @@
       "matched": {
         "description": "list: how many tasks matched the filters, before limit",
         "type": "integer"
+      },
+      "not_notified": {
+        "description": "finish: why the creator was not sent a message",
+        "type": "string"
+      },
+      "notified": {
+        "description": "finish: session id of the task's creator, which was sent a message saying the task is done",
+        "type": "string"
+      },
+      "prune": {
+        "additionalProperties": false,
+        "description": "prune: what was swept, or on a dry run what would be",
+        "properties": {
+          "count": {
+            "description": "how many tasks are in tasks",
+            "type": "integer"
+          },
+          "dry_run": {
+            "description": "true when nothing was deleted and tasks is what a prune with dry_run false would delete",
+            "type": "boolean"
+          },
+          "kept": {
+            "description": "stale tasks left alone because a task that depends on them is in progress",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "assignee": {
+                  "description": "session id the task is assigned to; only it may claim the task while it is pending",
+                  "type": "string"
+                },
+                "assignee_name": {
+                  "description": "name of the session the task is assigned to",
+                  "type": "string"
+                },
+                "blocked": {
+                  "description": "whether unfinished dependencies currently stop this task being claimed",
+                  "type": "boolean"
+                },
+                "blocked_by": {
+                  "description": "the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "body": {
+                  "description": "full instruction for whoever claims it",
+                  "type": "string"
+                },
+                "created_by": {
+                  "description": "session id that created the task; empty on tasks from before creators were recorded",
+                  "type": "string"
+                },
+                "created_by_name": {
+                  "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
+                  "type": "string"
+                },
+                "depends_on": {
+                  "description": "task ids that must be done before this one can be claimed",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "id": {
+                  "description": "task id to claim, finish or release",
+                  "type": "string"
+                },
+                "mine": {
+                  "description": "whether the calling session holds the claim",
+                  "type": "boolean"
+                },
+                "note": {
+                  "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+                  "type": "string"
+                },
+                "owner": {
+                  "description": "session id holding the claim",
+                  "type": "string"
+                },
+                "owner_name": {
+                  "description": "name of the session holding the claim",
+                  "type": "string"
+                },
+                "state": {
+                  "description": "pending, in_progress or done",
+                  "type": "string"
+                },
+                "title": {
+                  "description": "one-line summary of the work",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "state",
+                "blocked",
+                "mine"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "older_than_days": {
+            "description": "the age in days past which a stale task was swept",
+            "type": "integer"
+          },
+          "tasks": {
+            "description": "the stale tasks deleted, or on a dry run those that would be: pending, older than older_than_days, and created by a session that is archived, deleted or was never recorded",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "assignee": {
+                  "description": "session id the task is assigned to; only it may claim the task while it is pending",
+                  "type": "string"
+                },
+                "assignee_name": {
+                  "description": "name of the session the task is assigned to",
+                  "type": "string"
+                },
+                "blocked": {
+                  "description": "whether unfinished dependencies currently stop this task being claimed",
+                  "type": "boolean"
+                },
+                "blocked_by": {
+                  "description": "the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "body": {
+                  "description": "full instruction for whoever claims it",
+                  "type": "string"
+                },
+                "created_by": {
+                  "description": "session id that created the task; empty on tasks from before creators were recorded",
+                  "type": "string"
+                },
+                "created_by_name": {
+                  "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
+                  "type": "string"
+                },
+                "depends_on": {
+                  "description": "task ids that must be done before this one can be claimed",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "id": {
+                  "description": "task id to claim, finish or release",
+                  "type": "string"
+                },
+                "mine": {
+                  "description": "whether the calling session holds the claim",
+                  "type": "boolean"
+                },
+                "note": {
+                  "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+                  "type": "string"
+                },
+                "owner": {
+                  "description": "session id holding the claim",
+                  "type": "string"
+                },
+                "owner_name": {
+                  "description": "name of the session holding the claim",
+                  "type": "string"
+                },
+                "state": {
+                  "description": "pending, in_progress or done",
+                  "type": "string"
+                },
+                "title": {
+                  "description": "one-line summary of the work",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "state",
+                "blocked",
+                "mine"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "unblocked": {
+            "description": "surviving tasks the prune made claimable by deleting what they waited on",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "assignee": {
+                  "description": "session id the task is assigned to; only it may claim the task while it is pending",
+                  "type": "string"
+                },
+                "assignee_name": {
+                  "description": "name of the session the task is assigned to",
+                  "type": "string"
+                },
+                "blocked": {
+                  "description": "whether unfinished dependencies currently stop this task being claimed",
+                  "type": "boolean"
+                },
+                "blocked_by": {
+                  "description": "the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "body": {
+                  "description": "full instruction for whoever claims it",
+                  "type": "string"
+                },
+                "created_by": {
+                  "description": "session id that created the task; empty on tasks from before creators were recorded",
+                  "type": "string"
+                },
+                "created_by_name": {
+                  "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
+                  "type": "string"
+                },
+                "depends_on": {
+                  "description": "task ids that must be done before this one can be claimed",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "id": {
+                  "description": "task id to claim, finish or release",
+                  "type": "string"
+                },
+                "mine": {
+                  "description": "whether the calling session holds the claim",
+                  "type": "boolean"
+                },
+                "note": {
+                  "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+                  "type": "string"
+                },
+                "owner": {
+                  "description": "session id holding the claim",
+                  "type": "string"
+                },
+                "owner_name": {
+                  "description": "name of the session holding the claim",
+                  "type": "string"
+                },
+                "state": {
+                  "description": "pending, in_progress or done",
+                  "type": "string"
+                },
+                "title": {
+                  "description": "one-line summary of the work",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "state",
+                "blocked",
+                "mine"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          }
+        },
+        "required": [
+          "dry_run",
+          "older_than_days",
+          "count",
+          "tasks"
+        ],
+        "type": [
+          "null",
+          "object"
+        ]
       },
       "returned": {
         "description": "list: how many rows are in tasks",
@@ -3732,6 +4073,10 @@
           "mine": {
             "description": "whether the calling session holds the claim",
             "type": "boolean"
+          },
+          "note": {
+            "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+            "type": "string"
           },
           "owner": {
             "description": "session id holding the claim",
@@ -3819,6 +4164,10 @@
               "description": "whether the calling session holds the claim",
               "type": "boolean"
             },
+            "note": {
+              "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+              "type": "string"
+            },
             "owner": {
               "description": "session id holding the claim",
               "type": "string"
@@ -3853,6 +4202,98 @@
       "truncated": {
         "description": "list: true when limit left matching tasks out; narrow state or mine, or raise limit",
         "type": "boolean"
+      },
+      "unblocked": {
+        "description": "finish, delete: dependents the finish or a forced delete made claimable",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "assignee": {
+              "description": "session id the task is assigned to; only it may claim the task while it is pending",
+              "type": "string"
+            },
+            "assignee_name": {
+              "description": "name of the session the task is assigned to",
+              "type": "string"
+            },
+            "blocked": {
+              "description": "whether unfinished dependencies currently stop this task being claimed",
+              "type": "boolean"
+            },
+            "blocked_by": {
+              "description": "the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "body": {
+              "description": "full instruction for whoever claims it",
+              "type": "string"
+            },
+            "created_by": {
+              "description": "session id that created the task; empty on tasks from before creators were recorded",
+              "type": "string"
+            },
+            "created_by_name": {
+              "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
+              "type": "string"
+            },
+            "depends_on": {
+              "description": "task ids that must be done before this one can be claimed",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "id": {
+              "description": "task id to claim, finish or release",
+              "type": "string"
+            },
+            "mine": {
+              "description": "whether the calling session holds the claim",
+              "type": "boolean"
+            },
+            "note": {
+              "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+              "type": "string"
+            },
+            "owner": {
+              "description": "session id holding the claim",
+              "type": "string"
+            },
+            "owner_name": {
+              "description": "name of the session holding the claim",
+              "type": "string"
+            },
+            "state": {
+              "description": "pending, in_progress or done",
+              "type": "string"
+            },
+            "title": {
+              "description": "one-line summary of the work",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "state",
+            "blocked",
+            "mine"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
       }
     },
     "type": "object"

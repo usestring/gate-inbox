@@ -85,6 +85,33 @@ func TestAPermissionPromptFallsBackToTheDescriptionItDraws(t *testing.T) {
 	}
 }
 
+// The pi gate's prompt for a call outside the sandbox says so in its reason
+// line, and the relayed question keeps it.
+func TestAnOutsideTheSandboxPromptSaysSoWhenRelayed(t *testing.T) {
+	pane := strings.Join([]string{
+		"$ touch ../h/out.txt",
+		"────────────────────────────────────────────────────────────",
+		" Bash command",
+		"",
+		" │ touch ../h/out.txt",
+		"",
+		" Gate Inbox asks because Bash command, outside the sandbox (requested by the model)",
+		" Do you want to proceed?",
+		" ❯ 1. Yes",
+		"   2. No, and tell pi what to do differently",
+		"",
+		" Enter to confirm · Esc to cancel",
+	}, "\n")
+	screen, ok := dialog.ReadScreen(pane)
+	if !ok || screen.Command() != "touch ../h/out.txt" {
+		t.Fatalf("read %v, command %q", ok, screen.Command())
+	}
+	q := ForScreen(screen, Screen{Child: "pichild"}).Questions[0]
+	if !strings.HasPrefix(q.Question, "pichild wants to run a Bash command outside the sandbox") {
+		t.Errorf("question %s", q.Question)
+	}
+}
+
 // A dialog with no command block keeps its text as the question.
 func TestATrustDialogIsStillRelayedWordForWord(t *testing.T) {
 	screen := dialog.Screen{Kind: dialog.ScreenWorkspaceTrust, Lines: []string{"Do you trust the contents of this folder?"},

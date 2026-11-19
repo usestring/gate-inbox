@@ -2,6 +2,10 @@ package launch
 
 import (
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -21,8 +25,11 @@ func TestALaunchWithNoDenialOfItsOwnIsConfined(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "'bwrap' '--dev-bind' '/' '/' '--die-with-parent' '--tmpfs' '" + keyDir + "' '--remount-ro' '" + keyDir +
-		"' '--' '/bin/sh' '-c' 'sh --session-id x'"
+	kept := func(name string) string {
+		return "'--ro-bind-try' '" + keyDir + "/" + name + "' '" + keyDir + "/" + name + "' "
+	}
+	want := "'bwrap' '--dev-bind' '/' '/' '--die-with-parent' '--tmpfs' '" + keyDir + "' " + kept("seal.pub") +
+		kept("mcp-claude-abc.json") + "'--remount-ro' '" + keyDir + "' '--' '/bin/sh' '-c' 'sh --session-id x'"
 	if command != want {
 		t.Fatalf("command:\n got %s\nwant %s", command, want)
 	}
@@ -34,12 +41,12 @@ func TestALaunchWithNoDenialOfItsOwnIsConfined(t *testing.T) {
 func TestAnOpencodeLaunchLeavesConfinementToItsAttachVerb(t *testing.T) {
 	t.Cleanup(keyconfine.UseForTests(keyconfine.Bubblewrap, nil))
 	configDir := t.TempDir()
-	command, err := confine(configDir, "opencode", "gate-inbox opencode-attach -- opencode")
+	command, err := confine(configDir, "opencode", "abc", "gate-inbox opencode-attach -- opencode")
 	if err != nil || command != "gate-inbox opencode-attach -- opencode" {
 		t.Fatalf("got %q, %v; want the attach command untouched", command, err)
 	}
 	t.Cleanup(keyconfine.UseForTests("", errors.New("bwrap (bubblewrap) is not installed")))
-	if _, err := confine(configDir, "opencode", "gate-inbox opencode-attach -- opencode"); err == nil {
+	if _, err := confine(configDir, "opencode", "abc", "gate-inbox opencode-attach -- opencode"); err == nil {
 		t.Fatal("an opencode launch that cannot be confined must be refused")
 	}
 }
@@ -71,5 +78,43 @@ func TestALaunchThatCannotBeConfinedIsRefused(t *testing.T) {
 		if !strings.Contains(err.Error(), part) {
 			t.Fatalf("refusal %q should mention %q", err, part)
 		}
+	}
+}
+
+// The real thing: a confined session reads the board's public seal key and its
+// own MCP config, which its hook and extension need, and nothing else in the
+// key directory: not the caller key every token is made from, not another
+// session's config, not a seal key.
+func TestAConfinedSessionSeesOnlyItsOwnFiles(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("bubblewrap is Linux only")
+	}
+	if out, err := exec.Command("bwrap", "--dev-bind", "/", "/", "true").CombinedOutput(); err != nil {
+		t.Skipf("bwrap cannot run here: %v %s", err, out)
+	}
+	t.Cleanup(keyconfine.UseForTests(keyconfine.Bubblewrap, nil))
+	configDir := t.TempDir()
+	keyDir := parentseal.KeyDir(configDir)
+	if err := os.MkdirAll(keyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	files := []string{"seal.pub", "mcp-claude-abc.json", "mcp-claude-other.json", "caller.key", "seal.key"}
+	for _, name := range files {
+		if err := os.WriteFile(filepath.Join(keyDir, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command, err := confine(configDir, "pi", "abc", `cd "`+keyDir+`" && for f in `+strings.Join(files, " ")+
+		`; do if cat "$f" >/dev/null 2>&1; then echo "read $f"; else echo "hidden $f"; fi; done`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("/bin/sh", "-c", command).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	want := "read seal.pub\nread mcp-claude-abc.json\nhidden mcp-claude-other.json\nhidden caller.key\nhidden seal.key\n"
+	if string(out) != want {
+		t.Fatalf("the confined session saw:\n%s\nwant:\n%s", out, want)
 	}
 }

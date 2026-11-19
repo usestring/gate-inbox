@@ -128,6 +128,15 @@ func (r *runtime) answer(target store.Session, reply, by, byID string, guard *an
 	// below -- they send the caller to two different places.
 	plain := ansi.Strip(raw)
 	held, ok := dialog.Inspect(plain)
+	if !ok {
+		// Before the guarded screens, which would read the review page's two
+		// numbered choices as a dialog for the user: Submit sends answers
+		// already keyed -- relayed, where they were the user's -- so it asks
+		// the user nothing new.
+		if _, onReview := dialog.ParseReview(plain); onReview {
+			return r.submitReview(target, raw, reply, by, byID)
+		}
+	}
 	if guard != nil && (!ok || held.Guarded()) {
 		// A permission prompt, a trust dialog, or any other dialog drawn as
 		// choices: picked by its text, and only as the caller's user's own
@@ -138,9 +147,6 @@ func (r *runtime) answer(target store.Session, reply, by, byID string, guard *an
 		}
 	}
 	if !ok {
-		if _, onReview := dialog.ParseReview(plain); onReview {
-			return r.submitReview(target, raw, reply, by, byID)
-		}
 		if dialog.Standing(plain) {
 			return AnsweredQuestion{}, wrapped(dialog.ErrNotKeyAnswerable, fmt.Sprintf(
 				"session %s is on a dialog this cannot read as choices, so no answer was keyed. It is still "+
@@ -260,16 +266,14 @@ func answerHeldAs(pane dialogPane, raw string, held dialog.Dialog, reply string,
 // "Submit answers" sends it, and anything else is refused, because the page
 // holds no question to put words to.
 func (r *runtime) submitReview(target store.Session, pane, reply, by, byID string) (AnsweredQuestion, error) {
-	switch strings.ToLower(strings.Join(strings.Fields(reply), " ")) {
-	case "submit", "submit answers":
-	default:
+	if !submitWord(reply) {
 		return AnsweredQuestion{}, fmt.Errorf("session %s is on the Submit page of a dialog asking several "+
 			"questions, where there is nothing to answer; answer \"Submit answers\" to send it, or pass "+
 			"answers naming a question to change one first", target.ID)
 	}
 	stepper, _ := dialog.ParseStepper(pane)
-	if err := submitDialog(tmuxPane{driver: r.driver, id: target.ID}, len(stepper.Steps), nil); err != nil {
-		return AnsweredQuestion{}, err
+	if err := submitDialog(tmuxPane{driver: r.driver, id: target.ID}, nil, len(stepper.Steps), nil); err != nil {
+		return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
 	}
 	logging.Info(by+" submitted a child's dialog", by, byID, "session", target.ID)
 	return AnsweredQuestion{

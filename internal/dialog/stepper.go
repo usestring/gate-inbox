@@ -2,6 +2,7 @@ package dialog
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -182,12 +183,28 @@ func setsBackground(params string) bool {
 //
 // It draws no legend, so Inspect does not read it as a dialog; this is its
 // reader.
+//
+// A page taller than the pane scrolls its top off: the tab row first, then
+// "Review your answers" and the first questions, so all that is left is the
+// tail of one question, the rest, and the choices. Seen live on Claude Code
+// 2.1.321-322 with three long Approval questions. Such a
+// page is still read, from the top of the pane, when it ends on "Ready to
+// submit your answers?" and its choices; Clipped says so.
 type Review struct {
-	// Answers are the questions answered so far, in order.
+	// Answers are the questions answered so far, in order. On a clipped page
+	// the first may hold only the end of its question.
 	Answers []ReviewAnswer
 	// Complete is false while the page warns that not every question has an
-	// answer.
+	// answer. The warning is drawn under the heading, so a clipped page
+	// cannot show it: there Complete is only what the visible rows say.
 	Complete bool
+	// Clipped is a page whose heading has scrolled off the top of the pane:
+	// it may list answers it no longer shows.
+	Clipped bool
+	// Tail is a clipped page whose first answer holds only the end of its
+	// question, which may end the same way as others do. Placed says which
+	// question it is.
+	Tail bool
 	// Cursor is the 1-based choice the marker is on: 1 is "Submit answers".
 	Cursor int
 	// Submit is the 1-based row of "Submit answers", 0 when it is not drawn.
@@ -200,6 +217,9 @@ type ReviewAnswer struct {
 	Answer   string
 }
 
+// reviewPrompt is the line above the review page's choices.
+const reviewPrompt = "Ready to submit your answers?"
+
 // ParseReview reads the Submit tab's page off a stripped pane.
 func ParseReview(pane string) (Review, bool) {
 	lines := strings.Split(pane, "\n")
@@ -209,11 +229,19 @@ func ParseReview(pane string) (Review, bool) {
 			start = i
 		}
 	}
+	clipped := false
 	if start < 0 {
-		return Review{}, false
+		if !endsOnReviewChoices(lines) {
+			return Review{}, false
+		}
+		// The heading scrolled off: read from the top, and take the rows
+		// above the first question's bullet as the end of a question.
+		lines = append([]string{""}, lines...)
+		start, clipped = 0, true
 	}
-	review := Review{Complete: true}
+	review := Review{Complete: true, Clipped: clipped}
 	var current *ReviewAnswer
+	var tail string // a clipped question's visible end, before its arrow
 	inAnswer := false
 	width := paneWidth(lines)
 	for i, line := range lines[start+1:] {
@@ -226,11 +254,17 @@ func ParseReview(pane string) (Review, bool) {
 			review.Complete = false
 		case strings.HasPrefix(text, "● "):
 			review.Answers = append(review.Answers, ReviewAnswer{Question: strings.TrimSpace(text[len("● "):])})
-			current, inAnswer = &review.Answers[len(review.Answers)-1], false
+			current, inAnswer, tail = &review.Answers[len(review.Answers)-1], false, ""
+		case strings.HasPrefix(text, "→ ") && current == nil && clipped && len(review.Answers) == 0 && tail != "":
+			review.Answers = append(review.Answers, ReviewAnswer{Question: tail, Answer: strings.TrimSpace(text[len("→ "):])})
+			review.Tail = true
+			current, inAnswer, tail = &review.Answers[0], true, ""
 		case strings.HasPrefix(text, "→ ") && current != nil && !inAnswer:
 			current.Answer = strings.TrimSpace(text[len("→ "):])
 			inAnswer = true
-		case text == "Ready to submit your answers?":
+		case strings.HasPrefix(text, "Ready to submit your"), reviewScroll.MatchString(text):
+			// Whole, or the first row of it wrapped on a narrow pane; or the
+			// marker of a page scrolled inside its own box.
 			current, inAnswer = nil, false
 		case inAnswer && current != nil && !askOption.MatchString(line):
 			// An answer longer than the pane is wide wraps under its arrow.
@@ -246,10 +280,101 @@ func ParseReview(pane string) (Review, bool) {
 			}
 		case current != nil && current.Answer == "":
 			current.Question += joined + text
+		case clipped && current == nil && len(review.Answers) == 0:
+			if tail != "" {
+				tail += joined
+			}
+			tail += text
 		}
 	}
-	if review.Submit == 0 {
+	if review.Submit == 0 || (clipped && len(review.Answers) == 0) {
 		return Review{}, false
 	}
 	return review, true
+}
+
+// Placed names the question a clipped page's partial first answer belongs
+// to, given the dialog's questions in order. The page lists answers in
+// question order, so that row is the question just before the one the next
+// row shows whole. Its visible end alone cannot say: questions often end
+// alike, and one ending the same way may have scrolled off whole. A partial
+// answer that cannot be placed, or any with no questions known, is dropped,
+// so it reads as scrolled off rather than as another question's answer.
+func (r Review) Placed(questions []string) Review {
+	if !r.Tail || len(r.Answers) == 0 {
+		return r
+	}
+	r.Answers, r.Tail = slices.Clone(r.Answers), false
+	owner := -1
+	if len(r.Answers) > 1 {
+		if next := questionIndex(questions, r.Answers[1].Question); next > 0 &&
+			SameQuestion(r.Answers[0].Question, questions[next-1]) {
+			owner = next - 1
+		}
+	}
+	if owner < 0 {
+		r.Answers = r.Answers[1:]
+		return r
+	}
+	r.Answers[0].Question = questions[owner]
+	return r
+}
+
+// questionIndex is the index of the one question drawn is, or -1 when none
+// or several are.
+func questionIndex(questions []string, drawn string) int {
+	for _, same := range []func(a, b string) bool{SameText, SameQuestion} {
+		found := -1
+		for i, question := range questions {
+			if same(drawn, question) {
+				if found >= 0 {
+					found = -2
+					break
+				}
+				found = i
+			}
+		}
+		if found >= 0 {
+			return found
+		}
+	}
+	return -1
+}
+
+// reviewScroll is the marker Claude Code draws over the review page's choices
+// when it scrolls the page inside its own box: on 2.1.328 the page then ends
+// "↑ 6 more lines" with "Ready to submit your answers?" out of sight.
+var reviewScroll = regexp.MustCompile(`^[\x{2191}\x{2193}] \d+ more lines?$`)
+
+// endsOnReviewChoices reports whether the pane ends the way the review page
+// does: "Ready to submit your answers?" (whole or wrapped), or the page's
+// scroll marker over a first choice of "Submit answers", then nothing but its
+// numbered choices.
+func endsOnReviewChoices(lines []string) bool {
+	end := len(lines) - 1
+	choices := 0
+	first := ""
+	for ; end >= 0; end-- {
+		text := strings.TrimSpace(lines[end])
+		switch {
+		case text == "":
+			continue
+		case askOption.MatchString(lines[end]):
+			choices++
+			first = askOption.FindStringSubmatch(lines[end])[3]
+			continue
+		}
+		break
+	}
+	if end < 0 || choices < 2 {
+		return false
+	}
+	text := strings.TrimSpace(lines[end])
+	if text == reviewPrompt {
+		return true
+	}
+	if reviewScroll.MatchString(text) {
+		return normalise(first) == "submit answers"
+	}
+	return text == "answers?" && end > 0 && strings.TrimSpace(lines[end-1]) == "Ready to submit your"
 }

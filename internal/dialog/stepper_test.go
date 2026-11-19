@@ -4,9 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/usestring/gate-inbox/internal/convo"
 )
 
 // The fixtures under testdata/claude-2.1.283-tabs-* are real captures of one
@@ -252,5 +255,177 @@ func TestThePromptStopsAtTheDialogsTopEdge(t *testing.T) {
 	}
 	if want := "Which package manager should the new workspace\nstandardise on for every JavaScript package?"; got.Prompt != want {
 		t.Errorf("prompt = %q, want %q", got.Prompt, want)
+	}
+}
+
+// A review page taller than the pane, measured live on Claude Code 2.1.321
+// (2026-11-12, renamed): the heading is still on the
+// screen, the tab row above it is not.
+const reviewNoTabRow = `Review your answers
+
+ │ ● example/api PR #42 fails the public-docs
+ │   check. Approve the re-record?
+   → Approve re-record
+ │ ● Ship #42 once it's green?
+   → Merge+deploy when green
+ │ ● How should I proceed with the load test?
+   → Pilot 300 turns first (Recommended)
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+`
+
+func TestAReviewPageWithoutItsTabRowStillCountsEveryQuestion(t *testing.T) {
+	review, ok := OnReview(reviewNoTabRow)
+	if !ok || review.Clipped || len(review.Answers) != 3 {
+		t.Fatalf("review = %+v ok = %v", review, ok)
+	}
+	questions := Questions(reviewNoTabRow, nil)
+	if len(questions) != 3 || !review.Done(questions) {
+		t.Fatalf("questions = %+v, done = %v; want all three answered", questions, review.Done(questions))
+	}
+	if questions[2].Answer != "Pilot 300 turns first (Recommended)" {
+		t.Errorf("question 3 answer = %q", questions[2].Answer)
+	}
+}
+
+func TestAClippedReviewPageNeedsItsChoicesAtTheFoot(t *testing.T) {
+	prose := "   → Deploy search\nI asked: Ready to submit your answers?\n\n❯ 1. Submit answers\n  2. Cancel\n\nmore output\n"
+	if _, ok := ParseReview(prose); ok {
+		t.Error("prose quoting the review page read as one")
+	}
+}
+
+// A review page Claude Code 2.1.328 scrolled inside its own box, measured
+// live in a 110x22 pane with four long questions: the box draws "↑ 6 more
+// lines" over the choices, so "Ready to submit your answers?" is out of sight
+// as well as the heading and the tab row.
+const reviewScrolledInBox = ` │   recorded in the rollout log, is read back by the next session that picks up this work, and cannot be
+ │   changed later without opening a new review, so please pick the option you would still stand behind next
+ │   week.
+   → North
+ │ ● Round A: how often should the survey run once it starts? Before you answer, keep in mind that this choice
+ │   is recorded in the rollout log, is read back by the next session that picks up this work, and cannot be
+ │   changed later without opening a new review, so please pick the option you would still stand behind next
+ │   week.
+   → Weekly
+ │ ● Round A: which format should the survey report use? Before you answer, keep in mind that this choice is
+ │   recorded in the rollout log, is read back by the next session that picks up this work, and cannot be
+ │   changed later without opening a new review, so please pick the option you would still stand behind next
+ │   week.
+   → Table
+ ↑ 6 more lines
+❯ 1. Submit answers
+  2. Cancel
+`
+
+func TestAReviewPageScrolledInItsBoxReadsAsAReviewPage(t *testing.T) {
+	review, ok := OnReview(reviewScrolledInBox)
+	if !ok || !review.Clipped || review.Submit != 1 || review.Cursor != 1 {
+		t.Fatalf("review = %+v ok = %v", review, ok)
+	}
+	var answers []string
+	for _, answer := range review.Answers {
+		answers = append(answers, answer.Answer)
+	}
+	if want := []string{"North", "Weekly", "Table"}; !slices.Equal(answers, want) {
+		t.Errorf("answers = %q, want %q", answers, want)
+	}
+}
+
+func TestAScrollMarkerOverOtherChoicesIsNotAReviewPage(t *testing.T) {
+	pane := "   → North\n ↑ 6 more lines\n❯ 1. Yes\n  2. No\n"
+	if _, ok := ParseReview(pane); ok {
+		t.Error("a scroll marker over choices other than Submit read as a review page")
+	}
+}
+
+// The page the e2e run against Claude Code 2.1.328 stopped on, in a 110x22
+// pane: four questions that all end with the same long sentence, the first
+// scrolled off but for that sentence. Its tail reads as the end of every
+// question, so before Placed answer_session took it for question 2's row and
+// refused the batch: question 2 "Weekly" registered as "North".
+const reviewSharedEnding = ` │   recorded in the rollout log, is read back by the next session that picks up this work, and cannot be
+ │   changed later without opening a new review, so please pick the option you would still stand behind next
+ │   week.
+   → North
+ │ ● Round A: how often should the survey run once it starts? Before you answer, keep in mind that this choice
+ │   is recorded in the rollout log, is read back by the next session that picks up this work, and cannot be
+ │   changed later without opening a new review, so please pick the option you would still stand behind next
+ │   week.
+   → Weekly
+ │ ● Round A: which team should own the survey results? Before you answer, keep in mind that this choice is
+ │   recorded in the rollout log, is read back by the next session that picks up this work, and cannot be
+ │   changed later without opening a new review, so please pick the option you would still stand behind next
+ │   week.
+   → Research
+ │ ● Round A: which format should the survey report use? Before you answer, keep in mind that this choice is
+ │   recorded in the rollout log, is read back by the next session that picks up this work, and cannot be
+ │   changed later without opening a new review, so please pick the option you would still stand behind next
+ │   week.
+   → Table
+ ↑ 6 more lines
+❯ 1. Submit answers
+  2. Cancel
+`
+
+func sharedEnding(subjects ...string) []string {
+	var out []string
+	for _, subject := range subjects {
+		out = append(out, "Round A: "+subject+" Before you answer, keep in mind that this choice is recorded "+
+			"in the rollout log, is read back by the next session that picks up this work, and cannot be changed "+
+			"later without opening a new review, so please pick the option you would still stand behind next week.")
+	}
+	return out
+}
+
+func TestAPartialRowIsPlacedByTheRowAfterItNotByItsEnding(t *testing.T) {
+	review, ok := OnReview(reviewSharedEnding)
+	if !ok || !review.Tail || len(review.Answers) != 4 {
+		t.Fatalf("review = %+v ok = %v", review, ok)
+	}
+	questions := sharedEnding("which region should the survey cover first?",
+		"how often should the survey run once it starts?", "which team should own the survey results?",
+		"which format should the survey report use?")
+	placed := review.Placed(questions)
+	for i, want := range []string{"North", "Weekly", "Research", "Table"} {
+		if placed.Answers[i].Answer != want || !SameText(placed.Answers[i].Question, questions[i]) {
+			t.Errorf("row %d = %+v, want question %d answered %q", i, placed.Answers[i], i+1, want)
+		}
+	}
+
+	// With a fifth question scrolled off whole above it, the tail is still
+	// question 1's, not question 0's, though both end the same way.
+	five := append(sharedEnding("which budget should the survey use?"), questions...)
+	placed = review.Placed(five)
+	if placed.Answers[0].Answer != "North" || !SameText(placed.Answers[0].Question, five[1]) {
+		t.Errorf("first row = %+v, want the region question", placed.Answers[0])
+	}
+
+	// read_session's view names each question's own answer.
+	var asked []convo.AskQuestion
+	for _, q := range five {
+		asked = append(asked, convo.AskQuestion{Question: q})
+	}
+	got := Questions(reviewSharedEnding, asked)
+	var answers []string
+	for _, q := range got {
+		answers = append(answers, q.Answer)
+	}
+	if want := []string{"", "North", "Weekly", "Research", "Table"}; !slices.Equal(answers, want) {
+		t.Errorf("answers = %q, want %q", answers, want)
+	}
+	if !got[0].Answered {
+		t.Error("the question scrolled off whole above the page should read as answered")
+	}
+}
+
+func TestAPartialRowThatCannotBePlacedIsDropped(t *testing.T) {
+	review, _ := OnReview(reviewSharedEnding)
+	placed := review.Placed(sharedEnding("an unrelated question?"))
+	if placed.Tail || len(placed.Answers) != 3 || placed.Answers[0].Answer != "Weekly" {
+		t.Errorf("placed = %+v, want the partial row dropped", placed)
 	}
 }

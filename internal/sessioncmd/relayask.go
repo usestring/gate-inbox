@@ -24,6 +24,11 @@ type RelayAsk = relayask.Input
 // relayAskOn reads the dialog target's pane is holding into the RelayAsk that
 // relays it, or nil when the pane holds no dialog to relay.
 func (s *Sessions) relayAskOn(target store.Session, raw string) *RelayAsk {
+	if _, done := s.submitPageNext(target, raw); done {
+		// Its answers are in; nothing on the page is the user's to decide. A
+		// page still missing an answer falls through and relays that question.
+		return nil
+	}
 	asked := s.asked(target)
 	if reading, ok := dialog.ReadQuestions(target.Tool, raw, asked); ok && len(reading.Questions) > 0 {
 		return relayask.For(asked, reading.Questions)
@@ -93,6 +98,9 @@ func noDialogUp(err error) bool {
 // explainRefusal is nextCall's rewrite of err, given the child's pane as it
 // stands now.
 func (s *Sessions) explainRefusal(r *runtime, target store.Session, raw string, err error) error {
+	if next, onReview := s.submitPageNext(target, raw); onReview {
+		return wrapped(err, fmt.Sprintf("%v\n\n%s", err, next))
+	}
 	var ask *RelayAsk
 	if strings.TrimSpace(ansi.Strip(raw)) != "" {
 		ask = s.relayAskOn(target, raw)
@@ -124,4 +132,17 @@ func (s *Sessions) explainRefusal(r *runtime, target store.Session, raw string, 
 			target.ID, r.restingStatus(target.ID, state), err))
 	}
 	return err
+}
+
+// submitPageNext is what to do about target standing on the review page of a
+// several-question dialog with every answer in -- Submit, not a question for
+// the user (relayask.SubmitPage) -- and whether it is. A page still missing
+// an answer is not one: that question may be an Approval the user must be
+// asked word for word, so it takes the ordinary question relay.
+func (s *Sessions) submitPageNext(target store.Session, raw string) (string, bool) {
+	review, ok := dialog.OnReview(raw)
+	if !ok || !review.Done(dialog.Questions(raw, s.asked(target))) {
+		return "", false
+	}
+	return relayask.SubmitPage(target.ID), true
 }

@@ -1589,6 +1589,9 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 			screen.Digest.withQuestions(reading.Questions)
 		}
 		screen.Digest.RelayAsk = s.relayAskOn(target, raw)
+		if next, onReview := s.submitPageNext(target, raw); onReview {
+			screen.Digest.Next = next
+		}
 	}
 	if since != "" && readable {
 		screen.Mode, screen.Output, screen.Degraded = "delta", renderDelta(delta), note

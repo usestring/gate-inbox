@@ -190,3 +190,18 @@ func Line(in *Input, sessionID string) string {
 	return "\n\nTo put it to your user, pass this as is to your own AskUserQuestion, then answer_session on session " +
 		sessionID + " with relay: true and the option they pick:\n" + in.JSON()
 }
+
+// SubmitPage is what to do about a child standing on the review page a
+// several-question dialog ends on ("Ready to submit your answers?", Submit
+// answers / Cancel) with every question answered. Those answers were already
+// given -- by the parent, or by its user and relayed -- so there is nothing
+// to put to the user, and asking them which key to press was the failure
+// this replaces. A page still missing an answer is not this: that question
+// takes the ordinary relay, word for word.
+func SubmitPage(sessionID string) string {
+	return "Session " + sessionID + " is on the review page of a dialog asking several questions " +
+		"(\"Ready to submit your answers?\"), and every question already has its answer: there is nothing " +
+		"left to ask your user, so do not ask them which key to press. Submit it yourself: answer_session on " +
+		"session " + sessionID + " with answer \"Submit answers\" (relay is not needed; it keys no new answer). " +
+		"It checks the page, presses Submit and reads the answers back."
+}

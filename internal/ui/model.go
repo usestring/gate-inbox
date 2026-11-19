@@ -301,7 +301,8 @@ type Model struct {
 	// childSweeping is set while a child sweep is out on a command goroutine,
 	// so the poll clock cannot stack a second set of tmux forks behind the
 	// set already waiting. See childsweep.go.
-	childSweeping bool
+	childSweeping     bool
+	childClosurePlans map[childClosureKey]bool
 	// hibernating is set while a settleHibernated pass is out, and
 	// hibernateSweptAt is when the last one swept for idle sessions. See
 	// hibernate.go.

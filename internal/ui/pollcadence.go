@@ -53,7 +53,7 @@ func (p *poller) paneBinding(sess store.Session) paneBinding {
 }
 
 func (p *poller) hookStamp(sess store.Session) hookStamp {
-	if p.hooks == nil || p.statusSources[sess.Tool] != hooks.StatusSourceClaude && !sessionhooks.Role(sess.Role).PinnedStatus {
+	if p.hooks == nil || !hooks.FileStatus(p.statusSources[sess.Tool]) && !sessionhooks.Role(sess.Role).PinnedStatus {
 		return hookStamp{}
 	}
 	info, err := os.Stat(p.hooks.StatusFile(sess.ID))

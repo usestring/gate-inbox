@@ -27,6 +27,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
+	"github.com/usestring/gate-inbox/internal/piext"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
@@ -489,6 +490,9 @@ func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
+	if err := config.CheckVersion(baseCommand); err != nil {
+		return "", nil, err
+	}
 	// Refused before anything is removed or written: a style nothing
 	// implements is a config mistake, not a launch half made.
 	if err := tooldrivers.CheckTool(toolName, tool); err != nil {
@@ -500,11 +504,13 @@ func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config
 	if err := manager.SweepNameResults(time.Now()); err != nil {
 		return "", nil, err
 	}
-	if tool.StatusSource == hooks.StatusSourceClaude {
-		if _, err := manager.EnsureSettings(); err != nil {
+	if hooks.FileStatus(tool.StatusSource) {
+		if err := manager.Remove(id); err != nil {
 			return "", nil, err
 		}
-		if err := manager.Remove(id); err != nil {
+	}
+	if tool.StatusSource == hooks.StatusSourceClaude {
+		if _, err := manager.EnsureSettings(); err != nil {
 			return "", nil, err
 		}
 		if err := manager.RefreshSessionSettings(id); err != nil {
@@ -734,6 +740,9 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
+	if err := config.CheckVersion(baseCommand); err != nil {
+		return "", nil, err
+	}
 	if err := checkContributed(tool, contributed); err != nil {
 		return "", nil, err
 	}
@@ -791,6 +800,11 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	if err != nil {
 		return "", nil, err
 	}
+	if tool.StatusSource == hooks.StatusSourcePi {
+		if command, env, err = withPiExtension(manager, command, env, id, write); err != nil {
+			return "", nil, err
+		}
+	}
 	if tool.StatusSource != hooks.StatusSourceClaude {
 		command, err = confine(manager.ConfigDir(), style, id, command)
 		if err != nil {
@@ -819,4 +833,21 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	// somebody restarted by hand inside its pane. One spelling, so the check
 	// cannot go quietly false by this line changing.
 	return command + " " + hooks.SettingsArgv(tmux.ShellQuote(manager.LaunchSettingsPath(id))), env, nil
+}
+
+// withPiExtension loads the board's pi extension (package piext) into a pi
+// launch and gives it the session's status file to report into. The
+// extension is written under the hooks dir with a content-stamped name, so
+// this build's launch loads this build's extension and never one an older
+// build left there; nothing is written to ~/.pi.
+func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id string, write bool) (string, map[string]string, error) {
+	path := piext.Path(manager.Dir())
+	if write {
+		var err error
+		if path, err = piext.Ensure(manager.Dir()); err != nil {
+			return "", nil, err
+		}
+	}
+	env[hooks.EnvStatusFile] = manager.StatusFile(id)
+	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
 }

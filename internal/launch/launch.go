@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/classifier"
@@ -820,6 +821,9 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		if err != nil {
 			return "", nil, fmt.Errorf("%s cannot be launched: %w", toolName, err)
 		}
+		if pi && id != "" && piAutoModeWanted(tool) {
+			command = withAutoModeToken(id, command)
+		}
 		return command, env, nil
 	}
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)
@@ -892,4 +896,53 @@ func withPiExtension(manager *hooks.Manager, command string, env map[string]stri
 	// the operator's environment; withheld, it reaches no process there.
 	env[classifier.JEV.KeyEnv()] = tmux.Withheld
 	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
+}
+
+// piAutoModeWanted reports whether a pi tool's config leaves auto mode on;
+// the board setting is read on each call, on the server's side.
+func piAutoModeWanted(tool config.Tool) bool {
+	return !strings.EqualFold(strings.TrimSpace(tool.AutoMode), "off")
+}
+
+// AutoModeTokenVerb is the gate-inbox verb a pi pane with auto mode on runs
+// first: it writes the session's token (WriteAutoModeConfig), then execs the
+// pi command.
+const AutoModeTokenVerb = "pi-auto-mode-token"
+
+// withAutoModeToken has a pi pane write its own auto-mode token before pi
+// starts. The process composing the launch may be unable to: a session that
+// a confined session (a pi parent's own MCP server) creates is composed
+// inside that confinement, where the key dir is hidden. The pane is the tmux
+// server's child, never the composer's, so it can still see the key dir;
+// and the file must exist before pi's own confinement starts, which binds
+// only the files already there. A confinement wrapper goes inside this, not
+// around it.
+func withAutoModeToken(id, command string) string {
+	return tmux.ShellQuote(Executable()) + " " + AutoModeTokenVerb + " " + tmux.ShellQuote(id) +
+		" -- /bin/sh -c " + tmux.ShellQuote(command)
+}
+
+// WriteAutoModeConfig gives a pi session the token its hook proves itself
+// with when it asks auto mode (package piauto) on the board's shared server.
+// The token goes into the session's own MCP config in the key dir, the same
+// file a shared_mcp launch writes and the one key-dir file a confined
+// session can still read (package keyconfine), so auto mode works with
+// shared_mcp off and under confinement. Only a running server that proves
+// it is the board's gets one: the board keeps it up while a pi tool has
+// auto mode on. Without it auto mode only asks, so a failure here is not a
+// failed launch, and an existing config (a shared_mcp launch's) is kept.
+func WriteAutoModeConfig(configDir, id string) {
+	if !extension.ValidSessionID(id) {
+		return
+	}
+	if _, err := os.Stat(mcpshared.ClaudeConfigPath(configDir, id)); err == nil {
+		return
+	}
+	url := mcpshared.URL(configDir)
+	if !mcpshared.Healthy(configDir, url) {
+		return
+	}
+	if _, err := mcpshared.WriteClaudeConfig(configDir, url, "", id); err != nil {
+		logging.Warn("pi auto mode: could not write the session's server config", logging.Err(err))
+	}
 }

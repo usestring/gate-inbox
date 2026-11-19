@@ -6,13 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/envname"
+	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/mergegate"
+	"github.com/usestring/gate-inbox/internal/parentseal"
+	"github.com/usestring/gate-inbox/internal/piauto"
 )
 
 // Hook answers `gate-inbox hook pi PreToolUse`: the call on in, the decision
@@ -28,6 +33,7 @@ func Hook(in io.Reader, configDir, sessionID, statusFile string, now time.Time) 
 			ConfigDir: configDir, SessionID: sessionID, StatusFile: statusFile,
 			Home: home, ClaudeHome: convo.ClaudeHome(),
 			MergeGate:       func(command, cwd string) (string, bool) { return mergeGate(configDir, command, cwd) },
+			AutoMode:        func(r piauto.Request) piauto.Answer { return askAutoMode(configDir, sessionID, r) },
 			SkipPermissions: os.Getenv(envname.SkipPermissions) == "1",
 			Now:             now,
 		}, req)
@@ -61,4 +67,52 @@ func mergeGate(configDir, command, cwd string) (string, bool) {
 		return "merge gate: " + err.Error(), false
 	}
 	return fmt.Sprintf("Gate Inbox merge gate: the standing merge authority covers a squash merge of #%d", m.Number), true
+}
+
+// askAutoMode posts the call to the board's shared loopback server, which
+// holds the TypeSafe key and asks the classifier (piauto.Handler). This
+// process never reads the TypeSafe key, and under confinement
+// (package keyconfine) not the caller key either: it proves its session with
+// the token in the session's own MCP config, the one key-dir file left
+// visible to it, and checks the server with a proof keyed by that token
+// before sending it. A server that is not running, or not the board's own,
+// or any failure, is an answer with no allow in it.
+func askAutoMode(configDir, sessionID string, r piauto.Request) piauto.Answer {
+	down := piauto.Answer{Note: "pi auto mode is unavailable: the board's shared server is not answering"}
+	url := mcpshared.URL(configDir)
+	token := mcpshared.SessionToken(configDir, sessionID)
+	if token == "" {
+		// An unconfined session with no config of its own can still derive
+		// its token from the key.
+		token, _ = parentseal.ExistingCallerToken(configDir, sessionID)
+	}
+	if token == "" {
+		return piauto.Answer{Note: "pi auto mode is unavailable: this session has no token for the board's shared server"}
+	}
+	if !mcpshared.HealthyFor(url, sessionID, token) {
+		return down
+	}
+	body, err := json.Marshal(r)
+	if err != nil {
+		return down
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), piauto.Timeout+2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(url, "/")+piauto.Path, bytes.NewReader(body))
+	if err != nil {
+		return down
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(mcpshared.CallerHeader, sessionID)
+	req.Header.Set(mcpshared.CallerTokenHeader, token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return down
+	}
+	defer resp.Body.Close()
+	var a piauto.Answer
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&a) != nil {
+		return down
+	}
+	return a
 }

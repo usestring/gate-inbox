@@ -2381,6 +2381,16 @@
         "additionalProperties": false,
         "description": "the session's status, the question it is holding, and its last result",
         "properties": {
+          "auto_allowed": {
+            "description": "a pi session's latest calls its JEV auto mode allowed without asking, each with its scores",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "question": {
             "description": "question the session is waiting on, with its options; empty when nothing is being asked",
             "type": "string"

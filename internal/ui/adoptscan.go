@@ -43,7 +43,21 @@ type adoptedMsg struct {
 	taken int
 	// ids are the rows the scan created.
 	ids []string
-	err error
+	// unsure are the panes that look like an agent but that the scan would
+	// not take, so the board can say they exist instead of leaving them to be
+	// found by hand. Nil when the scan did not look at every pane.
+	unsure []unsurePane
+	err    error
+}
+
+// unsurePane is a pane, not sitting at a shell, that draws a tool's prompt
+// with no process in its tree that runs the tool: usually an agent started
+// under another name. It is not adopted, but it is worth a look.
+type unsurePane struct {
+	key     string
+	session string
+	pane    string
+	tool    string
 }
 
 func (m *Model) adoptTick() tea.Cmd {
@@ -92,18 +106,19 @@ func (m *Model) newAdoptRun() *adoptRun {
 		return nil
 	}
 	run := &adoptRun{
-		tools:    tools,
-		self:     m.selfPaneKey(),
-		known:    make(map[string]bool, len(m.sessions)),
-		names:    make(map[string]bool, len(m.sessions)),
-		index:    m.convos,
-		drift:    m.drift,
-		stor:     m.store,
-		hooks:    m.hooks,
-		driver:   m.tmux,
-		home:     filepath.Dir(m.hooks.Dir()),
-		naming:   m.cfg.Naming,
-		rejected: map[string]int{},
+		tools:        tools,
+		self:         m.selfPaneKey(),
+		known:        make(map[string]bool, len(m.sessions)),
+		names:        make(map[string]bool, len(m.sessions)),
+		index:        m.convos,
+		drift:        m.drift,
+		stor:         m.store,
+		hooks:        m.hooks,
+		driver:       m.tmux,
+		home:         filepath.Dir(m.hooks.Dir()),
+		naming:       m.cfg.Naming,
+		rejected:     map[string]int{},
+		namedOutside: m.namedOutsideTools(),
 		// The operator's own answers: panes they left off the board, and
 		// whether outside panes are wanted at all. Orphaned sessions of
 		// the manager's own are recovered either way.
@@ -160,7 +175,14 @@ func (r *adoptRun) scan(candidates []adopt.Candidate, started time.Time, complet
 	logging.Info("adopt scan",
 		"candidates", len(candidates), "arrivals", len(r.arrivals), "taken", taken,
 		"rejected", rejectionSummary(r.rejected), "took", time.Since(started).Round(time.Millisecond).String())
-	return adoptedMsg{taken: taken, ids: r.takenIDs, err: err}
+	msg := adoptedMsg{taken: taken, ids: r.takenIDs, err: err}
+	if complete {
+		msg.unsure = r.unsure
+		if msg.unsure == nil {
+			msg.unsure = []unsurePane{}
+		}
+	}
+	return msg
 }
 
 func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candidate, procs *adopt.ProcTable, observedAfter time.Time) error {
@@ -297,6 +319,10 @@ type adoptRun struct {
 	// request typed into its live session.
 	naming   config.Naming
 	rejected map[string]int
+	// namedOutside is the tools whose sessions are named from the outside
+	// (skip_rename_directive): the naming pass reads their own session
+	// title, so an adopted pane of theirs is never typed a rename request.
+	namedOutside map[string]bool
 	// ignored is the panes the operator left off the board, by
 	// paneDecisionKey. skipForeign refuses every pane the manager did not
 	// start, which is the "ignore them" setting.
@@ -304,6 +330,8 @@ type adoptRun struct {
 	skipForeign bool
 	// takenIDs are the rows take created.
 	takenIDs []string
+	// unsure are the panes take refused as not confident.
+	unsure []unsurePane
 	// arrivals is the agents that announced their pane, by adoptKey: the
 	// pid that announced and the tool its announcement speaks for. See
 	// arrivals.go.
@@ -366,6 +394,15 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 		}
 		if !match.Confident() {
 			r.reject(candidate, "not confident", "tool", match.Tool, "signals", signalNames(match.Signals))
+			if atShell(candidate.Command) {
+				continue
+			}
+			r.unsure = append(r.unsure, unsurePane{
+				key:     adoptKey(candidate.Socket, candidate.PaneID),
+				session: candidate.Session,
+				pane:    candidate.PaneID,
+				tool:    match.Tool,
+			})
 			continue
 		}
 		id, recovered, ok, err := r.rowID(candidate)
@@ -420,7 +457,7 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 			TmuxPaneID:     candidate.PaneID,
 			AgentSessionID: entry.conversation,
 		}
-		if !fromTitle && r.naming.Asks() {
+		if !fromTitle && r.naming.Asks() && !r.namedOutside[entry.tool] {
 			sess.PendingInputs = []string{adoptedRenameInput(r.home, sess.ID)}
 		}
 		if err := r.stor.CreateSession(sess); err != nil {
@@ -920,6 +957,17 @@ func (m *Model) agentToolNames() map[string]bool {
 	names := map[string]bool{}
 	for name, tool := range m.cfg.Tools {
 		if !tool.Shell && tool.Command != "" {
+			names[name] = true
+		}
+	}
+	return names
+}
+
+// namedOutsideTools is the configured tools that set skip_rename_directive.
+func (m *Model) namedOutsideTools() map[string]bool {
+	names := map[string]bool{}
+	for name, tool := range m.cfg.Tools {
+		if tool.SkipRenameDirective {
 			names[name] = true
 		}
 	}

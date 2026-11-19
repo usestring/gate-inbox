@@ -154,6 +154,30 @@ func AskPendingHook(configDir, sessionID string, payload []byte) {
 	}
 }
 
+// AskResolvedHook removes the call AskPendingHook saved once its dialog has
+// closed, for a session with no transcript to say so (pi). Only the call the
+// payload names is removed, so a later call's file is left standing.
+func AskResolvedHook(configDir, sessionID string, payload []byte) {
+	if sessionID == "" {
+		return
+	}
+	var event struct {
+		ToolUseID string `json:"tool_use_id"`
+	}
+	if json.Unmarshal(payload, &event) != nil || event.ToolUseID == "" {
+		return
+	}
+	path := hooks.NewManager(configDir).PendingAskFile(sessionID)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var saved convo.AskCall
+	if json.Unmarshal(raw, &saved) == nil && saved.ToolUseID == event.ToolUseID {
+		_ = os.Remove(path)
+	}
+}
+
 // AskHoldHook holds the AskUserQuestion call in the child's PreToolUse
 // payload while a gate channel consumer can deliver it, and returns the hook
 // output that answers it, or "" for the dialog to be drawn as usual. With no

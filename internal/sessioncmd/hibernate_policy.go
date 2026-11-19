@@ -42,6 +42,11 @@ func hibernateBudget(sensitivity string, memory sysstat.Snapshot, active int) in
 	return budget
 }
 
+// HibernateNeeded evaluates the cached board metrics without inspecting session processes.
+func HibernateNeeded(sensitivity string, memory sysstat.Snapshot, active int) bool {
+	return active > hibernateBudget(sensitivity, memory, active)
+}
+
 func (s *Sessions) HibernateAdaptive(sensitivity string, memory sysstat.Snapshot, dryRun bool) (result HibernateResult, err error) {
 	defer start("sessioncmd.hibernate_adaptive").done(&err)
 	result.DryRun = dryRun

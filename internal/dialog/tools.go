@@ -40,6 +40,11 @@ func ReadQuestions(tool, pane string, asked []convo.AskQuestion) (Reading, bool)
 	if reader, ok := toolReader(tool); ok && reader.Questions != nil {
 		return reader.Questions(pane, asked)
 	}
+	return readClaudeQuestions(pane, asked)
+}
+
+// readClaudeQuestions reads a question dialog drawn in Claude Code's shape.
+func readClaudeQuestions(pane string, asked []convo.AskQuestion) (Reading, bool) {
 	questions := Questions(pane, asked)
 	if len(questions) == 0 {
 		return Reading{}, false

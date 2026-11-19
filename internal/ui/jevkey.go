@@ -174,24 +174,13 @@ func (m *Model) handleJevSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.String() {
 	case "up", "k":
-		m.settings.jevCursor = (m.settings.jevCursor + 2) % 3
+		m.settings.jevCursor = (m.settings.jevCursor + jevRows - 1) % jevRows
 	case "down", "j":
-		m.settings.jevCursor = (m.settings.jevCursor + 1) % 3
+		m.settings.jevCursor = (m.settings.jevCursor + 1) % jevRows
 	case "left", "right", "h", "l", "space":
-		if m.settings.jevCursor == 2 {
-			m.switchClassifier()
-			return m, nil
-		}
-		if m.settings.jevCursor == 0 {
-			m.settings.jevAutoSuggest = !m.settings.jevAutoSuggest
-		}
+		m.toggleJevRow()
 	case "enter":
-		if m.settings.jevCursor == 2 {
-			m.switchClassifier()
-			return m, nil
-		}
-		if m.settings.jevCursor == 0 {
-			m.settings.jevAutoSuggest = !m.settings.jevAutoSuggest
+		if m.toggleJevRow() {
 			return m, nil
 		}
 		input := textinput.New()
@@ -203,7 +192,7 @@ func (m *Model) handleJevSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settings.jevInput = input
 		m.settings.jevPasting = true
 	case "x", "delete", "backspace":
-		if m.settings.jevCursor == 1 && *m.classifierSavedKey() != "" {
+		if m.settings.jevCursor == jevRowKey && *m.classifierSavedKey() != "" {
 			if err := removeClassifierKey(m.classifierProvider(), m.configDir()); err != nil {
 				m.errBar.text = "removing the saved classifier key: " + err.Error()
 				return m, nil
@@ -214,6 +203,31 @@ func (m *Model) handleJevSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settings.jevPanel = false
 	}
 	return m, nil
+}
+
+// The JEV card's rows, in order.
+const (
+	jevRowAutoSuggest = iota
+	jevRowKey
+	jevRowProvider
+	jevRowPiAutoMode
+	jevRows
+)
+
+// toggleJevRow flips the switch the cursor is on, and reports whether it was
+// on one.
+func (m *Model) toggleJevRow() bool {
+	switch m.settings.jevCursor {
+	case jevRowAutoSuggest:
+		m.settings.jevAutoSuggest = !m.settings.jevAutoSuggest
+	case jevRowProvider:
+		m.switchClassifier()
+	case jevRowPiAutoMode:
+		m.settings.piAutoMode = !m.settings.piAutoMode
+	default:
+		return false
+	}
+	return true
 }
 
 func (m *Model) saveJevKey(value string) {
@@ -250,9 +264,9 @@ func (m *Model) viewJevSettings() string {
 		state = "on"
 	}
 	var body strings.Builder
-	body.WriteString(marker(0) + padRight(valueStyle.Render("Auto Suggest"), settingsLabelColumn) +
+	body.WriteString(marker(jevRowAutoSuggest) + padRight(valueStyle.Render("Auto Suggest"), settingsLabelColumn) +
 		subtleStyle.Render("◂ ") + valueStyle.Render(state) + subtleStyle.Render(" ▸") + "\n")
-	body.WriteString(marker(1) + padRight(valueStyle.Render("API key"), settingsLabelColumn))
+	body.WriteString(marker(jevRowKey) + padRight(valueStyle.Render("API key"), settingsLabelColumn))
 	hint := [][2]string{{"↑↓", "field"}, {"←→/↵", "toggle"}, {"esc", "back"}}
 	switch {
 	case m.settings.jevPasting:
@@ -260,17 +274,23 @@ func (m *Model) viewJevSettings() string {
 		hint = [][2]string{{"↵", "save key"}, {"esc", "cancel"}}
 	case *m.classifierSavedKey() != "":
 		body.WriteString(mutedStyle.Render("saved " + maskJevKey(*m.classifierSavedKey())))
-		if m.settings.jevCursor == 1 {
+		if m.settings.jevCursor == jevRowKey {
 			hint = [][2]string{{"↑↓", "field"}, {"↵", "replace key"}, {"x", "remove key"}, {"esc", "back"}}
 		}
 	default:
 		body.WriteString(keyStyle.Render("↵") + mutedStyle.Render(" paste a key"))
-		if m.settings.jevCursor == 1 {
+		if m.settings.jevCursor == jevRowKey {
 			hint = [][2]string{{"↑↓", "field"}, {"↵", "paste key"}, {"esc", "back"}}
 		}
 	}
-	body.WriteString("\n" + marker(2) + padRight(valueStyle.Render("Provider"), settingsLabelColumn) +
+	body.WriteString("\n" + marker(jevRowProvider) + padRight(valueStyle.Render("Provider"), settingsLabelColumn) +
 		subtleStyle.Render("◂ ") + valueStyle.Render(m.classifierProvider().Name()) + subtleStyle.Render(" ▸"))
+	piState := "off"
+	if m.settings.piAutoMode {
+		piState = "on"
+	}
+	body.WriteString("\n" + marker(jevRowPiAutoMode) + padRight(valueStyle.Render("Pi auto mode"), settingsLabelColumn) +
+		subtleStyle.Render("◂ ") + valueStyle.Render(piState) + subtleStyle.Render(" ▸"))
 	access, ok := m.jevAccess()
 	if ok {
 		access = valueStyle.Render("✓ " + access)
@@ -281,7 +301,9 @@ func (m *Model) viewJevSettings() string {
 		"Choose JEV (TypeSafe) or Clef (Workers AI).\n"+
 			"Clef also needs WORKERS_AI_URL set to a trusted HTTPS Worker origin.\n"+
 			m.classifierProvider().KeyEnv()+" wins over a saved key; the saved key is kept\n"+
-			"0600 beside Gate Inbox's channel keys, which sessions cannot read."))
+			"0600 beside Gate Inbox's channel keys, which sessions cannot read.\n"+
+			"Pi auto mode lets JEV run a pi call no rule decides; each one\n"+
+			"it is unsure of asks. Sends the call and the user's turns."))
 	return m.cardFlex("▣ Classifier", body.String(), hint)
 }
 

@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -206,7 +205,7 @@ func (d *Driver) captureScrollbackByExec(socket, pane string, lines int) (string
 	full := append([]string{"-L", socket}, args...)
 	tmuxguard.Enforce(full)
 	countExec(full)
-	out, err := exec.Command(d.bin, full...).Output()
+	out, err := d.command(full...).Output()
 	if err != nil {
 		return "", err
 	}

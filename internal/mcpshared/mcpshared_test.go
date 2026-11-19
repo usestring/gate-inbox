@@ -73,6 +73,56 @@ func TestHealthyTellsTheServerFromAStaleURLOrASquatter(t *testing.T) {
 	}
 }
 
+// A client holding only its session's token checks the server by a proof
+// keyed by that token, which another session's token or a squatter cannot
+// give.
+func TestHealthyForChecksTheServerWithTheSessionsOwnToken(t *testing.T) {
+	dir := t.TempDir()
+	token, err := parentseal.CallerToken(dir, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proof, err := parentseal.ServerProofForSession(dir, r.URL.Query().Get("session"), r.URL.Query().Get("nonce"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(proof))
+	}))
+	defer server.Close()
+	if !HealthyFor(server.URL, "s1", token) {
+		t.Fatal("the board's server failed the session's check")
+	}
+	other, _ := parentseal.CallerToken(t.TempDir(), "s1")
+	if HealthyFor(server.URL, "s1", other) || HealthyFor(server.URL, "s1", "") || HealthyFor("", "s1", token) {
+		t.Fatal("a wrong token, or none, or no server, passed")
+	}
+	squatter := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer squatter.Close()
+	if HealthyFor(squatter.URL, "s1", token) {
+		t.Fatal("a squatter answering 200 passed")
+	}
+}
+
+// The token a session's own config holds is read back for that session only.
+func TestSessionTokenReadsTheSessionsOwnConfig(t *testing.T) {
+	dir := t.TempDir()
+	if got := SessionToken(dir, "s1"); got != "" {
+		t.Fatalf("no config: %q", got)
+	}
+	if _, err := WriteClaudeConfig(dir, "http://127.0.0.1:1", "", "s1"); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := parentseal.ExistingCallerToken(dir, "s1")
+	if got := SessionToken(dir, "s1"); got == "" || got != want {
+		t.Fatalf("SessionToken = %q, want %q", got, want)
+	}
+	if got := SessionToken(dir, "s2"); got != "" {
+		t.Fatalf("another session's token read: %q", got)
+	}
+}
+
 // A server never moves off a recorded address another process holds: the
 // sessions given it would keep sending that process their tokens unwarned.
 func TestListenRefusesARecordedAddressAnotherProcessHolds(t *testing.T) {

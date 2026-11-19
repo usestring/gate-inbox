@@ -8,7 +8,7 @@ import (
 // Every CLI the board launches carries Rule 2 where it reads standing
 // instructions, worded for what that CLI can verify, and in ASCII.
 func TestLaunchSteeringCarriesTheParentRule(t *testing.T) {
-	for _, style := range []string{"claude", "codex", "opencode"} {
+	for _, style := range []string{"claude", "codex", "opencode", "pi"} {
 		steering := launchSteering(style)
 		if !strings.HasPrefix(steering, DelegationSteering(style)) || !strings.Contains(steering, parentSteeringHeading) {
 			t.Errorf("%s: launch steering lacks the delegation steering or the parent rule", style)
@@ -25,9 +25,11 @@ func TestLaunchSteeringCarriesTheParentRule(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(launchSteering("claude"), "hook adds a note") ||
-		!strings.Contains(launchSteering("claude"), "relay attestation") {
-		t.Error("claude's rule does not point at the verified hook note and the attestation")
+	for _, style := range []string{"claude", "pi"} {
+		if !strings.Contains(launchSteering(style), "hook adds a note") ||
+			!strings.Contains(launchSteering(style), "relay attestation") {
+			t.Errorf("%s: the rule does not point at the verified hook note and the attestation", style)
+		}
 	}
 	for _, style := range []string{"codex", "opencode"} {
 		steering := launchSteering(style)

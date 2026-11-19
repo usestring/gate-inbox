@@ -20,6 +20,7 @@ var builtinDelegation = map[string]string{
 	"claude":   "the built-in Agent tool (also called Task: general-purpose, Explore, Plan, fork and custom agents) or the Workflow tool",
 	"codex":    "the built-in spawn_agent tool (with send_input, wait_agent and close_agent)",
 	"opencode": "the built-in subagent tool (the general, explore and other subagents)",
+	"pi":       "a subagent extension or a pi process started from the shell",
 }
 
 // DelegationSteering is the standing instruction for style's CLI. It is

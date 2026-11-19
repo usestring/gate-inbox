@@ -1651,7 +1651,7 @@ func (p *poller) maybeSendPendingInputWhenReady(sess store.Session, capture tmux
 	if !sess.PendingInputClaimed && agentAlive {
 		// The paste ends in Enter, so a line someone has part way written
 		// at the newly idle prompt would be submitted with it.
-		if p.engine.DeliveryHold(sess.Tool, ansi.Strip(capture.Text)) != "" || p.operatorTyping(sess, capture.State) {
+		if p.hookDialog(sess) || p.engine.DeliveryHold(sess.Tool, ansi.Strip(capture.Text)) != "" || p.operatorTyping(sess, capture.State) {
 			return false, nil
 		}
 		typing, err := p.composerCarriesDraft(sess, capture)
@@ -1822,6 +1822,11 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	// turn whose first request fails. Held before the interrupt, too, so a
 	// working agent is not stopped for a message that is not going in.
 	if p.offline() {
+		return false, nil
+	}
+	// Held before the interrupt too: its Escape cancels a dialog just as the
+	// message's Enter would answer one.
+	if p.hookDialog(sess) {
 		return false, nil
 	}
 	if msg.Interrupt && derived == status.Working && msg.ClaimedAt.IsZero() {
@@ -2142,6 +2147,16 @@ func (p *poller) interruptForMessage(sess store.Session, msg store.InboxMessage,
 	p.mu.Unlock()
 	logging.Info("interrupted a turn for a message", "session", sess.ID, "message", msg.ID, "sender", msg.SenderID)
 	return true, nil
+}
+
+// hookDialog reports whether sess's own status hooks say a dialog is on its
+// screen, which holds every key the board would send it on its own: a
+// message, its interrupt, a launch prompt, a limit retry. The pane rules
+// cannot see a dialog drawn with a legend they do not know, and a paste's
+// Enter answers it. Only pi reports its dialogs this way; see
+// hooks.PromptOpen.
+func (p *poller) hookDialog(sess store.Session) bool {
+	return p != nil && p.hooks != nil && p.statusSources[sess.Tool] == hooks.StatusSourcePi && p.hooks.PromptOpen(sess.ID)
 }
 
 // safeToInterrupt reports whether the pane is plainly a turn at work: its

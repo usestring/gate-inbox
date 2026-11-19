@@ -23,6 +23,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/keyconfine"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -559,12 +560,14 @@ var parentEnvBlocklist = map[string]bool{
 // only reach through startup files, so the agent process itself starts with
 // the same environment opening a terminal gives the operator. Keys compose
 // sets explicitly (session id, executable, home) win over inherited
-// ones; empty values, names no POSIX shell can export, and blocklisted
-// per-process values never cross.
+// ones; empty values, names no POSIX shell can export, blocklisted
+// per-process values and the board's own credentials never cross. The pane
+// withholds those credentials whatever a launch says (tmux.Driver.Create);
+// leaving them out here keeps a launch plan saying what its pane gets.
 func inheritParentEnv(env map[string]string) {
 	for _, kv := range os.Environ() {
 		key, value, _ := strings.Cut(kv, "=")
-		if value == "" || parentEnvBlocklist[key] || !validEnvName(key) {
+		if value == "" || parentEnvBlocklist[key] || slices.Contains(envname.BoardSecrets, key) || !validEnvName(key) {
 			continue
 		}
 		if _, set := env[key]; !set {

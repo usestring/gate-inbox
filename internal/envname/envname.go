@@ -42,7 +42,8 @@ const (
 )
 
 // BoardSecrets are the board's own credentials. The board uses them from its
-// own process, so no agent it launches needs them.
+// own process, so no agent it launches needs them, and every pane it opens
+// starts without them (see tmux.Driver.Create).
 var BoardSecrets = []string{TypeSafeKey, TraceSecret}
 
 // Get reads a variable, treating a blank value as unset.

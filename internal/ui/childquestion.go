@@ -301,8 +301,16 @@ func childLostMessage(sess store.Session, lost asks.Result) string {
 	return out.String()
 }
 
+// childAskTarget is where sess's pending question is read from. A CLI with no
+// ask source of its own (pi) draws Claude Code's dialog and saves its call
+// through the same ask-pending hook, so it is read as Claude's, as
+// answer_session reads it.
 func childAskTarget(sess store.Session) asks.Target {
-	return asks.Target{Tool: sess.Tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd}
+	tool := sess.Tool
+	if _, ok := asks.For(tool); !ok {
+		tool = "claude"
+	}
+	return asks.Target{Tool: tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd}
 }
 
 // childPendingStrings is what sess's one unresolved tool call was given, so a

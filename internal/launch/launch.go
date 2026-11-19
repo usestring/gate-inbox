@@ -815,6 +815,10 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		if command, env, err = withPiExtension(manager, command, env, id, profile, sharedConfig, write); err != nil {
 			return "", nil, err
 		}
+		if id != "" && piAutoModeWanted(tool) {
+			command = withAutoModeToken(id, command)
+		}
+		return command, env, nil
 	}
 	if tool.StatusSource != hooks.StatusSourceClaude {
 		command, err = confine(manager.ConfigDir(), style, id, command)

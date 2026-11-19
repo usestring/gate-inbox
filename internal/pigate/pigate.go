@@ -236,6 +236,10 @@ func Decide(env Env, req Request) Decision {
 		d.Decision, d.Reason = Allow, "permissions are skipped for this session"
 		return d
 	}
+	if env.SkipPermissions {
+		d.Decision, d.Reason = Allow, "permissions are skipped for this session"
+		return d
+	}
 	grants := env.Grants
 	if grants == nil {
 		grants = sessionGrants(env)

@@ -12,9 +12,10 @@ archives, package-manager entries and an install script come with the first rele
 | Go 1.27.2+ | building the binary |
 | tmux 3.1+ | every agent session |
 | git | repository roots, session-end pruning |
+| bubblewrap (`bwrap`), Linux only | launching any CLI other than Claude Code: it hides the board's key directory from the session ([Parent channel](parent-channel.md)); macOS uses the built-in `sandbox-exec` |
 | wl-clipboard, xclip, or xsel | pasting images into a prompt on Linux |
 
-Install tmux and git with your package manager. When the manager starts without tmux, it names the install command it detected, or tells you to use your package manager.
+Install tmux, git and, on Linux, bubblewrap with your package manager. Without a working `bwrap`, Codex, OpenCode, pi and other non-Claude sessions are refused at launch rather than started where they could read the keys; Ubuntu 24.04 and later also need unprivileged user namespaces allowed for it. When the manager starts without tmux, it names the install command it detected, or tells you to use your package manager.
 
 ## From source
 

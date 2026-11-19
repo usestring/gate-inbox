@@ -19,7 +19,7 @@ func TestOpencodeUpgradeNudge(t *testing.T) {
 	if v1.errBar.worked() {
 		t.Errorf("warning %q reads as an outcome", v1.errBar.text)
 	}
-	if !strings.Contains(v1.errBar.text, "opencode.ai/v2/install") {
+	if !strings.Contains(v1.errBar.text, "npm install -g @opencode/cli") {
 		t.Errorf("warning %q does not say how to upgrade", v1.errBar.text)
 	}
 	for name, report := range map[string]opencode.Report{

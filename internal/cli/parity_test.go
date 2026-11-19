@@ -424,7 +424,7 @@ func TestTheTwoFrontsNarrowTheTaskListAlike(t *testing.T) {
 		if _, err := w.tasks.ClaimTask(w.lead.ID, id, sessioncmd.ClaimOptions{}); err != nil {
 			t.Fatalf("ClaimTask: %v", err)
 		}
-		if _, err := w.tasks.FinishTask(w.lead.ID, id); err != nil {
+		if _, err := w.tasks.FinishTask(w.lead.ID, id, ""); err != nil {
 			t.Fatalf("FinishTask: %v", err)
 		}
 	}

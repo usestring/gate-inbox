@@ -301,7 +301,8 @@ type Model struct {
 	// childSweeping is set while a child sweep is out on a command goroutine,
 	// so the poll clock cannot stack a second set of tmux forks behind the
 	// set already waiting. See childsweep.go.
-	childSweeping bool
+	childSweeping     bool
+	childClosurePlans map[childClosureKey]bool
 	// hibernating is set while a settleHibernated pass is out, and
 	// hibernateSweptAt is when the last one swept for idle sessions. See
 	// hibernate.go.
@@ -1077,10 +1078,12 @@ type settingsState struct {
 	jevAutoSuggest     bool
 	jevFinishCheck     bool
 	jevCopyOn          bool
-	promptSuggest      bool
-	reviewQueue        bool
-	ciFeedback         bool
-	arrowsStay         bool
+	// piAutoMode is pi's auto mode (package piauto) as the JEV card holds it.
+	piAutoMode    bool
+	promptSuggest bool
+	reviewQueue   bool
+	ciFeedback    bool
+	arrowsStay    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool

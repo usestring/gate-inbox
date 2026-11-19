@@ -6,30 +6,33 @@
 // the recipient reads it as one more user turn. Words can say who sent it, but
 // the sender writes words too, and a sibling can quote a parent's message word
 // for word after reading it off the parent's pane. So the seal is not a word
-// the recipient is asked to believe. It is an HMAC over the delivered text,
-// keyed by a secret Gate Inbox keeps per recipient in its store, and it is
-// checked by Gate Inbox's own UserPromptSubmit hook in the recipient's harness,
-// which reports its verdict as hook context the harness keeps apart from typed
-// text.
+// the recipient is asked to believe. It is an Ed25519 signature over the
+// delivered text, made with a key only the board reads, and it is checked by
+// Gate Inbox's own UserPromptSubmit hook in the recipient's harness, which
+// reports its verdict as hook context the harness keeps apart from typed text.
 //
-// The key never leaves the store: it is never typed, printed, drawn in a pane
-// or given to a model, so read_session and the transcripts have nothing of it
-// to show. What the pane does show, the seal line, is bound to one message id,
-// one recipient, one sender and the exact text above it, and the hook accepts
-// each message id once, so a copied seal verifies nothing new.
+// The check needs only the public half of the key. That is what lets the hook
+// run inside a session confined away from the key directory: such a session
+// sees the public key read-only and nothing else there. The private key is
+// never typed, printed, drawn in a pane or given to a model, so read_session
+// and the transcripts have nothing of it to show. What the pane does show, the
+// seal line, is bound to one message id, one recipient, one sender and the
+// exact text above it, and the hook accepts each message id once, so a copied
+// seal verifies nothing new.
 package parentseal
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
+	"bytes"
+	"crypto/ed25519"
 	"encoding/base32"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
-// Version names the seal format; a change to what the MAC covers bumps it.
-const Version = "v1"
+// Version names the seal format; a change to what the signature covers bumps
+// it.
+const Version = "v2"
 
 // linePrefix opens every seal line. Bodies are neutralised against it (see
 // Neutralise), so only Gate Inbox's delivery path ever writes it.
@@ -39,19 +42,25 @@ const linePrefix = "[gate-inbox seal "
 // approval. It is neutralised in bodies for the same reason.
 const AttestPrefix = "[gate-inbox relay attestation "
 
-var sealLine = regexp.MustCompile(`^\[gate-inbox seal v1 m=([0-9]+) s=([A-Z2-7]{32})\]$`)
+var sealLine = regexp.MustCompile(`^\[gate-inbox seal v2 m=([0-9]+) s=([A-Z2-7]{103})\]$`)
 
-// MAC is the seal token for one delivery: which message, to whom, from whom,
-// and the text typed above the seal, with whitespace runs collapsed so a
-// terminal's paste handling cannot break it.
-func MAC(key []byte, messageID int64, recipient, sender, text string) string {
-	mac := hmac.New(sha256.New, key)
+var tokenEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
+
+// Sign is the seal token for one delivery: a signature over which message, to
+// whom, from whom, and the text typed above the seal, with whitespace runs
+// collapsed so a terminal's paste handling cannot break it.
+func Sign(key ed25519.PrivateKey, messageID int64, recipient, sender, text string) string {
+	return tokenEncoding.EncodeToString(ed25519.Sign(key, signed(messageID, recipient, sender, text)))
+}
+
+func signed(messageID int64, recipient, sender, text string) []byte {
+	var b bytes.Buffer
 	for _, part := range []string{"gate-inbox-seal-" + Version, strconv.FormatInt(messageID, 10), recipient, sender,
 		normalise(text)} {
-		mac.Write([]byte(part))
-		mac.Write([]byte{0})
+		b.WriteString(part)
+		b.WriteByte(0)
 	}
-	return base32.StdEncoding.EncodeToString(mac.Sum(nil)[:20])
+	return b.Bytes()
 }
 
 // Line is the seal line Gate Inbox appends as the final line of a delivery.
@@ -60,8 +69,8 @@ func Line(messageID int64, token string) string {
 }
 
 // Seal appends the seal line for text to it.
-func Seal(key []byte, messageID int64, recipient, sender, text string) string {
-	return text + "\n" + Line(messageID, MAC(key, messageID, recipient, sender, text))
+func Seal(key ed25519.PrivateKey, messageID int64, recipient, sender, text string) string {
+	return text + "\n" + Line(messageID, Sign(key, messageID, recipient, sender, text))
 }
 
 // Split reads a submitted prompt back into the text that was sealed and the
@@ -109,12 +118,14 @@ func unwrapPaste(prompt string) string {
 	return strings.TrimRight(inner, " \t\r\n")
 }
 
-// Verify reports whether token is the seal for text.
-func Verify(key []byte, messageID int64, recipient, sender, text, token string) bool {
-	if len(key) == 0 {
+// Verify reports whether token is the seal for text, checked with the
+// public key.
+func Verify(key ed25519.PublicKey, messageID int64, recipient, sender, text, token string) bool {
+	if len(key) != ed25519.PublicKeySize {
 		return false
 	}
-	return hmac.Equal([]byte(MAC(key, messageID, recipient, sender, text)), []byte(token))
+	sig, err := tokenEncoding.DecodeString(token)
+	return err == nil && ed25519.Verify(key, signed(messageID, recipient, sender, text), sig)
 }
 
 // Neutralise defuses anything in a message body that imitates Gate Inbox's

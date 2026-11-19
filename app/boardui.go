@@ -36,7 +36,7 @@ func startUI(ctx context.Context, registry *extension.Registry, model *ui.Model,
 		applyAliases(result.ID, result.UI.Aliases, keys, filters)
 		uis = append(uis, ui.ExtensionUI{Owner: result.ID, Keys: keys, Filters: filters,
 			OpenHeader: uiOpenHeader(ctx, result.UI.OpenHeader), HeaderPane: uiHeaderPane(result.UI.HeaderPane),
-			FoldHeaders: result.UI.FoldHeaders})
+			FoldHeaders: result.UI.FoldHeaders, BadgeLabel: result.BadgeLabel, BadgeDetail: result.BadgeDetail})
 	}
 	model.InstallExtensions(uis, bridge)
 	bridge.Attach(send)

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -341,6 +342,8 @@ func TestAPathArgumentDoesNotNameTheProgram(t *testing.T) {
 		{"a shebang script, the interpreter first", []string{"/bin/sh /usr/local/bin/pi"}, true},
 		{"an env shebang", []string{"env node /opt/tools/pi"}, true},
 		{"nothing running it at all", []string{"-zsh", "ls"}, false},
+		{"the native binary tmux names with an .exe suffix", []string{"pi.exe"}, true},
+		{"a different program sharing the prefix", []string{"pip.exe"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := namesProgram(tc.argv, "pi"); got != tc.want {
@@ -404,5 +407,42 @@ func TestConfiguredCodexClientCommand(t *testing.T) {
 				t.Errorf("programName(%q) = %q, want %q", tc.command, got, tc.want)
 			}
 		})
+	}
+}
+
+// A tool configured through a wrapper script runs under the tool's own name:
+// the wrapper execs the real CLI, and a session started by hand never ran the
+// wrapper at all. The block name is what identifies those panes.
+func TestIdentifyMatchesTheBlockNameBehindAWrapper(t *testing.T) {
+	dir := t.TempDir()
+	socket := paneServer(t, dir, fakeAgent(t, "someagent"))
+	panes := waitForPane(t, socket, "❯")
+
+	tool := promptTool("someagent", "/opt/wrappers/someagent-chrome")
+	match, ok := Identify(panes[0], []Tool{tool}, "", NewProcTable())
+	if !ok || !match.Confident() {
+		t.Fatalf("wrapper-configured agent not identified confidently: ok=%v signals=%v", ok, match.Signals)
+	}
+	if got, ok := NewProcTable().ProgramPID(panes[0].PID, tool.Command, tool.Name); !ok || got == 0 {
+		t.Fatalf("ProgramPID behind a wrapper = %d, %v", got, ok)
+	}
+}
+
+func TestProgramNames(t *testing.T) {
+	cases := []struct {
+		command, tool string
+		want          []string
+	}{
+		{"/x/codex-chrome", "codex", []string{"codex-chrome", "codex"}},
+		{"codex --model x", "codex", []string{"codex"}},
+		{"/x/codex-chrome", "my codex", []string{"codex-chrome"}},
+		{"/x/codex-chrome", "a/b", []string{"codex-chrome"}},
+		{"", "codex", []string{"codex"}},
+		{"", "", nil},
+	}
+	for _, c := range cases {
+		if got := programNames(c.command, c.tool); !slices.Equal(got, c.want) {
+			t.Errorf("programNames(%q, %q) = %q, want %q", c.command, c.tool, got, c.want)
+		}
 	}
 }

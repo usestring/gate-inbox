@@ -420,6 +420,36 @@ func (m *Map) Overrides() Overrides {
 	return out
 }
 
+// Diff is what this map binds differently from base: per action, the keys it
+// holds where base holds other ones, an empty list included. It is how a
+// device's layer is read back after a rebind on that device -- the resolved
+// map minus the shared one -- so a rebind there writes the device's tables
+// and leaves the shared ones alone. Overrides this map keeps for a screen or
+// action the build does not have come along when base does not hold them.
+func (m *Map) Diff(base *Map) Overrides {
+	out := Overrides{}
+	put := func(ctx Context, action Action, keys []string) {
+		if out[ctx] == nil {
+			out[ctx] = map[Action][]string{}
+		}
+		out[ctx][action] = append([]string{}, keys...)
+	}
+	for ctx, set := range m.foreign {
+		for action, keys := range set {
+			if theirs, ok := base.foreign[ctx][action]; !ok || !sameKeys(keys, theirs) {
+				put(ctx, action, keys)
+			}
+		}
+	}
+	for _, binding := range m.catalog {
+		mine := m.byAction[binding.Context][binding.Action]
+		if !sameKeys(mine, base.byAction[binding.Context][binding.Action]) {
+			put(binding.Context, binding.Action, mine)
+		}
+	}
+	return out
+}
+
 // Rebind returns a copy of the map with one action moved onto keys. It is
 // the in-app editor's whole write path: the copy is validated before it is
 // installed, so a rebind that would collide is reported without the board

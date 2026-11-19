@@ -372,41 +372,24 @@ func (m *Model) viewAccountSwitch() string {
 	}
 	var body strings.Builder
 	body.WriteString("  session  " + valueStyle.Render(sess.Name) + "  " + mutedStyle.Render("on "+sess.Tool+" as "+now) + "\n")
-	hint := [][2]string{{"↑↓", "account"}, {"↵", "switch"}, {"esc", "cancel"}}
-	legendRows := strings.Count(legendInline(hint, cardInnerWidth(m.cardWidth())), "\n") + 1
-	var reasonRows []string
+	// One account at a time, stepped through in place, so the card stays
+	// the same size however many accounts the build lists.
+	name := m.account.names[m.account.index]
+	body.WriteString("  account  " + subtleStyle.Render("◂ ") + valueStyle.Render(name) + m.viewAccountAutoPick(name) + subtleStyle.Render(" ▸") + "\n")
 	if m.accountOnAuto() {
-		reasonRows = m.autoReasonRows(m.account.autoReason, len(accountListIndent)+2)
-	}
-	rows := m.height - 7 - legendRows - len(reasonRows)
-	if m.errBar.text != "" {
-		rows -= 2
-	}
-	rows = max(1, rows)
-	start := max(0, m.account.index-rows+1)
-	for i := start; i < min(len(m.account.names), start+rows); i++ {
-		name := m.account.names[i]
-		lead, marker, style := accountListIndent, "  ", mutedStyle
-		if i == start {
-			lead = "  account  "
+		for _, row := range m.autoReasonRows(m.account.autoReason, len(accountIndent)+2) {
+			body.WriteString(row + "\n")
 		}
-		if i == m.account.index {
-			marker, style = keyStyle.Render("❯ "), valueStyle
-		}
-		body.WriteString(lead + marker + style.Render(name) + m.viewAccountAutoPick(name) + "\n")
 	}
-	for _, row := range reasonRows {
-		body.WriteString(row + "\n")
-	}
-	body.WriteString(accountListIndent + mutedStyle.Render(then))
-	return m.card("⇄ Switch Account", body.String(), hint)
+	body.WriteString(accountIndent + mutedStyle.Render(then))
+	return m.card("⇄ Switch Account", body.String(), [][2]string{{"←→", "account"}, {"↵", "switch"}, {"esc", "cancel"}})
 }
 
-// accountListIndent is the columns ahead of an account's marker on the card.
-const accountListIndent = "           "
+// accountIndent is the columns ahead of the account picker on the card.
+const accountIndent = "           "
 
-// viewAccountAutoPick is what follows auto's row: the account it would move
-// the session to, once the chooser has said.
+// viewAccountAutoPick is what follows auto on the picker: the account it
+// would move the session to, once the chooser has said.
 func (m *Model) viewAccountAutoPick(name string) string {
 	if name != accountAuto {
 		return ""

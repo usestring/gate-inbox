@@ -373,12 +373,14 @@ func spaces(n int) string {
 // URL a click on a rail row opens, set on the lines of a pull request or
 // ticket entry.
 type contentLine struct {
-	text string
-	raw  bool
-	rule bool
-	tone string
-	bg   string
-	link string
+	text      string
+	raw       bool
+	rule      bool
+	tone      string
+	bg        string
+	link      string
+	copyID    string
+	sessionID string
 }
 
 // paintContent paints a content column, leaving raw rows unfilled.

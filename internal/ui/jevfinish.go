@@ -10,7 +10,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/usestring/gate-inbox/internal/jev"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/search"
@@ -19,8 +19,8 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
-// The JEV finish check reads a Claude session's transcript each time the row
-// turns finished and asks JEV two yes-no questions about it in one call:
+// The finish check reads a Claude session's transcript each time the row
+// turns finished and asks the classifier two yes-no questions about it in one call:
 // whether the work is done, and whether the agent stopped because it had no
 // Chrome browser tools. The second has a fixed remedy, so the board applies
 // it without asking: end the pane, resume the same conversation with
@@ -29,7 +29,7 @@ import (
 // Only a confident answer acts. A finished score short of confident but at
 // least jevFinishProbeLow asks the agent itself, by typing jevFinishProbe
 // into the idle session; its DONE or NOT DONE reply settles the finish on
-// the next pass without asking JEV again. Anything else, a missing key, a
+// the next pass without asking the classifier again. Anything else, a missing key, a
 // failed request or an unreadable transcript leaves the row as it was.
 
 const jevFinishCheckSetting = "experimental_jev_finish_check"
@@ -82,6 +82,7 @@ func storedJevFinishCheck(st *store.Store) bool {
 // Chrome, so a session that still reads as missing it is not relaunched in a
 // loop.
 type jevFinishState struct {
+	generation       uint64
 	busy             bool
 	checked          map[string]string
 	asked            map[string]string
@@ -95,17 +96,18 @@ type jevFinishVerdict struct {
 }
 
 type jevFinishResultMsg struct {
-	id       string
-	identity string
-	digest   string
-	verdict  jevFinishVerdict
-	ok       bool
+	generation uint64
+	id         string
+	identity   string
+	digest     string
+	verdict    jevFinishVerdict
+	ok         bool
 	// probe is the agent's answer when the finish is its reply to
-	// jevFinishProbe; JEV is not asked about such a finish.
+	// jevFinishProbe; the classifier is not asked about such a finish.
 	probe jevFinishProbeAnswer
 	// report is what the agent said of its own work with report_status
 	// since its work was last set. When there is one, neither the probe nor
-	// JEV is asked: the agent knows its plan, and the last few turns may not.
+	// the classifier is asked: the agent knows its plan, and the last few turns may not.
 	report   search.StatusReport
 	reported bool
 }
@@ -198,7 +200,9 @@ func (m *Model) jevFinishAttended(sess store.Session) bool {
 // event loop. One call out at a time keeps a board of many finishes from
 // fanning out a request per row at once.
 func (m *Model) checkFinishedWithJev() tea.Cmd {
-	key, _ := m.jevKey()
+	key := m.jevAPIKey()
+	provider := m.classifierProvider()
+	endpoint := provider.Endpoint()
 	if !m.jevFinishCheck || key == "" || m.jevFinish.busy || m.conversation == nil {
 		return nil
 	}
@@ -215,8 +219,9 @@ func (m *Model) checkFinishedWithJev() tea.Cmd {
 	tool := historyToolFormats(m.cfg)[sess.Tool]
 	database := opencodeDBPath()
 	lastAsked := m.jevFinish.asked[sess.ID]
+	generation := m.jevFinish.generation
 	return func() tea.Msg {
-		msg := jevFinishResultMsg{id: sess.ID, identity: identity}
+		msg := jevFinishResultMsg{id: sess.ID, identity: identity, generation: generation}
 		target, found := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
 		if !found {
 			return msg
@@ -246,7 +251,7 @@ func (m *Model) checkFinishedWithJev() tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), jevFinishTimeout)
 		defer cancel()
-		msg.verdict, msg.ok = askJevFinish(ctx, jevHTTPClient, jevEndpoint, key, state)
+		msg.verdict, msg.ok = askJevFinish(ctx, provider, jevHTTPClient, endpoint, key, state)
 		return msg
 	}
 }
@@ -276,8 +281,8 @@ func jevFinishDigest(state []suggestMessage) string {
 }
 
 // askJevFinish posts both noul questions in one call against one state.
-func askJevFinish(ctx context.Context, client *http.Client, endpoint, key string, state []suggestMessage) (jevFinishVerdict, bool) {
-	answers, ok := askJevNoul(ctx, client, endpoint, key, map[string]any{"messages": state}, map[string]string{
+func askJevFinish(ctx context.Context, provider classifier.Provider, client *http.Client, endpoint, key string, state []suggestMessage) (jevFinishVerdict, bool) {
+	answers, ok := askJevNoul(ctx, provider, client, endpoint, key, map[string]any{"messages": state}, map[string]string{
 		"finished":       jevFinishedQuestion,
 		"missing_chrome": jevMissingChromeQuestion,
 	})
@@ -287,8 +292,8 @@ func askJevFinish(ctx context.Context, client *http.Client, endpoint, key string
 	return jevFinishVerdict{finished: answers["finished"], missingChrome: answers["missing_chrome"]}, true
 }
 
-func askJevNoul(ctx context.Context, client *http.Client, endpoint, key string, state any, questions map[string]string) (map[string]float64, bool) {
-	return jev.AskNoul(ctx, client, endpoint, key, state, questions)
+func askJevNoul(ctx context.Context, provider classifier.Provider, client *http.Client, endpoint, key string, state any, questions map[string]string) (map[string]float64, bool) {
+	return provider.AskNoul(ctx, client, endpoint, key, state, questions)
 }
 
 // jevFinishAction is what a verdict calls for.
@@ -318,7 +323,7 @@ func (v jevFinishVerdict) decide() jevFinishAction {
 
 func (m *Model) applyJevFinish(msg jevFinishResultMsg) {
 	m.jevFinish.busy = false
-	if !msg.ok || !m.jevFinishCheck {
+	if !msg.ok || !m.jevFinishCheck || msg.generation != m.jevFinish.generation {
 		return
 	}
 	if m.jevFinish.asked == nil {
@@ -326,8 +331,8 @@ func (m *Model) applyJevFinish(msg jevFinishResultMsg) {
 	}
 	m.jevFinish.asked[msg.id] = msg.digest
 	sess, ok := m.sessionByID(msg.id)
-	// The row moved on while JEV read it: the verdict is about a finish that
-	// is no longer the one on screen.
+	// The row moved on while the classifier read it: the verdict is about a
+	// finish that is no longer the one on screen.
 	if !ok || sess.Archived || sess.Status != status.Finished || jevFinishIdentity(sess) != msg.identity || m.jevFinishAttended(sess) {
 		return
 	}
@@ -346,30 +351,31 @@ func (m *Model) applyJevFinish(msg jevFinishResultMsg) {
 		return
 	}
 	logging.Info("jev finish check", "session", sess.ID, "finished", msg.verdict.finished, "missing_chrome", msg.verdict.missingChrome)
+	provider := m.classifierProvider().Name()
 	switch msg.verdict.decide() {
 	case jevFinishDone:
-		m.reportDone(fmt.Sprintf("JEV says %s is done (%.1f%%)", sess.Name, msg.verdict.finished*100))
+		m.reportDone(fmt.Sprintf("%s says %s is done (%.1f%%)", provider, sess.Name, msg.verdict.finished*100))
 	case jevFinishProbeAgent:
 		// The poller types it once the prompt is at rest and nobody is
 		// typing there, so it cannot land on a draft or a dialog.
 		if err := m.store.QueuePendingInput(sess.ID, queuedJevFinishProbe(sess)); err != nil {
-			m.errBar.text = "JEV finish probe: " + err.Error()
+			m.errBar.text = provider + " finish probe: " + err.Error()
 		}
 	case jevFinishRelaunchChrome:
 		if m.jevFinish.chromeRelaunched[sess.ID] {
-			m.errBar.text = fmt.Sprintf("JEV: %s still lacks Chrome after a relaunch with %s; left as it is", sess.Name, chromeFlag)
+			m.errBar.text = fmt.Sprintf("%s: %s still lacks Chrome after a relaunch with %s; left as it is", provider, sess.Name, chromeFlag)
 			return
 		}
 		if err := m.relaunchWithChrome(sess); err != nil {
-			m.errBar.text = "JEV Chrome relaunch: " + err.Error()
+			m.errBar.text = provider + " Chrome relaunch: " + err.Error()
 			return
 		}
 		if m.jevFinish.chromeRelaunched == nil {
 			m.jevFinish.chromeRelaunched = map[string]bool{}
 		}
 		m.jevFinish.chromeRelaunched[sess.ID] = true
-		m.reportDone(fmt.Sprintf("JEV: %s lacked Chrome (%.1f%%); relaunched with %s and told it to continue",
-			sess.Name, msg.verdict.missingChrome*100, chromeFlag))
+		m.reportDone(fmt.Sprintf("%s: %s lacked Chrome (%.1f%%); relaunched with %s and told it to continue",
+			provider, sess.Name, msg.verdict.missingChrome*100, chromeFlag))
 	}
 }
 

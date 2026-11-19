@@ -139,7 +139,8 @@ func TestSmartTriagePutsUrgentAtTheHead(t *testing.T) {
 		urgent,
 		smartSess("q-fresh", status.Waiting, time.Minute),
 	)
-	assertRail(t, m, "urgent", "q-fresh", "q-old", "done-old")
+	// The questions lead whatever their tier; urgent heads the rest.
+	assertRail(t, m, "q-fresh", "q-old", "urgent", "done-old")
 }
 
 // Idle is on the walk like everything else, so a session wrongly read as
@@ -185,7 +186,7 @@ func TestSmartTriageDrainsInRailOrder(t *testing.T) {
 		smartSess("grinder", status.Working, time.Hour),
 	)
 	want := []string{"q-fresh", "q-old", "done-aged", "calm", "high"}
-	assertRail(t, m, "q-fresh", "q-old", "done-aged", "calm", "grinder", "high")
+	assertRail(t, m, "q-fresh", "q-old", "done-aged", "calm", "high", "grinder")
 	if got := drainOrder(m); !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want the rail's order %v", got, want)
 	}
@@ -211,9 +212,10 @@ func TestSmartTriageOnlyAnOperatorTurnMovesARow(t *testing.T) {
 	assertRail(t, m, "done-old", "done-new")
 }
 
-// A working parent is lifted to its child's key and queues on the child's
-// recency, not its own.
-func TestSmartTriageLiftsAParentByItsChildsScore(t *testing.T) {
+// A working parent cannot be entered, so a child's finish does not lift it:
+// the parent hears the result and takes it from there. It sits at the bottom
+// with the child drawn under it.
+func TestSmartTriageDoesNotLiftAWorkingParentOnAChildsFinish(t *testing.T) {
 	kid := smartSess("kid", status.Finished, 25*time.Minute)
 	kid.ParentID, kid.SpawnedBy = "lead", "lead"
 	m := smartFleet(t,
@@ -222,7 +224,7 @@ func TestSmartTriageLiftsAParentByItsChildsScore(t *testing.T) {
 		kid,
 		smartSess("done-young", status.Finished, 20*time.Minute),
 	)
-	assertRail(t, m, "done-young", "lead", "kid", "done-old")
+	assertRail(t, m, "done-young", "done-old", "lead", "kid")
 }
 
 // A finish the operator has looked at is acked and idle, and looking is not
@@ -265,39 +267,59 @@ func TestSmartTriageMuteOnAFinishOutlastsItsAck(t *testing.T) {
 	}
 }
 
-// Leaving a page in a walk hands its session over. The walk starts from the
-// head of the queue, so the session left behind must be muted or the next
-// hop hands it straight back.
-func TestSmartTriageLeavingAPageMutesItsSession(t *testing.T) {
+// Leaving a page postpones its session until the other work has been offered.
+func TestSmartTriageLeavingAPageDefersItsSession(t *testing.T) {
 	m := smartFleet(t,
 		smartSess("ask", status.Waiting, time.Minute),
 		smartSess("calm", status.Idle, time.Hour),
 	)
 	m.cursor = 0
 	m.leaveHeadPane(true)
-	if !m.isMuted(m.sessions[0]) {
-		t.Fatal("leaving the page did not mute the session it was over")
+	if m.isMuted(m.sessions[0]) {
+		t.Fatal("leaving the page muted its unfinished session")
 	}
-	if i, ok := m.nextTriageInput("calm", nil); ok {
-		t.Fatalf("the walk past calm handed over %q, want the drain over", m.rows[i].sess.Name)
+	assertRail(t, m, "calm", "ask")
+	if i, ok := m.nextTriageInput("ask", nil); !ok || m.rows[i].sess.ID != "calm" {
+		t.Fatal("the walk did not offer the other work before the skipped page")
+	}
+	if i, ok := m.nextTriageInput("calm", nil); !ok || m.rows[i].sess.ID != "ask" {
+		t.Fatal("the skipped page did not return after the other work")
 	}
 }
 
-// A deadline still ahead goes before the score in the scored band.
+// A deadline still ahead goes before the score in the scored band, among
+// sessions of one state.
 func TestSmartTriageDeadlineGoesBeforeTheScore(t *testing.T) {
 	m := smartFleet(t,
-		smartSess("ask", status.Waiting, time.Minute),
-		smartSess("calm", status.Idle, time.Hour),
+		smartSess("fresh", status.Finished, time.Minute),
+		smartSess("calm", status.Finished, time.Hour),
 	)
 	m.queueDeadlines = map[string]time.Time{"calm": smartNow.Add(time.Minute)}
 	m.rebuildRows()
-	assertRail(t, m, "calm", "ask")
+	assertRail(t, m, "calm", "fresh")
 	m.clock = func() time.Time { return smartNow.Add(2 * time.Minute) }
 	m.rebuildRows()
-	assertRail(t, m, "ask", "calm")
+	assertRail(t, m, "fresh", "calm")
 }
 
-// Smart triage off is the strict order exactly: tier first, then state, then
+// A deadline never puts a session ahead of a better state. The cache warden
+// publishes one for every warm session, so a deadline that outranked the
+// state put every session touched in the last hour ahead of every question.
+func TestSmartTriageDeadlineNeverJumpsAQuestion(t *testing.T) {
+	m := smartFleet(t,
+		smartSess("ask", status.Waiting, time.Hour),
+		smartSess("warm", status.Finished, time.Minute),
+		smartSess("calm", status.Idle, time.Minute),
+	)
+	m.queueDeadlines = map[string]time.Time{
+		"warm": smartNow.Add(time.Minute),
+		"calm": smartNow.Add(time.Minute),
+	}
+	m.rebuildRows()
+	assertRail(t, m, "ask", "warm", "calm")
+}
+
+// Smart triage off keeps the strict order within each band: questions, priority, state, then
 // oldest, with a seen finish ranked as the idle row it reads as.
 func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
 	urgent := smartSess("urgent-done", status.Finished, time.Minute)
@@ -320,7 +342,7 @@ func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
 	m := smartFleet(t, fleet...)
 	m.smartTriage = false
 	m.rebuildRows()
-	want := []string{"urgent-done", "q-old", "q-fresh", "done-aged", "lead", "kid", "calm", "seen", "broke"}
+	want := []string{"q-old", "q-fresh", "urgent-done", "done-aged", "calm", "seen", "broke", "lead", "kid"}
 	assertRail(t, m, want...)
 	if got, want := drainOrder(m), slices.DeleteFunc(slices.Clone(want), func(n string) bool { return n == "lead" || n == "kid" }); !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want %v", got, want)

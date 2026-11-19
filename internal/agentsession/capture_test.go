@@ -28,7 +28,7 @@ func writeFile(t *testing.T, path, content string, modTime time.Time) {
 func codexRollout(sessionID, cwd string, created time.Time) string {
 	return `{"timestamp":"` + created.Format(time.RFC3339Nano) + `","type":"session_meta","payload":{"session_id":"` +
 		sessionID + `","cwd":"` + cwd + `"}}` + "\n" +
-		`{"timestamp":"2026-07-18T14:36:09Z","type":"event_msg","payload":{}}` + "\n"
+		fmt.Sprintf(`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":%q}]}}`+"\n", "conversation "+sessionID)
 }
 
 func TestCaptureCodexPicksSessionAfterLaunchInCwd(t *testing.T) {
@@ -44,7 +44,7 @@ func TestCaptureCodexPicksSessionAfterLaunchInCwd(t *testing.T) {
 	writeFile(t, filepath.Join(root, "2026/07/18/rollout-ours.jsonl"),
 		codexRollout("ours-uuid", "/repo", launch.Add(2*time.Second)), launch.Add(2*time.Second))
 
-	id, ok := captureCodex(root, "/repo", launch, map[string]bool{}, Evidence{})
+	id, ok := captureCodex(root, "/repo", launch, map[string]bool{}, Evidence{Prompt: "conversation ours-uuid"})
 	if !ok || id != "ours-uuid" {
 		t.Fatalf("got id=%q ok=%v, want ours-uuid true", id, ok)
 	}
@@ -58,9 +58,8 @@ func TestCaptureCodexSkipsClaimed(t *testing.T) {
 	writeFile(t, filepath.Join(root, "a/rollout-2.jsonl"),
 		codexRollout("second-uuid", "/repo", launch.Add(2*time.Second)), launch.Add(2*time.Second))
 
-	// first-uuid already belongs to another session, so the earliest
-	// unclaimed match wins instead.
-	id, ok := captureCodex(root, "/repo", launch, map[string]bool{"first-uuid": true}, Evidence{})
+	// The second conversation matches this launch; the first belongs elsewhere.
+	id, ok := captureCodex(root, "/repo", launch, map[string]bool{"first-uuid": true}, Evidence{Prompt: "conversation second-uuid"})
 	if !ok || id != "second-uuid" {
 		t.Fatalf("got id=%q ok=%v, want second-uuid true", id, ok)
 	}
@@ -414,7 +413,7 @@ func TestCodexRefusesAnUnreadableConversation(t *testing.T) {
 	if snapshot, ok := Snapshot("codex", cwd); ok {
 		t.Fatalf("snapshot = %v past an unreadable conversation; want unavailable", snapshot)
 	}
-	if id, ok := Capture("codex", cwd, launch, map[string]bool{}, Evidence{}); ok {
+	if id, ok := Capture("codex", cwd, launch, map[string]bool{}, Evidence{Prompt: "conversation readable"}); ok {
 		t.Fatalf("captured %q past an unreadable conversation", id)
 	}
 }
@@ -444,12 +443,17 @@ func TestCaptureCodexUsesCreationRatherThanRecentActivity(t *testing.T) {
 				key = "session_id"
 			}
 			rollout := func(id string, created time.Time) string {
-				return fmt.Sprintf(`{"timestamp":%q,"type":"session_meta","payload":{%q:%q,"timestamp":%q,"cwd":"/repo"}}`+"\n", launch.Format(time.RFC3339Nano), key, id, created.Format(time.RFC3339Nano))
+				prompt := id
+				if id == "old" {
+					prompt = "first"
+				}
+				meta := fmt.Sprintf(`{"timestamp":%q,"type":"session_meta","payload":{%q:%q,"timestamp":%q,"cwd":"/repo"}}`+"\n", launch.Format(time.RFC3339Nano), key, id, created.Format(time.RFC3339Nano))
+				return meta + fmt.Sprintf(`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":%q}]}}`+"\n", prompt)
 			}
 			writeFile(t, filepath.Join(root, "rollout-old.jsonl"), rollout("old", old), launch)
 			writeFile(t, filepath.Join(root, "rollout-first.jsonl"), rollout("first", first), launch.Add(time.Minute))
 			writeFile(t, filepath.Join(root, "rollout-second.jsonl"), rollout("second", second), launch.Add(3*time.Second))
-			id, ok := captureCodex(root, "/repo", launch, nil, Evidence{})
+			id, ok := captureCodex(root, "/repo", launch, nil, Evidence{Prompt: "first"})
 			if !ok || id != "first" {
 				t.Fatalf("new launch captured %q, %v; want first", id, ok)
 			}
@@ -496,9 +500,8 @@ func TestCaptureCodexIgnoresConversationStartedBeforeLaunch(t *testing.T) {
 	codexConversation(t, filepath.Join(root, "rollout-guardian-2.jsonl"), "guardian-2", `{"subagent":{"thread_spawn":{"parent_thread_id":"priority"}}}`, launch.Add(2050*time.Millisecond), "review", "ok")
 
 	for name, evidence := range map[string]Evidence{
-		"time only": {},
-		"prompt":    {Prompt: priorityPrompt},
-		"screen":    {Screen: "› " + priorityPrompt + "\n• " + priorityReply},
+		"prompt": {Prompt: priorityPrompt},
+		"screen": {Screen: "› " + priorityPrompt + "\n• " + priorityReply},
 	} {
 		t.Run(name, func(t *testing.T) {
 			id, ok := captureCodex(root, "/repo", launch, nil, evidence)
@@ -531,22 +534,19 @@ func TestCaptureCodexPrefersEvidenceOverCreationOrder(t *testing.T) {
 	}
 }
 
-// Evidence that matches no conversation narrows nothing, and the earliest
-// conversation that started after launch still binds.
-func TestCaptureCodexUnmatchedEvidenceFallsBackToTime(t *testing.T) {
+func TestCaptureCodexUnmatchedEvidenceDoesNotGuess(t *testing.T) {
 	root := t.TempDir()
 	launch := time.Now().UTC()
 	codexConversation(t, filepath.Join(root, "rollout-early.jsonl"), "early", `"cli"`, launch.Add(-3*time.Second), cleanupPrompt, cleanupReply)
 	codexConversation(t, filepath.Join(root, "rollout-own.jsonl"), "own", `"cli"`, launch.Add(time.Second), priorityPrompt, priorityReply)
 
 	id, ok := captureCodex(root, "/repo", launch, nil, Evidence{Prompt: "something codex rewrote", Screen: "starting codex..."})
-	if !ok || id != "own" {
-		t.Fatalf("captured %q, %v; want own", id, ok)
+	if ok {
+		t.Fatalf("unmatched evidence captured %q; want no match", id)
 	}
 }
 
-// A conversation that started before launch binds on evidence, which the
-// time fallback would refuse it.
+// Clock slack admits an early conversation only when evidence identifies it.
 func TestCaptureCodexBindsEarlyConversationOnEvidence(t *testing.T) {
 	root := t.TempDir()
 	launch := time.Now().UTC()
@@ -557,5 +557,45 @@ func TestCaptureCodexBindsEarlyConversationOnEvidence(t *testing.T) {
 	}
 	if id, ok := captureCodex(root, "/repo", launch, nil, Evidence{Prompt: cleanupPrompt}); !ok || id != "early" {
 		t.Fatalf("prompt captured %q, %v; want early", id, ok)
+	}
+}
+
+func TestCaptureCodexDoesNotTakeAnotherPanesLaterConversation(t *testing.T) {
+	root := t.TempDir()
+	launch := time.Now().UTC()
+	codexConversation(t, filepath.Join(root, "rollout-later.jsonl"), "another-pane", `"cli"`, launch.Add(11*time.Minute), priorityPrompt, priorityReply)
+	for name, evidence := range map[string]Evidence{
+		"blank launch":   {},
+		"unmatched pane": {Screen: "› waiting for input"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if id, ok := captureCodex(root, "/repo", launch, nil, evidence); ok {
+				t.Fatalf("unproven conversation %q was bound to an older pane", id)
+			}
+		})
+	}
+	if id, ok := captureCodex(root, "/repo", launch, nil, Evidence{Screen: priorityReply}); !ok || id != "another-pane" {
+		t.Fatalf("evidence from a slow launch captured %q, %v; want another-pane", id, ok)
+	}
+}
+
+func TestCaptureCodexKeepsClaimedConversationsInEvidenceCheck(t *testing.T) {
+	root := t.TempDir()
+	launch := time.Now().UTC()
+	codexConversation(t, filepath.Join(root, "rollout-first.jsonl"), "first", `"cli"`, launch.Add(time.Second), priorityPrompt, priorityReply)
+	codexConversation(t, filepath.Join(root, "rollout-second.jsonl"), "second", `"cli"`, launch.Add(2*time.Second), priorityPrompt, cleanupReply)
+	claimed := map[string]bool{"first": true}
+	for name, evidence := range map[string]Evidence{
+		"shared prompt":                        {Prompt: priorityPrompt},
+		"pane belongs to claimed conversation": {Screen: priorityReply},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if id, ok := captureCodex(root, "/repo", launch, claimed, evidence); ok {
+				t.Fatalf("claimed evidence was discarded and bound %q instead", id)
+			}
+		})
+	}
+	if id, ok := captureCodex(root, "/repo", launch, claimed, Evidence{Prompt: priorityPrompt, Screen: cleanupReply}); !ok || id != "second" {
+		t.Fatalf("distinct pane evidence captured %q, %v; want second", id, ok)
 	}
 }

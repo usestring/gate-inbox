@@ -2,21 +2,32 @@
 
 # Configuration
 
+Open Settings with `ctrl+alt+s` and press `/` or `ctrl+f` to filter by a setting's name or current value. Enter, up, or down leaves the search field; arrows then navigate the matches. Escape clears the filter before closing Settings.
+
+**Hibernation.** Automatic hibernation is enabled with `hibernate_sensitivity = "balanced"` by default. Settings offers `low`, `balanced`, `high`, and `off`; a saved Settings choice overrides the config. The board uses its existing memory readings and live session statuses to trigger a sweep when the running agent count crosses its memory budget or memory usage crosses the sensitivity threshold. A full sweep also runs every ten minutes as a backstop, including while pressure persists. Each sweep hibernates the oldest eligible resting sessions until it reaches the budget. Wake-on-message checks still run on every board refresh. Balanced reserves half of RAM for other applications and allows one running agent per GiB of the remainder. Low allows twice as many agents and starts reacting at 90% memory pressure; high allows half as many and reacts at 70%, versus balanced's 80%. Under pressure, each pass aims to release roughly a quarter of running agents (at least one). Working sessions, sessions waiting for input, sessions with pending messages or background work, and newly resting sessions (under five minutes) are protected. Missing memory readings disable the sweep. Age alone never triggers automatic hibernation. The older `hibernate_after` option remains available for manual parking.
+
 Config lives in your OS user config dir (`~/Library/Application Support/gate-inbox/config.toml` on macOS, `~/.config/gate-inbox/config.toml` on Linux, with `XDG_CONFIG_HOME` honored when set) and is created on first run with defaults for the three supported CLIs: Claude Code, Codex, and OpenCode v2. Any other CLI can be added as its own `[tools.<name>]` block (below); nothing about it is built in, so its block has to say everything the manager needs to know.
 
-**Launch accounts.** A session that names no account runs on its CLI's own login. A build can carry an extension that chooses the account instead (`extension.AccountChooserProvider`); Settings then offers **launch accounts**, which switches between the CLI's own login and the extension's choice. A migration never takes an account from its caller: it runs on the extension's choice, or the CLI's own login when the build has none. With **new session agent** set to `auto`, `n` asks the same extension which CLI to start; Settings offers `auto` only when the extension can answer, and `n` opens the usual CLI picker whenever it does not.
+**Launch accounts.** A session that names no account runs on its CLI's own login. A build can carry an extension that chooses the account instead (`extension.AccountChooserProvider`); Settings then offers **launch accounts**, which switches between the CLI's own login and the extension's choice. A migration never takes an account from its caller: it runs on the extension's choice, or the CLI's own login when the build has none. With **new session agent** set to `auto`, `ctrl+n` asks the same extension which CLI to start; Settings offers `auto` only when the extension can answer, and `ctrl+n` opens the usual CLI picker whenever it does not.
 
 Top-level: `poll_interval` (default `"2s"`) sets how often panes are polled for status, preview, and stats. `name_sweep_pace` (default `"3s"`) sets how long the name sweep waits between panes; every message it sends starts a turn in a live agent, so a larger board wants a longer gap. `[naming] ask = false` stops every automatic rename ask at once — the launch directive, the adopted pending note, and opencode's silent steering — while rows still take the title the CLI writes itself and `r` still asks on demand. `stale_status_after` (default `"2h"`) is how long a session may read `working` or `starting` with its screen unchanged before its row is flagged `stale` and offered up by triage (see [Status](usage.md#status)). `editor` is the command Settings opens the snippets and restart-flags files in, arguments included (`editor = "code -n"`, `editor = "open -a 'Visual Studio Code'"`); it is run directly rather than through a shell, and quotes group an argument carrying a space. Left unset, Gate Inbox falls back to `$GATE_INBOX_EDITOR`, then a GUI editor on `PATH`, then `$VISUAL` / `$EDITOR`, and last a terminal editor on `PATH` (see [Opening the snippets file](usage.md#opening-the-snippets-file)). Nothing here has to be set for the file to open.
 
 `outbox_probe_targets` sets the HTTP endpoints used to detect an outage. By default the board tries `https://api.anthropic.com` and `https://api.openai.com`; any HTTP response from either counts as connected. For a custom provider, replace these with URLs that test connectivity to that provider. A local endpoint such as `http://127.0.0.1:11434` also works. Set `outbox_probe_targets = []` for local-only tools to disable network-based holds, or use `GATE_INBOX_OUTBOX=off`. This setting applies to the whole board; choose targets that represent the tools you run.
 
-`[children]` controls what the board does with sessions an agent spawned. `auto_archive_after` (default `"30m"`) is how long a child whose pane has exited stays on the list when it never reported back. `finished_grace` (default `"10m"`) is how long a *finished* child stays once its spawner has taken the finish in -- the rest notice reached the spawner's prompt, or the spawner ran `read_session` or `wait_for_session` on it after it finished -- before the board archives it through the same teardown as `x`, so the archived view (quick actions) finds it and `u` restores it for the 7-day retention window. A child that is waiting, working, errored, dead without having finished, adopted, spawned with `keep`, or still has live children of its own is never archived by this rule, and neither is a Claude Code child with background work still running (see the usage guide), and archiving a parent takes its descendants with it. `keep_finished = true` turns the finished-child cleanup off board-wide.
+`[children]` controls what the board does with sessions an agent spawned. `auto_archive_after` (default `"30m"`) is how long a child whose pane has exited stays on the list when it never reported back. `finished_grace` (default `"10m"`) is how long a *finished* child stays once its spawner has taken the finish in -- the rest notice reached the spawner's prompt, or the spawner ran `read_session` or `wait_for_session` on it after it finished -- before the board archives it through the same teardown as `ctrl+x`, so the archived view (quick actions) finds it and `u` restores it for the 7-day retention window. A child that is waiting, working, errored, dead without having finished, adopted, spawned with `keep`, or still has live children of its own is never archived by this rule, and neither is a Claude Code child with background work still running (see the usage guide), and archiving a parent takes its descendants with it. `keep_finished = true` turns the finished-child cleanup off board-wide.
 
 <a id="claude-code-setup"></a>`[claude_code]` covers your own Claude Code config. `setup` (default on) has the board keep its hooks in `~/.claude/settings.json` and its MCP relay, a server named `gate-inbox`, in `~/.claude.json` (the files under `CLAUDE_CONFIG_DIR` when that is set), which is how a `claude` you started outside the board reports status and gets the board's tools once it is adopted (see [Status](usage.md#status)). There is no command to run: the board registers them when it starts and checks them every few minutes while it runs. `setup = false` makes the board remove them instead; the "claude code setup" setting does the same on one machine without editing this file. Named accounts need nothing more: they swap the token a session runs on, not the Claude Code config directory, so one registration covers them all.
 
 ```toml
 [claude_code]
 setup = false
+```
+
+<a id="shared-mcp"></a>`shared_mcp` (default off) points every `claude` the board launches at one shared Gate Inbox MCP server, `gate-inbox mcp-serve`, instead of starting a server process per session. The board starts it on loopback when it starts, and restarts it within 5 seconds if it stops; the server tells sessions its tool list never changes, so they hold no stream open to it, and a session's next call after a restart reaches the new server. Each session's launch writes the server's address, the session id and its caller token into an MCP config in `channel-keys/` (see [Parent channel](parent-channel.md)), so the server holds nothing per session. The server's health check proves it holds the config dir's key, so a launch never points a session at another process that took its port. Each session's config also raises Claude Code's 60-second limit on a call to an HTTP server to 150 seconds, so a `wait_for_session` of up to two minutes returns its answer. When the installed binary is replaced, a new server takes over the same address and the old one finishes its calls before it exits. A launch that finds no server answering within a second, or `shared_mcp` off, gives the session its own stdio server. Codex and OpenCode sessions, and `claude` panes the board adopted, keep a server each. It is off by default until extensions read each call's caller (`SessionContext.Caller`) rather than the session they were registered for.
+
+```toml
+[claude_code]
+shared_mcp = true
 ```
 
 <a id="codex-setup"></a>`[codex]` covers your own Codex config. `setup` (default on) has the board keep two hook entries, `UserPromptSubmit` and `Stop`, in Codex's `config.toml` (under `CODEX_HOME`, or `~/.codex`), on a machine with `codex` installed. That is how a `codex` you started outside the board reports status and hears the board's steering once it is adopted (see [Adopted panes](usage.md#adopted-codex)). The board registers them when it starts and checks them every few minutes, and touches nothing else in the file: comments, your own hooks and Codex's trust records stay byte for byte. Codex asks once to trust new hooks ("Hooks need review"; pick "Trust all and continue"), and the entries' text stays the same across Gate Inbox upgrades, so it does not ask again. `setup = false` makes the board remove them, and so does `gate-inbox codex-hooks uninstall`, which also keeps them out until `gate-inbox codex-hooks install`.
@@ -74,9 +85,11 @@ settle = "90s"
 load_per_cpu = 2.0
 ```
 
+On macOS, the shared queue also refuses relaunches while the kernel reports warning or critical memory pressure. This check happens before the running agent is stopped, and returns immediately even for commands that normally wait for a slot. Automatic repairs can try again on their next pass; retry an explicit command after freeing memory. If the pressure reading is unavailable, normal pacing applies. This guard covers queued account switches, stale-sandbox repairs, grant restarts, CLI/MCP revives and unpark. New sessions and manual board revives/restarts bypass the queue; existing sessions keep running.
+
 `[inbox]` configures `gate-inbox inbox serve`, the remote inbox that turns a posted message into a router session: its listen address, the group, directory and tool routers start with, a brief template, its clients and the sources each may post as, and origin notes per source. Tokens never go in this file; they come from `GATE_INBOX_INBOX_TOKEN_<CLIENT>` or a `0600` `inbox-tokens` file. [Remote inbox](remote-inbox.md) covers every key.
 
-`[board]` holds the frame's layout. `sidebar` (default `"right"`) is the side the sessions list sits on, `"right"` or `"left"`; the session's pane takes the other side. Any other value stops the board at startup with an error naming the key. Settings (`s`) → **sidebar** can pick the other side on one machine, which outranks this file there; picking the file's side in Settings again goes back to following it (see [The board layout](usage.md#the-board-layout)).
+`[board]` holds the frame's layout. `sidebar` (default `"right"`) is the side the sessions list sits on, `"right"` or `"left"`; the session's pane takes the other side. Any other value stops the board at startup with an error naming the key. Settings (`ctrl+alt+s`) → **sidebar** can pick the other side on one machine, which outranks this file there; picking the file's side in Settings again goes back to following it (see [The board layout](usage.md#the-board-layout)). `offer_cli_on_limit` (default `false`) has the usage-limit card offer to continue the conversation on another configured CLI as well as on another subscription of the same one; the subscription stays the card's default. Left off, a limit never offers another CLI, and when the build's account chooser is routing launches (Settings → **launch accounts**: chosen by extension) no card opens at all, because that extension moves the session.
 
 The generated file also carries a `[tools.terminal]` block. That one is the shell `T` opens, not an agent CLI: an empty `command` leaves the pane on `$SHELL`, and setting one opens a different shell. `shell = true` is what marks it — never the name — so the tool pickers skip it and the keys that write into a pane refuse it (see [Terminal tabs](usage.md#terminal-tabs)). Any block can carry the flag, and a `[tools.terminal]` block already in your own config keeps whatever it already means.
 
@@ -94,7 +107,7 @@ rules = [
 
 Rules match top-down against the visible pane text; first match wins, and `default_status` applies when nothing matches.
 
-**Status detection.** Optional per-tool fields refine it: `activity_cutoff` (regex locating the tool's input box, everything above it is turn content), `turn_end` (a turn-summary line marking the turn as over), `busy_line` (background work still pending after the turn: Claude Code's own wait line for background agents and dynamic workflows, plus the "still running" tail on the turn-end summary naming shells, monitors, MCP tasks and background tasks), `limit_line` (a usage or rate-limit banner; the session is `errored`), `chrome_line`, `blocked_line`, `trailing_note`, and `scrolled_line` (the affordance a tool draws while its own viewport is parked above the live bottom, such as Claude Code's "Jump to bottom (ctrl+End)"; the visible screen is history then, so status holds until the viewport comes back). `rename_command` is the slash command `r` types into the pane to have the agent name its own session (`/rename` for Claude Code, whose command directory this repo installs into, and for OpenCode, where the manager registers it per session through the generated `OPENCODE_CONFIG`); left unset, `r` asks for the same thing in prose, so a tool with nowhere to install a command is still asked rather than guessed at. `skip_rename_directive` leaves a launch's first prompt untouched — no directive prepended, none queued behind it — for a tool whose sessions are named from the outside instead (OpenCode sets it: naming comes from its own `session.title`, on demand with `/rename`, and silently through the steering the same generated config has its MCP server carry). `interrupt_keys` are what stop a running turn, for the operator's undo and for a message sent with `interrupt` (Claude Code: `Escape`); a tool without them refuses interrupting sends. `type_ahead` lets a queued message be typed into the session mid-turn, for a tool that keeps what it is handed and reads it once the running step ends (Claude Code and Codex set it); a dialog or an undrawn input line still holds it. `status_source = "claude-hooks"` switches status to Claude Code hook events (see [Status](usage.md#status)). The generated config's `claude` and `opencode` blocks show all of them in use.
+**Status detection.** Optional per-tool fields refine it: `activity_cutoff` (regex locating the tool's input box, everything above it is turn content), `turn_end` (a turn-summary line marking the turn as over), `busy_line` (background work still pending after the turn: Claude Code's own wait line for background agents and dynamic workflows, plus the "still running" tail on the turn-end summary naming shells, monitors, MCP tasks and background tasks), `limit_line` (a usage or rate-limit banner; the session is `errored`), `chrome_line`, `blocked_line`, `trailing_note`, and `scrolled_line` (the affordance a tool draws while its own viewport is parked above the live bottom, such as Claude Code's "Jump to bottom (ctrl+End)"; the visible screen is history then, so status holds until the viewport comes back). `rename_command` is the slash command `r` types into the pane to have the agent name its own session (`/rename` for Claude Code, whose command directory this repo installs into, and for OpenCode, where the manager registers it per session through the generated `OPENCODE_CONFIG`); left unset, `r` asks for the same thing in prose, so a tool with nowhere to install a command is still asked rather than guessed at. `skip_rename_directive` leaves a launch's first prompt untouched — no directive prepended, none queued behind it — for a tool whose sessions are named from the outside instead (OpenCode sets it: naming comes from its own `session.title`, on demand with `/rename`, and silently through the steering the same generated config has its MCP server carry). `interrupt_keys` are what stop a running turn, for the operator's undo and for a message sent with `interrupt` (Claude Code: `Escape`; OpenCode: `Escape` twice, since its first press only arms the interrupt). Keys in a sequence are sent one at a time, 150 ms apart, so two Escapes are read as two presses rather than alt+Escape; a tool without them refuses interrupting sends. `type_ahead` lets a queued message be typed into the session mid-turn, for a tool that keeps what it is handed and reads it once the running step ends (Claude Code and Codex set it); a dialog or an undrawn input line still holds it. `status_source = "claude-hooks"` switches status to Claude Code hook events (see [Status](usage.md#status)). The generated config's `claude` and `opencode` blocks show all of them in use.
 
 **Revive.** `resume_by_id_command` resumes one exact conversation, with `{id}` replaced by the session's captured agent id. That id comes either from launching under an id the manager mints (`session_id_flag`, e.g. `--session-id`) or from reading back an id the tool minted itself (`session_store = "codex" | "opencode"`, or the style of a tool driver an extension in your build supplies). `resume_picker_command` is what `v` runs when no id is available: the tool's own session picker, so you choose the conversation rather than resuming the directory's newest one blind (Claude Code: `claude --resume`; Codex: `codex resume`). `revive_command` is the last fallback, for a tool with neither, e.g. `opencode --continue`. Gate Inbox shell-quotes `{id}`, as it does for a fork, so write the placeholder bare: `codex resume {id}`.
 
@@ -126,6 +139,23 @@ A `fork_command` references its source through `{id}` or `{session_file}`, so on
 **When a status looks wrong.** Delete the `rules` array from that tool's block (or the whole `[tools.<name>]` block) and relaunch: the block comes back on the current built-in rules. To see what the rules are being matched against, read the pane the way the poller does — `tmux capture-pane -p -t gi_<id>` — and compare it with the patterns in your block. A CLI that changed its output in a new version is worth [an issue](https://github.com/usestring/gate-inbox/issues/new/choose) with that pane text and the CLI's version, since the built-in rules then need updating for everyone.
 
 State is stored next to the config in `state.db` (SQLite).
+
+## Key bindings
+
+`keys.toml`, beside `config.toml`, holds your rebinds: one table per screen, one line per action naming the keys it answers to. A first run writes it as a commented list of every action. The key map (`ctrl+h`) rebinds from inside the board and writes this file; what the file gets wrong is listed at the foot of the key map and falls back to the layer below.
+
+A table named `[device."<identity>".<screen>]` applies on one device only, on top of the shared tables: precedence is the built-in default, then the shared table, then the attached device's table, action by action. The identity is the device fingerprint the theme and layout are kept under, and the key map's title names the one attached now (`? Keys · ssh:203.0.113.7/xterm-256color`). It is `device:<name>` when the client's environment sets `GATE_INBOX_DEVICE`, otherwise `ssh:<client ip>/<TERM_PROGRAM or TERM>` for an SSH client, otherwise `local:<terminal>`. A board in a persistent tmux pane reads the identity from the client attached now, so its keys change when another device attaches.
+
+```toml
+[focus]
+hand_over = ["§"]
+
+# PgDn moves on to the next session in triage, on this connection only.
+[device."ssh:203.0.113.7/xterm-256color".focus]
+hand_over = ["pgdown"]
+```
+
+An SSH identity carries the client's IP, so a connection that comes from a new address stops matching its table. For a name that survives that, set `GATE_INBOX_DEVICE` on the client and forward it (`SetEnv GATE_INBOX_DEVICE=laptop` in the client's `ssh_config`, with `AcceptEnv GATE_INBOX_DEVICE` on the server), then use `[device."device:laptop".<screen>]`. While the board knows the attached device, a rebind or reset from the key map edits that device's tables and leaves the shared ones alone; resetting there puts the action back on its shared binding. A key bound in the focused view is taken from the agent's pane on that device: binding `pgdown` there stops it scrolling the agent.
 
 ## The diagnostic log
 
@@ -164,6 +194,57 @@ no_compress = false     # rotated files are gzipped by default
 `max_backups` left unset is derived from `max_total_mb / max_size_mb`, so the two cannot be
 configured into contradicting each other.
 
+## PR CI feedback
+
+To send failed CI checks back to the agent that opened the pull request, turn on
+**PR CI feedback** in Settings → **Experimental features**. This experiment is off by
+default, persists on the board, and requires the GitHub integration. It uses the board's existing
+GitHub polling, so no webhook or separate watcher is needed. Only a PR recorded as opened
+by exactly one unarchived, live agent session receives feedback; mentioning a PR does not
+make a session its owner. Dead sessions are never revived for CI.
+
+Feedback waits for the checks on the current commit to finish, then queues the failed
+check names and links through the normal inbox. Delivery waits behind permission dialogs
+and unfinished operator input. The agent must recheck the PR and follow its repository's
+ownership and permission rules before acting. This does not acquire an external PR lock
+or coordinate a separate PR-attention service.
+
+Duplicate failures stay suppressed across board restarts. A rerun or a new failing commit
+can produce another round, with at most two repair prompts until CI passes. A third failure
+asks the agent to report the remaining problem to the operator. Pending checks and new
+commits do not reset that limit. Green CI clears the episode and retires feedback still
+waiting in the inbox. Claimed messages may already be on their way to the agent, which is
+why every repair prompt requires a fresh check before acting.
+
+Check lists truncated by GitHub are held without automatic repair. Feedback includes check
+metadata and links; it does not download logs. Disabling the experiment takes effect when
+you save Settings and retires any CI feedback that has not started delivery. No restart is needed.
+
 ## Right-to-left text
 
 Hebrew and Arabic rows are painted as the cells they occupy, the same on every host. A terminal that runs its own bidirectional layout, iTerm2's right-to-left support or WezTerm's `bidi_enabled`, reorders those rows itself; turn that support off to read the frame in the columns Gate Inbox paints.
+
+## PR review and conflict feedback
+
+```toml
+[work]
+pr_feedback = true
+```
+
+This is off by default and uses the same recorded-owner routing and inbox guards as CI
+feedback. Enable one review-feedback source for a PR: independent external watchers do
+not share this feature's deduplication state and can send duplicate prompts.
+
+Only human changes-requested reviews and unresolved, non-outdated review threads on the
+current commit produce review feedback. A newer approval or dismissal supersedes a
+reviewer's request; ordinary comments and bot reviews do not request changes. Incomplete
+review or thread lists cannot trigger feedback or clear its repair budget. A new commit
+alone does not clear outstanding review feedback. Conflicts require GitHub's explicit
+`CONFLICTING` result and both head and base commits; `UNKNOWN` never means a conflict.
+
+Review and conflict feedback each allow two repair prompts and one escalation until
+complete evidence confirms resolution. Repeated snapshots and board restarts do not
+repeat a prompt. A changed conflict base can produce the next bounded round. Obsolete
+queued feedback is retired; claimed messages may already be in delivery. Every prompt
+requires fresh state and repository ownership checks before edits. No review is dismissed,
+thread resolved, worker replaced or PR merged automatically.

@@ -195,6 +195,7 @@ func (m *Model) toggleRecentSort() tea.Cmd {
 		m.listSortBeforeRecent = current
 	}
 	m.listSort = next
+	m.listPositions = nil
 	if err := m.store.SetSetting(listSortSetting, next); err != nil {
 		m.errBar.text = err.Error()
 	}

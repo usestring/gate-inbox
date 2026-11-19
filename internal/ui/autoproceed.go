@@ -1,11 +1,15 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/notify"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -91,6 +95,19 @@ func (m *Model) handOverLanded(sess store.Session, at time.Time) tea.Cmd {
 	return m.moveOnFrom(sess)
 }
 
+func (m *Model) paneHasSlashCommand(tool, pane string) bool {
+	if m.engine == nil {
+		return false
+	}
+	rows := strings.Split(ansi.Strip(pane), "\n")
+	for i := len(rows) - 1; i >= 0; i-- {
+		if prefix, ok := m.engine.InputPrefix(tool, rows[i]); ok {
+			return strings.HasPrefix(strings.TrimSpace(rows[i][len(prefix):]), "/")
+		}
+	}
+	return false
+}
+
 // handOverOnEnter is auto-proceed's handover on the Enter itself, keyAt being
 // when the key arrived. The answer check armed for the key keeps running but
 // no longer moves the drain; if it never sees the answer land, the session
@@ -141,9 +158,9 @@ func (m *Model) noteHandoverFrame(sessID string) {
 }
 
 // moveOnFrom leaves sess and enters the next session that needs a person.
-// When the queue is drained the operator lands on the list with the drain
-// still open (see triageResume), so work arriving on a later poll joins the
-// same queue instead of waiting for another explicit pass.
+// When the queue is drained the new-session prompt opens with the drain
+// still armed (see triageResume), so work arriving while the operator types
+// can be picked up after they leave the form.
 func (m *Model) moveOnFrom(sess store.Session) tea.Cmd {
 	leave := m.leaveFocus()
 	if next := m.advanceTriage(sess.ID); next != nil {
@@ -197,8 +214,22 @@ func (m *Model) handOverOnWork(before string) tea.Cmd {
 	return m.handOverFocused(sess)
 }
 
+// idleSwitchSetting turns handOverOnIdle on or off. On is the default.
+const idleSwitchSetting = "idle_switch"
+
+// storedIdleSwitch reads whether an idle operator is moved off a working
+// session. Anything but "off" is on, so an unset or unreadable store keeps
+// the behaviour the board had before the setting existed.
+func storedIdleSwitch(st *store.Store) bool {
+	chosen, err := st.Setting(idleSwitchSetting)
+	return err != nil || chosen != "off"
+}
+
+// handOverOnIdle moves an operator who has sat three minutes in a working
+// session to the next session needing a person. The "switch when idle"
+// setting turns it off.
 func (m *Model) handOverOnIdle(now time.Time) tea.Cmd {
-	if m.mode != modeFocus || m.lastInteractionAt.IsZero() || now.Sub(m.lastInteractionAt) < 3*time.Minute {
+	if !m.idleSwitch || m.mode != modeFocus || m.lastInteractionAt.IsZero() || now.Sub(m.lastInteractionAt) < 3*time.Minute {
 		return nil
 	}
 	current, ok := m.selected()
@@ -207,7 +238,7 @@ func (m *Model) handOverOnIdle(now time.Time) tea.Cmd {
 	}
 	next := -1
 	for i, row := range m.rows {
-		if !m.triageHandable(row, current.ID, nil) || !m.needsPerson(row.sess) {
+		if !m.triageHandable(row, current.ID, nil) || !m.needsPerson(row.sess) || !m.inTriageContent(row.sess) {
 			continue
 		}
 		if next < 0 || m.triageLess(row.sess, m.rows[next].sess) {
@@ -220,6 +251,8 @@ func (m *Model) handOverOnIdle(now time.Time) tea.Cmd {
 		return nil
 	}
 
+	target := m.rows[next].sess
+	m.noteIdleSwitch(current, target, now.Sub(m.lastInteractionAt))
 	leave := m.leaveFocus()
 	m.cursor = next
 	m.clearPreviewState()
@@ -227,7 +260,23 @@ func (m *Model) handOverOnIdle(now time.Time) tea.Cmd {
 	if m.headPaneTriage(next) {
 		return tea.Batch(leave, m.schedulePreview())
 	}
-	target := m.rows[next].sess
 	_, enter := m.focusSelected()
 	return tea.Batch(leave, enter, m.handoverPreviewCmd(target, m.previewGen))
+}
+
+// noteIdleSwitch tells the operator the board moved them. The switch happens
+// while nobody is at the keys, and the focus view looks the same after it, so
+// with nothing said it reads as the board jumping to another pane at random.
+func (m *Model) noteIdleSwitch(from, to store.Session, idle time.Duration) {
+	logging.Info("idle handover", "from", from.ID, "to", to.ID,
+		"idle", idle.Round(time.Second).String())
+	if m.poller == nil || m.poller.escalate == nil {
+		return
+	}
+	m.poller.escalate(notify.Note{
+		Subject: to.Name,
+		Body: fmt.Sprintf("Switched here from %s, which is still working: no keys for %d min.",
+			from.Name, int(idle.Minutes())),
+		Kind: notify.Waiting,
+	})
 }

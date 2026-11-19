@@ -90,6 +90,20 @@ func TestEachStatusJumpWalksToItsOwnState(t *testing.T) {
 	}
 }
 
+func TestWorkingJumpReachesBackgroundShells(t *testing.T) {
+	m := buildModel(t)
+	seedTriageFleet(t, m)
+	if err := m.store.UpdateStatus("s2", status.Background); err != nil {
+		t.Fatal(err)
+	}
+	loadStoredRows(t, m)
+	m.selectSessionRow(t, "old-block")
+
+	if got := m.jumpTo(t, "alt+k"); got != "grinder" {
+		t.Fatalf("working jump = %q, want the background shell", got)
+	}
+}
+
 // A jump wraps, so a drain started halfway down the list still reaches the
 // rows above the cursor rather than stopping at the bottom.
 func TestAStatusJumpWrapsPastTheEndOfTheList(t *testing.T) {

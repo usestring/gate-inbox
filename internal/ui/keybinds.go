@@ -10,6 +10,7 @@ package ui
 // none of them holds a key any more.
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 
@@ -37,33 +38,64 @@ func (m *Model) km() *keymap.Map {
 
 // loadKeys reads the operator's key file into the model. Once at startup,
 // for the reason snippets are read once: a file re-read between two presses
-// of a key would make it mean two different things.
+// of a key would make it mean two different things. The file is kept, so a
+// change of attached device re-resolves its layer without reading it again.
 //
 // A file that could not be read leaves the defaults in place rather than
 // leaving the board with no keys -- the failure mode of a broken snippets
 // file is three chords that do nothing, and the failure mode here would be a
 // board that cannot be worked at all.
 func (m *Model) loadKeys() {
-	m.keys, m.keyProblems = defaultKeys(), nil
-	extra := m.extraBindings()
-	var overrides keymap.Overrides
+	m.keyFile, m.keyReadProblems = keymap.File{}, nil
 	if dir := m.configDir(); dir != "" {
 		if err := keymap.WriteReferenceIfMissing(dir); err != nil {
-			m.keyProblems = append(m.keyProblems, "could not write "+keymap.Path(dir)+": "+err.Error())
+			m.keyReadProblems = append(m.keyReadProblems, "could not write "+keymap.Path(dir)+": "+err.Error())
 		}
-		loaded, err := keymap.Load(dir)
+		loaded, err := keymap.LoadFile(dir)
 		if err != nil {
-			m.keyProblems = append(m.keyProblems, keymap.FileName+" could not be read: "+err.Error())
+			m.keyReadProblems = append(m.keyReadProblems, keymap.FileName+" could not be read: "+err.Error())
 		}
-		overrides = loaded
+		m.keyFile = loaded
 	}
-	if overrides == nil && len(extra) == 0 {
+	m.resolveKeys()
+}
+
+// resolveKeys builds the map for the device attached now: the defaults, the
+// shared tables, then that device's layer. A problem only the device's layer
+// has is reported under its name, so the operator knows which table to fix.
+func (m *Model) resolveKeys() {
+	m.keysDevice = m.themeDevice
+	m.keys, m.globalKeys = defaultKeys(), defaultKeys()
+	m.keyProblems = append([]string(nil), m.keyReadProblems...)
+	extra := m.extraBindings()
+	layer := m.keyFile.Devices[m.keysDevice]
+	if m.keyFile.Global == nil && layer == nil && len(extra) == 0 {
 		return
 	}
-	resolved, problems := keymap.NewWithAliases(overrides, extra, m.extraAliases())
+	global, problems := keymap.NewWithAliases(m.keyFile.Global, extra, m.extraAliases())
+	m.globalKeys, m.keys = global, global
+	shared := map[string]bool{}
+	for _, problem := range problems {
+		shared[problem.Error()] = true
+		m.keyProblems = append(m.keyProblems, problem.Error())
+	}
+	if layer == nil {
+		return
+	}
+	resolved, problems := keymap.NewWithAliases(m.keyFile.For(m.keysDevice), extra, m.extraAliases())
 	m.keys = resolved
 	for _, problem := range problems {
-		m.keyProblems = append(m.keyProblems, problem.Error())
+		if !shared[problem.Error()] {
+			m.keyProblems = append(m.keyProblems, "device "+strconv.Quote(m.keysDevice)+": "+problem.Error())
+		}
+	}
+}
+
+// keysDeviceChanged re-resolves the map when the attached device is no longer
+// the one it was built for, the way the theme and the layout follow it.
+func (m *Model) keysDeviceChanged() {
+	if m.themeDevice != m.keysDevice {
+		m.resolveKeys()
 	}
 }
 
@@ -208,8 +240,22 @@ func (m *Model) rebind(ctx keymap.Context, action keymap.Action, keys []string) 
 	return m.saveKeys()
 }
 
-// resetBinding puts one action back on its default keys.
+// resetBinding puts one action back where the layer below has it: on a
+// known device, the shared binding; otherwise its default keys.
 func (m *Model) resetBinding(ctx keymap.Context, action keymap.Action) []string {
+	if device := m.keysDevice; device != "" {
+		if layer := m.keyFile.Devices[device]; layer != nil {
+			delete(layer[ctx], action)
+			if len(layer[ctx]) == 0 {
+				delete(layer, ctx)
+			}
+			if len(layer) == 0 {
+				delete(m.keyFile.Devices, device)
+			}
+		}
+		m.resolveKeys()
+		return m.writeKeyFile()
+	}
 	next, problems := m.km().Reset(ctx, action)
 	m.keys = next
 	notes := m.saveKeys()
@@ -219,16 +265,50 @@ func (m *Model) resetBinding(ctx keymap.Context, action keymap.Action) []string 
 	return notes
 }
 
-// saveKeys writes the current map's overrides to the operator's file.
+// saveKeys writes the current map back to the layer it is being edited in:
+// the attached device's tables when the board knows the device, so a rebind
+// there leaves every other device's keys alone, and the shared tables when it
+// does not.
 func (m *Model) saveKeys() []string {
+	if device := m.keysDevice; device != "" {
+		base := m.globalKeys
+		if base == nil {
+			base = defaultKeys()
+		}
+		layer := m.km().Diff(base)
+		if m.keyFile.Devices == nil {
+			m.keyFile.Devices = map[string]keymap.Overrides{}
+		}
+		if len(layer) == 0 {
+			delete(m.keyFile.Devices, device)
+		} else {
+			m.keyFile.Devices[device] = layer
+		}
+	} else {
+		m.keyFile.Global = m.km().Overrides()
+		m.globalKeys = m.km()
+	}
+	return m.writeKeyFile()
+}
+
+func (m *Model) writeKeyFile() []string {
 	dir := m.configDir()
 	if dir == "" {
 		return []string{"no config directory: the rebind is live but not saved"}
 	}
-	if err := keymap.Save(dir, m.km().Overrides()); err != nil {
+	if err := keymap.Save(dir, m.keyFile); err != nil {
 		return []string{"could not write " + keymap.Path(dir) + ": " + err.Error()}
 	}
 	return nil
+}
+
+// keysScope is which keys the key map is editing: the attached device's
+// layer, or the shared tables.
+func (m *Model) keysScope() string {
+	if m.keysDevice != "" {
+		return m.keysDevice
+	}
+	return "shared"
 }
 
 // fullCap is the key spelled out, which is what the focused footer wants:

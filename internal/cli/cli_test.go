@@ -156,6 +156,16 @@ func (f *fakeSessions) Stop(sessionID string, dryRun, archive bool) (sessioncmd.
 	return sessioncmd.StopResult{Target: f.session, DryRun: dryRun, Archive: archive}, f.failWith
 }
 
+func (f *fakeSessions) Hibernate(sessionID, targetID string, dryRun bool) (sessioncmd.HibernateResult, error) {
+	f.callerID, f.targetID, f.dryRun = sessionID, targetID, dryRun
+	return sessioncmd.HibernateResult{DryRun: dryRun, Hibernated: []sessioncmd.Session{f.session}}, f.failWith
+}
+
+func (f *fakeSessions) HibernateIdle(after time.Duration, dryRun bool) (sessioncmd.HibernateResult, error) {
+	f.dryRun = dryRun
+	return sessioncmd.HibernateResult{DryRun: dryRun, Hibernated: []sessioncmd.Session{f.session}}, f.failWith
+}
+
 func (f *fakeSessions) Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error) {
 	f.callerID, f.dryRun = sessionID, dryRun
 	return sessioncmd.ParkResult{DryRun: dryRun, Parked: []sessioncmd.Session{f.session}, Promoted: 2, Owed: 1}, f.failWith
@@ -664,9 +674,9 @@ func TestSpawnTasksReachCreate(t *testing.T) {
 func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 	table := Commands()
 	registered := []string{
-		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "accounts", "switch-account", "archive", "mute", "cleanup-children", "park", "unpark",
+		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "accounts", "switch-account", "archive", "mute", "cleanup-children", "park", "unpark", "hibernate",
 		"groups", "create-group", "pin-group", "delete-group", "task", "reserve", "release-files", "reservations", "terminal",
-		"rename", "priority", "sweep", "stop", "_finish-stop", "children", "inbox",
+		"rename", "priority", "sweep", "stop", "_finish-stop", "children", "inbox", "pr-owner", "pr-feedback",
 	}
 	for _, name := range registered {
 		if table[name] == nil {
@@ -678,7 +688,7 @@ func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 	}
 
 	help := Help()
-	for _, line := range []string{usageSessions, usageChildren, usageReserve, usageTerminalSend, usageRename, usagePriority, usageSweep, usageInboxServe,
+	for _, line := range []string{usageSessions, usageChildren, usageReserve, usageTerminalSend, usageRename, usagePriority, usageSweep, usageInboxServe, usagePROwner, usagePRFeedback,
 		"task <list|create|claim|assign|finish|release|delete|prune>"} {
 		if !strings.Contains(help, line) {
 			t.Fatalf("help is missing %q:\n%s", line, help)

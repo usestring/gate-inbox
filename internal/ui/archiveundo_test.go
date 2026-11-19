@@ -212,16 +212,16 @@ func TestTheFooterNamesUndoOnlyAfterAnArchive(t *testing.T) {
 	createSession(t, m, "beta", dir, "")
 	m.archiveConfirm = archiveConfirmNever
 	m.selectSessionRow(t, "beta")
-	if legendPair(m.rowLegend(), "U") {
-		t.Error("the footer named U with nothing archived")
+	if legendPair(m.rowLegend(), m.tightCap(keymap.ContextList, keymap.UndoArchive)) {
+		t.Error("the footer named undo with nothing archived")
 	}
 	m.selectSessionRow(t, "alpha")
 	if _, cmd := m.archiveSelected(); cmd != nil {
 		m.applyCmd(t, cmd)
 	}
 	m.selectSessionRow(t, "beta")
-	if !legendPair(m.rowLegend(), "U") {
-		t.Error("the footer did not name U after an archive")
+	if !legendPair(m.rowLegend(), m.tightCap(keymap.ContextList, keymap.UndoArchive)) {
+		t.Error("the footer did not name undo after an archive")
 	}
 }
 

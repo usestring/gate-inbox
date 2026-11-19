@@ -33,19 +33,13 @@ import (
 // and the filesystem timestamp on the store entry the CLI writes.
 const clockSlack = 10 * time.Second
 
-// codexStartSkew is how far before the launch a Codex conversation may
-// start and still be taken on time alone. Codex stamps session_meta from the
-// clock the launch time was read from, so a conversation that opened earlier
-// than this belongs to a process that was already running in the directory.
-const codexStartSkew = time.Second
-
 // codexExcerptLen is how much of each message's head and tail the screen
 // check looks for: long enough that two conversations do not share one.
 const codexExcerptLen = 80
 
 // Evidence is what a launch knows about its own conversation beyond its
-// directory and launch time. Codex capture checks it before falling back to
-// time, because a fan-out, an adopted pane and a hand-started session can all
+// directory and launch time. Codex capture requires a match because a
+// fan-out, an adopted pane and a hand-started session can all
 // open Codex conversations in one directory within seconds of each other.
 type Evidence struct {
 	// Prompt is the prompt the session was launched with, empty if none.
@@ -391,13 +385,12 @@ func pickEarliest(cands []extension.SessionCandidate) (string, bool) {
 // in. Activity in an old conversation must not bind it to a new launch.
 // A rollout that cannot be read fails the scan rather than capture from a partial list.
 //
-// The strongest evidence decides: a conversation that opened on the launch
-// prompt, then one whose messages the pane is showing, and only then the
-// earliest conversation that started after the launch. Evidence that matches
-// nothing narrows nothing, so a prompt Codex rewrote or a screen that has not
-// drawn a message yet leaves the decision to the next check.
+// A matching launch prompt or visible message must identify one conversation.
+// Directory and time only limit the candidates: an older unbound pane must
+// not claim the next conversation another pane happens to start there. Keep
+// claimed conversations in the match so shared evidence stays ambiguous.
 func captureCodex(root, cwd string, launchedAt time.Time, claimed map[string]bool, evidence Evidence) (string, bool) {
-	pool, err := codexCandidates(root, cwd, launchedAt.Add(-clockSlack), claimed)
+	pool, err := codexCandidates(root, cwd, launchedAt.Add(-clockSlack), nil)
 	if err != nil {
 		return "", false
 	}
@@ -405,23 +398,17 @@ func captureCodex(root, cwd string, launchedAt time.Time, claimed map[string]boo
 		var matched bool
 		pool, matched = narrowCodex(pool, func(cand codexCandidate) bool { return codexOpenedOn(cand.Path, prompt) })
 		if matched && len(pool) == 1 {
-			return pool[0].ID, true
+			return pool[0].ID, !claimed[pool[0].ID]
 		}
 	}
 	if screen := convo.Normalize(evidence.Screen); screen != "" {
 		var matched bool
 		pool, matched = narrowCodex(pool, func(cand codexCandidate) bool { return codexShownOn(cand.Path, screen) })
 		if matched && len(pool) == 1 {
-			return pool[0].ID, true
+			return pool[0].ID, !claimed[pool[0].ID]
 		}
 	}
-	fresh := make([]extension.SessionCandidate, 0, len(pool))
-	for _, cand := range pool {
-		if !cand.Created.Before(launchedAt.Add(-codexStartSkew)) {
-			fresh = append(fresh, extension.SessionCandidate{ID: cand.ID, Created: cand.Created})
-		}
-	}
-	return pickEarliest(fresh)
+	return "", false
 }
 
 // narrowCodex keeps the candidates match accepts, or all of them when it

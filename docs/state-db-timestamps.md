@@ -12,6 +12,7 @@
 | ms | `forge_prs` | `fetched_at` |
 | ms | `forge_tickets` | `fetched_at` |
 | ms | `session_prs` | `first_seen` |
+| ms | `session_work` | `first_seen`, `updated_at` |
 | ms | `dialog_answers` | `created_at` |
 | ms | `permission_grants` | `created_at`, `revoked_at`, `expires_at` |
 | ms | `relay_attestations` | `answered_at`, `created_at`, `spent_at`, `noted_at` |

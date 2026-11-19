@@ -14,10 +14,12 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/cifeedback"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/nativefeedback"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -33,10 +35,9 @@ const workTickInterval = 30 * time.Second
 
 type workTickMsg struct{}
 
-// workLoadedMsg carries no payload. The tracker is the state and it is
-// concurrency-safe, so the message exists to draw the next frame, not to
-// hand results back through the event loop.
-type workLoadedMsg struct{}
+// The tracker is concurrency-safe; only review persistence failures need
+// to travel back to the event loop with the redraw.
+type workLoadedMsg struct{ reviewsErr error }
 
 // newWorkTracker is the tracker the board runs: real git, gh and Linear as
 // far as the config switches them on, the operator's settle window, and the
@@ -47,10 +48,39 @@ func newWorkTracker(cfg config.Config, st *store.Store) *worktracker.Tracker {
 		Linear:       cfg.Integrations.Linear.On(),
 		LinearAPIKey: os.Getenv("LINEAR_API_KEY"),
 	})
+	if github, ok := gh.(*forge.GitHub); ok {
+		github.PRFeedback = cfg.Work.PRFeedback
+	}
 	tracker := worktracker.New(worktracker.NewGit(), gh, linear)
 	tracker.SettleAfter = cfg.Work.SettleAfter.Duration
 	if st != nil {
 		tracker.WithSeen(st)
+		var agentTools []string
+		for name, tool := range cfg.Tools {
+			if !tool.Shell {
+				agentTools = append(agentTools, name)
+			}
+		}
+		tracker.OnPRRefresh = func(prs map[string]forge.PR) {
+			if err := cifeedback.Observe(st, prs, agentTools); err != nil {
+				logging.Warn("could not queue CI feedback", logging.Err(err))
+			}
+			if cfg.Work.PRFeedback {
+				if err := nativefeedback.Observe(st, prs, agentTools); err != nil {
+					logging.Warn("could not queue PR feedback", logging.Err(err))
+				}
+			}
+		}
+		if !storedExperiment(st, store.CIFeedbackSetting) {
+			if err := st.CancelCIFeedback(time.Now()); err != nil {
+				logging.Warn("could not retire disabled CI feedback", logging.Err(err))
+			}
+		}
+		if !cfg.Work.PRFeedback {
+			if err := st.CancelPRFeedback(time.Now()); err != nil {
+				logging.Warn("could not retire disabled PR feedback", logging.Err(err))
+			}
+		}
 	}
 	return tracker
 }
@@ -92,6 +122,7 @@ func (m *Model) refreshWork() tea.Cmd {
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].visible && !rows[j].visible })
 	tracker, driver, stor, history := m.work, m.tmux, m.store, m.history
+	reviews := m.reviewQueue
 
 	return func() tea.Msg {
 		var live []string
@@ -104,17 +135,22 @@ func (m *Model) refreshWork() tea.Cmd {
 		sessions := make([]worktracker.Session, 0, len(rows))
 		for _, r := range rows {
 			tracked := worktracker.Session{
-				ID:      r.id,
-				Dir:     r.dir,
-				Text:    workText(panes[r.id], stor, history, r.id, r.launch),
-				Live:    r.live,
-				Visible: r.visible,
+				ID:        r.id,
+				Dir:       r.dir,
+				Text:      workText(panes[r.id], stor, history, r.id, r.launch),
+				Artifacts: publishedArtifacts(stor, history, r.id),
+				Live:      r.live,
+				Visible:   r.visible,
 			}
 			tracker.Discover(tracked)
 			sessions = append(sessions, tracked)
 		}
 		tracker.Refresh(sessions)
-		return workLoadedMsg{}
+		var err error
+		if reviews && stor != nil {
+			err = queueSessionReviews(stor, tracker, sessions, time.Now())
+		}
+		return workLoadedMsg{reviewsErr: err}
 	}
 }
 
@@ -239,6 +275,60 @@ func openedPRs(stor *store.Store, history *search.Index, id string) []string {
 	return urls
 }
 
+// publishedArtifacts is every page the session published itself: what its
+// extensions attached through extension.AttachWork, which the store holds, and
+// the Claude artifacts the index read from the transcript -- an Artifact call
+// paired with the result that printed the page's address. Only those: a page
+// the session merely linked was somebody else's work.
+//
+// As with openedPRs, what the index finds is written through to the store, so
+// a page stays the session's work after a restart moves it onto a new
+// conversation. A page the store already holds under the same title is not
+// written again, so a quiet board costs no transactions.
+func publishedArtifacts(stor *store.Store, history *search.Index, id string) []workspec.Ref {
+	var stored []store.SessionWork
+	if stor != nil {
+		var err error
+		if stored, err = stor.SessionWorkItems(id); err != nil {
+			logging.Warn("work: could not read attached work", logging.Err(err))
+		}
+	}
+	held := make(map[string]string, len(stored))
+	var refs []workspec.Ref
+	for _, item := range stored {
+		if item.Kind != string(workspec.KindArtifact) {
+			continue
+		}
+		if item.Source == "" {
+			held[item.ID] = item.Title
+		}
+		refs = append(refs, workspec.AttachedRef(item.ID, item.URL, item.Title))
+	}
+	if history == nil {
+		return refs
+	}
+	var found []workspec.Ref
+	for _, line := range strings.Split(history.Published(id), "\n") {
+		url, title, _ := strings.Cut(line, "\t")
+		if ref, ok := workspec.ArtifactRef(url, title); ok {
+			found = append(found, ref)
+		}
+	}
+	var fresh []store.SessionWork
+	for _, ref := range workspec.Dedupe(found) {
+		if title, ok := held[ref.URL]; ok && title == ref.Title {
+			continue
+		}
+		fresh = append(fresh, store.SessionWork{Kind: string(workspec.KindArtifact), ID: ref.URL, URL: ref.URL, Title: ref.Title})
+	}
+	if stor != nil && len(fresh) > 0 {
+		if err := stor.AttachSessionWork(id, fresh, time.Now()); err != nil {
+			logging.Warn("work: could not record published pages", logging.Err(err))
+		}
+	}
+	return append(refs, found...)
+}
+
 // checksGlyph gives CI a shape before it gives it a colour, so the column
 // still reads on a terminal that renders none.
 func prColor(pr forge.PR) color.Color {
@@ -331,12 +421,16 @@ var countLadder = []struct {
 // workCounts is the workload in words, in the widest form that fits room, and
 // empty when none does.
 func workCounts(rows []workRow, room int) string {
-	prs, tickets, needsYou := 0, 0, false
+	var counts workCount
+	needsYou := false
 	for _, row := range rows {
-		if row.kind == "TICKET" {
-			tickets++
-		} else {
-			prs++
+		switch row.kind {
+		case kindTicket:
+			counts.tickets++
+		case kindArtifact:
+			counts.artifacts++
+		default:
+			counts.prs++
 		}
 		needsYou = needsYou || row.needsYou
 	}
@@ -345,7 +439,7 @@ func workCounts(rows []workRow, room int) string {
 		mark = lipgloss.NewStyle().Foreground(colorErrored).Render(statusGlyph(status.Waiting)) + " "
 	}
 	for _, rung := range countLadder {
-		text := countText(prs, tickets, rung.sep, rung.form)
+		text := countText(counts, rung.sep, rung.form)
 		if rung.marked {
 			text = mark + text
 		}
@@ -371,9 +465,13 @@ const (
 type countUnit struct{ tiny, short, one, many string }
 
 var (
-	prUnit     = countUnit{"p", "pr", "pr", "prs"}
-	ticketUnit = countUnit{"i", "is", "issue", "issues"}
+	prUnit       = countUnit{"p", "pr", "pr", "prs"}
+	ticketUnit   = countUnit{"i", "is", "issue", "issues"}
+	artifactUnit = countUnit{"a", "ar", "artifact", "artifacts"}
 )
+
+// workCount is how many of each kind a session is on.
+type workCount struct{ prs, tickets, artifacts int }
 
 func (u countUnit) text(n int, form countForm) string {
 	switch form {
@@ -388,20 +486,21 @@ func (u countUnit) text(n int, form countForm) string {
 	return strconv.Itoa(n) + " " + u.many
 }
 
-// countText joins the two counts. A kind the session is not on is left out
+// countText joins the counts. A kind the session is not on is left out
 // rather than written as a zero: "3 issues" is the whole truth about a
 // session on no pull requests, and "0 prs · 3 issues" spends four cells
 // saying nothing.
-func countText(prs, tickets int, sep string, form countForm) string {
-	switch {
-	case prs > 0 && tickets > 0:
-		return prUnit.text(prs, form) + sep + ticketUnit.text(tickets, form)
-	case prs > 0:
-		return prUnit.text(prs, form)
-	case tickets > 0:
-		return ticketUnit.text(tickets, form)
+func countText(counts workCount, sep string, form countForm) string {
+	var parts []string
+	for _, kind := range []struct {
+		n    int
+		unit countUnit
+	}{{counts.prs, prUnit}, {counts.tickets, ticketUnit}, {counts.artifacts, artifactUnit}} {
+		if kind.n > 0 {
+			parts = append(parts, kind.unit.text(kind.n, form))
+		}
 	}
-	return ""
+	return strings.Join(parts, sep)
 }
 
 // badgeGap is what separates the badge from the name it follows, and
@@ -416,7 +515,15 @@ const (
 // marksInRoom is how many marks fit: one, then two cells for each after it.
 func marksInRoom(room int) int { return (room + 1) / 2 }
 
-// workRow is one artifact a session is on: a pull request, or a ticket.
+// The kinds of work row, as workRow.kind holds them.
+const (
+	kindPR       = "PR"
+	kindTicket   = "TICKET"
+	kindArtifact = "ARTIFACT"
+)
+
+// workRow is one artifact a session is on: a pull request, a ticket, or a page
+// it published.
 type workRow struct {
 	needsYou bool
 	// rank is where the row sorts among its kind, most wanting a person first,
@@ -550,6 +657,10 @@ func (m *Model) ownWorkRows(sessID string) []workRow {
 		// stops saying "as of" as soon as this run has confirmed it, which is within a
 		// tick — restored references are due immediately.
 		remembered := !work.Looked[key]
+		if ref.Kind == workspec.KindArtifact {
+			rows = append(rows, publishedRow(ref))
+			continue
+		}
 		if pr, ok := work.PRs[key]; ok {
 			detail := string(pr.State)
 			if glyph := checksGlyph(pr.Checks); glyph != "" {
@@ -564,7 +675,7 @@ func (m *Model) ownWorkRows(sessID string) []workRow {
 				colour = colorIdle
 			}
 			rows = append(rows, workRow{
-				needsYou: pr.NeedsYou(), rank: int(pr.Rank()), updated: pr.UpdatedAt, key: key, kind: "PR",
+				needsYou: pr.NeedsYou(), rank: int(pr.Rank()), updated: pr.UpdatedAt, key: key, kind: kindPR,
 				label: pr.Repo + "#" + strconv.Itoa(pr.Number), short: "#" + strconv.Itoa(pr.Number),
 				detail: detail, url: pr.URL, glyph: prGlyph(pr), stateHint: colour,
 			})
@@ -581,7 +692,7 @@ func (m *Model) ownWorkRows(sessID string) []workRow {
 				colour = colorIdle
 			}
 			rows = append(rows, workRow{
-				rank: ticketRank(ticket), key: key, kind: "TICKET", label: ticket.Identifier, short: ticket.Identifier,
+				rank: ticketRank(ticket), key: key, kind: kindTicket, label: ticket.Identifier, short: ticket.Identifier,
 				detail: detail, url: ticket.URL, glyph: ticketGlyph(ticket), stateHint: colour,
 			})
 			continue
@@ -593,25 +704,37 @@ func (m *Model) ownWorkRows(sessID string) []workRow {
 	return rows
 }
 
-// sortWorkRows puts pull requests above tickets, then orders each kind by how
-// much it wants a person: forge.PR.Rank for a pull request -- blocked, ready to
-// merge, awaiting review, checks running, draft, merged, closed -- and open
-// before done for a ticket. A pull request is the thing the operator acts on
-// and a ticket is the trail it leaves, so the kind outranks the blocker.
+// sortWorkRows puts pull requests above tickets and tickets above published
+// pages, then orders each kind by how much it wants a person: forge.PR.Rank for
+// a pull request -- blocked, ready to merge, awaiting review, checks running,
+// draft, merged, closed -- and open before done for a ticket. A pull request is
+// the thing the operator acts on and a ticket is the trail it leaves, so the
+// kind outranks the blocker; a published page wants nobody, so it goes last.
 //
 // Within a rank the newest activity leads. A row with no timestamp, one
 // restored from before the column existed, keeps its evidence order behind
 // the rows that have one.
 func sortWorkRows(rows []workRow) {
 	sort.SliceStable(rows, func(i, j int) bool {
-		if iPR, jPR := rows[i].kind == "PR", rows[j].kind == "PR"; iPR != jPR {
-			return iPR
+		if a, b := kindOrder(rows[i].kind), kindOrder(rows[j].kind); a != b {
+			return a < b
 		}
 		if rows[i].rank != rows[j].rank {
 			return rows[i].rank < rows[j].rank
 		}
 		return rows[i].updated.After(rows[j].updated)
 	})
+}
+
+// kindOrder is where a kind of row sorts on the rail.
+func kindOrder(kind string) int {
+	switch kind {
+	case kindPR:
+		return 0
+	case kindTicket:
+		return 1
+	}
+	return 2
 }
 
 const (
@@ -680,12 +803,12 @@ func unlookedRow(ref workspec.Ref) workRow {
 		stateHint: colorIdle,
 	}
 	if ref.Kind == workspec.KindTicket {
-		row.kind, row.label, row.short = "TICKET", ref.Identifier, ref.Identifier
+		row.kind, row.label, row.short = kindTicket, ref.Identifier, ref.Identifier
 		row.glyph = currentGlyphs.ticketTodo
 		row.rank = ticketRankTodo
 		return row
 	}
-	row.kind = "PR"
+	row.kind = kindPR
 	row.rank = int(forge.RankUnlooked)
 	row.glyph = currentGlyphs.prPending
 	row.label = ref.Repo + "#" + strconv.Itoa(ref.Number)
@@ -696,6 +819,23 @@ func unlookedRow(ref workspec.Ref) workRow {
 	// Linear knows.
 	row.url = "https://github.com/" + ref.Repo + "/pull/" + strconv.Itoa(ref.Number)
 	return row
+}
+
+// publishedRow is a page the session published. It has no state to look up --
+// it is live for as long as the session that published it is on the board --
+// so the row is the title the publish call gave it, the page's id when it gave
+// none, and where it is hosted.
+func publishedRow(ref workspec.Ref) workRow {
+	host := strings.TrimPrefix(ref.URL, "https://")
+	host, _, _ = strings.Cut(host, "/")
+	label := ref.Title
+	if label == "" {
+		label = ref.Identifier
+	}
+	return workRow{
+		key: ref.Key(), kind: kindArtifact, label: label, short: label,
+		detail: host, url: ref.URL, glyph: currentGlyphs.artifact, stateHint: colorWorking,
+	}
 }
 
 // prGlyph is a pull request reduced to the one mark a folded session shows

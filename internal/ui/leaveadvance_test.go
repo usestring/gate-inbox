@@ -51,12 +51,10 @@ func TestLeavingAdvancesWithTheSettingOnAndNoTriage(t *testing.T) {
 		t.Fatalf("ctrl+q landed on %q, want the next session needing a person (broke)", got)
 	}
 
-	// And it converges: a walk that handed the same session back would never
-	// end, so the second hop must run out rather than return to "ask".
 	updated, _ = m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode == modeFocus {
-		t.Fatalf("the walk came round again to %q instead of draining", focusedName(t, m))
+	if m.mode != modeFocus || focusedName(t, m) != "ask" {
+		t.Fatalf("the skipped question did not return: mode %v", m.mode)
 	}
 }
 

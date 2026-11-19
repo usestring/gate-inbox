@@ -10,6 +10,37 @@ import (
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
+func TestTriageIgnoresPollResultsOlderThanTheWorkingStatus(t *testing.T) {
+	for _, previous := range []string{status.Waiting, status.Finished} {
+		t.Run(previous, func(t *testing.T) {
+			m := smartFleet(t,
+				smartSess("recent-turn", previous, time.Minute),
+				smartSess("older-question", status.Waiting, time.Hour),
+			)
+			older := refreshMsg{sessions: slices.Clone(m.sessions), listedAt: smartNow}
+			newer := refreshMsg{sessions: slices.Clone(m.sessions), listedAt: smartNow.Add(time.Second)}
+			newer.sessions[0].Status = status.Working
+			newer.sessions[0].LastStatusAt = newer.listedAt
+
+			// A background result can wait to reach the UI while an explicit
+			// refresh has already reported the submitted turn back at work.
+			m.Update(newer)
+			m.Update(older)
+			if got := drainOrder(m); !slices.Equal(got, []string{"older-question"}) {
+				t.Fatalf("a delayed poll put the working turn back in triage: %v", got)
+			}
+
+			finished := refreshMsg{sessions: slices.Clone(newer.sessions), listedAt: newer.listedAt.Add(time.Second)}
+			finished.sessions[0].Status = status.Finished
+			finished.sessions[0].LastStatusAt = finished.listedAt
+			m.Update(finished)
+			if got := drainOrder(m); !slices.Equal(got, []string{"older-question", "recent-turn"}) {
+				t.Fatalf("the next fresh finish did not rejoin triage in state order: %v", got)
+			}
+		})
+	}
+}
+
 // pollReporting applies a poll pass in which the named session reads st and
 // every other row is as it was.
 func pollReporting(t *testing.T, m *Model, name, st string) {

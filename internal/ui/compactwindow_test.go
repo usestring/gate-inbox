@@ -286,7 +286,7 @@ func TestBoardCompactionOwnsTheAutoCompactLine(t *testing.T) {
 	m := shotModel()
 	sess, _ := m.selected()
 	m.compactWindows = map[string]compactView{sess.ID: {Window: 600000}}
-	plain := func() string { return ansi.Strip(strings.Join(m.sessionDetailLines(90), "\n")) }
+	plain := func() string { return ansi.Strip(strings.Join(detailText(m.sessionDetailLines(90)), "\n")) }
 	if got := plain(); !strings.Contains(got, "auto-compact  600k") {
 		t.Fatalf("without an extension the settings window is the auto-compact line: %q", got)
 	}

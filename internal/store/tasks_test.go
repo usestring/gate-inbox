@@ -403,7 +403,8 @@ func TestHandTasksIsAtomicAndWithdrawable(t *testing.T) {
 }
 
 // Archiving a session, in any of the ways the store files one, hands its
-// assigned work back to anyone; a claim it holds stays a claim.
+// assigned work back to anyone, and a claim it held goes back to pending
+// with the assignment cleared too.
 func TestArchivingASessionUnassignsItsTasks(t *testing.T) {
 	st := newTestStore(t)
 	now := time.Now()
@@ -429,7 +430,7 @@ func TestArchivingASessionUnassignsItsTasks(t *testing.T) {
 			t.Fatalf("%s's waiting task after archive = %+v, %v", id, waiting, err)
 		}
 		held, err := st.Task(id + "-held")
-		if err != nil || held.Assignee != "" || held.Owner != id || held.State != TaskInProgress {
+		if err != nil || held.Assignee != "" || held.Owner != "" || held.State != TaskPending {
 			t.Fatalf("%s's held task after archive = %+v, %v", id, held, err)
 		}
 	}

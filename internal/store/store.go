@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -398,6 +399,8 @@ CREATE TABLE IF NOT EXISTS settings (
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS file_reservations_holder ON file_reservations (session_id, pattern)`,
 		`CREATE INDEX IF NOT EXISTS file_reservations_live ON file_reservations (expires_at)`,
+		`ALTER TABLE file_reservations ADD COLUMN resolved_path TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE file_reservations ADD COLUMN match_glob TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN tmux_socket TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN tmux_pane_id TEXT NOT NULL DEFAULT ''`,
 		// Existing rows default to the one source automatic naming may never
@@ -435,6 +438,19 @@ CREATE TABLE IF NOT EXISTS settings (
 			url        TEXT NOT NULL,
 			first_seen INTEGER NOT NULL,
 			PRIMARY KEY (session_id, url)
+		)`,
+		// Work items attached to a session that no forge or tracker answers
+		// for, such as a page it published. sessionwork.go carries why.
+		`CREATE TABLE IF NOT EXISTS session_work (
+			session_id TEXT NOT NULL,
+			source     TEXT NOT NULL,
+			kind       TEXT NOT NULL,
+			item_id    TEXT NOT NULL,
+			url        TEXT NOT NULL,
+			title      TEXT NOT NULL DEFAULT '',
+			first_seen INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			PRIMARY KEY (session_id, source, kind, item_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS work_seen (
 			key     TEXT PRIMARY KEY,
@@ -1121,7 +1137,25 @@ const (
 // still has every report its earlier life sent sitting in its parent's inbox,
 // delivered, and reading those made the sweep end the new life the first
 // time it came to rest -- a minute after the revive that asked for it back.
+//
+// A hibernated or parked child is left out. Both read dead with their pane
+// gone, which is exactly the exited case, but neither is over. A hibernated
+// one is only paused, and filing it would start the archive's deletion clock
+// on it. A parked one is owed a revive by unpark, and unpark drops an
+// archived row as gone: on 2026-11-07 a board started after a park and a
+// reboot filed about 56 parked children past the window, and none of them
+// came back.
 func (s *Store) AutoArchivableChildren(before time.Time) ([]ArchivableChild, error) {
+	// Read before the query: the store shares one connection.
+	hibernated, err := s.Hibernated()
+	if err != nil {
+		return nil, err
+	}
+	parked, err := s.Parked()
+	if err != nil {
+		return nil, fmt.Errorf("read parked set: %w", err)
+	}
+	skip := slices.Concat(hibernated, parked)
 	rows, err := s.db.Query(
 		`SELECT s.id,
 		        EXISTS (
@@ -1146,6 +1180,9 @@ func (s *Store) AutoArchivableChildren(before time.Time) ([]ArchivableChild, err
 		var reported bool
 		if err := rows.Scan(&child.ID, &reported); err != nil {
 			return nil, err
+		}
+		if slices.Contains(skip, child.ID) {
+			continue
 		}
 		child.Reason = ArchiveReasonWindow
 		if reported {
@@ -1333,7 +1370,8 @@ func (s *Store) applyDerivedStates(at time.Time, states []DerivedState) error {
 }
 
 // AcknowledgeFinished atomically marks a session idle and acked if its stored
-// status is still finished. A newer status makes the operation a no-op.
+// status is still finished, and acked alone if it is background. Any other
+// status makes the operation a no-op.
 //
 // last_status_at stays where the finish put it, here and in
 // applyDerivedStates: acknowledging a rest does not start a new one. Moving
@@ -1344,6 +1382,13 @@ func (s *Store) AcknowledgeFinished(id string) error {
 		`UPDATE sessions SET status = ?, acked = 1 WHERE id = ? AND status = ?`,
 		status.Idle, id, status.Finished)
 	if err != nil {
+		return err
+	}
+	// A turn that ended with a shell still running is a finish too, and
+	// seeing it acknowledges it. It keeps its status: the shell is still
+	// going, and the turn it wakes into clears the ack.
+	if _, err := s.db.Exec(
+		`UPDATE sessions SET acked = 1 WHERE id = ? AND status = ?`, id, status.Background); err != nil {
 		return err
 	}
 	return s.requireRowOrNoop(res, id)
@@ -1400,15 +1445,18 @@ func (s *Store) SetAgentSessionID(id, agentSessionID string) error {
 
 // BindAgentSessionID records a captured conversation id, but only while the
 // session is still the launch the capture ran for: unbound, and launched at
-// the moment the capturing pass read. It reports whether the write landed.
+// the moment the capturing pass read, with no other unarchived row claiming
+// that conversation. It reports whether the write landed.
 // Capture reads a tool's store from a snapshot and can take minutes, long
 // enough for a restart to clear the id and move the launch on underneath it,
 // and that stale answer names the conversation the restart just dropped.
 func (s *Store) BindAgentSessionID(id, agentSessionID string, launchedAt time.Time) (bool, error) {
 	res, err := s.db.Exec(
 		`UPDATE sessions SET agent_session_id = ?
-		 WHERE id = ? AND agent_session_id = '' AND agent_launched_at = ?`,
-		agentSessionID, id, encodeTime(launchedAt))
+		 WHERE id = ? AND agent_session_id = '' AND agent_launched_at = ?
+		 AND NOT EXISTS (SELECT 1 FROM sessions other WHERE other.id != ?
+		     AND other.archived = 0 AND other.agent_session_id = ?)`,
+		agentSessionID, id, encodeTime(launchedAt), id, agentSessionID)
 	if err != nil {
 		return false, err
 	}
@@ -1517,23 +1565,47 @@ func (s *Store) Snapshot(id string) (string, error) {
 // ExpiredArchives measures, so a restore genuinely resets the window: a
 // row filed, restored on day six and filed again gets a fresh seven days
 // rather than one.
+//
+// Filing a session away also hands back every task it held in progress (see
+// releaseTasksOwnedBy). Restoring takes nothing back: a revived agent claims
+// again what it still means to do, since another agent may have taken the
+// task in between.
 func (s *Store) SetArchived(id string, archived bool) error {
+	_, err := s.setArchivedTraced(id, archived)
+	return err
+}
+
+// ArchiveSession is SetArchived(id, true) for a caller that reports how many
+// task claims the archive handed back.
+func (s *Store) ArchiveSession(id string) (released int, err error) {
+	return s.setArchivedTraced(id, true)
+}
+
+func (s *Store) setArchivedTraced(id string, archived bool) (int, error) {
 	if !tracing.Enabled() {
 		return s.setArchived(id, archived)
 	}
 	start := time.Now()
-	err := s.setArchived(id, archived)
+	released, err := s.setArchived(id, archived)
 	// Restoring costs more than filing away -- it reads the row back and
 	// walks the group's ancestors -- so the direction is on the span.
 	recordOp("store.SetArchived", start, err, true, tracing.Attr{Key: "archived", Value: archived})
-	return err
+	return released, err
 }
 
+// ArchiveStoppedLaunch files away a session whose launch was stopped, if it
+// is still dead on that same launch, and hands back the claims it held.
 func (s *Store) ArchiveStoppedLaunch(sess Session) (bool, error) {
-	result, err := s.db.Exec(`UPDATE sessions SET archived = 1, archived_at = ?
+	now := time.Now()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`UPDATE sessions SET archived = 1, archived_at = ?
 		WHERE id = ? AND archived = 0 AND status = 'dead'
 		AND CASE WHEN agent_launched_at = 0 THEN created_at ELSE agent_launched_at END IN (?, ?)`,
-		encodeTime(time.Now()), sess.ID, encodeTime(sess.LaunchTime()), sess.LaunchTime().Unix())
+		encodeTime(now), sess.ID, encodeTime(sess.LaunchTime()), sess.LaunchTime().Unix())
 	if err != nil {
 		return false, err
 	}
@@ -1541,43 +1613,94 @@ func (s *Store) ArchiveStoppedLaunch(sess Session) (bool, error) {
 	if err != nil || n == 0 {
 		return false, err
 	}
-	if err := s.UnassignTasksOf(sess.ID, time.Now()); err != nil {
+	if _, err := giveBackTasks(tx, sess.ID, now); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
 		return false, err
 	}
 	return true, s.tallyChildArchive(sess.ID, true)
 }
 
-func (s *Store) setArchived(id string, archived bool) error {
-	stamp := int64(0)
+func (s *Store) setArchived(id string, archived bool) (int, error) {
+	released := 0
 	if archived {
-		stamp = encodeTime(time.Now())
-	}
-	res, err := s.db.Exec(
-		`UPDATE sessions SET archived = ?, archived_at = ? WHERE id = ?`, boolToInt(archived), stamp, id)
-	if err != nil {
-		return err
-	}
-	if err := requireRow(res, id); err != nil {
-		return err
+		var err error
+		if released, err = s.fileAway(id); err != nil {
+			return 0, err
+		}
+	} else {
+		res, err := s.db.Exec(`UPDATE sessions SET archived = 0, archived_at = 0 WHERE id = ?`, id)
+		if err != nil {
+			return 0, err
+		}
+		if err := requireRow(res, id); err != nil {
+			return 0, err
+		}
 	}
 	if err := s.tallyChildArchive(id, archived); err != nil {
-		return err
-	}
-	if archived {
-		if err := s.UnassignTasksOf(id, time.Now()); err != nil {
-			return err
-		}
+		return released, err
 	}
 	// Restoring a session out of an archived group must leave it with a live
 	// home, so un-archive its group and every ancestor.
 	if !archived {
 		sess, err := s.Get(id)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		return s.unarchiveAncestorGroups(sess.Group)
+		return 0, s.unarchiveAncestorGroups(sess.Group)
 	}
-	return nil
+	return released, nil
+}
+
+// fileAway marks one session archived and hands back its claims and
+// assignments, in one transaction.
+func (s *Store) fileAway(id string) (int, error) {
+	now := time.Now()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE sessions SET archived = 1, archived_at = ? WHERE id = ?`, encodeTime(now), id)
+	if err != nil {
+		return 0, err
+	}
+	if err := requireRow(res, id); err != nil {
+		return 0, err
+	}
+	released, err := giveBackTasks(tx, id, now)
+	if err != nil {
+		return 0, err
+	}
+	return released, tx.Commit()
+}
+
+// MarkKilled leaves a session reading dead after a kill and hands back
+// every task it held in progress or had assigned to it, in one transaction. A kill is the one
+// death that says the work is over: a restart, a park or a pane that
+// exited on its own ends the process too, but the session may come back on
+// the same conversation and carry on with what it claimed, so those write
+// the status alone (UpdateStatus) and their claims wait for an archive.
+func (s *Store) MarkKilled(id string) (released int, err error) {
+	now := time.Now()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE sessions SET status = ?, last_status_at = ? WHERE id = ?`,
+		status.Dead, encodeTime(now), id)
+	if err != nil {
+		return 0, err
+	}
+	if err := requireRow(res, id); err != nil {
+		return 0, err
+	}
+	if released, err = giveBackTasks(tx, id, now); err != nil {
+		return 0, err
+	}
+	return released, tx.Commit()
 }
 
 // ArchiveKilled files a batch of sessions away in one transaction, marking
@@ -1605,7 +1728,8 @@ func (s *Store) ArchiveKilled(ids []string, killed []string) ([]string, error) {
 	for _, id := range killed {
 		dead[id] = true
 	}
-	stamp := encodeTime(time.Now())
+	now := time.Now()
+	stamp := encodeTime(now)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -1648,7 +1772,7 @@ func (s *Store) ArchiveKilled(ids []string, killed []string) ([]string, error) {
 			missing = append(missing, id)
 			continue
 		}
-		if err := unassignTasksOf(tx, id, time.Now()); err != nil {
+		if _, err := giveBackTasks(tx, id, now); err != nil {
 			return nil, err
 		}
 		// Counted per child filed, not per row still present, so the tally
@@ -1768,7 +1892,7 @@ func purgeSessionRefs(tx *sql.Tx, id string) error {
 	}
 	// A claim outlives its holder as pending work rather than as a task
 	// parked forever against a session that no longer exists.
-	if err := releaseTasksOwnedBy(tx, id, time.Now()); err != nil {
+	if _, err := releaseTasksOwnedBy(tx, id, time.Now()); err != nil {
 		return err
 	}
 	if err := unassignTasksOf(tx, id, time.Now()); err != nil {
@@ -1778,6 +1902,9 @@ func purgeSessionRefs(tx *sql.Tx, id string) error {
 		return err
 	}
 	if err := deleteOpenedPRs(tx, id); err != nil {
+		return err
+	}
+	if err := deleteSessionWork(tx, id); err != nil {
 		return err
 	}
 	if err := unlinkMigration(tx, id); err != nil {
@@ -2562,6 +2689,24 @@ func (s *Store) SetGroupArchived(path string, archived bool) error {
 		`UPDATE sessions SET archived = ? WHERE group_name = ? OR group_name LIKE ? || '/%' ESCAPE '\'`,
 		flag, path, likePath); err != nil {
 		return err
+	}
+	// Every session filed with the group hands back its claims, as one
+	// archived alone does (see releaseTasksOwnedBy).
+	if archived {
+		if _, err := tx.Exec(
+			`UPDATE tasks SET state = ?, owner_session_id = '', updated_at = ?
+			  WHERE state = ? AND owner_session_id IN (
+			    SELECT id FROM sessions WHERE group_name = ? OR group_name LIKE ? || '/%' ESCAPE '\')`,
+			TaskPending, encodeTime(time.Now()), TaskInProgress, path, likePath); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			`UPDATE tasks SET assignee = '', updated_at = ?
+			  WHERE state != ? AND assignee IN (
+			    SELECT id FROM sessions WHERE group_name = ? OR group_name LIKE ? || '/%' ESCAPE '\')`,
+			encodeTime(time.Now()), TaskDone, path, likePath); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

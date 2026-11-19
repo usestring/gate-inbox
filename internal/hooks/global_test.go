@@ -347,6 +347,7 @@ func TestDispatchGlobalRunsTheMatchingLaunchCommands(t *testing.T) {
 		{"PostCompact", `{"trigger":"auto"}`, "working PreCompact"},
 		{"PostCompact", `{"trigger":"manual"}`, "idle PostCompact"},
 		{"StopFailure", `{"error":"rate_limit"}`, "errored StopFailure"},
+		{"StopFailure", `{"error":"authentication_failed","last_assistant_message":"Not logged in · Please run /login"}`, "errored ClaudeSignInRequired"},
 	} {
 		if out := m.DispatchGlobal(step.event, []byte(step.payload)); out != "" {
 			t.Fatalf("%s printed %q", step.event, out)

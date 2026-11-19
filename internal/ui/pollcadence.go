@@ -31,14 +31,15 @@ type hookStamp struct {
 }
 
 type paneSample struct {
-	pid       int
-	binding   paneBinding
-	hook      hookStamp
-	capture   tmux.Capture
-	proc      sysstat.ProcStat
-	procAt    time.Time
-	clean     string
-	questions []convo.AskQuestion
+	pid         int
+	binding     paneBinding
+	hook        hookStamp
+	capture     tmux.Capture
+	proc        sysstat.ProcStat
+	procAt      time.Time
+	clean       string
+	questions   []convo.AskQuestion
+	authFailure string
 }
 
 func (p *poller) paneBinding(sess store.Session) paneBinding {

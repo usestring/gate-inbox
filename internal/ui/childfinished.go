@@ -42,6 +42,16 @@ var restRelay = map[string]string{
 	status.Finished: "has finished its turn. Read what it did with read_session on %[2]s before you rely " +
 		"on it: this says the turn ended, not that the work is right. If you still need something from " +
 		"it, send_session puts your next instruction in its prompt.",
+	// A child resting in background has ended its turn, and what it said in
+	// that turn is usually the result its parent is waiting for; the shell or
+	// query left behind it only means another turn will follow. Unrelayed, a
+	// parent is told nothing until that work ends: on 2026-11-09 a child
+	// posted its deploy report, went to background on a 30-minute telemetry
+	// query, and its parent sat idle until the user prompted it by hand.
+	status.Background: "has ended its turn with background work still running. Read what it said with " +
+		"read_session on %[2]s: the turn that ended usually carries its result, and it will take another " +
+		"turn when that work ends, which is relayed as its own rest. If you need something from it now, " +
+		"send_session puts your next instruction in its prompt.",
 	status.Errored: "has stopped with an error. Read what it says with read_session on %[2]s: the board " +
 		"read a screen, so what actually failed is on that screen and not here. If it can go on from " +
 		"there, send_session puts your next instruction in its prompt.",
@@ -78,6 +88,14 @@ func (p *poller) relayChildRest(sess store.Session, newStatus string) error {
 	// working on the restart's prompt. Its rest comes when the restarted turn
 	// ends; a restart that fails leaves the row dead, which relays.
 	if newStatus == status.Finished && p.hooks != nil && sessioncmd.AwaitingStaleRestart(p.hooks.StatusFile(sess.ID)) {
+		return nil
+	}
+	// Background is a turn ending only when a turn was running. A resting
+	// child's row also moves between finished and background with no turn
+	// at all, as its shell's output starts and stops, and each move would
+	// otherwise wake the parent with a notice that differs from the last.
+	// sess is the row before this transition.
+	if newStatus == status.Background && sess.Status != status.Working {
 		return nil
 	}
 	return p.enqueueChildRest(sess, newStatus, childRestMessage(sess, ending))

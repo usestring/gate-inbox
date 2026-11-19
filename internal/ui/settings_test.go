@@ -268,6 +268,7 @@ func TestSettingsHasNoTerminalRows(t *testing.T) {
 func TestSettingsKeysRowOpensKeyMap(t *testing.T) {
 	m := buildModel(t)
 	m.openSettings()
+	m.settings.field = settingsFieldKeys
 	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "keys") || !strings.Contains(card, "rebind") {
 		t.Fatalf("settings is missing the keys row: %s", card)
 	}

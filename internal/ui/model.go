@@ -17,6 +17,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -135,8 +136,10 @@ type Model struct {
 
 	// snips are the operator's canned answers, read once at startup;
 	// snipErr is why there are none, when the file would not be read.
-	snips   snippets.Set
-	snipErr string
+	snips         snippets.Set
+	snipErr       string
+	launchSnips   snippets.Set
+	launchSnipErr string
 	// typeQuestion types a snippet into the free-text row of the question a
 	// session's dialog is showing; nil leaves every dialog holding a snippet
 	// back. See UseQuestionTyper.
@@ -147,9 +150,11 @@ type Model struct {
 	restartFlags   restartpresets.Set
 	restartFlagErr string
 	jevAutoSuggest bool
-	// jevSavedKey is the TypeSafe key pasted in Settings → JEV, read once
+	classifier     classifier.Provider
+	// jevSavedKey is the TypeSafe key pasted in Settings → Classifier, read once
 	// at startup; TYPESAFE_API_KEY still wins over it (see jevKey).
 	jevSavedKey    string
+	clefSavedKey   string
 	jevFinishCheck bool
 	jevFinish      jevFinishState
 	jevCopyOn      bool
@@ -170,6 +175,14 @@ type Model struct {
 	// a key that does nothing with the explanation in a process nobody sees.
 	keys        *keymap.Map
 	keyProblems []string
+	// keyFile is keys.toml as read, device layers included; globalKeys is
+	// its shared tables resolved alone, which a device's layer is diffed
+	// against on save; keysDevice is the device keys was resolved for; and
+	// keyReadProblems are the file's own read errors, kept across re-resolves.
+	keyFile         keymap.File
+	globalKeys      *keymap.Map
+	keysDevice      string
+	keyReadProblems []string
 	// extUIs, extKeys, extBridge and extBadges are what the build's
 	// extensions added: see extensions.go.
 	extUIs    []ExtensionUI
@@ -289,6 +302,12 @@ type Model struct {
 	// so the poll clock cannot stack a second set of tmux forks behind the
 	// set already waiting. See childsweep.go.
 	childSweeping bool
+	// hibernating is set while a settleHibernated pass is out, and
+	// hibernateSweptAt is when the last one swept for idle sessions. See
+	// hibernate.go.
+	hibernating       bool
+	hibernateSweptAt  time.Time
+	hibernatePressure bool
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -298,6 +317,9 @@ type Model struct {
 	// headroom is the build's last subscription quota summary per CLI,
 	// drawn under the machine meters. See headroom.go.
 	headroom map[string]string
+	// tokens is the selected session's context reading while its
+	// conversation is off screen. See tokenusage.go.
+	tokens tokenUsageRead
 	// workMemo holds one answer per session for the length of a frame or a
 	// rebuild, which is also the longest either treats a session's work as
 	// fixed. Nil outside both, which is when the tracker is free to move.
@@ -331,6 +353,11 @@ type Model struct {
 	// queuedMessages is replaced whole on every refresh rather than merged,
 	// so a delivered message's badge clears itself.
 	queuedMessages map[string]int
+	// hibernated is the ids hibernate stopped, replaced whole on every
+	// refresh like queuedMessages. Their rows stay dead in m.sessions, since
+	// every check for a pane must still find none, and shownStatus reads
+	// them as hibernating for everything drawn. See hibernate.go.
+	hibernated []string
 	// granted is every permission a parent granted a session with
 	// grant_permission, by session, replaced whole like queuedMessages so a
 	// revoke clears it.
@@ -355,9 +382,15 @@ type Model struct {
 	// empty for a session whose pane could not be captured, which leaves the
 	// row with the operator where a missing reading belongs.
 	answerableWait map[string]bool
+	// choreRests marks each session whose latest turn a board chore started
+	// -- a prompt-cache keep-alive -- after the operator's last turn on it,
+	// keyed to when the chore was delivered. Triage sinks such a rest below
+	// real work; see chorerest.go. Replaced whole every poll.
+	choreRests map[string]time.Time
 	// askQuestions mirrors refreshMsg.askQuestions, and questionCard is the
 	// preview's card drawn from it. See previewquestions.go.
 	askQuestions map[string][]convo.AskQuestion
+	authFailures map[string]string
 	questionCard questionCard
 	screenCard   screenCard
 	// hookless mirrors refreshMsg.hookless: the rows whose status is
@@ -421,6 +454,13 @@ type Model struct {
 	adoptFinishedAt time.Time
 	// adoptBusy is set while an adopt scan is out on its own goroutine.
 	adoptBusy bool
+	// unsureFlagged is the panes an adopt scan last found looking like an
+	// agent without adopting them, by adoptKey, so each is flagged once.
+	unsureFlagged map[string]bool
+	// unsureShownAt is when the unadopted-panes line was last put up, and
+	// unsureText is that line, so the bar can hold it while it is current.
+	unsureShownAt time.Time
+	unsureText    string
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -462,6 +502,11 @@ type Model struct {
 	// manager that can never answer the question behaves as it always did.
 	visible     bool
 	themeDevice string
+	// attachedID is the session attached full screen, from the attach until
+	// it detaches back to the board, and lastView what the board last told
+	// its extensions about where the operator is. See viewreport.go.
+	attachedID string
+	lastView   viewReport
 	// ownPane and ownSocket are the tmux pane the manager is drawing in, from
 	// the environment tmux sets inside a pane. Empty when it is not running
 	// under tmux at all, which is what makes the visibility read optional.
@@ -567,12 +612,27 @@ type Model struct {
 	// package-level in currentGlyphs, which every paint reads; this is the
 	// model's copy of the choice so the settings panel can round-trip it.
 	glyphs string
+	// rowDetail is whether session rows spell their state and CLI out or
+	// leave them to marks. See rowdetail.go.
+	rowDetail          string
+	textScroll         string
+	workingActivities  map[string]workingActivity
+	activityAnimating  bool
+	activityHover      string
+	activityHoverSince time.Time
+	activitySince      time.Time
+	// priorityScale is the persisted tier scale, "+2/-1" by default. See
+	// tierscale.go.
+	priorityScale string
 	// listSort is the persisted order the board's sessions are shown in
 	// within each group. See listsort.go.
 	listSort string
 	// listSortBeforeRecent is the order the recent toggle returns to. It is
 	// not persisted: a manager that opens on recent toggles back to manual.
 	listSortBeforeRecent string
+	listConsistency      string
+	listPositions        map[string]map[string]int
+	listPositionSort     string
 	// chrome is the persisted override for the legend under the list. See
 	// layout.go.
 	chrome string
@@ -638,6 +698,12 @@ type Model struct {
 	// orders the walk newest turn first; off, by the strict state-first order.
 	// See triageScore.
 	smartTriage bool
+	// triageOrder mirrors the persisted triage_order setting: which sessions
+	// the drain hands over first, or at all. triageKeepAlives puts keep-alive
+	// rests back in the drain. See triageorder.go.
+	triageOrder      string
+	triageContent    string
+	triageKeepAlives bool
 	// triageStartupEnter is set when triage was already on at startup, so the
 	// first poll enters the head of the queue the way turning triage on does.
 	// Restoring the mode without the entry leaves the operator on a list they
@@ -655,11 +721,17 @@ type Model struct {
 	// key that answers a focused session in a drain also hands it over. Off
 	// by default; see autoproceed.go.
 	autoProceed bool
+	// idleSwitch mirrors the persisted idle switch: with it on, an operator
+	// left idle in a working session is moved to one needing a person. See
+	// handOverOnIdle.
+	idleSwitch bool
 	// muted is the sessions this drain has already been shown, keyed by id.
 	// It is what stops the queue handing back work the operator has just
 	// done; see mute.go for why it is memory of the pass rather than state
 	// on the session.
 	muted map[string]muteMark
+	// Skipping postpones work until the rest of the queue has been offered.
+	triageDeferred []string
 	// deaf holds the sessions whose panes were found ignoring input, and
 	// focusDeaf counts the run of no-repaint keystrokes in the focused one
 	// that gets a session there. focusDeafID is which session that run
@@ -711,6 +783,9 @@ type Model struct {
 	heldSnippetsRestored bool
 	landings             map[string]*pendingLanding
 	landingGen           int
+	// lastKey is the key last handed a session's pane, for the next one's
+	// PaneInput.Ready; see paneinput.go.
+	lastKey keyStamp
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
@@ -725,10 +800,10 @@ type Model struct {
 	// handoverTrace is the Enter handover whose next frame is still to be
 	// timed; see handOverOnEnter.
 	handoverTrace handoverTrace
-	// settling are the sessions whose answer has been seen landing, by the
-	// instant it was, until a poll listed after that has been applied: the
-	// row still shows the state the answer moved it on from. See triage.go.
-	settling map[string]time.Time
+	// settling are the sessions whose answer has been seen landing, until a
+	// poll listed after that shows the turn it started: the row still shows
+	// the state the answer moved it on from. See landing.go.
+	settling map[string]settleMark
 	// statusesAsOf is when the newest applied poll pass listed its sessions:
 	// every status on the board is at least that fresh. A mute keyed to an
 	// answer landing lapses once it passes the landing; see mute.go.
@@ -779,7 +854,11 @@ type Model struct {
 	// over from a previous manager run to the preview panel's width.
 	sessionsSized bool
 	errBar        errBar
-	split         splitState
+	// inputs is the input journal a dump reads; see inputjournal.go.
+	inputs inputJournal
+	// autoDump asks for a dump the board decided on itself; see SetAutoDump.
+	autoDump func(reason string)
+	split    splitState
 	// previewGen increments on every cursor move. In-flight captures and
 	// settle timers with an older gen are dropped so key-repeat cannot
 	// queue a second of tmux work after the user stops.
@@ -944,35 +1023,48 @@ type quickState struct {
 	active             bool
 	fromFocus          bool
 	closeAfterSend     bool
+	launch             bool
 	suggestions        []string
 	suggestionIdentity string
 }
 
 type settingsState struct {
-	toolNames        []string
-	toolIndex        int
-	accountRouting   string
-	chooserAvailable bool
-	themeIndex       int
-	field            int
-	quickCloseSend   bool
-	enterFocuses     bool
-	comfortableRows  bool
-	layout           string
-	sidebar          string
-	palette          string
-	glyphs           string
-	archiveConfirm   string
-	deleteConfirm    string
-	restartConfirm   string
-	listSort         string
-	chrome           string
-	leaveMode        string
-	newSessionAgent  string
-	autoProceed      bool
-	smartTriage      bool
-	reopenSessions   string
-	outsidePanes     string
+	searching            bool
+	search               textinput.Model
+	hibernateSensitivity string
+	toolNames            []string
+	toolIndex            int
+	accountRouting       string
+	chooserAvailable     bool
+	themeIndex           int
+	field                int
+	quickCloseSend       bool
+	enterFocuses         bool
+	comfortableRows      bool
+	layout               string
+	sidebar              string
+	palette              string
+	glyphs               string
+	rowDetail            string
+	textScroll           string
+	priorityScale        string
+	archiveConfirm       string
+	deleteConfirm        string
+	restartConfirm       string
+	listSort             string
+	listConsistency      string
+	chrome               string
+	leaveMode            string
+	newSessionAgent      string
+	autoProceed          bool
+	smartTriage          bool
+	triageOrder          string
+	triageContent        string
+	triageKeepAlives     bool
+	idleSwitch           bool
+	confirmLaunches      bool
+	reopenSessions       string
+	outsidePanes         string
 	// claudeSetup is the Settings switch for the board's entries in the
 	// operator's Claude Code config, as the picker holds it.
 	claudeSetup        bool
@@ -987,6 +1079,7 @@ type settingsState struct {
 	jevCopyOn          bool
 	promptSuggest      bool
 	reviewQueue        bool
+	ciFeedback         bool
 	arrowsStay         bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
@@ -1009,18 +1102,28 @@ const (
 	settingsFieldSidebar
 	settingsFieldPalette
 	settingsFieldGlyphs
+	settingsFieldRowDetail
+	settingsFieldWorkingActivity
+	settingsFieldPriorityScale
 	settingsFieldArchiveConfirm
 	settingsFieldDeleteConfirm
 	settingsFieldRestartConfirm
 	settingsFieldListSort
+	settingsFieldListConsistency
 	settingsFieldChrome
 	settingsFieldLeave
 	settingsFieldQuickClose
 	settingsFieldFocusKey
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
+	settingsFieldTriageOrder
+	settingsFieldTriageContent
+	settingsFieldTriageKeepAlives
+	settingsFieldIdleSwitch
+	settingsFieldConfirmLaunches
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
+	settingsFieldHibernate
 	settingsFieldClaudeSetup
 	settingsFieldJev
 	settingsFieldExperimental
@@ -1062,14 +1165,18 @@ type refreshMsg struct {
 	previewAt        time.Time
 	agents           agentStats
 	queuedMessages   map[string]int
+	hibernated       []string
 	granted          map[string][]string
 	compactWindows   map[string]compactView
 	archivedChildren map[string]int
 	searchText       map[string]string
+	workingActivity  map[string]string
 	answerableWait   map[string]bool
+	choreRests       map[string]time.Time
 	// askQuestions is each Claude session's pending AskUserQuestion call,
 	// for a pane standing on a several-question dialog.
 	askQuestions map[string][]convo.AskQuestion
+	authFailures map[string]string
 	// hookless is every session whose agent no longer carries the hook
 	// settings flag, so its status is coming off the pane rather than out of
 	// its status file. Replaced whole each pass like queuedMessages, which is
@@ -1294,6 +1401,7 @@ type attachDoneMsg struct {
 }
 
 func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status.Engine, hookManager *hooks.Manager, version string) *Model {
+	reviewQueue, triageContent := storedReviewQueue(st), storedTriageContent(st)
 	statusSources := make(map[string]string, len(cfg.Tools))
 	sessionStores := make(map[string]string, len(cfg.Tools))
 	mcpStyles := make(map[string]string, len(cfg.Tools))
@@ -1330,48 +1438,58 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	// force here rather than read off the model on every paint.
 	applyGlyphSet(storedGlyphs(st))
 	model := &Model{
-		conversation:    &conversationView{locator: newHistoryLocator(), compact: true, hovered: -1},
-		landingLocator:  newHistoryLocator(),
-		cfg:             cfg,
-		store:           st,
-		tmux:            driver,
-		hooks:           hookManager,
-		gitDrv:          gitDriver,
-		engine:          engine,
-		setSnapshots:    st.SetSnapshots,
-		work:            newWorkTracker(cfg, st),
-		convos:          newConvoIndex(),
-		drift:           sessname.NewDrift(),
-		firstPrompts:    map[string][]string{},
-		poller:          newPoller(st, driver, engine, hookManager, gitDriver, statusSources, sessionStores, mcpStyles, shellTools, cfg.PollInterval.Duration),
-		collapsed:       loadCollapsed(st),
-		split:           splitState{ratio: loadSplitRatio(st)},
-		focusOnEnter:    storedFocusOnEnter(st),
-		focusView:       storedFocusView(st),
-		arrowsStay:      storedArrowsStay(st),
-		jevAutoSuggest:  storedJevAutoSuggest(st),
-		jevFinishCheck:  storedJevFinishCheck(st),
-		jevCopyOn:       storedJevCopy(st),
-		reviewQueue:     storedReviewQueue(st),
-		promptSuggest:   storedPromptSuggestions(st),
-		comfortableRows: storedComfortableRows(st),
-		layout:          storedLayout(st),
-		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
-		palette:         storedPalette(st),
-		glyphs:          storedGlyphs(st),
-		archiveConfirm:  storedArchiveConfirm(st),
-		deleteConfirm:   storedConfirmAsk(st, deleteConfirmSetting),
-		restartConfirm:  storedConfirmAsk(st, restartConfirmSetting),
-		listSort:        storedListSort(st),
-		chrome:          storedChrome(st),
-		leaveMode:       storedLeaveMode(st),
-		newSessionAgent: storedNewSessionAgent(st),
-		triage:          storedTriage(st),
-		triageScope:     storedTriageScope(st),
-		autoProceed:     storedAutoProceed(st),
-		smartTriage:     storedSmartTriage(st),
-		mode:            modeList,
-		version:         version,
+		conversation:     &conversationView{locator: newHistoryLocator(), compact: true, hovered: -1},
+		landingLocator:   newHistoryLocator(),
+		cfg:              cfg,
+		store:            st,
+		tmux:             driver,
+		hooks:            hookManager,
+		gitDrv:           gitDriver,
+		engine:           engine,
+		setSnapshots:     st.SetSnapshots,
+		work:             newWorkTracker(cfg, st),
+		convos:           newConvoIndex(),
+		drift:            sessname.NewDrift(),
+		firstPrompts:     map[string][]string{},
+		poller:           newPoller(st, driver, engine, hookManager, gitDriver, statusSources, sessionStores, mcpStyles, shellTools, cfg.PollInterval.Duration),
+		collapsed:        loadCollapsed(st),
+		split:            splitState{ratio: loadSplitRatio(st)},
+		focusOnEnter:     storedFocusOnEnter(st),
+		focusView:        storedFocusView(st),
+		arrowsStay:       storedArrowsStay(st),
+		jevAutoSuggest:   storedJevAutoSuggest(st),
+		jevFinishCheck:   storedJevFinishCheck(st),
+		jevCopyOn:        storedJevCopy(st),
+		reviewQueue:      reviewQueue,
+		promptSuggest:    storedPromptSuggestions(st),
+		comfortableRows:  storedComfortableRows(st),
+		layout:           storedLayout(st),
+		sidebar:          storedSidebar(st, cfg.Board.Sidebar),
+		palette:          storedPalette(st),
+		glyphs:           storedGlyphs(st),
+		rowDetail:        storedRowDetail(st),
+		textScroll:       storedWorkingActivity(st),
+		activitySince:    time.Now(),
+		priorityScale:    storedPriorityScale(st),
+		archiveConfirm:   storedArchiveConfirm(st),
+		deleteConfirm:    storedConfirmAsk(st, deleteConfirmSetting),
+		restartConfirm:   storedConfirmAsk(st, restartConfirmSetting),
+		listSort:         storedListSort(st),
+		listConsistency:  storedListConsistency(st),
+		chrome:           storedChrome(st),
+		leaveMode:        storedLeaveMode(st),
+		newSessionAgent:  storedNewSessionAgent(st),
+		triage:           storedTriage(st),
+		triageScope:      storedTriageScope(st),
+		autoProceed:      storedAutoProceed(st),
+		smartTriage:      storedSmartTriage(st),
+		triageOrder:      storedTriageOrder(st),
+		triageContent:    triageContent,
+		reviewsTab:       reviewQueue && triageContent == triageContentReviews,
+		triageKeepAlives: storedTriageKeepAlives(st),
+		idleSwitch:       storedIdleSwitch(st),
+		mode:             modeList,
+		version:          version,
 		// Assume the operator is looking until something says otherwise. A
 		// manager that cannot answer the question -- not under tmux, and a
 		// terminal that never reports focus -- then behaves exactly as it
@@ -1397,6 +1515,11 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	model.loadSnippets()
 	model.loadRestartFlags()
 	model.loadJevKey()
+	if model.reviewQueue {
+		if err := model.reloadReviewRequests(); err != nil {
+			logging.Info("review queue restore", logging.Err(err))
+		}
+	}
 	model.seedFromStore()
 	model.triageStartupEnter = model.triage
 	model.noteOpencodeVersion(opencode.Cached())
@@ -2264,6 +2387,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.setVisible(true), m.ownPaneVisibleCmd())
 
 	case tea.BlurMsg:
+		m.activityHover = ""
 		m.dismissLegendPeek()
 		return m, m.setVisible(false)
 
@@ -2279,12 +2403,20 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := tea.Batch(m.setVisible(visible), m.loadDeviceTheme(msg.device))
 		if m.themeDevice != device {
 			cmd = tea.Batch(cmd, m.loadDeviceLayout())
+			m.keysDeviceChanged()
 		}
 		return m, cmd
 
 	case browserOpenMsg:
 		m.handleBrowserOpen(msg)
 		return m, nil
+
+	case activityTickMsg:
+		m.activityAnimating = false
+		if !m.activityActive() {
+			m.frameUnchanged()
+		}
+		return m, m.startActivityTick()
 
 	case startupTickMsg:
 		if !m.needsLoaderTick() {
@@ -2388,6 +2520,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case conversationMsg:
 		m.applyConversation(msg)
 		return m, m.scheduleAutoSuggestion()
+	case tokenUsageMsg:
+		m.applyTokenUsage(msg)
+		return m, nil
 	case autoSuggestTickMsg:
 		return m, m.runAutoSuggestion(msg.seq)
 	case autoSuggestResultMsg:
@@ -2423,6 +2558,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyQuestionTyped(msg)
 
 	case refreshMsg:
+		// Background and explicit polls can reach the UI out of order. An
+		// older snapshot must not put a working turn back in triage or close
+		// focus on a session the newer pass already saw alive.
+		if msg.listedAt.Before(m.statusesAsOf) {
+			return m, nil
+		}
 		m.ageError()
 		// The focused session can die or vanish under us; fall back to the
 		// list rather than typing into nothing.
@@ -2439,11 +2580,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		before, wasFocused := m.focusedStatus()
-		current := !msg.listedAt.Before(m.statusesAsOf)
 		m.sessions = sessions
-		if msg.listedAt.After(m.statusesAsOf) {
-			m.statusesAsOf = msg.listedAt
-		}
+		m.statusesAsOf = msg.listedAt
 		heldLandings := m.resumeHeldSnippets()
 		m.settleLandings(msg.listedAt, msg.unseen)
 		m.dropHeldAckOnNewTurn()
@@ -2487,12 +2625,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pinnedGroups = msg.pinnedGroups
 		m.agents = msg.agents
 		m.queuedMessages = msg.queuedMessages
+		m.hibernated = msg.hibernated
 		m.granted = msg.granted
 		m.compactWindows = msg.compactWindows
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
+		m.updateWorkingActivity(msg.workingActivity)
 		m.answerableWait = msg.answerableWait
+		m.choreRests = msg.choreRests
 		m.askQuestions = msg.askQuestions
+		m.authFailures = msg.authFailures
 		m.hookless = msg.hookless
 		m.stale = msg.stale
 		m.hogBadges = msg.hogBadges
@@ -2525,12 +2667,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sweep := m.sweepExpiredArchives()
 		// Off the loop, so a busy tmux server delays a child's filing rather
 		// than the board's next frame. What it finds lands as childSweptMsg.
-		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev())
+		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.settleHibernated())
 		m.settleInstall()
 		m.rebuildRows()
 		if focusClosed {
 			focusExit = tea.Batch(focusExit, m.moveOnFromClosedFocus())
-		} else if wasFocused && current {
+		} else if wasFocused {
 			focusExit = m.handOverOnWork(before)
 		}
 		// A board that came up with triage already on enters the head of its
@@ -2555,24 +2697,25 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A drain that ran out of work left the operator on the list with
 		// the queue still open: the first pass carrying a new session that
 		// needs a person picks it straight up. See triageResume.
-		pickup := m.triagePickupCmd()
-		if current {
-			pickup = tea.Batch(pickup, m.handOverOnIdle(time.Now()))
-		}
+		pickup := tea.Batch(m.triagePickupCmd(), m.handOverOnIdle(time.Now()))
 		// A pass that ran with a stale selection (a session created this
 		// tick) carries the wrong preview; resync and fetch it directly.
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.loadDrafts())
+			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.startActivityTick(), m.loadDrafts())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.loadDrafts())
+		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.startActivityTick(), m.loadDrafts())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)
+		return m, nil
+
+	case hibernateSettledMsg:
+		m.applyHibernateSettled(msg)
 		return m, nil
 
 	case adoptTickMsg:
@@ -2592,6 +2735,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errBar.text = "adopting a pane: " + msg.err.Error()
 		}
 		m.noteAdopted(msg)
+		m.noteUnsure(msg.unsure, time.Now())
 		if msg.taken > 0 {
 			// The rows are in the store but not yet on the board; the sweep
 			// is what reads them back.
@@ -2640,9 +2784,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.refreshWork(), m.workTick())
 
 	case workLoadedMsg:
+		if msg.reviewsErr != nil {
+			m.errBar.text = "review queue: " + msg.reviewsErr.Error()
+		} else if m.reviewQueue {
+			if err := m.reloadReviewRequests(); err != nil {
+				m.errBar.text = "review queue: " + err.Error()
+			}
+		}
 		// Work that has just resolved is work the tree can hang rows off.
 		m.rebuildRows()
-		return m, nil
+		return m, m.triagePickupCmd()
 
 	case cliDetectMsg:
 		m.finishCLIDetect(msg)
@@ -2868,6 +3019,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refreshPromptSnips()
 
 	case attachDoneMsg:
+		m.attachedID = ""
 		m.tmux.AttachDone(msg.sessID)
 		// An agent that repainted the terminal background for itself leaves
 		// it on ours; the resume's WindowSizeMsg skips its own sync when the
@@ -2931,8 +3083,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
+		mouse := msg.Mouse()
+		hoverChanged := m.updateActivityHover(mouse.X, mouse.Y)
 		model, cmd := m.handleMouse(msg)
-		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
+		if hoverChanged {
+			m.frameReuse = false
+		}
+		// A click can select a session or leave focus, so the poller hears
+		// about it the same way it hears about a keystroke.
+		m.syncPollInput()
+		return model, tea.Batch(cmd, m.startActivityTick(), m.scheduleAutoSuggestion())
 
 	case tea.KeyboardEnhancementsMsg:
 		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()
@@ -2952,6 +3112,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
 
 	case tea.PasteMsg:
+		if m.mode == modeSettings && m.settings.searching {
+			var cmd tea.Cmd
+			m.settings.search, cmd = m.settings.search.Update(msg)
+			m.selectMatchingSetting()
+			return m, cmd
+		}
 		if m.reviewPageOpen() {
 			if page := m.reviewPage(); page.compose != nil {
 				text := strings.ReplaceAll(msg.Content, "\r\n", "\n")
@@ -3170,7 +3336,8 @@ func (m *Model) ageError() {
 		return
 	}
 	m.errBar.age++
-	if m.errBar.age >= 2 && !m.offerLive(time.Now()) {
+	now := time.Now()
+	if m.errBar.age >= 2 && !m.offerLive(now) && !m.unsureLive(now) {
 		m.errBar = errBar{}
 	}
 }
@@ -3357,6 +3524,9 @@ func (m *Model) buildTree() {
 		for _, groupSessions := range sessionsByGroup {
 			m.sortGroupSessions(groupSessions)
 		}
+	}
+	if !m.triage && query == "" && !m.showArchived {
+		m.keepListPositions(sessionsByGroup)
 	}
 	// After the sort too: a block a helper floats heads its group whatever
 	// order the rest are in. See rolefloat.go.

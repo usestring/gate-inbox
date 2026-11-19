@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -701,16 +700,4 @@ func (s *Sessions) PruneTasks(sessionID string, opts TaskPruneOptions) (TaskPrun
 		}
 	}
 	return result, nil
-}
-
-// unassignEnded hands the tasks assigned to a session somebody just killed
-// back to anyone. Only the deliberate kills call it, not the kill a restart
-// or an account switch makes on the way to relaunching the same session,
-// which still wants its work; archives clear it in the store. The kill has
-// already happened, so a failure here is logged rather than reported as
-// the kill failing.
-func (r *runtime) unassignEnded(id string) {
-	if err := r.store.UnassignTasksOf(id, time.Now()); err != nil {
-		logging.Warn("could not unassign a killed session's tasks", "session", id, logging.Err(err))
-	}
 }

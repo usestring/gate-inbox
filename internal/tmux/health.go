@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -19,7 +20,11 @@ import (
 // when no browser can be reached never lands, and the toast still says it
 // copied.
 //
-// The manager cannot settle either of these itself. Both are server- and
+// `escape-time` costs every Esc: tmux holds the key that long in case it
+// starts a longer sequence, so at its old 500ms default closing a card waits
+// half a second each time, which reads as the board being slow.
+//
+// The manager cannot settle any of these itself. They are server- and
 // client-scoped settings on a server that belongs to whoever is at the
 // keyboard rather than to the manager (see owned), so this reads them and
 // names the line that fixes each.
@@ -40,7 +45,13 @@ const (
 	FindingHyperlinks   = "hyperlinks"
 	FindingSetClipboard = "set-clipboard"
 	FindingMouseClicks  = "mouse-eats-clicks"
+	FindingEscapeTime   = "escape-time"
 )
+
+// slowEscapeMs is the escape-time past which the hold on Esc is felt. The
+// board's own input reader waits 50ms for the rest of a sequence, so a hold
+// no longer than that adds nothing to it.
+const slowEscapeMs = 50
 
 // CheckConfig reports what the tmux server the manager's own pane is attached
 // to costs the board. That is not necessarily the server the managed sessions
@@ -75,6 +86,8 @@ func (d *Driver) checkConfig(tmuxEnv string) []ConfigFinding {
 		[]string{"display-message", "-p", sep},
 		[]string{"show-options", "-gv", "mouse"},
 		[]string{"display-message", "-p", sep},
+		[]string{"show-options", "-sv", "escape-time"},
+		[]string{"display-message", "-p", sep},
 	)...)
 	out, err := d.output(args)
 	if err != nil {
@@ -83,13 +96,29 @@ func (d *Driver) checkConfig(tmuxEnv string) []ConfigFinding {
 		return nil
 	}
 	blocks := strings.Split(string(out), sep+"\n")
-	if len(blocks) < 5 {
+	if len(blocks) < 6 {
 		return nil
 	}
 	for i := range blocks {
 		blocks[i] = strings.TrimSpace(blocks[i])
 	}
-	return configFindings(blocks[0], blocks[1], blocks[2], blocks[3])
+	return append(configFindings(blocks[0], blocks[1], blocks[2], blocks[3]), escapeFindings(blocks[4])...)
+}
+
+// escapeFindings is the escape-time finding for the server's value in
+// milliseconds, or none when the hold is short or the value unreadable.
+func escapeFindings(escapeTime string) []ConfigFinding {
+	ms, err := strconv.Atoi(escapeTime)
+	if err != nil || ms <= slowEscapeMs {
+		return nil
+	}
+	return []ConfigFinding{{
+		Key: FindingEscapeTime,
+		Detail: "escape-time is " + escapeTime + "ms, so tmux holds every Esc that long before the " +
+			"board sees it, in case it starts a longer key sequence. Closing a card or " +
+			"cancelling a field waits for it each time.",
+		Fix: "set -s escape-time 10",
+	}}
 }
 
 // clientTarget splits $TMUX -- "<socket path>,<server pid>,<session id>" --

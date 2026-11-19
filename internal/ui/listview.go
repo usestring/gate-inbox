@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -250,10 +251,13 @@ func (m *Model) railLines(width, height int) []contentLine {
 	// row's facts sit right above the prompt it was launched with, since both
 	// answer "what is this" before the dock answers "how loaded is the
 	// machine".
-	var opening []string
+	var opening []contentLine
 	// The Reviews tab has no selected session for it to describe.
 	if tier == dockFull && !m.onReviewsTab() {
-		block := append(m.sessionDetailLines(width), m.promptLines(width)...)
+		block := m.sessionDetailLines(width)
+		for _, line := range m.promptLines(width) {
+			block = append(block, contentLine{text: line})
+		}
 		if len(block) > 0 && listHeight-len(block)-1 >= dockFullMinList {
 			opening = block
 			listHeight -= len(block) + 1
@@ -282,9 +286,7 @@ func (m *Model) railLines(width, height int) []contentLine {
 	}
 	if opening != nil {
 		rows = append(rows, contentLine{rule: true})
-		for _, line := range opening {
-			rows = append(rows, contentLine{text: line})
-		}
+		rows = append(rows, opening...)
 	}
 	if meters != nil {
 		rows = append(rows, contentLine{rule: true})
@@ -440,23 +442,30 @@ func railFact(pad, label, value string) string {
 // carries only what the row does not. Its start time stays: the row's clock
 // is the last activity, which reads the same on a session launched a minute
 // ago as on one that has been up for days.
-func (m *Model) sessionDetailLines(width int) []string {
+func (m *Model) sessionDetailLines(width int) []contentLine {
 	pad := spaces(railInset)
 	room := width - railInset - 2
 	if room < 8 {
 		return nil
 	}
+	var lines []contentLine
+	appendLines := func(texts ...string) {
+		for _, text := range texts {
+			lines = append(lines, contentLine{text: text})
+		}
+	}
 	if group, ok := m.selectedGroup(); ok {
-		return m.groupDetailLines(group, pad, room)
+		appendLines(m.groupDetailLines(group, pad, room)...)
+		return lines
 	}
 	sess, ok := m.selected()
 	if !ok {
 		return nil
 	}
-	tool := sess.Tool
+	tool := shortToolName(sess.Tool)
 	if m.mode == modeRename && m.rename.sessID == sess.ID {
 		if picked := m.renameTool(); picked != "" {
-			tool = picked
+			tool = shortToolName(picked)
 		}
 	}
 	// A session on a chosen model wears it on the same chip as the CLI it
@@ -478,20 +487,25 @@ func (m *Model) sessionDetailLines(width int) []string {
 				subtleStyle.Render(" · ")+valueStyle.Render(humanBytes(m.proc.RSS)),
 			factRoom, "…")
 	}
-	lines := []string{
+	appendLines(
 		railFact(pad, "cli", chipStyle.Render(textfmt.TruncateWidth(tool, max(factRoom-2, 1), "…"))),
 		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
-		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
+		railFact(pad, "dir", mutedStyle.Render(truncateTail(homeRelative(sess.Cwd), factRoom))),
 		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.LaunchTime()), factRoom, "…"))),
+	)
+	if id := strings.TrimSpace(sess.AgentSessionID); id != "" {
+		for _, text := range wideFact(pad, "session id", valueStyle.Render(id)+subtleStyle.Render(" · click to copy"), room) {
+			lines = append(lines, contentLine{text: text, copyID: id})
+		}
 	}
 	if usage != "" {
-		lines = append(lines, railFact(pad, "usage", usage))
+		appendLines(railFact(pad, "usage", usage))
 	}
 	now := time.Now()
 	boardCompacts := false
 	for _, fact := range m.extFacts[sess.ID] {
 		boardCompacts = boardCompacts || fact.Label == compactLabel
-		lines = append(lines, wideFact(pad, fact.Label, extensionFactText(fact, now), room)...)
+		appendLines(wideFact(pad, fact.Label, extensionFactText(fact, now), room)...)
 	}
 	// Where an extension compacts the session itself, its line is the
 	// auto-compact one and the settings file's window is only the CLI's own
@@ -501,13 +515,13 @@ func (m *Model) sessionDetailLines(width int) []string {
 		if boardCompacts {
 			label = "claude window"
 		}
-		lines = append(lines, wideFact(pad, label, compactFact(view, now), room)...)
+		appendLines(wideFact(pad, label, compactFact(view, now), room)...)
 	}
 	// What its spawner granted it on its user's approval, one line each:
 	// a widened permission is the one fact about a session nobody should
 	// have to go looking for.
 	for _, granted := range m.granted[sess.ID] {
-		lines = append(lines, railFact(pad, "grant", annotationStyle.Render(textfmt.TruncateWidth(granted, factRoom, "…"))))
+		appendLines(railFact(pad, "grant", annotationStyle.Render(textfmt.TruncateWidth(granted, factRoom, "…"))))
 	}
 	return lines
 }
@@ -534,7 +548,7 @@ func (m *Model) groupDetailLines(group, pad string, room int) []string {
 	} else if m.pinnedGroups[group] {
 		suffix = " " + subtleStyle.Render("pinned")
 	}
-	dir := mutedStyle.Render(truncateTail(path, max(room-railFactLabelWidth-textfmt.Width(suffix), 1))) + suffix
+	dir := mutedStyle.Render(truncateTail(homeRelative(path), max(room-railFactLabelWidth-textfmt.Width(suffix), 1))) + suffix
 	lines = append(lines, railFact(pad, "dir", dir))
 	if breakdown := m.groupStatusBreakdown(group); breakdown != "" {
 		lines = append(lines, railFact(pad, "state", trimmedValue(breakdown)(max(room-railFactLabelWidth, 1))))
@@ -676,8 +690,12 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 		if entry.isArtifact() && entry.art.more == 0 {
 			link = entry.art.url
 		}
+		sessionID := ""
+		if entry.entersAs() {
+			sessionID = entry.sess.ID
+		}
 		for _, line := range splitLines(render(entry, selected, offset+i, tone)) {
-			lines = append(lines, contentLine{text: line, tone: tone, link: link})
+			lines = append(lines, contentLine{text: line, tone: tone, link: link, sessionID: sessionID})
 		}
 	}
 	// The counters ride in whatever room the entries leave. Claiming a line
@@ -993,7 +1011,8 @@ func (m *Model) sessionGlyph(sess store.Session) string {
 	if resting && m.isShell(sess.Tool) {
 		return subtleText(shellGlyph)
 	}
-	return statusTint(sess.Status, statusGlyph(sess.Status))
+	st := m.shownStatus(sess)
+	return statusTint(st, statusGlyph(st))
 }
 
 // namePlaceholder stands in for the name a spawn generated while the agent
@@ -1133,10 +1152,20 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 		marks += " " + badge
 	}
 	state += marks
+	tool := metaText(" · " + shortToolName(sess.Tool))
+	if m.rowMarks() {
+		// The tinted mark ahead of the name already says the state, so the
+		// word goes and the CLI is written as its letters. See rowdetail.go.
+		state = strings.TrimPrefix(marks, " ")
+		tool = m.toolLabel(sess.Tool, metaText)
+		if state != "" {
+			tool = " " + tool
+		}
+	}
 	compact := m.compactRail()
 	label := state
 	if !compact || sess.Tool != m.commonTool {
-		state += metaText(" · " + sess.Tool)
+		state += tool
 	}
 	// An archived row is on a clock, and the clock is the one thing about it
 	// that is not recoverable by looking. It goes after the age, in the same
@@ -1149,6 +1178,9 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	}
 	if left := archiveTimeLeft(sess); left != "" {
 		trailing += " · " + left
+	}
+	if state == "" {
+		trailing = strings.TrimPrefix(trailing, " · ")
 	}
 	age := metaText(trailing)
 	meta := state + age
@@ -1164,6 +1196,9 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 		}
 		if !fits(meta) {
 			meta = label + age
+			if label == "" {
+				meta = metaText(strings.TrimPrefix(trailing, " · "))
+			}
 		}
 		if !fits(meta) {
 			meta = strings.TrimPrefix(marks+" ", " ") + metaText(strings.TrimPrefix(trailing, " · "))
@@ -1269,8 +1304,19 @@ func (m *Model) summaryTag(sess store.Session, room int, style func(string) stri
 		return ""
 	}
 	text := m.sessionSummary(sess)
+	since := m.activitySince
+	if activity := m.workingActivities[sess.ID]; m.textScroll != textScrollOff &&
+		sess.Status == status.Working && activity.text != "" {
+		text, since = activity.text, activity.since
+	}
 	if text == "" {
 		return ""
+	}
+	if m.scrollsRow(sess.ID) {
+		if m.textScroll == textScrollHover && m.activityHoverSince.After(since) {
+			since = m.activityHoverSince
+		}
+		return "  " + style(scrollActivity(text, room-2, time.Since(since)))
 	}
 	return "  " + style(textfmt.TruncateWidth(text, room-2, "…"))
 }
@@ -1378,7 +1424,7 @@ func (m *Model) renderGroupEntry(entry treeRow, selected bool, width int, pad, g
 		}
 	}
 	head := pad + guides + subtleText(marker) + " " + m.groupNumberLabel(entry.group) + nameStyle.Render(name)
-	if badge := m.rowPriorityBadge(groupFlashKey(entry.group), m.priorityGroups[entry.group]); badge != "" {
+	if badge := m.rowPriorityBadge(groupFlashKey(entry.group), m.scale().Clamp(m.priorityGroups[entry.group])); badge != "" {
 		head += " " + badge
 	}
 
@@ -1441,8 +1487,8 @@ type meterKey struct {
 	headroom   string
 }
 
-// computerLines is the machine block docked at the rail's foot: a label
-// and one thin meter per resource.
+// computerLines is the summary docked at the rail's foot: the selected
+// session's context, and one thin meter per machine resource.
 func (m *Model) computerLines(width int) []string {
 	usage, hasContext := m.selectedTokenUsage()
 	key := meterKey{gen: renderGen, width: width, snap: m.snap, net: m.net, hasContext: hasContext, usage: usage, headroom: m.headroomKey()}
@@ -1480,17 +1526,18 @@ func (m *Model) buildComputerLines(width int) []string {
 		return render(label, percent, extra, gauge(percent, barWidth, false))
 	}
 
+	// The selected session's context window: how many tokens its last turn
+	// carried, against the model's window where the CLI reports one.
 	var lines []string
 	if usage, ok := m.selectedTokenUsage(); ok {
-		lines = append(lines, pad+subtleStyle.Render("context"))
-		line := pad + labelStyle.Width(7).Render("tokens")
+		line := pad + labelStyle.Width(8).Render("context")
 		if !usage.Known {
 			line += subtleStyle.Render("n/a")
 		} else if usage.Capacity > 0 {
 			percent := float64(usage.Tokens) / float64(usage.Capacity) * 100
 			line += gauge(percent, barWidth, false) + valueStyle.Render(fmt.Sprintf(" %3.0f%%", percent)) + subtleStyle.Render(" "+humanTokens(usage.Tokens)+"/"+humanTokens(usage.Capacity))
 		} else {
-			line += valueStyle.Render(humanTokens(usage.Tokens))
+			line += valueStyle.Render(humanTokens(usage.Tokens)) + subtleStyle.Render(" tokens")
 		}
 		lines = append(lines, line, "")
 	}
@@ -1544,10 +1591,14 @@ func (m *Model) selectedTokenUsage() (search.TokenUsage, bool) {
 	if c == nil {
 		return search.TokenUsage{}, false
 	}
-	if c.key != m.conversationIdentity(sess) {
-		return search.TokenUsage{}, true
+	key := m.conversationIdentity(sess)
+	if c.key == key {
+		return c.usage, true
 	}
-	return c.usage, true
+	if m.tokens.key == key {
+		return m.tokens.usage, true
+	}
+	return search.TokenUsage{}, true
 }
 
 func humanTokens(n int) string {
@@ -1560,9 +1611,8 @@ func humanTokens(n int) string {
 	return fmt.Sprint(n)
 }
 
-// computerBrief is the machine block folded to one line for a rail too short
-// to dock the full block: the three readings that decide whether the machine
-// has room for another agent, without the gauges, temps or network.
+// computerBrief folds the summary to one line for a short rail: the machine
+// readings and the selected session's context.
 func (m *Model) computerBrief(width int) string {
 	snap := m.snap
 	sep := subtleStyle.Render(" · ")
@@ -1578,13 +1628,13 @@ func (m *Model) computerBrief(width int) string {
 		if usage.Known {
 			tokens = humanTokens(usage.Tokens)
 		}
-		compact := labelStyle.Render("tok ") + valueStyle.Render(tokens)
+		compact := labelStyle.Render("ctx ") + valueStyle.Render(tokens)
 		return spaces(railInset) + textfmt.TruncateWidth(line+sep+compact, width-railInset, "…")
 	}
 	if disk := reading("disk", snap.DiskPercent, snap.DiskOK); textfmt.Width(line)+textfmt.Width(sep)+textfmt.Width(disk)+railInset <= width {
 		line += sep + disk
 	}
-	return spaces(railInset) + line
+	return spaces(railInset) + textfmt.TruncateWidth(line, width-railInset, "…")
 }
 
 func tempReadings(snap sysstat.Snapshot) string {
@@ -1642,10 +1692,13 @@ func (m *Model) contentLines(width, height int) []contentLine {
 			if page, ok := m.headPaneLines(width, rest, gutter); ok {
 				m.previewBodyOffset = len(body)
 				body = append(body, page...)
-			} else if _, ok := m.selected(); !ok {
+			} else if sess, ok := m.selected(); !ok {
 				body = append(body, ours(splitLines(mutedStyle.Render("Select a session to inspect it.")))...)
 			} else {
 				header := m.stoppedConversationHeader(inner)
+				if label, hint := m.claudeAuthNotice(sess); hint != "" {
+					header = splitLines(ansi.Wrap(statusTint(status.Errored, label)+": "+hint, max(inner, 1), ""))
+				}
 				header = header[:min(len(header), max(0, rest-2))]
 				body = append(body, ours(header)...)
 				m.previewBodyOffset = len(body)
@@ -1861,7 +1914,7 @@ func (m *Model) viewGroupAgents(group string, width, height int) string {
 		}
 		rows = append(rows, rosterRow{
 			name:  m.displayStatusText(sess, m.displayStatusGlyph(sess)) + " " + valueStyle.Render(m.displayName(sess)),
-			tool:  subtleText(sess.Tool),
+			tool:  subtleText(shortToolName(sess.Tool)),
 			state: m.displayStatusText(sess, m.displayStatusLabel(sess)) + subtleText(" · "+relSince(lastActivity(sess))),
 		})
 		shown++
@@ -1945,6 +1998,9 @@ func (m *Model) quickHoldsPane() bool {
 // that gives it back. The pane keeps its colours; the band alone says so.
 func (m *Model) quickBanner(width int) string {
 	title := "HOTKEY MENU OPEN"
+	if m.quick.launch {
+		title = "LAUNCH SNIPPETS"
+	}
 	if note := " · esc to close"; textfmt.Width(title+note) <= width {
 		title += note
 	}
@@ -1980,20 +2036,23 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 		state := m.displayStatusText(sess, m.displayStatusGlyph(sess)+" "+m.displayStatusLabel(sess))
 		target = fitColumns(
 			[]string{label("send") + lipgloss.NewStyle().Foreground(colorBright).Bold(true).Render(m.displayName(sess))},
-			[]string{state + " " + chipStyle.Render(sess.Tool), state, ""}, width)
+			[]string{state + " " + chipStyle.Render(shortToolName(sess.Tool)), state, ""}, width)
 	}
 	limit := min(maxRows, quickBarMaxRows)
 	if m.mode == modeFocus {
 		limit = min(limit, max(1, m.listBodyHeight()-6))
 	}
 	lines := m.quickMenuLines(width, limit)
-	if suggestion := m.selectedAutoSuggestion(); suggestion != "" && limit > 1 {
+	if suggestion := m.selectedAutoSuggestion(); !m.quick.launch && suggestion != "" && limit > 1 {
 		_, _, note := m.quickMenuInks()
 		lines = m.quickMenuLines(width, limit-1)
 		lines = append(lines, note(truncateTail("ctrl+y insert · "+suggestion, width)))
 	}
 	if m.quickHoldsPane() {
 		return strings.Join(lines, "\n")
+	}
+	if m.quick.launch {
+		target = rowColumns(label("launch")+mutedStyle.Render("new session · "+m.defaultTool()), "", width)
 	}
 	return target + "\n" + strings.Join(lines, "\n")
 }
@@ -2005,15 +2064,19 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 // last line says how many did not fit, and the key map lists them all.
 func (m *Model) quickMenuLines(width, limit int) []string {
 	keyInk, labelInk, noteInk := m.quickMenuInks()
-	if m.snipErr != "" {
+	set, loadErr, path := m.snips, m.snipErr, snippets.Path(m.configDir())
+	if m.quick.launch {
+		set, loadErr, path = m.launchSnips, m.launchSnipErr, snippets.LaunchPath(m.configDir())
+	}
+	if loadErr != "" {
 		errInk := errStyle.Render
 		if m.quickHoldsPane() {
 			errInk = keyInk
 		}
-		return []string{errInk(truncateTail("snippets.json could not be read: "+m.snipErr, width))}
+		return []string{errInk(truncateTail(filepath.Base(path)+" could not be read: "+loadErr, width))}
 	}
-	if len(m.snips.Snippets) == 0 {
-		return []string{labelInk(truncateTail("no snippets yet: add them to "+snippets.Path(m.configDir()), width))}
+	if len(set.Snippets) == 0 {
+		return []string{labelInk(truncateTail("no snippets yet: add them to "+path, width))}
 	}
 	type cell struct {
 		text  string
@@ -2023,7 +2086,7 @@ func (m *Model) quickMenuLines(width, limit int) []string {
 	var lines [][]cell
 	var line []cell
 	used := 0
-	for _, snip := range m.snips.Snippets {
+	for _, snip := range set.Snippets {
 		key, title := snip.Key, snip.Preview
 		if title == "" {
 			title = snip.Title()

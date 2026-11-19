@@ -43,8 +43,9 @@ const secondaryLimitBackoff = 2 * time.Minute
 // in, which is a Health state rather than a crash.
 type GitHub struct {
 	// Run executes gh, injected so tests can describe a response without a network.
-	Run func(args ...string) ([]byte, error)
-	Now func() time.Time
+	Run        func(args ...string) ([]byte, error)
+	Now        func() time.Time
+	PRFeedback bool
 
 	mu    sync.Mutex
 	login string
@@ -79,7 +80,11 @@ func (g *GitHub) now() time.Time {
 //
 // rateLimit rides along in the same document. It is free — GitHub scores it at zero — and it is the
 // only way to find out what is left before spending it.
-func prQuery(refs []workspec.Ref) (string, map[string]workspec.Ref, bool) {
+func prQuery(refs []workspec.Ref, feedback bool) (string, map[string]workspec.Ref, bool) {
+	fields := prFields
+	if feedback {
+		fields += prFeedbackFields
+	}
 	var parts []string
 	aliases := map[string]workspec.Ref{}
 	for i, ref := range refs {
@@ -94,7 +99,7 @@ func prQuery(refs []workspec.Ref) (string, map[string]workspec.Ref, bool) {
 		aliases[alias] = ref
 		parts = append(parts, fmt.Sprintf(
 			`%s: repository(owner: %q, name: %q) { pullRequest(number: %d) { %s } }`,
-			alias, owner, name, ref.Number, prFields))
+			alias, owner, name, ref.Number, fields))
 	}
 	if len(parts) == 0 {
 		return "", nil, false
@@ -103,15 +108,18 @@ func prQuery(refs []workspec.Ref) (string, map[string]workspec.Ref, bool) {
 }
 
 const prFields = `
-	number title url isDraft state mergeable headRefName updatedAt
+	number title url isDraft state mergeable headRefName headRefOid updatedAt
 	reviewDecision
-	commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(last: 100) {
-		nodes { ... on CheckRun { conclusion } ... on StatusContext { state } }
+	commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(last: 100) {
+		pageInfo { hasPreviousPage }
+		nodes { ... on CheckRun { id name status conclusion detailsUrl startedAt completedAt }
+		        ... on StatusContext { id context state targetUrl createdAt } }
 	} } } } }
 	repository { nameWithOwner }
 `
 
 type prNode struct {
+	prFeedbackNode
 	Number         int       `json:"number"`
 	Title          string    `json:"title"`
 	URL            string    `json:"url"`
@@ -120,6 +128,7 @@ type prNode struct {
 	Mergeable      string    `json:"mergeable"`
 	ReviewDecision string    `json:"reviewDecision"`
 	HeadRefName    string    `json:"headRefName"`
+	HeadRefOID     string    `json:"headRefOid"`
 	UpdatedAt      time.Time `json:"updatedAt"`
 	Repository     struct {
 		NameWithOwner string `json:"nameWithOwner"`
@@ -127,12 +136,25 @@ type prNode struct {
 	Commits struct {
 		Nodes []struct {
 			Commit struct {
+				OID               string `json:"oid"`
 				StatusCheckRollup *struct {
 					State    string `json:"state"`
 					Contexts struct {
+						PageInfo struct {
+							HasPreviousPage bool `json:"hasPreviousPage"`
+						} `json:"pageInfo"`
 						Nodes []struct {
-							Conclusion string `json:"conclusion"`
-							State      string `json:"state"`
+							ID          string    `json:"id"`
+							Name        string    `json:"name"`
+							Status      string    `json:"status"`
+							DetailsURL  string    `json:"detailsUrl"`
+							StartedAt   time.Time `json:"startedAt"`
+							CompletedAt time.Time `json:"completedAt"`
+							Context     string    `json:"context"`
+							TargetURL   string    `json:"targetUrl"`
+							CreatedAt   time.Time `json:"createdAt"`
+							Conclusion  string    `json:"conclusion"`
+							State       string    `json:"state"`
 						} `json:"nodes"`
 					} `json:"contexts"`
 				} `json:"statusCheckRollup"`
@@ -194,7 +216,7 @@ func (r prResponse) pullRequest(alias string) (*prNode, bool) {
 // one reference they name, and only a failure that really is about the whole look — no
 // authentication, no network, a quota — comes back as unhealthy.
 func (g *GitHub) PRs(refs []workspec.Ref) (map[string]PR, Health) {
-	query, aliases, ok := prQuery(refs)
+	query, aliases, ok := prQuery(refs, g.PRFeedback)
 	if !ok {
 		// Nothing to ask about is a healthy no-op, not a failure to look.
 		return map[string]PR{}, Health{OK: true, Answered: map[string]bool{}}
@@ -224,6 +246,9 @@ func (g *GitHub) PRs(refs []workspec.Ref) (map[string]PR, Health) {
 			continue
 		}
 		pr := prFrom(*node, g.now())
+		if g.PRFeedback {
+			pr.Feedback = feedbackFrom(*node)
+		}
 		resolved[workspec.Ref{Kind: workspec.KindPR, Repo: pr.Repo, Number: pr.Number}.Key()] = pr
 	}
 
@@ -342,7 +367,40 @@ func prFrom(node prNode, at time.Time) PR {
 	}
 
 	pr.Checks, pr.FailingChecks = checksFrom(node)
+	pr.CI = ciFrom(node)
 	return pr
+}
+
+func ciFrom(node prNode) *CISnapshot {
+	if node.HeadRefOID == "" || len(node.Commits.Nodes) != 1 {
+		return nil
+	}
+	commit := node.Commits.Nodes[0].Commit
+	if commit.OID != node.HeadRefOID {
+		return nil
+	}
+	if commit.StatusCheckRollup == nil {
+		return &CISnapshot{HeadSHA: commit.OID}
+	}
+	contexts := commit.StatusCheckRollup.Contexts
+	snapshot := &CISnapshot{HeadSHA: commit.OID, Complete: !contexts.PageInfo.HasPreviousPage}
+	for _, c := range contexts.Nodes {
+		check := CICheck{ID: c.ID, Name: c.Name, Status: c.Status, Conclusion: c.Conclusion,
+			URL: c.DetailsURL, StartedAt: c.StartedAt, CompletedAt: c.CompletedAt}
+		if c.Context != "" {
+			check.Name, check.Conclusion, check.URL = c.Context, c.State, c.TargetURL
+			check.StartedAt, check.CompletedAt = c.CreatedAt, c.CreatedAt
+			check.Status = "COMPLETED"
+			if c.State == "PENDING" || c.State == "EXPECTED" {
+				check.Status = "IN_PROGRESS"
+			}
+		}
+		if check.ID == "" || check.Name == "" {
+			snapshot.Complete = false
+		}
+		snapshot.Checks = append(snapshot.Checks, check)
+	}
+	return snapshot
 }
 
 // checksFrom counts the red ones as well as naming the overall state, so a row can say "2 checks

@@ -1,6 +1,7 @@
-# Moving one live session onto another subscription: the a key's card, and
-# the row coming back on the new account. The capture's own config answers
-# the account commands, so no secret store is reached.
+# Moving one live session onto another subscription: the alt+a card, its
+# one-row account picker, and the row coming back on the new account. The
+# capture's own config answers the account commands, so no secret store is
+# reached.
 #
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/switch-account.tape
 
@@ -13,7 +14,7 @@ Up
 Sleep 600ms
 Up
 Sleep 900ms
-Type "a"
+Alt+a
 Sleep 2500ms
 Screenshot {{SHOTS}}/02-switch-account-card.png
 Sleep 1s

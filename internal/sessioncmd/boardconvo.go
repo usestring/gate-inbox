@@ -50,11 +50,11 @@ func (s *Sessions) Transcript(sessionID, targetID string) (transcript migrate.Tr
 // locate finds targetID's transcript, checking the caller first unless it is
 // the board.
 func (s *Sessions) locate(callerID, targetID string) (migrate.Transcript, error) {
-	runtime, err := s.open()
+	runtime, done, err := s.openBoard()
 	if err != nil {
 		return migrate.Transcript{}, err
 	}
-	defer runtime.store.Close()
+	defer done()
 	if callerID != "" {
 		if _, err := runtime.caller(callerID); err != nil {
 			return migrate.Transcript{}, err

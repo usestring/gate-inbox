@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
+	"sync"
 	"time"
 )
 
@@ -68,6 +70,76 @@ func PendingAskCall(path string) (AskCall, bool) {
 	if err != nil {
 		return AskCall{}, false
 	}
+	if hit, ok := pendingAsks.get(path, info); ok {
+		return hit.call.clone(), hit.ok
+	}
+	call, ok := pendingAskCall(path, info)
+	pendingAsks.put(path, info, pendingAsk{call: call, ok: ok})
+	return call.clone(), ok
+}
+
+// pendingAsks remembers PendingAskCall's answer per transcript until the
+// file changes. The board asks it for every child on every poller pass, and
+// each ask decoded up to askWindow of JSON lines: about 6% of a busy board's
+// CPU while nearly every transcript sat unchanged between passes. A
+// transcript only grows by appends, so its inode, size and mtime are enough
+// to tell a changed file from an unchanged one.
+var pendingAsks = statCache[pendingAsk]{max: 1024}
+
+type pendingAsk struct {
+	call AskCall
+	ok   bool
+}
+
+type statCache[V any] struct {
+	mu      sync.Mutex
+	max     int
+	entries map[string]statEntry[V]
+}
+
+type statEntry[V any] struct {
+	info os.FileInfo
+	val  V
+}
+
+func (c *statCache[V]) get(path string, info os.FileInfo) (V, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entries[path]
+	if !ok || !os.SameFile(e.info, info) || e.info.Size() != info.Size() || !e.info.ModTime().Equal(info.ModTime()) {
+		var zero V
+		return zero, false
+	}
+	return e.val, true
+}
+
+func (c *statCache[V]) put(path string, info os.FileInfo, val V) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Archived sessions' transcripts stop being asked about, so an entry
+	// set can only grow; dropping everything at the cap is the simplest
+	// bound, and costs one decode per live transcript.
+	if c.entries == nil || len(c.entries) >= c.max {
+		c.entries = map[string]statEntry[V]{}
+	}
+	c.entries[path] = statEntry[V]{info: info, val: val}
+}
+
+// clone keeps callers from writing through to the cached questions.
+func (a AskCall) clone() AskCall {
+	if a.Questions == nil {
+		return a
+	}
+	qs := make([]AskQuestion, len(a.Questions))
+	for i, q := range a.Questions {
+		q.Options = slices.Clone(q.Options)
+		qs[i] = q
+	}
+	a.Questions = qs
+	return a
+}
+
+func pendingAskCall(path string, info os.FileInfo) (AskCall, bool) {
 	start := max(info.Size()-askWindow, 0)
 	raw, err := readRange(path, start, info.Size())
 	if err != nil {

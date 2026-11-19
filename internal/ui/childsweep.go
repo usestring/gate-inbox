@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/agentsession"
+	"github.com/usestring/gate-inbox/internal/closecmd"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -71,6 +72,7 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 	retire := !m.cfg.Children.KeepFinished
 	grace := m.childFinishedGrace()
 	rows := slices.Clone(m.sessions)
+	cfg := m.cfg
 	owned := maps.Clone(m.extOwned)
 	shells := m.shellTools()
 	var tracker *agentsession.Background
@@ -150,6 +152,15 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 		if err != nil {
 			return childSweptMsg{err: err}
 		}
+		// An exited child never ran its session-end hooks if it crashed or
+		// was ended from outside, so its close command runs here.
+		var closed []store.Session
+		for _, id := range filed {
+			if row, ok := rowByID(rows, id); ok && !slices.Contains(missing, id) {
+				closed = append(closed, row)
+			}
+		}
+		sessionClosed(cfg, closecmd.ReasonArchived, closed...)
 		return childSweptMsg{filed: filed, missing: missing, retire: retiring}
 	}
 }

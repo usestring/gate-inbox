@@ -30,7 +30,7 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.jevAutoSuggest }},
 	{promptSuggestionsSetting, "Prompt suggestions", "Reuse recurring prompts in New Session.\nReads local history; sends matches to the selected classifier only with Auto Suggest on.",
 		func(s *settingsState) *bool { return &s.promptSuggest }},
-	{jevFinishCheckSetting, "Finish check", "Checks whether a Claude session fulfilled its original request. The selected classifier receives the opening prompt and recent turns.\nCollect-only records likely completions for review. See [finish_check] in config.toml.",
+	{jevFinishCheckSetting, "Finish check", "Checks whether a Claude session fulfilled its original request.\nSends the opening request and recent turns to the selected classifier.\nCollect-only saves candidates. See [finish_check] in config.toml.",
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},
 	{jevCopySetting, "Smart copy", "On a key, copy the command, link or value the agent left for you in its last message.\nUses the selected classifier; sends that message to that service.",
 		func(s *settingsState) *bool { return &s.jevCopyOn }},

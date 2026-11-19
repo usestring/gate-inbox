@@ -3583,7 +3583,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. assign points a pending task at one session, the only one that may then claim it, or omitting assignee unassigns it; its creator or current assignee can do it, and create takes assignee too. A claim without task_id takes the tasks assigned to you first; create_session's tasks argument assigns work to a child as it starts, and an archived or killed session's assigned tasks go back to anyone. release hands a claimed task back for another session. delete removes work that turned out not to be needed; it refuses a task another session holds, and one unfinished tasks depend on, naming them, and force true deletes it anyway, taking its dependency edges along so its dependents become claimable, which the reply lists. prune clears stale work off the list: pending tasks older than older_than_days (default 14) whose creator is archived, deleted or was never recorded; it is a dry run listing them unless dry_run is false, and it keeps any task a task in progress depends on. A session that is archived or killed gives its in-progress claims back to pending, and its assignments back to anyone, on its own, so no task waits behind an agent that is gone.",
+  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle, and pass a note saying what came of it (the outcome, a PR link, what is left): the note stays on the task, and the session that created the task is sent a message with it and with the dependents that just became claimable, unless you created it yourself or its creator is archived or gone. assign points a pending task at one session, the only one that may then claim it, or omitting assignee unassigns it; its creator or current assignee can do it, and create takes assignee too. A claim without task_id takes the tasks assigned to you first; create_session's tasks argument assigns work to a child as it starts, and an archived or killed session's assigned tasks go back to anyone. release hands a claimed task back for another session. delete removes work that turned out not to be needed; it refuses a task another session holds, and one unfinished tasks depend on, naming them, and force true deletes it anyway, taking its dependency edges along so its dependents become claimable, which the reply lists. prune clears stale work off the list: pending tasks older than older_than_days (default 14) whose creator is archived, deleted or was never recorded; it is a dry run listing them unless dry_run is false, and it keeps any task a task in progress depends on. A session that is archived or killed gives its in-progress claims back to pending, and its assignments back to anyone, on its own, so no task waits behind an agent that is gone.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -3652,6 +3652,10 @@
         "description": "list: keep only tasks this session holds or finished",
         "type": "boolean"
       },
+      "note": {
+        "description": "finish: what came of the work, for whoever reads the list and for the task's creator, who is sent it: the outcome, a PR link, what is left undone; at most 4000 bytes",
+        "type": "string"
+      },
       "older_than_days": {
         "description": "prune: sweep only stale tasks created more than this many days ago (default 14)",
         "type": "integer"
@@ -3687,6 +3691,14 @@
       "matched": {
         "description": "list: how many tasks matched the filters, before limit",
         "type": "integer"
+      },
+      "not_notified": {
+        "description": "finish: why the creator was not sent a message",
+        "type": "string"
+      },
+      "notified": {
+        "description": "finish: session id of the task's creator, which was sent a message saying the task is done",
+        "type": "string"
       },
       "prune": {
         "additionalProperties": false,
@@ -3756,6 +3768,10 @@
                 "mine": {
                   "description": "whether the calling session holds the claim",
                   "type": "boolean"
+                },
+                "note": {
+                  "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+                  "type": "string"
                 },
                 "owner": {
                   "description": "session id holding the claim",
@@ -3849,6 +3865,10 @@
                   "description": "whether the calling session holds the claim",
                   "type": "boolean"
                 },
+                "note": {
+                  "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+                  "type": "string"
+                },
                 "owner": {
                   "description": "session id holding the claim",
                   "type": "string"
@@ -3936,6 +3956,10 @@
                 "mine": {
                   "description": "whether the calling session holds the claim",
                   "type": "boolean"
+                },
+                "note": {
+                  "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+                  "type": "string"
                 },
                 "owner": {
                   "description": "session id holding the claim",
@@ -4040,6 +4064,10 @@
             "description": "whether the calling session holds the claim",
             "type": "boolean"
           },
+          "note": {
+            "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+            "type": "string"
+          },
           "owner": {
             "description": "session id holding the claim",
             "type": "string"
@@ -4126,6 +4154,10 @@
               "description": "whether the calling session holds the claim",
               "type": "boolean"
             },
+            "note": {
+              "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+              "type": "string"
+            },
             "owner": {
               "description": "session id holding the claim",
               "type": "string"
@@ -4162,7 +4194,7 @@
         "type": "boolean"
       },
       "unblocked": {
-        "description": "delete: dependents a forced delete made claimable",
+        "description": "finish, delete: dependents the finish or a forced delete made claimable",
         "items": {
           "additionalProperties": false,
           "properties": {
@@ -4217,6 +4249,10 @@
             "mine": {
               "description": "whether the calling session holds the claim",
               "type": "boolean"
+            },
+            "note": {
+              "description": "what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set",
+              "type": "string"
             },
             "owner": {
               "description": "session id holding the claim",

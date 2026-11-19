@@ -100,6 +100,7 @@ type fakeSessionCommands struct {
 	claimedTaskID  string
 	claimOpts      sessioncmd.ClaimOptions
 	settledTaskID  string
+	finishNote     string
 	deleteForce    bool
 	pruneOpts      sessioncmd.TaskPruneOptions
 	reservedPaths  []string
@@ -308,9 +309,13 @@ func (f *fakeSessionCommands) ClaimTask(_ string, taskID string, opts sessioncmd
 	return sessioncmd.Task{ID: "t1", Title: "fix retries", State: "in_progress", Mine: true}, f.err
 }
 
-func (f *fakeSessionCommands) FinishTask(_ string, taskID string) (sessioncmd.Task, error) {
-	f.settledTaskID = taskID
-	return sessioncmd.Task{ID: taskID, Title: "fix retries", State: "done"}, f.err
+func (f *fakeSessionCommands) FinishTask(_ string, taskID, note string) (sessioncmd.TaskFinish, error) {
+	f.settledTaskID, f.finishNote = taskID, note
+	return sessioncmd.TaskFinish{
+		Task:      sessioncmd.Task{ID: taskID, Title: "fix retries", State: "done", Note: note},
+		Unblocked: []sessioncmd.Task{{ID: "t2", Title: "ship retries", State: "pending"}},
+		Notified:  "lead0001",
+	}, f.err
 }
 
 func (f *fakeSessionCommands) ReleaseTask(_ string, taskID string) (sessioncmd.Task, error) {
@@ -1308,6 +1313,15 @@ func TestTaskToolsForwardArgumentsAndRenderTheList(t *testing.T) {
 		}
 	}
 
+	text, isError = callText(t, session, "task", map[string]any{"action": "finish", "task_id": "t4", "note": "merged #12; docs left"})
+	if isError || fake.finishNote != "merged #12; docs left" {
+		t.Fatalf("finish with a note forwarded %q, isError=%v", fake.finishNote, isError)
+	}
+	for _, want := range []string{"finished fix retries (t4) [done]", "note: merged #12; docs left", "now claimable: ship retries (t2)", "told its creator lead0001"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("finish text missing %q: %s", want, text)
+		}
+	}
 	text, isError = callText(t, session, "task", map[string]any{"action": "delete", "task_id": "t5", "force": true})
 	if isError || !fake.deleteForce || !strings.Contains(text, "deleted fix retries (t5)") || !strings.Contains(text, "now claimable: ship retries (t9)") {
 		t.Fatalf("forced delete = %q, isError=%v, force forwarded %t", text, isError, fake.deleteForce)

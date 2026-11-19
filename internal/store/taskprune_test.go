@@ -92,7 +92,7 @@ func TestDeleteTaskTakesAFinishedPrerequisiteWithoutForce(t *testing.T) {
 	if ok, err := st.ClaimTask("schema", "worker01", now); err != nil || !ok {
 		t.Fatalf("ClaimTask = %t, %v", ok, err)
 	}
-	if ok, err := st.FinishTask("schema", "worker01", now); err != nil || !ok {
+	if ok, err := st.FinishTask("schema", "worker01", "", now); err != nil || !ok {
 		t.Fatalf("FinishTask = %t, %v", ok, err)
 	}
 	deleted, found, err := st.DeleteTask("schema", DeleteGuard{CallerID: "lead0001"})

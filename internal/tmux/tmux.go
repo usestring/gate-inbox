@@ -554,6 +554,19 @@ func (d *Driver) Create(id, cwd, command string, env map[string]string, width, h
 	if afterCreateThemeLoad != nil {
 		afterCreateThemeLoad()
 	}
+	// The board's own credentials (envname.BoardSecrets) are used from the
+	// board's process and no agent needs them, so no pane gets them: an
+	// agent's model can read anything in its pane's environment. On the
+	// board's own server they also leave the global environment the server
+	// copied from whoever started it, so a pane opened any other way, or a
+	// show-environment from inside one, finds none. tmux's default server is
+	// the operator's, and its environment stays theirs to keep.
+	env = withBoardSecretsWithheld(env)
+	if d.owned {
+		for _, key := range envname.BoardSecrets {
+			args = append(args, "set-environment", "-g", "-u", key, ";")
+		}
+	}
 	args = append(args, "new-session", "-d", "-s", name, "-c", cwd)
 	// A detached session sizes to tmux's 80x24 default and holds it until a
 	// client attaches, so its pane preview renders narrow. Booting at the
@@ -646,6 +659,19 @@ const (
 // So a withheld variable is dropped from that first process's environment
 // as well as unset in the script, after any startup file that set it again.
 const Withheld = "\x00withheld"
+
+// withBoardSecretsWithheld is env with every board secret withheld, as a
+// copy: the caller's map is the launch's and stays as it was.
+func withBoardSecretsWithheld(env map[string]string) map[string]string {
+	out := make(map[string]string, len(env)+len(envname.BoardSecrets))
+	for key, value := range env {
+		out[key] = value
+	}
+	for _, key := range envname.BoardSecrets {
+		out[key] = Withheld
+	}
+	return out
+}
 
 // withholding is command started without the withheld variables, or command
 // itself when there are none. It execs, so the shell tmux runs the window
@@ -1357,13 +1383,13 @@ func (d *Driver) AttachCommand(id string) *exec.Cmd {
 	var cmd *exec.Cmd
 	switch {
 	case nested:
-		cmd = exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)
+		cmd = d.command(append([]string{"-L", target.Socket}, args...)...)
 	case onServer:
 		mode = "switch"
-		cmd = exec.Command(d.bin, append([]string{"-L", target.Socket}, switchCommand(home, args)...)...)
+		cmd = d.command(append([]string{"-L", target.Socket}, switchCommand(home, args)...)...)
 	default:
-		cmd = exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)
-		cmd.Env = envWithoutTmux(os.Environ())
+		cmd = d.command(append([]string{"-L", target.Socket}, args...)...)
+		cmd.Env = envWithoutTmux(cmd.Env)
 	}
 	// The manager handing the terminal to tmux: without a record here, a
 	// report that it "dropped out of the TUI" has nothing to check.

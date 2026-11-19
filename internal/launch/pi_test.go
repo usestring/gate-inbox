@@ -186,10 +186,6 @@ func TestAPiLaunchWithholdsTheTypeSafeKey(t *testing.T) {
 	if value := env["TYPESAFE_API_KEY"]; value != tmux.Withheld {
 		t.Fatalf("TYPESAFE_API_KEY = %q, want it withheld", value)
 	}
-	claude := config.Tool{Command: "cat"}
-	if _, env, err = Compose(manager, "plain", claude, claude.Command, "abcd1234", "", "", false, nil); err != nil || env["TYPESAFE_API_KEY"] != "operator-key" {
-		t.Fatalf("a non-pi launch lost the operator's key: %q, %v", env["TYPESAFE_API_KEY"], err)
-	}
 }
 
 // A pi pane with auto mode on writes its own token before pi starts: the

@@ -18,9 +18,8 @@
 //     the rules a person approved at this session's own dialog with "don't
 //     ask again".
 //  5. Allow rules from the settings files.
-//  6. The read-only fast path: reading or searching inside the working
-//     directory, simple read-only shell commands that stay inside it, and an
-//     MCP tool its server marks read-only.
+//  6. Local operation rules for reads, trusted creation commands and
+//     pushes to opted-in repositories through the PR creation command.
 //  7. Auto mode: the JEV classifier, asked on the board's side, may allow a
 //     call nothing above settled (package piauto). Every doubt asks.
 //  8. Otherwise ask.
@@ -81,8 +80,9 @@ type Decision struct {
 	Suggestion string `json:"ruleSuggestion,omitempty"`
 	// Title and Block are what the permission dialog shows for an ask: what
 	// kind of call it is, and the full command, path or URL it is about.
-	Title string `json:"title,omitempty"`
-	Block string `json:"block,omitempty"`
+	Title          string                  `json:"title,omitempty"`
+	Block          string                  `json:"block,omitempty"`
+	OperationRules []store.PiOperationRule `json:"-"`
 }
 
 // piTools maps pi's built-in tool names to Claude Code's, so the operator's
@@ -153,7 +153,8 @@ type Env struct {
 	// MergeGate reports whether the standing merge authority covers a
 	// gh pr merge command, and why, or why not. Nil means no merge is
 	// covered.
-	MergeGate func(command, cwd string) (string, bool)
+	MergeGate      func(command, cwd string) (string, bool)
+	OperationRules func(grant.Call) []store.PiOperationRule
 	// AutoMode asks pi's auto-mode classifier (package piauto) about a call
 	// nothing else settled. Nil means auto mode is not asked.
 	AutoMode func(piauto.Request) piauto.Answer
@@ -281,7 +282,15 @@ func Decide(env Env, req Request) Decision {
 	}
 	if why, ok := readOnly(call, req.ReadOnly); ok {
 		d.Decision, d.Reason = Allow, why
+		d.OperationRules = []store.PiOperationRule{store.PiReadOnly}
 		return d
+	}
+	if env.OperationRules != nil {
+		if rules := env.OperationRules(call); len(rules) != 0 {
+			d.Decision, d.Reason = Allow, "covered by the configured Pi operation rules"
+			d.OperationRules = rules
+			return d
+		}
 	}
 	reason := "no rule or grant allows it"
 	if autoModeMayAsk(env, call) {

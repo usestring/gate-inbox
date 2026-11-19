@@ -24,6 +24,7 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	howett.net/plist v1.0.1
 	modernc.org/sqlite v1.59.0
+	mvdan.cc/sh/v3 v3.14.1
 )
 
 require (

@@ -21,7 +21,7 @@ var readOnlyCommands = map[string][]string{
 	"ls": nil, "pwd": nil, "cat": nil, "head": nil, "tail": nil, "wc": nil,
 	"file": nil, "stat": nil, "which": nil, "echo": nil, "grep": nil, "rg": nil,
 	"tree": nil, "du": nil, "diff": nil,
-	"git": {"status", "log", "diff", "show", "branch", "rev-parse", "ls-files", "blame"},
+	"git": {"status", "log", "diff", "show", "branch", "rev-parse", "ls-files", "blame", "rev-list", "show-ref", "ls-tree", "merge-base", "describe"},
 }
 
 // readOnly reports whether call is on the fast path, and why.
@@ -108,10 +108,7 @@ func readOnlyCommand(call grant.Call) bool {
 		return false
 	}
 	command, _ := call.Input["command"].(string)
-	if strings.ContainsAny(command, ";&|`$<>()\n\r\\'\"*?{}[]!") {
-		return false
-	}
-	words := strings.Fields(command)
+	words := literalCommand(command)
 	if len(words) == 0 {
 		return false
 	}
@@ -124,17 +121,29 @@ func readOnlyCommand(call grant.Call) bool {
 		if len(args) == 0 || !slices.Contains(subs, args[0]) {
 			return false
 		}
+		sub := args[0]
 		args = args[1:]
+		// An unadorned branch query lists branches. Other forms can
+		// change branches, upstreams, or their reflogs.
+		if sub == "branch" && len(args) != 0 && !slices.Contains([]string{"--list", "-l", "-a", "--all", "-r", "--remotes", "--show-current"}, strings.Join(args, " ")) {
+			return false
+		}
 		// git can be pointed elsewhere, or made to run a program, by its
 		// options.
 		for _, a := range args {
-			if strings.HasPrefix(a, "--output") || strings.HasPrefix(a, "--ext-diff") || strings.HasPrefix(a, "-c") ||
+			if gitWritesOrRuns(a) || strings.HasPrefix(a, "-c") ||
 				strings.HasPrefix(a, "--git-dir") || strings.HasPrefix(a, "--work-tree") || a == "-C" {
 				return false
 			}
 		}
 	}
 	for _, a := range args {
+		if words[0] == "rg" && (strings.HasPrefix(a, "--pre") || strings.HasPrefix(a, "--hostname-bin")) {
+			return false
+		}
+		if words[0] == "tree" && strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "o") {
+			return false
+		}
 		if strings.HasPrefix(a, "-") {
 			if _, value, ok := strings.Cut(a, "="); ok && !within(call.Cwd, value) {
 				return false
@@ -146,4 +155,14 @@ func readOnlyCommand(call grant.Call) bool {
 		}
 	}
 	return call.Cwd != "" && filepath.IsAbs(call.Cwd)
+}
+
+func gitWritesOrRuns(arg string) bool {
+	option, _, _ := strings.Cut(arg, "=")
+	if !strings.HasPrefix(option, "--") || option == "--" {
+		return false
+	}
+	return slices.ContainsFunc([]string{"--output", "--ext-diff", "--textconv"}, func(flag string) bool {
+		return strings.HasPrefix(flag, option)
+	})
 }

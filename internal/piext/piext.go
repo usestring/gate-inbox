@@ -26,6 +26,13 @@ var source []byte
 // of the session's own.
 const MCPConfigEnv = "GATE_INBOX_MCP_CONFIG"
 
+// PluginDirEnv names, in a pi launch's environment, the board's Claude Code
+// plugin directory (package claudeplugin). The extension offers its
+// skills/ to pi and turns each commands/*.md into a pi command, so a pi
+// session gets the board's skills and commands from the files a claude one
+// loads.
+const PluginDirEnv = "GATE_INBOX_PLUGIN_DIR"
+
 // fileName is the extension's name before its content stamp
 // (hooks.GeneratedName).
 const fileName = "gate-inbox-pi-extension.ts"

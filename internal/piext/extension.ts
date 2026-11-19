@@ -12,9 +12,9 @@
 // without it.
 
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const bin = process.env.GATE_INBOX_BIN ?? "";
@@ -305,10 +305,103 @@ function sessionNotes(pi: ExtensionAPI) {
   });
 }
 
+// pluginDir is the board's Claude Code plugin (Go: piext.PluginDirEnv).
+const pluginDir = process.env.GATE_INBOX_PLUGIN_DIR ?? "";
+
+// commandTimeoutMs bounds one shell line a command template runs.
+const commandTimeoutMs = 30000;
+
+// runShell runs one line of a command template with sh and answers what it
+// printed, its errors included, as Claude Code puts a !`command` line's
+// output into the prompt.
+function runShell(line: string, cwd: string): Promise<string> {
+  return new Promise((resolve) => {
+    let out = "";
+    let child;
+    try {
+      child = spawn("sh", ["-c", line], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    } catch (err) {
+      resolve(`(could not run: ${err instanceof Error ? err.message : String(err)})`);
+      return;
+    }
+    const timer = setTimeout(() => child.kill("SIGKILL"), commandTimeoutMs);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => (out += chunk));
+    child.stderr.on("data", (chunk: string) => (out += chunk));
+    child.on("error", (err: Error) => {
+      clearTimeout(timer);
+      resolve(`(could not run: ${err.message})`);
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      resolve(out.trimEnd());
+    });
+  });
+}
+
+// commandTemplate splits a Claude Code command file into its frontmatter
+// description and its body.
+function commandTemplate(file: string): { description: string; body: string } {
+  const text = readFileSync(file, "utf8");
+  const match = /^---\n([\s\S]*?)\n---\n?/.exec(text);
+  const front = match?.[1] ?? "";
+  const description = /^description:\s*(.*)$/m.exec(front)?.[1]?.trim() ?? "";
+  return { description, body: match ? text.slice(match[0].length) : text };
+}
+
+// expandTemplate does what Claude Code does to a command body: $ARGUMENTS
+// becomes the arguments, and each !`command` line becomes its output.
+async function expandTemplate(body: string, args: string, cwd: string): Promise<string> {
+  const lines = body.replaceAll("$ARGUMENTS", args).split("\n");
+  const expanded = await Promise.all(
+    lines.map((line) => {
+      const shell = /^!`(.+)`\s*$/.exec(line);
+      return shell ? runShell(shell[1], cwd) : Promise.resolve(line);
+    }),
+  );
+  return expanded.join("\n").trim();
+}
+
+// boardSkills offers a pi session the board's skills and slash commands from
+// the plugin a claude launch loads, so the two CLIs read one copy: skills/
+// through resources_discover (as /skill:<name>), and each commands/<name>.md
+// as /<name>, expanded the way Claude Code expands it and sent as the prompt.
+function boardSkills(pi: ExtensionAPI) {
+  if (!pluginDir) return;
+  pi.on("resources_discover", async () => ({ skillPaths: [join(pluginDir, "skills")] }));
+
+  let files: string[] = [];
+  try {
+    files = readdirSync(join(pluginDir, "commands")).filter((f) => f.endsWith(".md"));
+  } catch {
+    return;
+  }
+  for (const file of files) {
+    const path = join(pluginDir, "commands", file);
+    let template;
+    try {
+      template = commandTemplate(path);
+    } catch {
+      continue;
+    }
+    const { description, body } = template;
+    pi.registerCommand(basename(file, ".md"), {
+      description,
+      handler: async (args, ctx) => {
+        const prompt = await expandTemplate(body, args.trim(), ctx.cwd);
+        if (ctx.isIdle()) pi.sendUserMessage(prompt);
+        else pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+      },
+    });
+  }
+}
+
 export default function gateInbox(pi: ExtensionAPI) {
   if (!bin || !statusFile) return;
   boardTools(pi);
   sessionNotes(pi);
+  boardSkills(pi);
 
   pi.on("session_start", async (event, ctx) => {
     await report("session_start", { reason: event.reason, cwd: ctx.cwd, session_id: ctx.sessionManager.getSessionId() });

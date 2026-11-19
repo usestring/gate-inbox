@@ -49,7 +49,7 @@ func TestDeleteTaskTakesTheEdgesNamingItAlong(t *testing.T) {
 	createTask(t, st, "feature", "groundwork")
 	createTask(t, st, "release", "feature")
 
-	deleted, err := st.DeleteTask("feature")
+	_, deleted, err := st.DeleteTask("feature", DeleteGuard{Force: true})
 	if err != nil || !deleted {
 		t.Fatalf("DeleteTask = %t, %v", deleted, err)
 	}
@@ -78,7 +78,7 @@ func TestDeleteTaskLeavesTheEdgesOfAnIDThatNamesNoTask(t *testing.T) {
 	createTask(t, st, "feature")
 	danglingEdge(t, st, "feature", "groundwork")
 
-	deleted, err := st.DeleteTask("groundwork")
+	_, deleted, err := st.DeleteTask("groundwork", DeleteGuard{})
 	if err != nil {
 		t.Fatalf("DeleteTask: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestRacingDeleteAndCreateNeverLeaveADanglingEdge(t *testing.T) {
 		go func() {
 			defer running.Done()
 			<-start
-			_, _ = deleter.DeleteTask(dep)
+			_, _, _ = deleter.DeleteTask(dep, DeleteGuard{Force: true})
 		}()
 		close(start)
 		running.Wait()

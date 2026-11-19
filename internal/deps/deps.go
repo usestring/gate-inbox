@@ -60,6 +60,20 @@ var installPage = map[string]string{
 	"muse": "https://dev.meta.ai",
 }
 
+// floors is the oldest release of an agent CLI the board launches. pi 1.0
+// made a fullscreen TUI the default, which the board's pane reading cannot
+// follow without --tui-mode regular, and the board's pi integration is built
+// on 1.5's extension API (built-in MCP, blocked custom dialogs).
+var floors = map[string]string{
+	"pi": "1.5.0",
+}
+
+// Floor is the oldest version of tool the board launches, empty when any
+// version will do.
+func Floor(tool string) string {
+	return floors[tool]
+}
+
 func Hint(tool string) string {
 	return hint(runtime.GOOS, tool)
 }

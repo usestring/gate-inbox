@@ -64,7 +64,12 @@ func (p *poller) pendingAsk(sess store.Session, clean string, next map[string]*a
 const toolAskReread = 2 * time.Second
 
 func (p *poller) pendingToolAsk(sess store.Session, clean string, next map[string]*askRead) []convo.AskQuestion {
-	if sess.AgentSessionID == "" || !dialog.HasReader(sess.Tool) {
+	// A pi session's call is only in the file its ask-pending hook saved, and
+	// it may have no agent session id to find a transcript by. That holds
+	// whichever ask source reads it, pi's own or Claude's.
+	target := childAskTarget(sess)
+	target.PendingAskFile = p.pendingAskFile(sess)
+	if (sess.AgentSessionID == "" && target.PendingAskFile == "") || !dialog.HasReader(sess.Tool) {
 		return nil
 	}
 	reading, ok := dialog.ReadQuestions(sess.Tool, clean, nil)
@@ -79,7 +84,7 @@ func (p *poller) pendingToolAsk(sess store.Session, clean string, next map[strin
 	next[sess.ID] = read
 	if read.questions == nil || !coversScreen(read.questions, reading.Questions) || time.Since(read.at) > toolAskReread {
 		read.at = time.Now()
-		read.questions = asks.PendingQuestions(asks.Target{Tool: sess.Tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd})
+		read.questions = asks.PendingQuestions(target)
 	}
 	return read.questions
 }

@@ -147,11 +147,20 @@ func permission(screen dialog.Screen, about Screen, labels []string) *Input {
 	if what == "" {
 		what = "tool"
 	}
+	kind := what + " command"
+	// Running outside the sandbox is what the prompt asks about, so the
+	// relayed question says so rather than reading like any other command.
+	for _, line := range screen.Lines {
+		if strings.Contains(line, "outside the sandbox") {
+			kind += " outside the sandbox"
+			break
+		}
+	}
 	var question strings.Builder
 	if description != "" {
-		fmt.Fprintf(&question, "%s wants to run a %s command: %q. ", who, what, logging.ScrubWrapped(description))
+		fmt.Fprintf(&question, "%s wants to run a %s: %q. ", who, kind, logging.ScrubWrapped(description))
 	} else {
-		fmt.Fprintf(&question, "%s wants to run a %s command. ", who, what)
+		fmt.Fprintf(&question, "%s wants to run a %s. ", who, kind)
 	}
 	if strings.EqualFold(what, "bash") {
 		question.WriteString(Read(command).Summary() + " ")

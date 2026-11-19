@@ -1,4 +1,4 @@
-50 commands and verbs
+51 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -293,12 +293,14 @@ exit 0
       take a task before you start it; omit the id to take the oldest pending task nothing is blocking that your fleet created, or pass --any for the whole list
   gate-inbox task assign <task-id> [<me|session-id>] [--json]
       point a pending task at the one session that may claim it, or omit the session to unassign it; its creator or current assignee can
-  gate-inbox task finish <task-id> [--json]
-      mark a task you claimed as done, which unblocks everything waiting on it
+  gate-inbox task finish <task-id> [--note <text>] [--json]
+      mark a task you claimed as done, which unblocks everything waiting on it; --note says what came of it, and the session that created the task is sent it
   gate-inbox task release <task-id> [--json]
       hand a task you claimed back to the list for another session
-  gate-inbox task delete <task-id>
-      remove a task nobody needs any more
+  gate-inbox task delete <task-id> [--force] [--json]
+      remove a task nobody needs any more; refuses one another session holds or unfinished tasks depend on unless --force, which unblocks its dependents
+  gate-inbox task prune [--older-than-days <n>] [--dry-run=false] [--json]
+      list the stale pending tasks whose creator is archived, deleted or unrecorded, and delete them with --dry-run=false
 
 $ gate-inbox task list -h
 exit 0
@@ -353,9 +355,11 @@ usage: gate-inbox task assign <task-id> [<me|session-id>] [--json]
 $ gate-inbox task finish -h
 exit 0
 --- stdout
-usage: gate-inbox task finish <task-id> [--json]
+usage: gate-inbox task finish <task-id> [--note <text>] [--json]
   -json
     	print the raw result as JSON instead of a sentence
+  -note string
+    	what came of the work: the outcome, a PR link, what is left; kept on the task and sent to its creator, at most 4000 bytes
 
 $ gate-inbox task release -h
 exit 0
@@ -367,7 +371,22 @@ usage: gate-inbox task release <task-id> [--json]
 $ gate-inbox task delete -h
 exit 0
 --- stdout
-usage: gate-inbox task delete <task-id>
+usage: gate-inbox task delete <task-id> [--force] [--json]
+  -force
+    	delete a task another session holds, or one unfinished tasks depend on; its dependents become claimable
+  -json
+    	print the raw result as JSON instead of a sentence
+
+$ gate-inbox task prune -h
+exit 0
+--- stdout
+usage: gate-inbox task prune [--older-than-days <n>] [--dry-run=false] [--json]
+  -dry-run
+    	list what would be deleted and delete nothing; --dry-run=false deletes it (default true)
+  -json
+    	print the raw result as JSON instead of a sentence
+  -older-than-days int
+    	sweep only stale tasks created more than this many days ago (default 14)
 
 $ gate-inbox reserve -h
 exit 0

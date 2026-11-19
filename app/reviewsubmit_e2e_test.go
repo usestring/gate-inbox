@@ -83,83 +83,99 @@ func TestReviewSubmitE2E(t *testing.T) {
 	e.title = "Tall review page submit e2e"
 	e.startBoard()
 
-	out, err := e.gi(operator, "spawn", "--tool", "claude", "--name", "asker", "--directory", e.workL, "--json")
-	if err != nil {
-		t.Fatalf("spawn: %v\n%s", err, out)
+	parent := connectFixture(t, e.bin, append(e.env[:len(e.env):len(e.env)], "GATE_INBOX_SESSION_ID="+operator))
+
+	// Each scenario has its own child, so one left on a dialog by a failure
+	// does not hide the others.
+
+	// a. relay false, every answer, submitted.
+	if child, target, qs := e.tallAsker("a", "A"); qs != nil {
+		answered, isErr := callTool(t, parent, "answer_session", map[string]any{
+			"session_id": child, "answers": answersFor(qs),
+		})
+		e.save("a-answer.txt", answered)
+		got := e.awaitAnswers(qs)
+		e.record("a", "relay false: answer_session submits the tall review page and the child gets exactly those answers",
+			!isErr && !strings.Contains(answered, "never ticked") && got == "",
+			fmt.Sprintf("answer_session error: %v\n%s\nchild transcript: %s", isErr, clip(answered, 900), orOK(got)))
+		e.save("a-pane.txt", e.agents.history(target))
 	}
-	child := idOf(t, out)
-	target := "gi_" + child
+
+	// b. relay true, the parent's transcript holding its user's answers.
+	if child, target, qs := e.tallAsker("b", "B"); qs != nil {
+		e.parentRelayed(qs)
+		answered, isErr := callTool(t, parent, "answer_session", map[string]any{
+			"session_id": child, "answers": answersFor(qs), "relay": true,
+		})
+		e.save("b-answer.txt", answered)
+		got := e.awaitAnswers(qs)
+		e.record("b", "relay true: answer_session submits the tall review page and the child gets exactly those answers",
+			!isErr && !strings.Contains(answered, "never ticked") && got == "",
+			fmt.Sprintf("answer_session error: %v\n%s\nchild transcript: %s", isErr, clip(answered, 900), orOK(got)))
+		e.save("b-pane.txt", e.agents.history(target))
+	}
+
+	// c. submit false leaves the child on the review page.
+	if child, target, qs := e.tallAsker("c", "C"); qs != nil {
+		answered, isErr := callTool(t, parent, "answer_session", map[string]any{
+			"session_id": child, "answers": answersFor(qs), "submit": false,
+		})
+		e.save("c-answer.txt", answered)
+		screen := e.agents.screen(target)
+		e.save("c-review-screen.txt", screen)
+		read, readErr := callTool(t, parent, "read_session", map[string]any{"session_id": child})
+		e.save("c-read.json", read)
+		var digest struct {
+			Digest struct {
+				Next     string          `json:"next"`
+				RelayAsk json.RawMessage `json:"relay_ask"`
+			} `json:"digest"`
+		}
+		_ = json.Unmarshal([]byte(read), &digest)
+		clipped := strings.Contains(screen, "Submit answers") && !strings.Contains(screen, "Review your answers")
+		e.record("c", "the review page outgrows the pane: its heading has scrolled off",
+			clipped, lastLines(screen, reviewPaneRows))
+		e.record("c", "submit false: read_session gives digest.next and no relay_ask",
+			!isErr && !readErr && digest.Digest.Next != "" && len(digest.Digest.RelayAsk) == 0,
+			fmt.Sprintf("answer_session error: %v\n%s\nnext: %q\nrelay_ask: %s",
+				isErr, clip(answered, 500), digest.Digest.Next, clip(string(digest.Digest.RelayAsk), 500)))
+		answered, isErr = callTool(t, parent, "answer_session", map[string]any{
+			"session_id": child, "answer": "Submit answers",
+		})
+		e.save("c-submit.txt", answered)
+		got := e.awaitAnswers(qs)
+		e.record("c", `answer_session "Submit answers" submits the complete review page`,
+			!isErr && got == "", fmt.Sprintf("answer_session error: %v\n%s\nchild transcript: %s",
+				isErr, clip(answered, 900), orOK(got)))
+		e.save("c-pane.txt", e.agents.history(target))
+	}
+}
+
+// tallAsker launches a child for one scenario in a short pane and has it put
+// tallQuestions to its user. A child that never gets there is recorded as
+// the scenario's failure, with nil questions, and the next scenario still
+// runs.
+func (e *adoptedE2E) tallAsker(step, round string) (child, target string, qs []reviewQuestion) {
+	e.t.Helper()
+	out, err := e.gi(operator, "spawn", "--tool", "claude", "--name", "asker-"+step, "--directory", e.workL, "--json")
+	if err != nil {
+		e.record(step, "launch the asking child", false, fmt.Sprintf("spawn: %v\n%s", err, out))
+		return "", "", nil
+	}
+	child = idOf(e.t, out)
+	target = "gi_" + child
 	e.waitComposer(e.agents, target)
 	e.settle(child)
 	if out, err := e.agents.run("resize-window", "-t", target, "-x", "110", "-y", strconv.Itoa(reviewPaneRows)); err != nil {
-		t.Fatalf("resize the child's pane: %v\n%s", err, out)
+		e.record(step, "the child runs in a short pane", false, fmt.Sprintf("resize: %v\n%s", err, out))
+		return "", "", nil
 	}
 	size, _ := e.agents.run("display-message", "-p", "-t", target, "#{pane_width}x#{pane_height}")
-	e.record("setup", "the child runs in a short pane", strings.TrimSpace(size) == "110x"+strconv.Itoa(reviewPaneRows),
-		"pane size: "+size)
-
-	parent := connectFixture(t, e.bin, append(e.env[:len(e.env):len(e.env)], "GATE_INBOX_SESSION_ID="+operator))
-
-	// a. relay false, every answer, submitted.
-	qs := e.askTall(target, child, "A")
-	answered, isErr := callTool(t, parent, "answer_session", map[string]any{
-		"session_id": child, "answers": answersFor(qs),
-	})
-	e.save("a-answer.txt", answered)
-	got := e.awaitAnswers(qs)
-	e.record("a", "relay false: answer_session submits the tall review page and the child gets exactly those answers",
-		!isErr && !strings.Contains(answered, "never ticked") && got == "",
-		fmt.Sprintf("answer_session error: %v\n%s\nchild transcript: %s", isErr, clip(answered, 900), orOK(got)))
-	e.save("a-pane.txt", e.agents.history(target))
-	e.settle(child)
-
-	// b. relay true, the parent's transcript holding its user's answers.
-	qs = e.askTall(target, child, "B")
-	e.parentRelayed(qs)
-	answered, isErr = callTool(t, parent, "answer_session", map[string]any{
-		"session_id": child, "answers": answersFor(qs), "relay": true,
-	})
-	e.save("b-answer.txt", answered)
-	got = e.awaitAnswers(qs)
-	e.record("b", "relay true: answer_session submits the tall review page and the child gets exactly those answers",
-		!isErr && !strings.Contains(answered, "never ticked") && got == "",
-		fmt.Sprintf("answer_session error: %v\n%s\nchild transcript: %s", isErr, clip(answered, 900), orOK(got)))
-	e.save("b-pane.txt", e.agents.history(target))
-	e.settle(child)
-
-	// c. submit false leaves the child on the review page.
-	qs = e.askTall(target, child, "C")
-	answered, isErr = callTool(t, parent, "answer_session", map[string]any{
-		"session_id": child, "answers": answersFor(qs), "submit": false,
-	})
-	e.save("c-answer.txt", answered)
-	screen := e.agents.screen(target)
-	e.save("c-review-screen.txt", screen)
-	read, readErr := callTool(t, parent, "read_session", map[string]any{"session_id": child})
-	e.save("c-read.json", read)
-	var digest struct {
-		Digest struct {
-			Next     string          `json:"next"`
-			RelayAsk json.RawMessage `json:"relay_ask"`
-		} `json:"digest"`
+	if strings.TrimSpace(size) != "110x"+strconv.Itoa(reviewPaneRows) {
+		e.record(step, "the child runs in a short pane", false, "pane size: "+size)
+		return "", "", nil
 	}
-	_ = json.Unmarshal([]byte(read), &digest)
-	clipped := strings.Contains(screen, "Submit answers") && !strings.Contains(screen, "Review your answers")
-	e.record("c", "the review page outgrows the pane: its heading has scrolled off",
-		clipped, lastLines(screen, reviewPaneRows))
-	e.record("c", "submit false: read_session gives digest.next and no relay_ask",
-		!isErr && !readErr && digest.Digest.Next != "" && len(digest.Digest.RelayAsk) == 0,
-		fmt.Sprintf("answer_session error: %v\n%s\nnext: %q\nrelay_ask: %s",
-			isErr, clip(answered, 500), digest.Digest.Next, clip(string(digest.Digest.RelayAsk), 500)))
-	answered, isErr = callTool(t, parent, "answer_session", map[string]any{
-		"session_id": child, "answer": "Submit answers",
-	})
-	e.save("c-submit.txt", answered)
-	got = e.awaitAnswers(qs)
-	e.record("c", `answer_session "Submit answers" submits the complete review page`,
-		!isErr && got == "", fmt.Sprintf("answer_session error: %v\n%s\nchild transcript: %s",
-			isErr, clip(answered, 900), orOK(got)))
-	e.save("c-pane.txt", e.agents.history(target))
+	return child, target, e.askTall(step, target, child, round)
 }
 
 // requireClaudeE2E skips unless a real Claude Code run was asked for and can
@@ -182,8 +198,9 @@ func requireClaudeE2E(t *testing.T) string {
 }
 
 // askTall has the child put tallQuestions to its user in one
-// AskUserQuestion call, and waits for the dialog to be up.
-func (e *adoptedE2E) askTall(target, child, round string) []reviewQuestion {
+// AskUserQuestion call, and waits for the dialog to be up: nil, recorded as
+// step's failure, when it never comes.
+func (e *adoptedE2E) askTall(step, target, child, round string) []reviewQuestion {
 	e.t.Helper()
 	qs := tallQuestions(round)
 	input, err := json.Marshal(map[string]any{"questions": qs})
@@ -203,8 +220,9 @@ func (e *adoptedE2E) askTall(target, child, round string) []reviewQuestion {
 	e.save("ask-"+round+"-screen.txt", e.agents.screen(target))
 	if !ok {
 		e.save("ask-"+round+"-history.txt", e.agents.history(target))
-		e.t.Fatalf("round %s: the child never put the dialog up; status %q\n%s", round, e.row(child).Status,
-			lastLines(e.agents.screen(target), reviewPaneRows))
+		e.record(step, "the child puts the dialog up", false, fmt.Sprintf("status %q\n%s", e.row(child).Status,
+			lastLines(e.agents.screen(target), reviewPaneRows)))
+		return nil
 	}
 	return qs
 }

@@ -311,3 +311,45 @@ func TestAnIncompleteReviewPageKeepsTheRelayForTheMissingQuestion(t *testing.T) 
 		t.Fatalf("relay_ask = %+v, want the unanswered question 2 alone", ask)
 	}
 }
+
+// Four questions that end with the same long sentence, as in the e2e run on
+// Claude Code 2.1.328: the review page's top row is the end of question 1,
+// which reads as the end of every question. Matched by that ending, question
+// 2 "Weekly" registered as question 1's "North" and nothing was submitted.
+func sharedEndingQuestions() []convo.AskQuestion {
+	long := func(subject string) string {
+		return "Round A: " + subject + " Before you answer, keep in mind that this choice is recorded in the " +
+			"rollout log, is read back by the next session that picks up this work, and cannot be changed later " +
+			"without opening a new review, so please pick the option you would still stand behind next week."
+	}
+	pair := func(a, b string) []convo.AskOption {
+		return []convo.AskOption{{Label: a, Description: "Pick " + a}, {Label: b, Description: "Pick " + b}}
+	}
+	return []convo.AskQuestion{
+		{Header: "Region", Question: long("which region should the survey cover first?"), Options: pair("North", "South")},
+		{Header: "Cadence", Question: long("how often should the survey run once it starts?"), Options: pair("Daily", "Weekly")},
+		{Header: "Owner", Question: long("which team should own the survey results?"), Options: pair("Research", "Platform")},
+		{Header: "Format", Question: long("which format should the survey report use?"), Options: pair("Table", "Chart")},
+	}
+}
+
+func TestFillDialogPlacesAReviewRowCutToAnEndingOthersShare(t *testing.T) {
+	fastSettle(t)
+	asked := sharedEndingQuestions()
+	sim := newTabbedDialog(asked)
+	sim.width, sim.height = 110, 22
+	answers := []QuestionAnswer{
+		{Question: "1", Answer: "North"}, {Question: "2", Answer: "Weekly"},
+		{Question: "3", Answer: "Research"}, {Question: "4", Answer: "Table"},
+	}
+	answered, err := fillDialog(sim, questionsOf(t, sim, asked), answers, true)
+	if err != nil {
+		t.Fatalf("fillDialog: %v (keys %v)", err, sim.keys)
+	}
+	if want := []string{"North", "Weekly", "Research", "Table"}; !reflect.DeepEqual(sim.answers, want) {
+		t.Errorf("dialog holds %q, want %q", sim.answers, want)
+	}
+	if !sim.closed || !answered.Submitted || !answered.Verified {
+		t.Errorf("closed = %v submitted = %v verified = %v", sim.closed, answered.Submitted, answered.Verified)
+	}
+}

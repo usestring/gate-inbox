@@ -349,7 +349,7 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 				return step.index < len(stepper.Steps) && stepper.Steps[step.index].Answered
 			}
 			review, onReview := dialog.OnReview(raw)
-			_, listed := registered(review.Answers, filled)
+			_, listed := registered(review.Placed(dialog.QuestionWords(questions)).Answers, filled)
 			return onReview && listed
 		}); err != nil {
 			return finish(pane, result, fmt.Errorf("question %d was keyed but its tab never ticked: %w", step.index+1, err))
@@ -362,12 +362,12 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 	}
 	switch {
 	case submit && stepper.AllAnswered():
-		if err := submitDialog(pane, len(stepper.Steps), result.Answers); err != nil {
+		if err := submitDialog(pane, questions, len(stepper.Steps), result.Answers); err != nil {
 			return finish(pane, result, err)
 		}
 		result.Submitted = true
 	default:
-		if _, err := checkReview(pane, len(stepper.Steps), result.Answers); err != nil {
+		if _, err := checkReview(pane, questions, len(stepper.Steps), result.Answers); err != nil {
 			return finish(pane, result, err)
 		}
 		// Back to the first question still standing, where the dialog would
@@ -400,11 +400,11 @@ func fromReview(pane dialogPane, result AnsweredQuestion, initial dialog.Stepper
 	all := !slices.Contains(answered, false)
 	var err error
 	if submit && all {
-		if err = submitDialog(pane, len(result.Questions), result.Answers); err == nil {
+		if err = submitDialog(pane, result.Questions, len(result.Questions), result.Answers); err == nil {
 			result.Submitted = true
 		}
 	} else {
-		_, err = checkReview(pane, len(result.Questions), result.Answers)
+		_, err = checkReview(pane, result.Questions, len(result.Questions), result.Answers)
 	}
 	if err != nil {
 		return finish(pane, result, err)
@@ -435,7 +435,7 @@ func answersOnReview(pane dialogPane, questions []dialog.Question, answers []Que
 				want = strings.Join(inOptionOrder(question, answer.Ticks), ", ")
 			}
 			entry := FilledAnswer{Index: index + 1, Header: question.Header, Answer: want, question: question.Question}
-			got, found := registered(review.Answers, entry)
+			got, found := registered(review.Placed(dialog.QuestionWords(questions)).Answers, entry)
 			switch {
 			case !found && review.Clipped && question.Answered:
 				// Scrolled off above the part of the page still showing.
@@ -459,7 +459,7 @@ func answersOnReview(pane dialogPane, questions []dialog.Question, answers []Que
 		return finish(pane, result, errors.New("the review page shows a question with no answer yet, so it was not "+
 			"submitted; read_session shows which"))
 	}
-	if err := submitDialog(pane, len(questions), filled); err != nil {
+	if err := submitDialog(pane, questions, len(questions), filled); err != nil {
 		return finish(pane, result, err)
 	}
 	result.Submitted, result.Verified = true, true
@@ -627,7 +627,7 @@ var readbackTimeout = 10 * time.Second
 // answer in filled under its own question, word for word. This is the
 // readback for a several-question dialog: what the page lists is what Submit
 // sends.
-func checkReview(pane dialogPane, submitTab int, filled []FilledAnswer) (dialog.Review, error) {
+func checkReview(pane dialogPane, questions []dialog.Question, submitTab int, filled []FilledAnswer) (dialog.Review, error) {
 	raw, err := pane.Capture()
 	if err != nil {
 		return dialog.Review{}, err
@@ -645,6 +645,7 @@ func checkReview(pane dialogPane, submitTab int, filled []FilledAnswer) (dialog.
 		return review, fmt.Errorf("%w: the Submit tab is not showing its review page, so the answers "+
 			"could not be read back", errDialogMoved)
 	}
+	review = review.Placed(dialog.QuestionWords(questions))
 	for i, answer := range filled {
 		got, found := registered(review.Answers, answer)
 		if !found && review.Clipped && i < len(filled)-1 {
@@ -667,8 +668,8 @@ func checkReview(pane dialogPane, submitTab int, filled []FilledAnswer) (dialog.
 
 // submitDialog checks the review page, presses Submit, and reads the
 // answers back once more out of what the child prints on taking them.
-func submitDialog(pane dialogPane, submitTab int, filled []FilledAnswer) error {
-	review, err := checkReview(pane, submitTab, filled)
+func submitDialog(pane dialogPane, questions []dialog.Question, submitTab int, filled []FilledAnswer) error {
+	review, err := checkReview(pane, questions, submitTab, filled)
 	if err != nil {
 		return err
 	}

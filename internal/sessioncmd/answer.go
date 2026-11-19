@@ -272,7 +272,7 @@ func (r *runtime) submitReview(target store.Session, pane, reply, by, byID strin
 			"answers naming a question to change one first", target.ID)
 	}
 	stepper, _ := dialog.ParseStepper(pane)
-	if err := submitDialog(tmuxPane{driver: r.driver, id: target.ID}, len(stepper.Steps), nil); err != nil {
+	if err := submitDialog(tmuxPane{driver: r.driver, id: target.ID}, nil, len(stepper.Steps), nil); err != nil {
 		return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
 	}
 	logging.Info(by+" submitted a child's dialog", by, byID, "session", target.ID)

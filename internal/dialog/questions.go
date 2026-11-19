@@ -91,11 +91,19 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 			out = append(out, question)
 		}
 	}
+	// Only a clipped page's partial first answer placed among named questions
+	// is matched to one: its visible end may be how several of them end.
+	matched := review.Answers
+	if texts := QuestionWords(out); !slices.Contains(texts, "") {
+		matched = review.Placed(texts).Answers
+	} else if review.Tail {
+		matched = matched[1:]
+	}
 	for i := range out {
 		if tabbed {
 			out[i].Answered = stepper.Steps[i].Answered
 		}
-		for _, answer := range review.Answers {
+		for _, answer := range matched {
 			if out[i].Question != "" && (SameText(answer.Question, out[i].Question) ||
 				!tabbed && SameQuestion(answer.Question, out[i].Question)) {
 				out[i].Answer, out[i].Answered = Readable(answer.Answer), true
@@ -389,4 +397,13 @@ func (r Review) Done(questions []Question) bool {
 		}
 	}
 	return true
+}
+
+// QuestionWords is each question's words, in order.
+func QuestionWords(questions []Question) []string {
+	texts := make([]string, len(questions))
+	for i, q := range questions {
+		texts[i] = q.Question
+	}
+	return texts
 }

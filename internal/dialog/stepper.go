@@ -2,6 +2,7 @@ package dialog
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -200,6 +201,10 @@ type Review struct {
 	// Clipped is a page whose heading has scrolled off the top of the pane:
 	// it may list answers it no longer shows.
 	Clipped bool
+	// Tail is a clipped page whose first answer holds only the end of its
+	// question, which may end the same way as others do. Placed says which
+	// question it is.
+	Tail bool
 	// Cursor is the 1-based choice the marker is on: 1 is "Submit answers".
 	Cursor int
 	// Submit is the 1-based row of "Submit answers", 0 when it is not drawn.
@@ -252,6 +257,7 @@ func ParseReview(pane string) (Review, bool) {
 			current, inAnswer, tail = &review.Answers[len(review.Answers)-1], false, ""
 		case strings.HasPrefix(text, "→ ") && current == nil && clipped && len(review.Answers) == 0 && tail != "":
 			review.Answers = append(review.Answers, ReviewAnswer{Question: tail, Answer: strings.TrimSpace(text[len("→ "):])})
+			review.Tail = true
 			current, inAnswer, tail = &review.Answers[0], true, ""
 		case strings.HasPrefix(text, "→ ") && current != nil && !inAnswer:
 			current.Answer = strings.TrimSpace(text[len("→ "):])
@@ -285,6 +291,54 @@ func ParseReview(pane string) (Review, bool) {
 		return Review{}, false
 	}
 	return review, true
+}
+
+// Placed names the question a clipped page's partial first answer belongs
+// to, given the dialog's questions in order. The page lists answers in
+// question order, so that row is the question just before the one the next
+// row shows whole. Its visible end alone cannot say: questions often end
+// alike, and one ending the same way may have scrolled off whole. A partial
+// answer that cannot be placed, or any with no questions known, is dropped,
+// so it reads as scrolled off rather than as another question's answer.
+func (r Review) Placed(questions []string) Review {
+	if !r.Tail || len(r.Answers) == 0 {
+		return r
+	}
+	r.Answers, r.Tail = slices.Clone(r.Answers), false
+	owner := -1
+	if len(r.Answers) > 1 {
+		if next := questionIndex(questions, r.Answers[1].Question); next > 0 &&
+			SameQuestion(r.Answers[0].Question, questions[next-1]) {
+			owner = next - 1
+		}
+	}
+	if owner < 0 {
+		r.Answers = r.Answers[1:]
+		return r
+	}
+	r.Answers[0].Question = questions[owner]
+	return r
+}
+
+// questionIndex is the index of the one question drawn is, or -1 when none
+// or several are.
+func questionIndex(questions []string, drawn string) int {
+	for _, same := range []func(a, b string) bool{SameText, SameQuestion} {
+		found := -1
+		for i, question := range questions {
+			if same(drawn, question) {
+				if found >= 0 {
+					found = -2
+					break
+				}
+				found = i
+			}
+		}
+		if found >= 0 {
+			return found
+		}
+	}
+	return -1
 }
 
 // reviewScroll is the marker Claude Code draws over the review page's choices

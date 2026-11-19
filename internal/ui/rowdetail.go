@@ -7,11 +7,11 @@ import (
 )
 
 // A session row spells its state and its CLI out beside the age:
-// "working · claude · 2h ago". The words are for somebody still learning the
+// "working · cld · 2h ago". The words are for somebody still learning the
 // board. Once the marks are learned, the tinted mark ahead of the name already
 // says the state, and the words only take room from the name.
 //
-// The marks mode drops the state word and writes each CLI as two letters in
+// The marks mode drops the state word and writes each CLI as a short label in
 // that CLI's own colour. The letters are a stand-in for the CLIs' logos: no
 // font a phone or an iPad falls back on has those logos, and a mark the
 // client cannot draw comes out as a `?`. A group's rollup reads in marks too,
@@ -45,7 +45,7 @@ func normalizeRowDetail(chosen string) string {
 
 func (m *Model) rowMarks() bool { return m.rowDetail == rowDetailMarks }
 
-// toolMark is a CLI's two letters and the colour they are drawn in. The
+// toolMark is a CLI's short label and the colour it is drawn in. The
 // colours follow each vendor's own: Claude's clay orange, OpenAI's green for
 // Codex, and OpenCode's blue. A CLI not listed keeps its name.
 type toolMark struct {
@@ -54,9 +54,16 @@ type toolMark struct {
 }
 
 var toolMarks = map[string]toolMark{
-	"claude":   {letters: "CC", color: "#d97757"},
-	"codex":    {letters: "CX", color: "#10a37f"},
-	"opencode": {letters: "OC", color: "#4f8ff7"},
+	"claude":   {letters: "cld", color: "#d97757"},
+	"codex":    {letters: "cdx", color: "#10a37f"},
+	"opencode": {letters: "oc", color: "#4f8ff7"},
+}
+
+func shortToolName(tool string) string {
+	if mark, ok := toolMarks[tool]; ok {
+		return mark.letters
+	}
+	return tool
 }
 
 // toolLabel is how a row in marks mode names its CLI. Under the quiet

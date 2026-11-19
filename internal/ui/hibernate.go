@@ -14,7 +14,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-const hibernateSweepEvery = time.Minute
+const hibernateSweepEvery = 10 * time.Minute
 
 const hibernateSensitivitySetting = "hibernate_sensitivity"
 
@@ -45,10 +45,7 @@ func (m *Model) settleHibernated() tea.Cmd {
 	}
 	sensitivity := m.hibernateSensitivity()
 	memory := m.snap
-	sweep := sensitivity != "off" && time.Since(m.hibernateSweptAt) >= hibernateSweepEvery
-	if sweep {
-		m.hibernateSweptAt = time.Now()
-	}
+	sweep := m.hibernateSweepDue(sensitivity, time.Now())
 	m.hibernating = true
 	st := m.store
 	return func() tea.Msg {
@@ -80,6 +77,27 @@ func (m *Model) settleHibernated() tea.Cmd {
 		msg.err = errors.Join(errs...)
 		return msg
 	}
+}
+
+func (m *Model) hibernateSweepDue(sensitivity string, now time.Time) bool {
+	// The poller already tracks live statuses; the full sweep verifies processes before stopping any.
+	active := 0
+	for _, sess := range m.sessions {
+		if !sess.Archived && !m.isShell(sess.Tool) && sess.Status != status.Dead {
+			active++
+		}
+	}
+	pressure := sessioncmd.HibernateNeeded(sensitivity, m.snap, active)
+	crossed := pressure && !m.hibernatePressure
+	m.hibernatePressure = pressure
+	if sensitivity == "off" || !m.snap.MemOK || m.snap.MemTotal == 0 {
+		return false
+	}
+	if !crossed && now.Sub(m.hibernateSweptAt) < hibernateSweepEvery {
+		return false
+	}
+	m.hibernateSweptAt = now
+	return true
 }
 
 // hibernateSettledMsg is what one settleHibernated pass did.

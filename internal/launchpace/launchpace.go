@@ -13,6 +13,12 @@
 // state is a small file under the config directory, locked while it is read
 // and written, so the board, the CLI and every session's MCP server share
 // one queue.
+//
+// A session its account's limit has already cut off can run nothing until
+// it moves, so its move goes ahead (TryAhead): while one is waiting no
+// routine relaunch is admitted, and it may start beside one launch still
+// in flight, up to AheadInFlight. On 2026-11-05 a backlog of spent
+// sessions moved about one a minute behind routine near-limit sheds.
 package launchpace
 
 import (
@@ -39,7 +45,15 @@ const (
 	// at 16 on 8 cores it is 5s, at 64 it is 20s, at 120 it is 37.5s, and
 	// from 192 it is a minute.
 	DefaultLoadPerCPU = 2.0
+	// DefaultAheadInFlight is how many launches may be unsettled when one
+	// going ahead is admitted.
+	DefaultAheadInFlight = 2
 )
+
+// aheadHold is how long a refused TryAhead holds routine launches back: a
+// caller that does not wait looks again within a minute, and one that
+// stopped looking must not stall the queue for longer than this.
+const aheadHold = 3 * time.Minute
 
 // pollEvery bounds one wait between checks, so a launch settling early is
 // seen soon after it does.
@@ -47,6 +61,10 @@ const pollEvery = 2 * time.Second
 
 // ErrBusy is Try's answer when a launch may not start yet.
 var ErrBusy = errors.New("another session is relaunching; this one waits its turn")
+
+// ErrMemoryPressure leaves the running session intact so the caller can retry
+// after the host recovers instead of adding another CLI startup under pressure.
+var ErrMemoryPressure = errors.New("macOS is under memory pressure; free memory before retrying this relaunch")
 
 // Limits is how launches are paced. A zero field takes its default.
 type Limits struct {
@@ -61,6 +79,9 @@ type Limits struct {
 	Settle time.Duration
 	// LoadPerCPU is the load average per CPU above which the gap stretches.
 	LoadPerCPU float64
+	// AheadInFlight is how many launches may be unsettled when one going
+	// ahead is admitted; never fewer than MaxInFlight.
+	AheadInFlight int
 }
 
 func (l Limits) withDefaults() Limits {
@@ -80,6 +101,10 @@ func (l Limits) withDefaults() Limits {
 	if l.LoadPerCPU <= 0 {
 		l.LoadPerCPU = DefaultLoadPerCPU
 	}
+	if l.AheadInFlight <= 0 {
+		l.AheadInFlight = DefaultAheadInFlight
+	}
+	l.AheadInFlight = max(l.AheadInFlight, l.MaxInFlight)
 	return l
 }
 
@@ -105,9 +130,10 @@ type Pacer struct {
 	settled Settled
 	// now, sleep and load are the clock, the wait and the host's one-minute
 	// load average per CPU; tests replace them.
-	now   func() time.Time
-	sleep func(ctx context.Context, d time.Duration) error
-	load  func() (float64, bool)
+	now                 func() time.Time
+	sleep               func(ctx context.Context, d time.Duration) error
+	load                func() (float64, bool)
+	underMemoryPressure func() bool
 }
 
 // New is the pacer whose state lives in dir.
@@ -143,6 +169,9 @@ type state struct {
 	// Last is when the newest launch was admitted.
 	Last     time.Time `json:"last"`
 	InFlight []launch  `json:"in_flight"`
+	// Ahead is launches refused by TryAhead and still asking, each held
+	// back no longer than aheadHold.
+	Ahead []launch `json:"ahead,omitempty"`
 }
 
 // Slot is an admitted launch. Cancel gives it back when the launch did not
@@ -168,9 +197,24 @@ func (s Slot) Cancel() {
 	})
 }
 
-// Try admits a launch of id now, or says ErrBusy and how long until the
-// next look is worth making.
+// Try admits a launch of id now, or says ErrBusy or ErrMemoryPressure and
+// how long until the next look is worth making.
 func (p *Pacer) Try(id string) (Slot, time.Duration, error) {
+	return p.try(id, false)
+}
+
+// TryAhead is Try for a launch that goes ahead of the rest: one whose
+// session can run nothing where it is. It is admitted while fewer than
+// AheadInFlight launches are unsettled, and while it is refused no Try is
+// admitted, for up to aheadHold after its last look.
+func (p *Pacer) TryAhead(id string) (Slot, time.Duration, error) {
+	return p.try(id, true)
+}
+
+func (p *Pacer) try(id string, ahead bool) (Slot, time.Duration, error) {
+	if p.underMemoryPressure != nil && p.underMemoryPressure() {
+		return Slot{}, pollEvery, ErrMemoryPressure
+	}
 	var (
 		slot Slot
 		wait time.Duration
@@ -185,6 +229,18 @@ func (p *Pacer) Try(id string) (Slot, time.Duration, error) {
 			kept = append(kept, l)
 		}
 		st.InFlight = kept
+		waiting := st.Ahead[:0]
+		for _, l := range st.Ahead {
+			if l.ID == id || now.Sub(l.At) >= aheadHold || now.Before(l.At) {
+				continue
+			}
+			waiting = append(waiting, l)
+		}
+		st.Ahead = waiting
+		limit := p.limits.MaxInFlight
+		if ahead {
+			limit = p.limits.AheadInFlight
+		}
 		load, ok := p.load()
 		if !ok {
 			load = 0
@@ -194,7 +250,9 @@ func (p *Pacer) Try(id string) (Slot, time.Duration, error) {
 			gapLeft = st.Last.Add(p.limits.Gap(load)).Sub(now)
 		}
 		switch {
-		case len(st.InFlight) >= p.limits.MaxInFlight:
+		case !ahead && len(st.Ahead) > 0:
+			wait = pollEvery
+		case len(st.InFlight) >= limit:
 			wait = pollEvery
 			for _, l := range st.InFlight {
 				wait = min(wait, max(l.At.Add(p.limits.Settle).Sub(now), time.Millisecond))
@@ -206,6 +264,9 @@ func (p *Pacer) Try(id string) (Slot, time.Duration, error) {
 			st.Last = now
 			st.InFlight = append(st.InFlight, launch{ID: id, At: now})
 			slot = Slot{p: p, id: id, at: now}
+		}
+		if ahead && slot.p == nil {
+			st.Ahead = append(st.Ahead, launch{ID: id, At: now})
 		}
 	})
 	if err != nil {
@@ -230,7 +291,8 @@ func (p *Pacer) Record(id string) {
 	})
 }
 
-// Wait admits a launch of id once the queue lets it, or returns ctx's error.
+// Wait admits a launch of id once the queue lets it. Memory pressure returns
+// immediately: callers may be waiting with no deadline while the old agent runs.
 func (p *Pacer) Wait(ctx context.Context, id string) (Slot, error) {
 	for {
 		slot, wait, err := p.Try(id)

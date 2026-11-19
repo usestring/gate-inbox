@@ -380,6 +380,16 @@ type scopedHost struct {
 func (h scopedHost) Logger() *slog.Logger { return h.logger }
 func (h scopedHost) Tracer() Tracer       { return scopedTracer{Tracer: h.Host.Tracer(), id: h.id} }
 
+// Work passes the wrapped Host's work service through, which embedding the
+// Host interface alone would hide; nil when the Host has none, which
+// AttachWork reports as ErrWorkUnsupported.
+func (h scopedHost) Work() WorkService {
+	if worker, ok := h.Host.(WorkHost); ok {
+		return worker.Work()
+	}
+	return nil
+}
+
 func enabled(ext Extension) bool {
 	if toggle, ok := ext.(Enabler); ok {
 		return toggle.Enabled()

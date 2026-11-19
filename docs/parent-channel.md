@@ -18,6 +18,8 @@ Every message one agent session sends another is typed into the recipient's pane
 
 The key never leaves Gate Inbox's processes. It lives in `<config dir>/channel-keys/<session id>`: a 0700 directory of 0600 files, kept out of `state.db` on purpose. It is never typed into a pane, printed, put in any model's context, or returned by any tool. The seal line in the pane is bound to one message, one recipient, one sender and the exact text above it.
 
+The same directory holds `caller.key`, which signs each session's caller token: HMAC-SHA256 over `gate-inbox caller v2` and the session id, truncated to 16 bytes and hex-encoded. The token never enters a session's environment or its launch script, which a sandboxed agent can read. The launch writes it only into files in this directory, for the session's own client to send: a `claude`'s MCP config, or an opencode session's binding in `opencode-sessions/`, which maps the conversation id opencode puts in each call's `_meta.sessionID` to its session. An MCP server that serves many sessions from one process believes a request's caller only with that session's token, so one session cannot act as another. It holds against the same threats the seals do, and falls to the same one: a process of the same user outside the sandbox can read the key.
+
 Bodies are neutralised before they are fenced. Anything in a body that imitates `[gate-inbox seal` or `[gate-inbox relay attestation` (any case or spacing) becomes `[quoted, not verified: …`.
 
 ## The check: a hook, not the model

@@ -99,13 +99,16 @@ func (m *Model) unmuteAllListed() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// displayStatusLabel is the state a row wears: "muted" when the operator has
-// silenced it, otherwise its pane status.
+// displayStatusLabel prefers the mute or a known failure reason to the
+// general pane status.
 func (m *Model) displayStatusLabel(sess store.Session) string {
 	if sess.Muted {
 		return mutedStatusLabel
 	}
-	return statusLabel(sess.Status)
+	if label, _ := m.claudeAuthNotice(sess); label != "" {
+		return label
+	}
+	return statusLabel(m.shownStatus(sess))
 }
 
 // displayStatusGlyph is the mark beside that label. A muted row takes the
@@ -115,7 +118,7 @@ func (m *Model) displayStatusGlyph(sess store.Session) string {
 	if sess.Muted {
 		return mutedGlyph()
 	}
-	return statusGlyph(sess.Status)
+	return statusGlyph(m.shownStatus(sess))
 }
 
 // displayStatusText tints the label: subtle for a mute, which is a queue
@@ -124,5 +127,5 @@ func (m *Model) displayStatusText(sess store.Session, text string) string {
 	if sess.Muted {
 		return subtleText(text)
 	}
-	return statusTint(sess.Status, text)
+	return statusTint(m.shownStatus(sess), text)
 }

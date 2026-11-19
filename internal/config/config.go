@@ -316,9 +316,10 @@ type Children struct {
 	KeepFinished bool `toml:"keep_finished"`
 }
 
-// Work configures what the board does with the pull requests and tickets its
-// sessions are on once they are over.
+// Work configures how the board follows its sessions' pull requests and tickets.
 type Work struct {
+	PRFeedback bool `toml:"pr_feedback"`
+
 	// SettleAfter is how long a merged or closed pull request, or a completed
 	// or cancelled ticket, stays on the board after the operator first had it
 	// on screen in that state. Unset, a day.
@@ -496,7 +497,7 @@ type HogRule struct {
 }
 
 // ClaudeCode configures what the board keeps in the operator's own Claude Code
-// config, as opposed to the per-session config a launch passes.
+// config, and which MCP server the per-session config a launch passes names.
 type ClaudeCode struct {
 	// Setup keeps Gate Inbox's hooks and MCP relay registered in the Claude
 	// Code user config, which is what gives a claude started outside the
@@ -504,10 +505,20 @@ type ClaudeCode struct {
 	// means on: nobody has to find a command to get it. false takes the
 	// entries back out.
 	Setup *bool `toml:"setup"`
+	// SharedMCP points every claude the board launches at one shared Gate
+	// Inbox MCP server (`gate-inbox mcp-serve`) instead of starting a
+	// server process per session, which on a large board is the bulk of
+	// the helpers' memory. Absent means off for now: an extension built
+	// against an older Gate Inbox reads its session from its registration,
+	// which in the shared server names none.
+	SharedMCP *bool `toml:"shared_mcp"`
 }
 
 // SetupOn reports whether the board keeps its Claude Code entries registered.
 func (c ClaudeCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
+// SharedMCPOn reports whether launched claudes use the shared MCP server.
+func (c ClaudeCode) SharedMCPOn() bool { return c.SharedMCP != nil && *c.SharedMCP }
 
 // Codex configures what the board keeps in the operator's own Codex config.
 type Codex struct {
@@ -529,10 +540,29 @@ type OpenCode struct {
 	// its row, steering and conversation binding once it is adopted. Absent
 	// means on; false takes the plugin back out.
 	Setup *bool `toml:"setup"`
+	// Server is how a launched session gets its opencode server: "shared"
+	// (the default) attaches every session to one server per board, which
+	// costs each one its TUI alone; "standalone" gives each session a
+	// private server of its own, which costs it about 300 MB more. A shared
+	// server needs the plugin above to tell the board's tools which session
+	// called them, so with setup off every session runs standalone.
+	Server string `toml:"server"`
 }
+
+// OpenCode server modes, as [opencode] server names them.
+const (
+	OpenCodeServerShared     = "shared"
+	OpenCodeServerStandalone = "standalone"
+)
 
 // SetupOn reports whether the board keeps its OpenCode plugin registered.
 func (c OpenCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
+// SharedServer reports whether launched sessions attach to the board's one
+// shared opencode server.
+func (c OpenCode) SharedServer() bool {
+	return c.SetupOn() && c.Server != OpenCodeServerStandalone
+}
 
 // Naming configures how sessions get their names.
 type Naming struct {
@@ -563,6 +593,10 @@ type Board struct {
 	// machine; choosing this value there again goes back to following the
 	// file.
 	Sidebar string `toml:"sidebar"`
+	// OfferCLIOnLimit has the usage-limit card offer to continue the
+	// conversation on another CLI as well as on another subscription. Off
+	// by default: a limit is a reason to change accounts, not agents.
+	OfferCLIOnLimit bool `toml:"offer_cli_on_limit"`
 }
 
 type Config struct {
@@ -593,18 +627,22 @@ type Config struct {
 	// with nothing on its screen changing before its row is flagged stale:
 	// the label has outlived any turn it could describe, so it is more
 	// likely a misread than a long turn.
-	StaleStatusAfter Duration     `toml:"stale_status_after"`
-	Board            Board        `toml:"board"`
-	Naming           Naming       `toml:"naming"`
-	Log              Log          `toml:"log"`
-	Children         Children     `toml:"children"`
-	Work             Work         `toml:"work"`
-	Integrations     Integrations `toml:"integrations"`
-	Hogs             Hogs         `toml:"hogs"`
-	ClaudeCode       ClaudeCode   `toml:"claude_code"`
-	Codex            Codex        `toml:"codex"`
-	OpenCode         OpenCode     `toml:"opencode"`
-	Relaunch         Relaunch     `toml:"relaunch"`
+	StaleStatusAfter Duration `toml:"stale_status_after"`
+	// HibernateAfter retains the age cutoff for manual parking; automatic
+	// hibernation uses HibernateSensitivity instead.
+	HibernateAfter       Duration     `toml:"hibernate_after"`
+	HibernateSensitivity string       `toml:"hibernate_sensitivity"`
+	Board                Board        `toml:"board"`
+	Naming               Naming       `toml:"naming"`
+	Log                  Log          `toml:"log"`
+	Children             Children     `toml:"children"`
+	Work                 Work         `toml:"work"`
+	Integrations         Integrations `toml:"integrations"`
+	Hogs                 Hogs         `toml:"hogs"`
+	ClaudeCode           ClaudeCode   `toml:"claude_code"`
+	Codex                Codex        `toml:"codex"`
+	OpenCode             OpenCode     `toml:"opencode"`
+	Relaunch             Relaunch     `toml:"relaunch"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -735,7 +773,7 @@ func checkCompactWindow(name string, windows map[string]int) error {
 	slices.Sort(tiers)
 	for _, tier := range tiers {
 		if t := priority.Tier(tier); t == priority.Unset || !t.Valid() {
-			return fmt.Errorf("tools.%s.compact_window: %q is not a tier (want urgent, high, medium or low)", name, tier)
+			return fmt.Errorf("tools.%s.compact_window: %q is not a tier (want urgent, high, medium, low, lower or lowest)", name, tier)
 		}
 		if window := windows[tier]; window < MinCompactWindow || window > MaxCompactWindow {
 			return fmt.Errorf("tools.%s.compact_window.%s = %d: want %d to %d tokens", name, tier, window, MinCompactWindow, MaxCompactWindow)
@@ -879,6 +917,11 @@ const codexErroredReconnectOnly = `(?im)^\s*■(?:.*\berror\b| (?:Automatic reco
 
 const codexWorkingNoHints = `(?m)^[ \t]*(?:• )?[^\n]*\([\dhms. ]+ [•·] esc to interrupt\)(?: · [^\n]*)?[ \t]*\n(?:[ \t]+└[^\n]*\n(?:[ \t]{4}[^\n]*\n)*)?[ \t\n]*\z`
 
+// claudeErroredIndented is the Claude errored rule shipped before indented
+// tool output stopped counting. A config carrying it verbatim takes the
+// current rule.
+const claudeErroredIndented = `(?im)^\s*error:`
+
 // mergeTool returns user with any zero-value field filled from def.
 //
 // Shell is deliberately not among them. "terminal" is a plausible name for
@@ -974,11 +1017,23 @@ func mergeTool(name string, user, def Tool) Tool {
 	if len(user.Rules) == 0 {
 		user.Rules = def.Rules
 	} else if name == "claude" {
+		for i, rule := range user.Rules {
+			if rule.State != "errored" || rule.Pattern != claudeErroredIndented {
+				continue
+			}
+			for _, current := range def.Rules {
+				if current.State == "errored" {
+					user.Rules[i] = current
+					break
+				}
+			}
+		}
 		upgradeBareEnterToConfirm(user.Rules, def.Rules)
 		upgradeOneLineAskRules(user.Rules, def.Rules)
 		user.Rules = withAskUserQuestionRules(user.Rules, def.Rules)
 	} else if name == "opencode" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, opencodeDialogSamples)
+		user.Rules = withRuleInState(opencodeLostServerSample, user.Rules, def.Rules, "errored")
 	} else if name == "codex" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, codexDialogSamples)
 		for i, rule := range user.Rules {
@@ -1106,9 +1161,21 @@ func withDialogRules(user, def []Rule, samples []string) []Rule {
 	return user
 }
 
+// opencodeLostServerSample is the overlay an opencode TUI shows while it
+// has lost its server, which a config written before the shared server
+// existed reads as working off the spinner behind it.
+const opencodeLostServerSample = "Reconnecting to the server automatically."
+
 func withRuleFor(sample string, user, def []Rule) []Rule {
+	return withRuleInState(sample, user, def, "waiting")
+}
+
+// withRuleInState adds the built-in rule in state that recognizes sample to
+// user's rules when none of theirs in that state does, right after the
+// waiting rules that lead the list.
+func withRuleInState(sample string, user, def []Rule, state string) []Rule {
 	for _, r := range user {
-		if r.State != "waiting" {
+		if r.State != state {
 			continue
 		}
 		re, err := regexp.Compile(r.Pattern)
@@ -1117,7 +1184,7 @@ func withRuleFor(sample string, user, def []Rule) []Rule {
 		}
 	}
 	for _, d := range def {
-		if d.State != "waiting" {
+		if d.State != state {
 			continue
 		}
 		re, err := regexp.Compile(d.Pattern)
@@ -1238,9 +1305,11 @@ const defaultConfig = `poll_interval = "2s"
 # The board's layout. sidebar is the side of the frame the sessions list sits
 # on, "right" or "left"; the session's pane takes the other side. Settings
 # can pick the other side on one machine, and picking this value there again
-# goes back to following this file.
+# goes back to following this file. offer_cli_on_limit has the usage-limit
+# card offer the other CLIs as well as another subscription of the same one.
 # [board]
 # sidebar = "right"
+# offer_cli_on_limit = false
 
 # Asking a live agent to name its session interrupts it for a housekeeping
 # turn: the rename directive on a managed launch, the pending note in an
@@ -1255,6 +1324,10 @@ const defaultConfig = `poll_interval = "2s"
 # see it that way, then leaves the rail and the counts for good.
 # [work]
 # settle_after = "24h"
+# Return human review requests, unresolved current-commit threads and confirmed
+# merge conflicts through the same guarded inbox, with two prompts per kind.
+# Use one feedback source per PR; independent external watchers can duplicate it.
+# pr_feedback = false
 
 # Your own Claude Code config. While the board runs it keeps its hooks in
 # ~/.claude/settings.json and an MCP server named gate-inbox in ~/.claude.json
@@ -1264,6 +1337,11 @@ const defaultConfig = `poll_interval = "2s"
 # and so does switching "claude code setup" off in Settings.
 # [claude_code]
 # setup = true
+#
+# true has every claude the board launches reach the board's tools through
+# one shared server, gate-inbox mcp-serve, which the board starts, instead
+# of a server process of its own.
+# shared_mcp = false
 
 # Your own Codex config. While the board runs, on a machine with codex
 # installed, it keeps two hook entries (UserPromptSubmit and Stop) in
@@ -1281,8 +1359,14 @@ const defaultConfig = `poll_interval = "2s"
 # outside the board speaks as its row and gets the board's steering once the
 # board adopts it. It does nothing in any session the board has not adopted.
 # false removes it.
+#
+# server is how a launched opencode session gets its server: "shared"
+# attaches every session to one server per board, so each costs only its
+# TUI; "standalone" gives each a private server, about 300 MB more apiece.
+# The shared server needs the plugin, so setup = false means standalone.
 # [opencode]
 # setup = true
+# server = "shared"
 
 # The diagnostic log. It is a file log only -- this program owns the
 # terminal, so nothing is ever printed to the screen. "gate-inbox
@@ -1510,7 +1594,11 @@ rules = [
   # "✳ Drizzling… (6s · thinking)" / "✽ Zigzagging… (3m 18s · ↓ 1.4k tokens)"
   { state = "working", pattern = "(?m)^[✻✳✶✽✢·✦✧+*] \\S+… \\(" },
   { state = "working", pattern = "esc to interrupt" },
-  { state = "errored", pattern = "(?im)^\\s*error:" },
+  # A fatal error the CLI prints itself starts at column zero. Claude indents
+  # everything it draws, tool output included, so an indented "error:" is a
+  # command's output ("     error: failed to push some refs"), not the agent
+  # failing.
+  { state = "errored", pattern = "(?im)^error:" },
 ]
 
 [tools.opencode]
@@ -1538,6 +1626,10 @@ revive_command = "opencode --continue"
 # it, and the poll that pressed Enter for it could not tell the manager's
 # prompt from a line the operator was writing.
 prompt_mode = "send"
+# opencode 2.x arms its interrupt on the first Escape ("esc again to
+# interrupt") and stops the turn on the second; the manager sends them as
+# separate writes so they are not read as one alt+Escape.
+interrupt_keys = ["Escape", "Escape"]
 # r asks the session to name itself with this: /rename is a command the
 # manager registers into every opencode session it starts, through the
 # generated OPENCODE_CONFIG (internal/mcpreg), so there is nowhere to install
@@ -1617,6 +1709,11 @@ rules = [
   { state = "waiting", pattern = "(?m)^[ \\x{A0}]*\\x{2503}[ \\x{A0}]+Questions[ \\x{A0}]*$" },
   { state = "errored", pattern = "(?i)requires more credits" },
   { state = "errored", pattern = "(?im)^\\s*error\\b" },
+  # A TUI that lost its server says so in an overlay and keeps retrying
+  # behind it with the turn's spinner still drawn. On the board's shared
+  # server the supervisor brings the server back within seconds; past that
+  # the session is stuck, not working.
+  { state = "errored", pattern = "Reconnecting to the server automatically" },
   # opencode draws no agent row mid-turn; its only spinner is the footer
   # "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt" under the composer, which this rule reads because
   # the match scope takes in a footer that trips a working rule

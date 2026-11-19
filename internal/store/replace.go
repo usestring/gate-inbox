@@ -15,6 +15,8 @@ type Replacement struct {
 	Reservations int64
 }
 
+var ErrAlreadyReplaced = errors.New("the session already has a replacement")
+
 // ErrNotHeld is a CommitReplacement whose new row is no longer held under
 // the old one: somebody deleted, archived or moved it during the hold.
 var ErrNotHeld = errors.New("the replacement is no longer held under the session it replaces")
@@ -148,7 +150,11 @@ type seat struct {
 
 func seatOf(tx *sql.Tx, id string) (seat, error) {
 	var at seat
-	err := tx.QueryRow(`SELECT group_name, parent_id, sort_order FROM sessions WHERE id = ?`, id).Scan(&at.group, &at.parentID, &at.order)
+	var replaced string
+	err := tx.QueryRow(`SELECT group_name, parent_id, sort_order, replaced_by FROM sessions WHERE id = ?`, id).Scan(&at.group, &at.parentID, &at.order, &replaced)
+	if err == nil && replaced != "" {
+		return seat{}, fmt.Errorf("session %s: %w", id, ErrAlreadyReplaced)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return seat{}, fmt.Errorf("session %s: %w", id, err)
 	}
@@ -157,7 +163,7 @@ func seatOf(tx *sql.Tx, id string) (seat, error) {
 
 // takeSeat is the swap both kinds of replacement make: newID is filed
 // directly after oldID, where the operator was already looking, oldID's
-// undelivered inbox and file leases move to it, and oldID is left dead
+// undelivered inbox, file leases and task claims move to it, and oldID is left dead
 // with newID recorded as what replaced it.
 func takeSeat(tx *sql.Tx, newID, oldID string, at seat, snapshot string) (Replacement, error) {
 	if _, err := tx.Exec(`UPDATE sessions SET sort_order = sort_order + 1
@@ -166,6 +172,9 @@ func takeSeat(tx *sql.Tx, newID, oldID string, at seat, snapshot string) (Replac
 	}
 	if _, err := tx.Exec(`UPDATE sessions SET group_name = ?, parent_id = ?, sort_order = ? WHERE id = ?`,
 		at.group, at.parentID, at.order+1, newID); err != nil {
+		return Replacement{}, err
+	}
+	if err := copyOpenedPRs(tx, oldID, newID); err != nil {
 		return Replacement{}, err
 	}
 	var moved Replacement
@@ -183,6 +192,9 @@ UPDATE session_inbox SET session_id = ?, claimed_at = 0
 		return Replacement{}, err
 	}
 	if moved.Reservations, err = res.RowsAffected(); err != nil {
+		return Replacement{}, err
+	}
+	if err := moveTaskClaims(tx, oldID, newID, time.Now()); err != nil {
 		return Replacement{}, err
 	}
 	now := encodeTime(time.Now())

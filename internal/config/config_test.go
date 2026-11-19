@@ -1019,6 +1019,42 @@ rules = [
 	}
 }
 
+// A config written before the shared opencode server reads a TUI that lost
+// its server as working, off the spinner behind the overlay; it gains the
+// errored rule ahead of its working rules.
+func TestLoadDirTeachesExistingOpencodeRulesALostServer(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `
+[tools.opencode]
+command = "opencode"
+rules = [
+  { state = "waiting", pattern = "\\x{25B3} Permission required" },
+  { state = "errored", pattern = "(?i)requires more credits" },
+  { state = "working", pattern = "esc interrupt" },
+]
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	rules := cfg.Tools["opencode"].Rules
+	for i, r := range rules {
+		if r.State == "working" {
+			t.Fatalf("no errored rule for a lost server ahead of the working rules: %+v", rules)
+		}
+		if r.State == "errored" && regexp.MustCompile(r.Pattern).MatchString(opencodeLostServerSample) {
+			if i == 0 || rules[i-1].State != "waiting" {
+				t.Fatalf("lost-server rule at %d, not right after the waiting rules: %+v", i, rules)
+			}
+			return
+		}
+	}
+	t.Fatalf("no lost-server rule: %+v", rules)
+}
+
 // A user who wrote their own rule for a dialog keeps it: the sample is what
 // says the dialog is already covered, not the built-in pattern's presence.
 func TestLoadDirKeepsACustomOpencodePermissionRule(t *testing.T) {

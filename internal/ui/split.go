@@ -10,7 +10,7 @@ import (
 
 const (
 	splitRatioSetting = "split_ratio"
-	defaultSplitRatio = 0.3
+	defaultSplitRatio = 0.4
 	minSplitSide      = 30
 	// minSplitWidth is the narrowest terminal that still earns two panels.
 	// Below it the rail cannot hold a session name and the preview cannot hold
@@ -27,7 +27,7 @@ type settingReader interface {
 	Setting(key string) (string, error)
 }
 
-// loadSplitRatio restores the sessions/sidebar ratio, or the 30% default
+// loadSplitRatio restores the sessions/sidebar ratio, or the 40% default
 // when nothing is stored or the value is unusable.
 func loadSplitRatio(st settingReader) float64 {
 	raw, err := st.Setting(splitRatioSetting)
@@ -177,12 +177,14 @@ func (m *Model) onDivider(x int) bool {
 	return x >= div-splitHitSlop && x <= div+splitHitSlop
 }
 
-// railHitMap is where the last painted rail sat and the link each of its
-// body rows opens, so a click resolves against what is on screen rather
+// railHitMap is where the last painted rail sat and what each of its
+// body rows targets, so a click resolves against what is on screen rather
 // than against layout arithmetic redone in the handler.
 type railHitMap struct {
 	x, width int
 	links    []string
+	copyIDs  map[int]string
+	sessions []string
 	covered  []railHitCover
 }
 
@@ -199,29 +201,70 @@ func (h *railHitMap) cover(x, y, width int) {
 
 func newRailHitMap(rows []contentLine, x, width int) railHitMap {
 	links := make([]string, len(rows))
+	copyIDs := make(map[int]string)
+	sessions := make([]string, len(rows))
 	for i, row := range rows {
 		links[i] = row.link
+		if row.copyID != "" {
+			copyIDs[i] = row.copyID
+		}
+		sessions[i] = row.sessionID
 	}
-	return railHitMap{x: x, width: width, links: links}
+	return railHitMap{x: x, width: width, links: links, copyIDs: copyIDs, sessions: sessions}
+}
+
+func (h railHitMap) contains(x, y int) bool {
+	if x < h.x || x >= h.x+h.width || y < 0 || y >= len(h.links) {
+		return false
+	}
+	for _, cover := range h.covered {
+		if y == cover.y && x >= cover.x && x < cover.x+cover.width {
+			return false
+		}
+	}
+	return true
 }
 
 // linkAt is the link under column x of body row y, or "" for none.
 func (h railHitMap) linkAt(x, y int) string {
-	if x < h.x || x >= h.x+h.width || y < 0 || y >= len(h.links) {
+	if !h.contains(x, y) {
 		return ""
-	}
-	for _, cover := range h.covered {
-		if y == cover.y && x >= cover.x && x < cover.x+cover.width {
-			return ""
-		}
 	}
 	return h.links[y]
 }
 
+func (h railHitMap) sessionAt(x, y int) string {
+	if !h.contains(x, y) {
+		return ""
+	}
+	return h.sessions[y]
+}
+
 func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	// Focus mode owns the mouse: clicks build a selection over the pane
-	// instead of moving the list cursor, which would silently retarget
-	// every following keystroke.
+	if click, ok := msg.(tea.MouseClickMsg); ok && click.Button == tea.MouseLeft &&
+		(m.mode == modeList || m.mode == modeFocus) && !m.split.resizeMode && !m.quick.active &&
+		!m.sel.dragging && !m.pending.active && !m.forwardingMouse {
+		rowY := click.Y - m.listChromeRows()
+		if id := m.railHit.copyIDs[rowY]; id != "" && m.railHit.contains(click.X, rowY) {
+			return m, copySessionIDCmd(id)
+		}
+		if id := m.railHit.sessionAt(click.X, rowY); id != "" {
+			for i, row := range m.rows {
+				if row.entersAs() && row.sess.ID == id {
+					var leave tea.Cmd
+					if m.mode == modeFocus {
+						// Clicking out ends the drain like leaving it by key
+						// does. See triageResume.
+						m.triageResume = false
+						leave = m.leaveFocus()
+					}
+					m.searching = false
+					return m, tea.Batch(leave, m.settleCursor(i))
+				}
+			}
+		}
+	}
+	// Pane gestures stay with the focused session until their release.
 	if m.mode == modeFocus {
 		return m.handleFocusMouse(msg)
 	}
@@ -230,10 +273,9 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// never scrolls the manager off-screen. A notch over the preview walks
 	// the previewed pane, the same way it does under focus. Over the rail it
 	// is still swallowed: there a notch would move the session cursor,
-	// silently retargeting every keystroke that follows (#110). Clicks only
-	// drive the divider while resize mode is armed, apart from a click on a
-	// pull request or ticket row, which opens its link without moving the
-	// cursor.
+	// silently retargeting every keystroke that follows (#110). A deliberate
+	// click selects a session; pull request and ticket links open without
+	// moving the cursor. Resize mode reserves clicks for the divider.
 	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
 		// The divider drag owns the frame while it is armed, down to its own
 		// legend tier: a notch mid-drag is a slip, not a scroll.

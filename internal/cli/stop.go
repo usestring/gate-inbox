@@ -9,6 +9,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension/cmdline"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 func runStop(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
@@ -57,6 +58,9 @@ func finishStop(args []string, sessionID, configDir string) error {
 	// This runs as a run-shell -b job, which tmux SIGTERMs when ending the
 	// last session empties the server and leaves its output pipe closed.
 	signal.Ignore(syscall.SIGTERM, syscall.SIGHUP, syscall.SIGPIPE)
+	// The stop's kill leaves its SIGKILL pass running; the worker must
+	// outlive it or a process that ignores SIGTERM survives the stop.
+	defer tmux.AwaitReaps()
 	if *proof != "" {
 		_, err := sessioncmd.NewSessions(configDir, sessioncmd.CLIVocabulary()).FinishStopWithProof(sessionID, operands[0], operands[1], operands[2], *thread, *proof, *dryRun, *archive)
 		return err

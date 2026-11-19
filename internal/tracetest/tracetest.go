@@ -28,8 +28,12 @@ import (
 type Span struct {
 	Name   string
 	Trace  string
+	ID     string
 	Parent string
-	Attrs  map[string]any
+	// Links are the spans of other traces this one follows from, each as
+	// "<trace id>/<span id>".
+	Links []string
+	Attrs map[string]any
 	// Start and End are the window the span claims to have measured. They are
 	// here because the commonest way to get instrumentation wrong is to build
 	// the span where it is emitted rather than where the work began, which
@@ -61,7 +65,7 @@ func Capture(t *testing.T) func() []Span {
 	// sampler throws away all but a fiftieth of the ordinary traffic, which is
 	// what makes tracing affordable to leave on -- but a test that emits one
 	// span and asks whether it arrived would then pass or fail on a coin toss
-	// weighted fifty to one against it.
+	// weighted ten to one against it.
 	t.Setenv(tracing.SampleEnv, "1")
 	path := filepath.Join(t.TempDir(), "spans.jsonl")
 	tracer, err := tracing.Start("file:" + path)
@@ -137,10 +141,15 @@ func decode(t *testing.T, path string) []Span {
 					Spans []struct {
 						Name         string `json:"name"`
 						TraceID      string `json:"traceId"`
+						SpanID       string `json:"spanId"`
 						ParentSpanID string `json:"parentSpanId"`
-						Start        string `json:"startTimeUnixNano"`
-						End          string `json:"endTimeUnixNano"`
-						Attributes   []struct {
+						Links        []struct {
+							TraceID string `json:"traceId"`
+							SpanID  string `json:"spanId"`
+						} `json:"links"`
+						Start      string `json:"startTimeUnixNano"`
+						End        string `json:"endTimeUnixNano"`
+						Attributes []struct {
 							Key   string         `json:"key"`
 							Value map[string]any `json:"value"`
 						} `json:"attributes"`
@@ -160,6 +169,7 @@ func decode(t *testing.T, path string) []Span {
 					span := Span{
 						Name:   raw.Name,
 						Trace:  raw.TraceID,
+						ID:     raw.SpanID,
 						Parent: raw.ParentSpanID,
 						Start:  nanos(raw.Start),
 						End:    nanos(raw.End),
@@ -168,6 +178,9 @@ func decode(t *testing.T, path string) []Span {
 					}
 					for _, attr := range raw.Attributes {
 						span.Attrs[attr.Key] = value(attr.Value)
+					}
+					for _, l := range raw.Links {
+						span.Links = append(span.Links, l.TraceID+"/"+l.SpanID)
 					}
 					spans = append(spans, span)
 				}

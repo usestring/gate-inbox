@@ -35,6 +35,7 @@ type glyphSet struct {
 	delegating    string
 	background    string
 	pending       string
+	hibernating   string
 	muted         string
 	deaf          string
 	hookless      string
@@ -52,6 +53,7 @@ type glyphSet struct {
 	ticketTodo    string
 	ticketStarted string
 	ticketDone    string
+	artifact      string
 }
 
 // shapeGlyphs is the board as it has always drawn: one geometric mark per
@@ -71,7 +73,9 @@ var shapeGlyphs = glyphSet{
 	// running below the turn.
 	background: "◒",
 	// ◍ is ○ barred shut: at rest, with a send held at the door.
-	pending:       "◍",
+	pending: "◍",
+	// ◓ is ○ with its lid drawn down: asleep, and it wakes when touched.
+	hibernating:   "◓",
 	muted:         "⊘",
 	deaf:          "⊗",
 	hookless:      "⊙",
@@ -93,6 +97,10 @@ var shapeGlyphs = glyphSet{
 	ticketTodo:    "△",
 	ticketStarted: "◭",
 	ticketDone:    "▲",
+	// A published page is a pen rather than another filled shape: it carries
+	// no state to fill, and it must not read as a session's circle, a pull
+	// request's square or a ticket's triangle -- nor as the waiting diamond.
+	artifact: "✎",
 }
 
 // emojiGlyphs names each state rather than ranking it. Every mark is the
@@ -110,6 +118,7 @@ var emojiGlyphs = glyphSet{
 	delegating:    "📤",
 	background:    "🐚",
 	pending:       "📡",
+	hibernating:   "🌙",
 	muted:         "🔕",
 	deaf:          "🔇",
 	hookless:      "🔌",
@@ -129,6 +138,8 @@ var emojiGlyphs = glyphSet{
 	ticketTodo:    "💤",
 	ticketStarted: "🔄",
 	ticketDone:    "✅",
+	// Published is over, so the page reads as finished.
+	artifact: "✅",
 }
 
 const (
@@ -188,6 +199,8 @@ func statusGlyph(s string) string {
 		return currentGlyphs.background
 	case status.Pending:
 		return currentGlyphs.pending
+	case status.Hibernating:
+		return currentGlyphs.hibernating
 	case status.Errored, status.Dead:
 		return currentGlyphs.errored
 	default:

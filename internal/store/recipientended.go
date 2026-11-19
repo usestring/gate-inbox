@@ -36,7 +36,14 @@ const DropRecipientEnded = "recipient ended"
 //
 // A claimed message is dropped too: its paste was on its way to a pane that
 // no longer exists.
+//
+// A hibernated row keeps its queue. It was stopped only to give its memory
+// back and is woken by the mail waiting for it, so dropping that mail would
+// lose the very message that is meant to bring it back.
 func (s *Store) ResolveEndedRecipient(sessionID string, at time.Time) ([]InboxMessage, error) {
+	if hibernated, err := s.IsHibernated(sessionID); err != nil || hibernated {
+		return nil, err
+	}
 	stamp := encodeTime(at)
 	tx, err := s.db.Begin()
 	if err != nil {

@@ -27,6 +27,44 @@ func (t tracer) Start(name string, attrs ...slog.Attr) extension.TraceSpan {
 	return &span{name: name, start: time.Now(), attrs: attrs}
 }
 
+// Record is extension.SpanRecorder: spans the extension already timed and
+// placed, scoped like Start's and sampled as one unit.
+func (t tracer) Record(spans ...extension.SpanRecord) ([]extension.SpanContext, bool) {
+	if !tracing.Enabled() || len(spans) == 0 {
+		return nil, false
+	}
+	placed := make([]tracing.Placed, len(spans))
+	for i, s := range spans {
+		name, attrs := s.Name, s.Attrs
+		if t.scope != "" {
+			name = t.scope + "." + name
+			attrs = append([]slog.Attr{slog.String("extension", t.scope)}, attrs...)
+		}
+		links := make([]tracing.Link, 0, len(s.Links))
+		for _, l := range s.Links {
+			links = append(links, tracing.Link{TraceID: l.TraceID, SpanID: l.SpanID})
+		}
+		placed[i] = tracing.Placed{
+			Span:    tracing.Span{Name: name, Start: s.Start, End: s.End, Err: s.Err, Attrs: convertAttrs(attrs)},
+			TraceID: s.TraceID, SpanID: s.SpanID, ParentID: s.ParentID, Links: links,
+		}
+	}
+	kept, placed := tracing.RecordPlaced(placed)
+	out := make([]extension.SpanContext, len(placed))
+	for i, p := range placed {
+		out[i] = extension.SpanContext{TraceID: p.TraceID, SpanID: p.SpanID}
+	}
+	return out, kept
+}
+
+func convertAttrs(attrs []slog.Attr) []tracing.Attr {
+	out := make([]tracing.Attr, 0, len(attrs))
+	for _, attr := range attrs {
+		out = append(out, tracing.Attr{Key: attr.Key, Value: attrValue(attr.Value.Resolve())})
+	}
+	return out
+}
+
 type noSpan struct{}
 
 func (noSpan) End(error, ...slog.Attr) {}
@@ -40,11 +78,7 @@ type span struct {
 
 func (s *span) End(err error, attrs ...slog.Attr) {
 	s.once.Do(func() {
-		all := make([]tracing.Attr, 0, len(s.attrs)+len(attrs))
-		for _, attr := range append(s.attrs, attrs...) {
-			all = append(all, tracing.Attr{Key: attr.Key, Value: attrValue(attr.Value.Resolve())})
-		}
-		tracing.Record(s.name, s.start, time.Now(), err, all...)
+		tracing.Record(s.name, s.start, time.Now(), err, convertAttrs(append(s.attrs, attrs...))...)
 	})
 }
 

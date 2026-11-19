@@ -18,19 +18,19 @@ import (
 // wait has been, which is the right queue for a fleet of equals. A fleet
 // rarely is one: the session on the release, or the group holding the
 // customer's fix, matters more than a side experiment that happens to have
-// been waiting longer. The tier is the first key, and what lets that be said;
-// and it is stored on the session -- or the group, whose tier covers the
-// subtree -- because it is a fact about the work rather than about one
+// been waiting longer. The tier orders each band and is stored on the
+// session -- or the group, whose tier covers the subtree -- because it is
+// a fact about the work rather than about one
 // pass, which is what sets it apart from a mute (see mute.go).
 //
-// Among non-errored, unmuted sessions it lifts a session over lower tiers,
-// whatever either is doing: an urgent finished session goes before an untiered
-// question, and an urgent working one sits above both on the rail, because a
-// tier the wait, the state or an extension's deadline could outrank is a tier
-// the operator cannot rely on. The drain still enters only the rows it can,
-// so a working row leads the rail without being handed over. Within a tier
-// the usual order holds. Errored rows follow other unmuted rows because
-// their turn has already failed. A mute still sorts last: it says skip this one.
+// Sessions ready for input lead those still working, so the rail starts with
+// work the operator can act on, and among them a question leads, whatever its
+// tier bar low: an agent stopped on a dialog is stalled this second. Past that
+// a higher tier wins over state, deadline or wait: an urgent finished session
+// goes before an untiered finished one, but after an untiered question, and an
+// urgent working session waits below all of them. Errored rows
+// follow other unmuted rows because their turn has already failed. A mute
+// still sorts last: it says skip this one.
 //
 // The scale itself lives in internal/priority, because a goal's frontmatter
 // and a session's own declaration write the same tiers this key cycles.
@@ -40,12 +40,24 @@ import (
 // row's marker all read it, so what the rail paints is the order the drain
 // walks.
 func (m *Model) tierOf(sess store.Session) priority.Tier {
-	return store.EffectiveTier(m.priorityGroups, sess)
+	scale := m.scale()
+	tier := store.EffectiveTier(m.priorityGroups, sess)
+	if !m.reviewQueue {
+		return scale.Clamp(tier)
+	}
+	for _, r := range m.reviews {
+		if r.SessionID == sess.ID {
+			if origin := m.reviewOrigin(r); origin != nil {
+				tier = priority.Better(tier, store.EffectiveTier(m.priorityGroups, *origin))
+			}
+		}
+	}
+	return scale.Clamp(tier)
 }
 
 // cyclePrioritySelected walks the row under the cursor one step around the
 // tier cycle: the session, or the group whose subtree it should cover.
-// Pressing past Low clears it. The tier is written to the store rather than
+// Pressing past the scale's lowest tier clears it. The tier is written to the store rather than
 // kept on the model because it outlives the pass, the process and the
 // operator's memory of setting it.
 func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {
@@ -59,7 +71,7 @@ func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {
 			m.errBar.text = "root is every session — tier a group or a session instead"
 			return m, nil
 		}
-		next := priority.Next(m.priorityGroups[entry.group])
+		next := m.scale().Next(m.priorityGroups[entry.group])
 		if err := m.store.SetGroupPriority(entry.group, next); err != nil {
 			m.errBar.text = err.Error()
 			return m, nil
@@ -72,6 +84,7 @@ func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {
 		} else {
 			m.priorityGroups[entry.group] = next
 		}
+		m.replaceReviews(m.reviews)
 		m.rebuildRows()
 		m.requestRefresh()
 		m.reportDone(priorityReport(next, baseName(entry.group)))
@@ -84,7 +97,7 @@ func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {
 	// The session's own tier, not the effective one: cycling a row inside a
 	// tiered group must move that row's statement, not silently rewrite it
 	// to whatever the group already says.
-	next := priority.Next(sess.Priority)
+	next := m.scale().Next(sess.Priority)
 	if err := m.store.SetPriority(sess.ID, next); err != nil {
 		m.errBar.text = err.Error()
 		return m, nil
@@ -97,6 +110,7 @@ func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {
 			m.sessions[i].Priority = next
 		}
 	}
+	m.replaceReviews(m.reviews)
 	m.rebuildRows()
 	m.requestRefresh()
 	m.reportDone(priorityReport(next, m.displayName(sess)))
@@ -188,6 +202,6 @@ func (m *Model) priorityMarker(sess store.Session) string {
 
 // priorityLegend names what the next press of p would set, so the footer
 // teaches the cycle instead of only reporting where it currently is.
-func priorityLegend(current priority.Tier) string {
-	return "priority " + priority.Next(current).Label()
+func priorityLegend(scale priority.Scale, current priority.Tier) string {
+	return "priority " + scale.Next(current).Label()
 }

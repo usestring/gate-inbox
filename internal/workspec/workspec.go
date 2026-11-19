@@ -1,5 +1,5 @@
-// Package workspec decides what a session is working on: which pull requests and which tickets,
-// and on what evidence.
+// Package workspec decides what a session is working on: which pull requests, which tickets and
+// which published pages, and on what evidence.
 //
 // v1 had the regexes and applied them to the launch prompt alone, rendering the result as a dead
 // string on the row. This keeps the patterns and changes two things: the input widens to anything
@@ -21,6 +21,10 @@ type Kind string
 const (
 	KindPR     Kind = "pr"
 	KindTicket Kind = "ticket"
+	// KindArtifact is a page the session published: a Claude artifact, read from the session's
+	// own Artifact tool call, or a page an extension attached to the session when its tool
+	// published it. It has no state to look up.
+	KindArtifact Kind = "artifact"
 )
 
 // Provenance is how a reference was found, strongest first.
@@ -45,8 +49,13 @@ type Ref struct {
 	Repo string
 	// Number is the pull request number, 0 for a ticket.
 	Number int
-	// Identifier is the ticket key, e.g. "ABC-100002". Empty for a pull request.
+	// Identifier is the ticket key, e.g. "ABC-100002", or a published page's id. Empty for a
+	// pull request.
 	Identifier string
+	// URL is where a published page lives. Empty for a pull request and a ticket.
+	URL string
+	// Title is what a published page was called when it was published, when the call said.
+	Title      string
 	Provenance Provenance
 	// Inferred marks a pull request whose repository nobody stated: the text said "PR #39"
 	// and the repository came from the session's working directory. The number is evidence;
@@ -59,6 +68,9 @@ type Ref struct {
 func (r Ref) Key() string {
 	if r.Kind == KindTicket {
 		return "ticket:" + r.Identifier
+	}
+	if r.Kind == KindArtifact {
+		return "artifact:" + r.URL
 	}
 	return "pr:" + r.Repo + "#" + strconv.Itoa(r.Number)
 }
@@ -177,6 +189,45 @@ func ScanNamed(text string, names map[string]string, how Provenance) []Ref {
 	return refs
 }
 
+// artifactURL is the address of a Claude artifact, the one published-page shape the board reads
+// for itself: claude.ai/artifact/<id>, or claude.ai/code/artifact/<uuid>. Pages hosted anywhere
+// else reach the board through an extension, which attaches them with their address (AttachedRef).
+var artifactURL = regexp.MustCompile(`https://claude\.ai/(?:code/)?artifact/([A-Za-z0-9-]+)`)
+
+// ArtifactURLs is every published-page address in text, in order, each once.
+//
+// It is not run over what a session merely said. A session reads and links other people's pages
+// as often as it publishes its own, so only the result of the session's own publish call is
+// scanned with it; see ArtifactRef.
+func ArtifactURLs(text string) []string {
+	var urls []string
+	seen := map[string]bool{}
+	for _, url := range artifactURL.FindAllString(text, -1) {
+		if !seen[url] {
+			seen[url] = true
+			urls = append(urls, url)
+		}
+	}
+	return urls
+}
+
+// ArtifactRef is a Claude artifact the session published, from the address its Artifact call
+// returned. False for anything that is not a Claude artifact's address.
+func ArtifactRef(url, title string) (Ref, bool) {
+	url = strings.TrimSpace(url)
+	m := artifactURL.FindStringSubmatch(url)
+	if m == nil || m[0] != url {
+		return Ref{}, false
+	}
+	return Ref{Kind: KindArtifact, Identifier: m[1], URL: m[0], Title: title, Provenance: FromCreation}, true
+}
+
+// AttachedRef is a published page an extension attached to the session, by the id it gave it and
+// its address. The extension host has already checked the address, so nothing here reparses it.
+func AttachedRef(id, url, title string) Ref {
+	return Ref{Kind: KindArtifact, Identifier: id, URL: url, Title: title, Provenance: FromCreation}
+}
+
 // mustAtoi converts a run of digits the regexp already matched. A number too large for an int is
 // not a pull request anybody has, so it collapses to zero and Dedupe drops it.
 func mustAtoi(s string) int {
@@ -229,6 +280,9 @@ func Dedupe(refs []Ref) []Ref {
 		if ref.Kind == KindTicket && ref.Identifier == "" {
 			continue
 		}
+		if ref.Kind == KindArtifact && ref.URL == "" {
+			continue
+		}
 
 		key := ref.Key()
 		index, seen := at[key]
@@ -242,6 +296,11 @@ func Dedupe(refs []Ref) []Ref {
 		}
 		if !ref.Inferred {
 			out[index].Inferred = false
+		}
+		// A page republished under a new title is still the one page; the latest title is
+		// the one it now carries.
+		if ref.Title != "" {
+			out[index].Title = ref.Title
 		}
 	}
 

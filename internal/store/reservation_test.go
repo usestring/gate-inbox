@@ -4,11 +4,12 @@ package store
 
 import (
 	"fmt"
-	"github.com/usestring/gate-inbox/internal/tmuxtest"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // Agents reserving the same path at the same moment are the collision the
@@ -96,5 +97,119 @@ func TestReserveReportsOneOverlappingLeaseOnce(t *testing.T) {
 	}
 	if len(conflicts) != 1 || conflicts[0].ID != "held0001" {
 		t.Fatalf("conflicts = %+v, want the rival lease once", conflicts)
+	}
+}
+
+func TestLegacyReservationUsesTheHoldersDirectory(t *testing.T) {
+	st := newTestStore(t)
+	dir := t.TempDir()
+	if err := st.CreateSession(Session{ID: "holder", Cwd: dir}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	// The old insert did not record the resolved path or glob.
+	for _, lease := range []struct{ id, holder, pattern string }{
+		{"known", "holder", "dir/*.md"},
+		{"unknown", "orphan", "*.md"},
+	} {
+		if _, err := st.db.Exec(`
+INSERT INTO file_reservations (id, session_id, pattern, acquired_at, expires_at)
+VALUES (?, ?, ?, ?, ?)`, lease.id, lease.holder, lease.pattern, encodeTime(now), encodeTime(now.Add(time.Hour))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	conflicts, err := st.Reserve([]Reservation{{
+		ID: "new", SessionID: "rival", Pattern: filepath.Join(dir, "dir", "file.md"),
+		Mode: ReservationExclusive, AcquiredAt: now, ExpiresAt: now.Add(time.Hour),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) != 1 || conflicts[0].ID != "known" || conflicts[0].Pattern != "dir/*.md" {
+		t.Fatalf("conflicts = %+v, want only the lease with a known directory", conflicts)
+	}
+	if n, err := st.Release("orphan", "*.md"); err != nil || n != 1 {
+		t.Fatalf("release the unscoped lease by its original spelling = %d, %v", n, err)
+	}
+}
+
+func TestReleaseUsesTheListedSpellingAfterTheSessionMoves(t *testing.T) {
+	st := newTestStore(t)
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	const session = "holder"
+	if err := st.CreateSession(Session{ID: session, Cwd: oldDir}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	relative := filepath.Join("dir", "file.md")
+	if _, err := st.Reserve([]Reservation{{
+		ID: "old", SessionID: session, Pattern: relative, Mode: ReservationExclusive,
+		AcquiredAt: now, ExpiresAt: now.Add(time.Hour),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PromoteAdopted(session, newDir, ""); err != nil {
+		t.Fatal(err)
+	}
+	// The same relative name now points at another live lease in the new
+	// checkout. Releasing the listed spelling should leave that lease alone.
+	if _, err := st.Reserve([]Reservation{{
+		ID: "new", SessionID: session, Pattern: filepath.Join(newDir, relative),
+		Mode: ReservationExclusive, AcquiredAt: now, ExpiresAt: now.Add(time.Hour),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := st.Release(session, relative); err != nil || n != 1 {
+		t.Fatalf("release by listed spelling = %d, %v; want one lease released", n, err)
+	}
+	leases, err := st.Reservations(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leases) != 1 || leases[0].ID != "new" {
+		t.Fatalf("remaining leases = %+v, want only the lease in the new directory", leases)
+	}
+}
+
+func TestRenewalCoalescesLegacyPathAliases(t *testing.T) {
+	st := newTestStore(t)
+	dir := t.TempDir()
+	const session = "holder"
+	if err := st.CreateSession(Session{ID: session, Cwd: dir}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	relative := filepath.Join("dir", "file.md")
+	absolute := filepath.Join(dir, relative)
+	for _, lease := range []struct {
+		id, holder, pattern string
+		acquiredAt          time.Time
+	}{
+		{"z-first", session, relative, now.Add(-2 * time.Minute)},
+		{"a-alias", session, absolute, now.Add(-time.Minute)},
+		{"other", "rival", absolute, now.Add(-time.Minute)},
+	} {
+		if _, err := st.db.Exec(`
+INSERT INTO file_reservations (id, session_id, pattern, acquired_at, expires_at)
+VALUES (?, ?, ?, ?, ?)`, lease.id, lease.holder, lease.pattern, encodeTime(lease.acquiredAt), encodeTime(now.Add(time.Hour))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	expires := now.Add(2 * time.Hour)
+	if _, err := st.Reserve([]Reservation{{
+		ID: "renew", SessionID: session, Pattern: absolute, Mode: ReservationShared,
+		Note: "renewed", AcquiredAt: now, ExpiresAt: expires,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	leases, err := st.Reservations(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leases) != 2 || leases[0].ID != "z-first" || leases[1].ID != "other" {
+		t.Fatalf("leases = %+v, want the original lease and the other holder's lease", leases)
+	}
+	if got := leases[0]; got.Pattern != relative || got.Mode != ReservationShared || got.Note != "renewed" || !got.ExpiresAt.Equal(expires) {
+		t.Fatalf("renewed lease = %+v, want original spelling and renewed mode, note and expiry", got)
 	}
 }

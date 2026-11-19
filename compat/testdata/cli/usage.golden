@@ -1,4 +1,4 @@
-47 commands and verbs
+50 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -225,6 +225,17 @@ $ gate-inbox unpark -h
 exit 0
 --- stdout
 usage: gate-inbox unpark [--json]
+  -json
+    	print the raw result as JSON instead of a sentence
+
+$ gate-inbox hibernate -h
+exit 0
+--- stdout
+usage: gate-inbox hibernate [<session-id>] [--idle <duration>] [--dry-run] [--json]
+  -dry-run
+    	print what would be hibernated without stopping anything
+  -idle duration
+    	hibernate every session idle or finished for at least this long, instead of one named session
   -json
     	print the raw result as JSON instead of a sentence
 
@@ -485,3 +496,23 @@ exit 0
 usage: gate-inbox inbox serve [--listen <host:port>]
   -listen string
     	host:port to bind instead of [inbox] listen; keep it on loopback
+
+$ gate-inbox pr-owner -h
+exit 0
+--- stdout
+usage: gate-inbox pr-owner <canonical-url> [--json]
+  -json
+    	print the raw result as JSON instead of a sentence
+
+$ gate-inbox pr-feedback -h
+exit 0
+--- stdout
+usage: gate-inbox pr-feedback <canonical-url> --event-key <key> --expect-session-id <id> --message-file <path> [--json]
+  -event-key string
+    	durable event identity, 1-128 letters, digits, underscores or hyphens
+  -expect-session-id string
+    	resolved owner; a changed owner refuses a new delivery
+  -json
+    	print the raw result as JSON instead of a sentence
+  -message-file string
+    	UTF-8 feedback file, at most 8000 bytes

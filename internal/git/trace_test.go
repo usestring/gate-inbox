@@ -37,8 +37,9 @@ func TestEachForkIsNamedBySubcommand(t *testing.T) {
 	if span.Attr("git.subcommand") != "rev-parse" {
 		t.Errorf("git.subcommand = %v, want rev-parse", span.Attr("git.subcommand"))
 	}
-	if span.Attr("dir") != dir {
-		t.Errorf("dir = %v, want %s", span.Attr("dir"), dir)
+	// A directory is a path, which names a person and a repository.
+	if span.Attr("dir") != nil {
+		t.Errorf("span carries its directory %v", span.Attr("dir"))
 	}
 	if span.Failed {
 		t.Error("the call succeeded, so its span must not carry a failure")

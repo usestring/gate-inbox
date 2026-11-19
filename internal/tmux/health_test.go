@@ -122,6 +122,24 @@ func TestAHealthyConfigReportsNothing(t *testing.T) {
 	}
 }
 
+// tmux holds Esc for escape-time before the board sees it, so a long hold is
+// reported with its value and the line that shortens it; a short or
+// unreadable one is not.
+func TestASlowEscapeTimeIsReportedWithTheLineThatFixesIt(t *testing.T) {
+	finding := findingByKey(t, escapeFindings("500"), FindingEscapeTime)
+	if finding.Fix != "set -s escape-time 10" {
+		t.Fatalf("fix line = %q", finding.Fix)
+	}
+	if !strings.Contains(finding.Detail, "500ms") {
+		t.Fatalf("detail never names the value: %q", finding.Detail)
+	}
+	for _, value := range []string{"10", "50", "0", ""} {
+		if findings := escapeFindings(value); len(findings) != 0 {
+			t.Errorf("escape-time %q reported %v", value, findingKeys(findings))
+		}
+	}
+}
+
 func TestClientTargetSplitsTheTmuxEnvironment(t *testing.T) {
 	socket, session, ok := clientTarget("/tmp/tmux-1000/default,32832,219")
 	if !ok || socket != "/tmp/tmux-1000/default" || session != "$219" {

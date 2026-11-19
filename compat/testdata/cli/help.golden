@@ -45,7 +45,9 @@ Agent sessions
   gate-inbox park [--dry-run] [--json]
       stop every live agent session the manager started and record the set, so the machine can reboot; --dry-run only prints the plan; runs from any shell
   gate-inbox unpark [--json]
-      bring back every session park stopped, resuming the conversation each held; runs from any shell
+      bring back every session park stopped, each on the conversation it held: work in flight first, only the ones interrupted told to continue, paced one at a time; runs from any shell
+  gate-inbox hibernate [<session-id>] [--idle <duration>] [--dry-run] [--json]
+      stop an idle agent to give its memory back while keeping its row, mail and claims; the next message for it, from anyone, wakes it on its conversation; --idle <duration> hibernates every session at rest that long; runs from any shell
   gate-inbox groups [--json]
       list the groups sessions and terminals are filed under
   gate-inbox create-group <path> [--directory <path>] [--pin] [--json]
@@ -117,8 +119,16 @@ Remote inbox
   gate-inbox inbox serve [--listen <host:port>]
       serve POST /inbox on loopback until stopped; configured under [inbox], tokens from the environment or a 0600 file
 
+Pull request custody
+  gate-inbox pr-owner <canonical-url> [--json]
+      resolve recorded PR custody to one live session; never revive or infer ownership from mentions
+  gate-inbox pr-feedback <canonical-url> --event-key <key> --expect-session-id <id> --message-file <path> [--json]
+      queue feedback once for a proven PR owner; acceptance is durable, delivery uses normal inbox guards
+
 Options:
   -h, --help     Show this help text
   -v, --version  Print the installed version
   --log-path     Print where the diagnostic log is written (alias: logs)
+  dump           Ask the running board for its recent inputs and goroutine stacks,
+                 written next to the log (run before restarting a stuck board)
 

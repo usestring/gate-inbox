@@ -21,7 +21,7 @@ func (b *Board) SwitchAccount(ctx context.Context, id, account string) (extensio
 	if err := ctx.Err(); err != nil {
 		return extension.SessionInfo{}, err
 	}
-	switched, err := b.cmds.BoardSwitchAccount(id, account)
+	switched, err := b.cmds.BoardSwitchAccount(id, account, extension.IsLimitMove(ctx))
 	if err != nil {
 		return extension.SessionInfo{}, err
 	}

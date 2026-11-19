@@ -3,7 +3,9 @@ package search
 import (
 	"bytes"
 	"encoding/json"
+	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // toolCall is one half of a tool invocation as a transcript records it: the
@@ -13,7 +15,20 @@ type toolCall struct {
 	result bool
 	text   string
 	poll   bool
+	// publish marks a call that publishes a page, and title is what the call named it, when it
+	// said. Its result is read for the page's address rather than for a pull request.
+	publish bool
+	title   string
 }
+
+// artifactMark finds the calls that publish a page with Claude Code's own Artifact tool, and
+// artifactResultMark the results that can carry a published page's address. Pages an
+// extension's tool publishes are not read from the transcript: the extension attaches them to
+// the session itself, through extension.AttachWork.
+var (
+	artifactMark       = []byte(`"name":"Artifact"`)
+	artifactResultMark = []byte(`/artifact/`)
+)
 
 var (
 	// createsPR is the command a session opens a pull request with. The
@@ -45,7 +60,8 @@ var (
 // none and are rejected by a byte search before any JSON is decoded.
 func lineCalls(tool string, line []byte) []toolCall {
 	command := bytes.Contains(line, prCreateMark) || bytes.Contains(line, ghPrMark) || bytes.Contains(line, pollMark) || bytes.Contains(line, waitMark)
-	result := bytes.Contains(line, pullMark) && bytes.Contains(line, toolResultMark) || bytes.Contains(line, codexCallOut)
+	result := (bytes.Contains(line, pullMark) || bytes.Contains(line, artifactResultMark)) && bytes.Contains(line, toolResultMark) || bytes.Contains(line, codexCallOut)
+	command = command || bytes.Contains(line, artifactMark)
 	if !command && !result {
 		return nil
 	}
@@ -56,6 +72,40 @@ func lineCalls(tool string, line []byte) []toolCall {
 		return codexCalls(line)
 	}
 	return nil
+}
+
+// publishes reports whether a tool call publishes a page with Claude Code's Artifact tool: its
+// publish action, which is also what it does with no action at all. Reading, listing or opening
+// an artifact is not publishing one.
+func publishes(name, action string) bool {
+	return name == "Artifact" && (action == "" || action == "publish")
+}
+
+// publishTitle is what a publish call named its page: a title when it gave one, otherwise the
+// file it published, without its directory or extension.
+func publishTitle(input publishInput) string {
+	if input.Title != "" {
+		return input.Title
+	}
+	if input.FilePath == "" {
+		return ""
+	}
+	base := filepath.Base(input.FilePath)
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+// publishInput is the part of a publish call's arguments the board reads.
+type publishInput struct {
+	Action   string `json:"action"`
+	Title    string `json:"title"`
+	FilePath string `json:"file_path"`
+	// Asset is the Artifact tool uploading a file into an existing page, not publishing one.
+	Asset bool `json:"asset"`
+}
+
+// publishCall is a call that publishes a page, as a toolCall.
+func publishCall(id string, input publishInput) toolCall {
+	return toolCall{id: id, publish: true, title: publishTitle(input)}
 }
 
 // claudeCalls: tool_use blocks sit in assistant rows and tool_result blocks in
@@ -72,6 +122,7 @@ func claudeCalls(line []byte) []toolCall {
 	var blocks []struct {
 		Type      string          `json:"type"`
 		ID        string          `json:"id"`
+		Name      string          `json:"name"`
 		ToolUseID string          `json:"tool_use_id"`
 		Input     json.RawMessage `json:"input"`
 		Content   json.RawMessage `json:"content"`
@@ -83,6 +134,11 @@ func claudeCalls(line []byte) []toolCall {
 	for _, block := range blocks {
 		switch block.Type {
 		case "tool_use":
+			var publish publishInput
+			if json.Unmarshal(block.Input, &publish) == nil && !publish.Asset && publishes(block.Name, publish.Action) {
+				calls = append(calls, publishCall(block.ID, publish))
+				continue
+			}
 			var input struct {
 				Command string `json:"command"`
 			}

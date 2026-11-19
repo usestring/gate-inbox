@@ -8,17 +8,21 @@
 </p>
 
 <p align="center">
-  A terminal board for running and triaging many AI coding-agent sessions in tmux.
+  One priority queue for every coding agent waiting on you. Answer one, and the next comes up on its own.
 </p>
 
-![Spawning two agents, watching their status, then answering the one that is waiting from the triage queue](docs/demo/core-loop.gif)
+![Triage working through four agents in priority order: the urgent question first, then the next question, then a high-priority finished session, each answer advancing the queue on its own](docs/demo/triage.gif)
 
-<p align="center"><em>Spawn two agents, watch their status, answer the waiting one from the triage queue, and it hands over the next.</em></p>
+<p align="center"><em><code>ctrl+i</code> opens the queue at its head. Each answer hands that session back to its agent and brings up the next.</em></p>
 
-Gate Inbox puts every coding agent on your machine in one list with live status, so the session
-that is blocked on you is visible without hunting through terminal tabs. Claude Code, Codex and
-OpenCode v2 work out of the box and run side by side, each in its own tmux session. Any other CLI
-can be added as a `[tools.<name>]` block in the config.
+Gate Inbox turns the coding agents on your machine into one queue. Every session that needs you, whether
+it is stopped on a question, finished, or idle, is lined up by priority and state. `ctrl+i` opens
+the head of the queue, and answering it advances to the next one, so you work through the queue
+without picking the next session or hunting through terminal tabs. Mark a session urgent, high, medium or
+low with `ctrl+p` and it moves to that place in the queue.
+
+Claude Code, Codex and OpenCode v2 work out of the box and run side by side, each in its own tmux
+session. Any other CLI can be added as a `[tools.<name>]` block in the config.
 
 It is a thin layer over the CLIs you already have. Each session launches your installed tool as-is,
 so your login, config files, MCP servers and every feature the tool ships carry over unchanged.
@@ -31,22 +35,23 @@ Gate Inbox reads the panes; it does not sit between you and the model.
    [Install](#install) below.
 2. **Start it.** Run `gate-inbox`, inside tmux or outside it. The welcome card lists which of your
    agent CLIs are ready, the five keys that matter, and any agents you already have running in
-   tmux. `n` on the card starts your first session.
+   tmux. `ctrl+n` on the card starts your first session.
 3. **Agents you already had.** Anything you started by hand in tmux shows up on the board as-is,
-   and stays where it is: the board never ends your process unasked. `a` on its row (or on the
+   and stays where it is: the board never ends your process unasked. `ctrl+alt+a` on its row (or on the
    toast that names a pane started while the board is up) brings it in: once it is idle, it is
-   relaunched on the same conversation as a board session. `o` leaves it off the board. What a
-   pane kept as-is misses is [below](#kept-as-is-or-relaunched); settings (`s`) has "outside
+   relaunched on the same conversation as a board session. `ctrl+o` leaves it off the board. What a
+   pane kept as-is misses is [below](#kept-as-is-or-relaunched); settings (`ctrl+alt+s`) has "outside
    panes" to take them over once idle without asking.
-4. **The loop.** `n` starts an agent, `enter` focuses it, `ctrl+q` comes back to the list, `i`
-   walks everything waiting on you, and `h` shows every key.
-5. **Leaving and coming back.** `q` quits and the agents keep running. When you start it again,
+4. **The loop.** `ctrl+n` starts an agent, `ctrl+p` sets its priority, `ctrl+i` works through the queue
+   of everything waiting on you, `enter` focuses one session, `ctrl+q` comes back to the list, and
+   `ctrl+h` shows every key.
+5. **Leaving and coming back.** `ctrl+alt+q` quits and the agents keep running. When you start it again,
    the board offers back only the sessions that *died* (a reboot, tmux restarting, a crash),
    never the ones you ended yourself. [Stop using it](#stop-using-it) covers stopping for good.
 
 ### Kept as-is or relaunched?
 
-| An agent pane you started by hand, kept as-is (the default)... | Brought into the board (`a`), it... |
+| An agent pane you started by hand, kept as-is (the default)... | Brought into the board (`ctrl+alt+a`), it... |
 |---|---|
 | keeps running where it is, in its own window | is ended once idle and resumed on the same conversation as a board session |
 | gets the board's MCP tools (spawn, message, tasks) through the relay the board registers in your Claude Code user config (Claude Code only; other CLIs get none) | gets them |
@@ -54,7 +59,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 | reports status through the hooks the board registers in your Claude Code user settings (Claude Code only) | reports status through the hooks it is launched with |
 | lacks the `GATE_INBOX_*` environment, extension settings and a fresh account token | gets all three |
 | can't be forked, migrated, restarted or revived without a conversation id | can, on its own conversation |
-| gets the back-to-board keys when the board attaches it (`A`), not its title and colours | gets them all |
+| gets the back-to-board keys when the board attaches it (`ctrl+a`), not its title and colours | gets them all |
 | keeps the flags and `--model` it was started with | is started from your config, so it doesn't keep them |
 
 ## Install
@@ -78,18 +83,22 @@ updating.
 gate-inbox
 ```
 
-1. `n` starts an agent in the group under the cursor and focuses it. Type the task.
+1. `ctrl+n` starts an agent in the group under the cursor and focuses it. Type the task.
 2. `ctrl+q` goes back to the list. Each row shows its status as the agent works.
-3. `i` opens the triage queue, starting with the session that has waited longest.
-4. Answer it. The queue hands you the next one.
-5. `h` shows every key for the current screen, and `s` opens settings.
+3. `ctrl+i` opens the queue at its head: questions first, then by priority.
+4. Answer it. The queue advances to the next one on its own.
+5. `ctrl+h` shows every key for the current screen, and `ctrl+alt+s` opens settings.
 
 Sessions live in tmux, so quitting the board leaves them running. Start `gate-inbox` again and it
 picks them back up.
 
 ## The core loop
 
-**Spawn.** `n` starts a session in the selected group. `ctrl+n` opens the full form (tool, name,
+![Spawning two agents, watching their status, then answering the one that is waiting from the queue](docs/demo/core-loop.gif)
+
+<p align="center"><em>Spawn two agents, watch their status, and answer the one waiting from the queue.</em></p>
+
+**Spawn.** `ctrl+n` starts a session in the selected group. `ctrl+alt+n` opens the full form (tool, name,
 directory, first prompt, group). Agents name their own sessions after the task.
 
 **Reuse prompts (experimental).** Enable **Prompt suggestions** under Settings → Experimental
@@ -98,8 +107,9 @@ directory, first prompt, group). Agents name their own sessions after the task.
 accepting does not launch the session. Suggestions come from the newest 16 MiB of each CLI's
 submission log within the past 30 days. A whole prompt or a line in a multi-line prompt must occur
 at least four times to qualify. Counting ignores case and repeated whitespace, and each submission
-counts once per candidate. The logs are reread in the background every minute. History and matching
-stay local; this feature makes no network requests. The hotkey-only snippet menu is unchanged.
+counts once per candidate. The logs are reread in the background every minute. Gate Inbox matches
+prompts against history locally. Enable **Auto Suggest** as well to rank those matches with the selected
+classifier. The hotkey-only snippet menu is unchanged.
 
 **See status.** Every row shows whether its agent is working, waiting on you, finished or idle,
 read from the pane itself. The preview beside the list shows the conversation as **You** and
@@ -107,30 +117,38 @@ read from the pane itself. The preview beside the list shows the conversation as
 its latest terminal activity, including text the CLI has not saved yet. Older message groups shorten
 to four lines; the newest stays full, hovering expands an older group, and F3 toggles the preview's
 detail. Focus mode uses the terminal by default; F3 switches between conversation and terminal and
-remembers the choice. Shell sessions always show the terminal. `w` filters the list
-to what needs attention, and `/` searches names, titles, groups, statuses and what the sessions have said.
+remembers the choice. Shell sessions always show the terminal. `ctrl+w` filters the list
+to what needs attention, and `ctrl+f` searches names, titles, groups, statuses and what the sessions have said.
 
-**Triage.** `i` flattens the groups into one queue ordered by what needs a person: waiting first,
-then finished, then errored, longest-blocked first inside each. Picking an option in a dialog, or
-sending a reply, hands that session back to its agent and opens the next one. `ctrl+q` moves on
-without answering, and `ctrl+\` stops triage. `alt+\` puts the list away for a full-width drain,
-and `alt+,` hides the key hints.
+**Work the queue.** `ctrl+i` flattens the group under the cursor into one queue and opens its head.
+A session stopped on a question comes first unless it is marked low priority. After that, a higher
+priority goes ahead of a lower one, and within one priority a question goes ahead of a finished
+session, which goes ahead of an idle one. Sessions still working wait below everything ready for
+you. Picking an option in a dialog, or sending a reply, hands that session back to its agent and
+advances the queue to the next one. A session that becomes ready while you work joins the queue in
+place, and when the group is empty the queue widens to the rest of the board. `ctrl+q` moves a
+session to the back without answering; it returns after the rest of the queue. Restarting triage
+clears that order. `ctrl+\` stops. `alt+\` puts the list away for full-width work, and `alt+,`
+hides the key hints. `triage order` in Settings switches to priority first, oldest first, or
+questions only; [`docs/usage.md`](docs/usage.md#walking-the-queue) has the full ordering.
 
-![Triage draining four agents full-width: each answer hands the session back and the next one that needs input comes up on its own](docs/demo/triage.gif)
-
-<p align="center"><em>Triage with the list put away. Answer one session and the next that needs you comes up on its own.</em></p>
+**Set priority.** `ctrl+p` steps a session or group through high, medium, low and none, from the
+list or from inside the session. `priority tiers` in Settings picks up to three tiers above the
+default and up to three below; the default is two above and one below. `ctrl+m` mutes a session to keep it out of the queue.
 
 **Switch subscriptions or agents.** Select a session and press `alt+a` to switch its subscription,
-or `ctrl+t` to move its conversation to another CLI. When the selected session hits a usage limit,
-the board offers to continue on Codex (or another configured CLI), switch its subscription, or leave
-it for later. Each move opens its review card before starting anything. Dismissing the offer keeps
-it closed for that limit; the shortcuts remain available. On macOS, `alt` is Option.
+or `ctrl+t` to move its conversation to another CLI. When a session hits a usage limit and a
+build extension routes its accounts, that extension moves it to another subscription in the
+background, whichever session is selected. Otherwise the selected session's card offers another
+subscription of the same CLI, or leaving it for later; `[board] offer_cli_on_limit = true` adds
+the other configured CLIs as further choices. Each move opens its review card before starting
+anything. Dismissing the offer keeps it closed for that limit; the shortcuts remain available. On macOS, `alt` is Option.
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
-`alt+pgup` / `alt+end` scroll back through its output and return to the live bottom. `space`
+`alt+pgup` / `alt+end` scroll back through its output and return to the live bottom. `ctrl+s`
 opens the hotkey menu, which sends one of your snippets to the selected session without focusing it; a
-lettered snippet also sends on `option+<key>` in one press, no menu. `T` opens a shell tab under the
+lettered snippet also sends on `option+<key>` in one press, no menu. `ctrl+alt+t` opens a shell tab under the
 selected agent for builds and one-off commands.
 
 ![Focusing a session full-width, typing a three-line instruction, watching the agent answer, and scrolling back through the reply](docs/demo/focus.gif)
@@ -139,24 +157,25 @@ selected agent for builds and one-off commands.
 
 | Key | Action |
 |-----|--------|
-| `n` / `ctrl+n` | New session, quick or with the full form |
-| `space` | Hotkey menu: send a snippet to the selected session |
+| `ctrl+n` / `ctrl+alt+n` | New session, quick or with the full form, also from the Reviews queue |
+| `ctrl+]` | Switch between Sessions and Reviews, including from a focused session |
+| `ctrl+s` | Hotkey menu: send a snippet to the selected session |
 | `enter` | Focus the session; `ctrl+q` returns to the list |
-| `i` | Triage queue; `\` hides the list for a full-width drain |
-| `w` | Show only what needs attention |
-| `Y` | Show only one CLI's sessions, cycling through the harnesses on the board |
-| `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
-| `ctrl+p` / `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none. `ctrl+p` also works from a focused session, and the row flashes its new tier |
-| `M` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
+| `ctrl+i` | Triage queue; `\` hides the list for a full-width drain |
+| `ctrl+w` | Show only what needs attention |
+| `ctrl+y` | Show only one CLI's sessions, cycling through the harnesses on the board |
+| `ctrl+f` | Fuzzy search; `esc` closes the field, deleting the text clears it |
+| `ctrl+p` | Priority tier for a session or group; each press steps high → medium → low → none on the default scale (`priority tiers` in Settings allows up to +3 / -3). `ctrl+p` also works from a focused session, and the row flashes its new tier |
+| `ctrl+m` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
 | `ctrl+t` / `alt+a` | Move the conversation to another CLI / switch its subscription |
-| `T` | Shell tab under the selected agent |
-| `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
-| `:` / `ctrl+k` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
-| `h` / `s` | Key map for the current screen / settings |
+| `ctrl+alt+t` | Shell tab under the selected agent |
+| `ctrl+x` / `ctrl+r` | Kill a session to free its RAM / revive it on its own conversation |
+| `ctrl+k` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
+| `ctrl+h` / `ctrl+alt+s` | Key map for the current screen / settings |
 
 Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
 
-Every binding is a default, and `h` is where you rebind one. [`docs/usage.md`](docs/usage.md) is
+Every binding is a default, and `ctrl+h` is where you rebind one. [`docs/usage.md`](docs/usage.md) is
 the complete reference.
 
 ## Agents working with agents
@@ -208,6 +227,37 @@ enabled = false
 enabled = false
 ```
 
+**PR custody for automation.** A confirmed replacement or account migration hands the original
+session's recorded pull requests to its successor. The original records remain, and ordinary
+restarts keep the same identity. Parallel migrations do not transfer custody until completed.
+
+`gate-inbox pr-owner https://github.com/owner/repo/pull/1 --json` returns `status` as `owned`,
+`none`, or `ambiguous`, with a lowercase `url`. An owned result has a flat `session_id`;
+an ambiguous result lists `session_ids`. Only recorded creation evidence and explicit handoffs
+count. The recipient must be a live, nonarchived agent. Broken lineage and an unavailable board
+are errors, never evidence that nobody owns the PR. GitHub owner/repository casing is ignored.
+
+To queue feedback, use `gate-inbox pr-feedback <url> --event-key <key>
+--expect-session-id <id> --message-file <path> --json`. Keys contain 1–128 letters, digits,
+underscores or hyphens; files contain 1–8000 bytes of UTF-8 text. The response contains `status`
+(`accepted` or `duplicate`), a positive integer `message_id`, `session_id`, `url`, and `event_key`.
+A new acceptance atomically checks the resolved owner and queues an ordinary noninterrupting
+system message. Approval and input guards still govern delivery. It never revives a session.
+
+Retry the same key and exact file after an uncertain response. Reusing a key for different
+content or another PR fails. Receipts survive restarts and handoffs; a duplicate reports the
+message's current recipient while its inbox row exists, otherwise its original accepted recipient.
+Acceptance does not promise delivery. Pending messages follow committed handoffs once; migration
+leaves messages already being delivered with the source. Receipts remain in the existing settings
+store without expiry so an old retry cannot silently enqueue again. A changed or ambiguous owner
+refuses new feedback; callers should defer on errors rather than infer permission to start work.
+
+Pages a session publishes hang under it too, below its pull requests and tickets. The board reads
+Claude artifacts from Claude Code's own `Artifact` tool itself, and only those the session's own
+publish call returned: a page it merely linked does not count. Pages hosted elsewhere arrive from
+an extension, which attaches them when its tool publishes one (see **Extensions**). Either way the
+page is kept in the state database, so it survives a restart. Opening the row opens the page.
+
 **Remote inbox.** `gate-inbox inbox serve` takes a text message over HTTP, such as dictation from
 a phone's Shortcut, and starts a router session on the board for it. It binds loopback, and is meant
 to be reached only over a private network such as Tailscale serve, with one token per client.
@@ -218,10 +268,16 @@ recipe.
 package; the `app` package runs the board with whichever extensions a build carries. This build
 carries none, so an `[extensions.artifacts]` section left from an earlier version is ignored. A build
 of your own lists its extensions in `app.Options`. A section an extension refuses switches off that
-extension alone, and a section no extension in the build owns is ignored; the board's `?` key map and
+extension alone, and a section no extension in the build owns is ignored; the board's `ctrl+h` key map and
 each session's MCP instructions say which and why. A disabled extension that has a say in
 which sessions spawn fails closed: every spawn it would have been asked about is refused, with the
 reason, until its section is fixed.
+
+An extension whose tool publishes something can put it among the calling session's work rows with
+`extension.AttachWork(ctx, session.Host, extension.WorkItem{Kind: extension.WorkArtifact, ID: id,
+Title: title, URL: url})`. Attaching the same `ID` again replaces that row's title and address, so
+a republish does not add a second one. A Host that cannot attach work, such as a test fake, returns
+`extension.ErrWorkUnsupported`.
 
 ### Skill priority hook
 
@@ -231,7 +287,8 @@ Claude Code can rank a session from an optional skill frontmatter field:
 gate-inbox-priority: high
 ```
 
-The accepted tiers are `urgent`, `high`, `medium`, and `low`. The last invoked skill with a tier
+The accepted tiers are `urgent`, `high`, `medium`, `low`, `lower` and `lowest`; the board shows a
+tier past its configured scale at the scale's edge. The last invoked skill with a tier
 wins. The hook reads skills from `$CLAUDE_PROJECT_DIR/skills` first, then
 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills`. It runs for the `Skill` tool and a prompt beginning
 with `/<skill>`. Skills without a valid tier leave priority unchanged.
@@ -273,6 +330,27 @@ Keep that checkout available at the linked path. Merge these entries into the pr
 
 Run `bash hooks/skill-gate-inbox-priority.test.sh` from the Gate Inbox checkout to test the hook.
 
+## Experimental features
+
+Gate Inbox uses TypeSafe's Jev as the default classifier for three opt-in features. Add a Jev API
+key under Settings → Classifier, then enable the features you want under Settings → Experimental.
+You can also select Clef as the classifier.
+
+- **Finish check.** When a Claude Code session finishes, Gate Inbox can ask Jev whether the task
+  is done and whether the agent stopped because it needed Chrome access. If Jev is confident that
+  missing Chrome access blocked unfinished work, Gate Inbox can resume the same conversation
+  with Chrome enabled.
+- **Auto Suggest.** Jev ranks earlier prompts from an existing session against the recent
+  conversation to suggest a next reply. With **Prompt suggestions** also enabled, Jev ranks
+  matching prompts from local history against the draft in the New Session form. You can edit
+  the suggestion before sending it.
+- **Smart copy.** When you press the copy key, Jev identifies commands, links, or values the agent
+  left for you in its latest reply. A separate run key lets you run a selected one-line command
+  in the session.
+
+See the [usage guide](docs/usage.md#hotkey-menu) for the controls and what text each feature sends
+to the classifier.
+
 ## Development
 
 ```bash
@@ -295,12 +373,24 @@ third-party licences.
 
 ## Stop using it
 
-**Quit.** `q` quits the board. Its agents keep running in tmux as `gi_<id>` sessions and are
+**Quit.** `ctrl+alt+q` quits the board. Its agents keep running in tmux as `gi_<id>` sessions and are
 picked back up next time.
 
 **Stop every agent.** `gate-inbox park` ends every live agent the board started and records the
-set. It runs from any shell, and `--dry-run` prints the plan first. `gate-inbox unpark` brings
-the same sessions back on their conversations. A single one: `gate-inbox kill <id>`, with the id
+set. It runs from any shell, and `--dry-run` prints the plan first. Park reads every session's
+state before it stops any of them: a session that was mid-turn, starting, or waiting on a
+background shell, and every session tracking one of those up to its root, has work in flight. The
+rest (idle, finished, asking you something, stopped on a limit) is dormant. With `hibernate_after`
+set, a session that hibernation would already take is hibernated instead of parked: it stays on the
+board, marked `◓ hibernating` rather than dead, and wakes on its conversation when a message
+arrives for it or you enter it, rather than coming back with the rest. `gate-inbox unpark`
+brings every parked session back on its conversation, parents before their children: the work in
+flight first, telling only the ones stopped mid-turn to continue, then the dormant ones with nothing
+sent, so they cost no tokens. Each relaunch waits its turn in the shared relaunch queue (see
+`[relaunch]` in [configuration](docs/configuration.md)), so a reboot's worth of agents comes back
+one at a time rather than at once. A board that starts on a host rebooted since the park runs the
+unpark by itself after about 20 seconds. Sending to a session still waiting its turn brings it back
+straight away and types your message in once it is at its prompt. A single one: `gate-inbox kill <id>`, with the id
 from `gate-inbox sessions`. From inside a managed agent session, `gate-inbox stop` ends that
 session and preserves its row and conversation for an explicit revive. It records an intentional
 stop, so startup recovery does not offer it as a lost session. `gate-inbox stop --archive` also
@@ -324,10 +414,10 @@ directory's most recent one.
 
 **Uninstall.**
 
-1. `gate-inbox park`. In Settings (`s`), switch "claude code setup" off so the board takes its
+1. `gate-inbox park`. In Settings (`ctrl+alt+s`), switch "claude code setup" off so the board takes its
    hooks and MCP relay back out of your Claude Code config, run `gate-inbox codex-hooks
    uninstall` to take its hooks out of your Codex config, set `[opencode] setup = false` in
-   `config.toml` so it takes its plugin out of your OpenCode config, then quit the board with `q`.
+   `config.toml` so it takes its plugin out of your OpenCode config, then quit the board with `ctrl+alt+q`.
 2. Remove the binary: `rm "$(command -v gate-inbox)"`.
 3. Remove the config and state directory. That's `$GATE_INBOX_HOME` if you set it, otherwise
    `~/.config/gate-inbox` on Linux (`$XDG_CONFIG_HOME/gate-inbox` if that's set) and

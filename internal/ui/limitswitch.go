@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -67,12 +68,16 @@ func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 		// was first offered on, whichever launch shows it now.
 		return nil
 	}
-	targets := slices.DeleteFunc(m.enabledToolNames(), func(name string) bool { return name == sess.Tool })
-	if i := slices.Index(targets, "codex"); i > 0 {
-		targets[0], targets[i] = targets[i], targets[0]
-	}
 	account := m.cfg.Tools[sess.Tool].AccountEnv != ""
-	if len(targets) == 0 && !account {
+	// With the build's chooser routing accounts, the extension that routes
+	// them moves a limited session in the background, whichever session the
+	// board is showing; a card here would only race it. The opt-in to other
+	// CLIs still asks, since nothing moves a session to another CLI unasked.
+	if account && !m.cfg.Board.OfferCLIOnLimit && m.accountsRouted() {
+		return nil
+	}
+	targets := m.limitTargets(sess.Tool, account)
+	if len(targets) == 0 {
 		return nil
 	}
 	if m.limitSwitchSeen == nil {
@@ -87,6 +92,37 @@ func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 	m.mode = modeLimitSwitch
 	m.frameReuse = false
 	return cmd
+}
+
+// subscriptionTarget is the card's choice of another account of the same
+// CLI, listed among the CLIs it can move to.
+const subscriptionTarget = ""
+
+// limitTargets is what the limit card offers, its default first: another
+// subscription of the same CLI when the CLI has accounts, then, only when
+// the operator opted in with [board] offer_cli_on_limit, every other enabled
+// CLI in the operator's order. No CLI is ever promoted ahead of the
+// subscription.
+func (m *Model) limitTargets(tool string, account bool) []string {
+	var targets []string
+	if account {
+		targets = append(targets, subscriptionTarget)
+	}
+	if m.cfg.Board.OfferCLIOnLimit {
+		targets = append(targets, slices.DeleteFunc(m.enabledToolNames(), func(name string) bool { return name == tool })...)
+	}
+	return targets
+}
+
+// accountsRouted reports whether launches take their account from the
+// build's chooser: an extension is routing accounts, so it owns moving a
+// limited session too.
+func (m *Model) accountsRouted() bool {
+	if m.store == nil || !accounts.ChooserAvailable() {
+		return false
+	}
+	mode, err := accounts.Mode(m.store)
+	return err == nil && mode == accounts.Extension
 }
 
 func (m *Model) handleLimitSwitchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -108,7 +144,8 @@ func (m *Model) handleLimitSwitchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.limitSwitch.index = (m.limitSwitch.index + delta + n) % n
 		}
 	case "enter":
-		return m.reviewLimitSwitch(len(m.limitSwitch.targets) == 0)
+		s := m.limitSwitch
+		return m.reviewLimitSwitch(s.targets[s.index] == subscriptionTarget)
 	}
 	return m, nil
 }
@@ -145,13 +182,18 @@ func (m *Model) viewLimitSwitch() string {
 	body := valueStyle.Render(s.source.Name) + mutedStyle.Render(" on "+s.source.Tool) + "\n\n" +
 		s.banner + "\n\n"
 	keys := [][2]string{{"esc", "later"}}
-	if len(s.targets) > 0 {
+	if s.targets[s.index] == subscriptionTarget {
+		body += "Switch to another " + s.source.Tool + " subscription and resume this conversation?\n" +
+			mutedStyle.Render("Review the switch before the session restarts.")
+	} else {
 		body += "Continue this conversation on " + valueStyle.Render(s.targets[s.index]) + "?\n" +
 			mutedStyle.Render("Review the move before starting the new session.")
-		keys = append([][2]string{{"↵", "review move"}, {"tab", "CLI"}}, keys...)
 	}
-	if s.account {
-		body += "\n\nOr switch to another " + s.source.Tool + " subscription."
+	if len(s.targets) > 1 {
+		keys = append([][2]string{{"tab", "other choice"}}, keys...)
+	}
+	keys = append([][2]string{{"↵", "review"}}, keys...)
+	if s.account && s.targets[s.index] != subscriptionTarget {
 		keys = append(keys, [2]string{m.cap(keymap.ContextLimitSwitch, keymap.SwitchAccount), "subscription"})
 	}
 	return m.card("Usage limit reached", ansi.Wrap(body, cardInnerWidth(m.cardWidth()), ""), keys)

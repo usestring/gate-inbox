@@ -75,6 +75,17 @@ type sessions struct {
 	cmds     *sessioncmd.Sessions
 }
 
+// callerFor is the session a call acts as: the caller the MCP server put on
+// the request, which on a server shared by many sessions differs call to
+// call, else the session this Host was made for. The operator's Host acts as
+// nobody whatever the request says.
+func (s *sessions) callerFor(ctx context.Context) string {
+	if id, ok := extension.CallerFrom(ctx); ok && !s.operator {
+		return id
+	}
+	return s.caller
+}
+
 func (s *sessions) Get(ctx context.Context, id string) (extension.SessionInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return extension.SessionInfo{}, err
@@ -84,7 +95,7 @@ func (s *sessions) Get(ctx context.Context, id string) (extension.SessionInfo, e
 	if s.operator {
 		got, err = s.cmds.BoardGet(id)
 	} else {
-		got, err = s.cmds.Get(s.caller, id)
+		got, err = s.cmds.Get(s.callerFor(ctx), id)
 	}
 	if err != nil {
 		return extension.SessionInfo{}, err
@@ -101,7 +112,7 @@ func (s *sessions) List(ctx context.Context, filter extension.SessionFilter) (ex
 	if s.operator {
 		list, err = s.cmds.BoardList(listOptions(filter))
 	} else {
-		list, err = s.cmds.List(s.caller, listOptions(filter))
+		list, err = s.cmds.List(s.callerFor(ctx), listOptions(filter))
 	}
 	if err != nil {
 		return extension.SessionList{}, err
@@ -151,7 +162,7 @@ func (s *sessions) Spawn(ctx context.Context, req extension.SpawnRequest) (exten
 			opts.Group = &req.Group
 		}
 	}
-	created, err := s.cmds.Create(s.caller, opts)
+	created, err := s.cmds.Create(s.callerFor(ctx), opts)
 	if err != nil {
 		return extension.SessionInfo{}, err
 	}
@@ -162,7 +173,7 @@ func (s *sessions) Send(ctx context.Context, id, text string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := s.cmds.Send(s.caller, id, text, "", false)
+	_, err := s.cmds.Send(s.callerFor(ctx), id, text, "", false)
 	return err
 }
 
@@ -170,7 +181,7 @@ func (s *sessions) Kill(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := s.cmds.KillOrEndTerminal(s.caller, id, extension.KillByExtension)
+	_, err := s.cmds.KillOrEndTerminal(s.callerFor(ctx), id, extension.KillByExtension)
 	return err
 }
 
@@ -178,7 +189,7 @@ func (s *sessions) Archive(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := s.cmds.Archive(s.caller, id, true)
+	_, err := s.cmds.Archive(s.callerFor(ctx), id, true)
 	return err
 }
 
@@ -186,21 +197,21 @@ func (s *sessions) Transcript(ctx context.Context, id string) (extension.Transcr
 	if err := ctx.Err(); err != nil {
 		return extension.Transcript{}, err
 	}
-	return transcriptOf(s.cmds.Transcript(s.caller, id))
+	return transcriptOf(s.cmds.Transcript(s.callerFor(ctx), id))
 }
 
 func (s *sessions) Handover(ctx context.Context, id string, opts extension.HandoverOptions) (extension.Handover, error) {
 	if err := ctx.Err(); err != nil {
 		return extension.Handover{}, err
 	}
-	return handoverOf(s.cmds.Handover(s.caller, id, handoverOptions(opts)))
+	return handoverOf(s.cmds.Handover(s.callerFor(ctx), id, handoverOptions(opts)))
 }
 
 func (s *sessions) Read(ctx context.Context, id, since string) (extension.Screen, error) {
 	if err := ctx.Err(); err != nil {
 		return extension.Screen{}, err
 	}
-	screen, err := s.cmds.Read(s.caller, id, since)
+	screen, err := s.cmds.Read(s.callerFor(ctx), id, since)
 	if err != nil {
 		return extension.Screen{}, err
 	}
@@ -247,20 +258,20 @@ func (s *sessions) SpendApproval(ctx context.Context, question string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if s.operator || s.caller == "" {
+	if s.operator || s.callerFor(ctx) == "" {
 		return errors.New("only a session's own command can spend its approval")
 	}
-	return s.cmds.SpendApproval(s.caller, question, time.Now())
+	return s.cmds.SpendApproval(s.callerFor(ctx), question, time.Now())
 }
 
 func (s *sessions) SpendAnswer(ctx context.Context, question, answer string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if s.operator || s.caller == "" {
+	if s.operator || s.callerFor(ctx) == "" {
 		return errors.New("only a session's own command can spend its user's answer")
 	}
-	return s.cmds.SpendAnswer(s.caller, question, answer, time.Now())
+	return s.cmds.SpendAnswer(s.callerFor(ctx), question, answer, time.Now())
 }
 
 var (

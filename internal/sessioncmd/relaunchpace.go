@@ -17,11 +17,25 @@ import (
 // it a busy queue is refused with launchpace.ErrBusy, for a sweep that will
 // look again on its next pass.
 func (s *Sessions) pace(runtime *runtime, id string, wait bool) (launchpace.Slot, error) {
+	return s.paceAs(runtime, id, pacing{wait: wait})
+}
+
+// pacing is how a relaunch takes its turn: wait blocks for it, and ahead,
+// for one that does not wait, goes ahead of routine relaunches.
+type pacing struct {
+	wait, ahead bool
+}
+
+func (s *Sessions) paceAs(runtime *runtime, id string, how pacing) (launchpace.Slot, error) {
 	p := s.pacer(runtime)
-	if wait {
+	if how.wait {
 		return p.Wait(context.Background(), id)
 	}
-	slot, after, err := p.Try(id)
+	try := p.Try
+	if how.ahead {
+		try = p.TryAhead
+	}
+	slot, after, err := try(id)
 	if err != nil {
 		return launchpace.Slot{}, fmt.Errorf("%w (next look in %s)", err, after.Round(time.Second))
 	}

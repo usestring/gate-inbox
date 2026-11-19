@@ -69,6 +69,25 @@ type PR struct {
 	// of the same rank newest first.
 	UpdatedAt time.Time
 	FetchedAt time.Time
+	// Feedback snapshots are not persisted in the display cache: automation needs a fresh observation.
+	CI       *CISnapshot
+	Feedback *PRFeedbackSnapshot
+}
+
+type CISnapshot struct {
+	HeadSHA  string
+	Complete bool
+	Checks   []CICheck
+}
+
+type CICheck struct {
+	ID          string
+	Name        string
+	Status      string
+	Conclusion  string
+	URL         string
+	StartedAt   time.Time
+	CompletedAt time.Time
 }
 
 // NeedsYou reports whether this pull request is waiting on a person.

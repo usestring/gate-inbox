@@ -20,7 +20,7 @@ func TestDefaultLegendIsTheSessionRowAndThePeekKey(t *testing.T) {
 	if got := lipgloss.Height(footer); got != 3 {
 		t.Fatalf("default footer takes %d rows, want the row tier, the snippets tier and the peek key:\n%s", got, footer)
 	}
-	for _, want := range []string{"Session", "focus", "hotkeys", "last pane", "Snippets", "? more"} {
+	for _, want := range []string{"Session", "focus", "hotkeys", "last pane", "Snippets", "^/ more"} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("default footer is missing %q:\n%s", want, footer)
 		}
@@ -39,7 +39,7 @@ func TestDefaultLegendAlwaysKeepsQuestionMark(t *testing.T) {
 	for _, width := range []int{40, 60, 80, 100} {
 		m.width, m.height = width, 40
 		footer := ansi.Strip(m.viewFooter())
-		if !strings.Contains(footer, "? more") {
+		if !strings.Contains(footer, "^/ more") {
 			t.Errorf("%d-column footer dropped the peek key:\n%s", width, footer)
 		}
 	}
@@ -58,9 +58,9 @@ func TestListFooterHeightHoldsAcrossRowsAtANarrowWidth(t *testing.T) {
 
 func TestTapLegendPeekExpiresWithoutReleaseEvents(t *testing.T) {
 	m := buildModel(t)
-	_, cmd := m.handleKey(runeKey("?"))
+	_, cmd := m.handleKey(key("ctrl+/"))
 	if cmd == nil || !m.legendPeek.visible {
-		t.Fatal("? did not show the legend and arm its tap window")
+		t.Fatal("ctrl+/ did not show the legend and arm its tap window")
 	}
 	m.settleLegendPeek(legendPeekDecayMsg{seq: m.legendPeek.seq})
 	if m.legendPeek.visible {
@@ -70,7 +70,7 @@ func TestTapLegendPeekExpiresWithoutReleaseEvents(t *testing.T) {
 
 func TestLegendPeekLastsUntilOpeningKeyRelease(t *testing.T) {
 	for _, key := range []tea.KeyPressMsg{
-		{Code: '/', Mod: tea.ModShift, Text: "?"},
+		{Code: '/', Mod: tea.ModCtrl},
 		{Code: 'p', Mod: tea.ModCtrl},
 	} {
 		t.Run(key.String(), func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestLegendPeekLastsUntilOpeningKeyRelease(t *testing.T) {
 func TestLegendPeekDismissesOnBlur(t *testing.T) {
 	m := buildModel(t)
 	m.Update(tea.KeyboardEnhancementsMsg{Flags: ansi.KittyReportEventTypes | ansi.KittyReportAllKeysAsEscapeCodes})
-	m.Update(runeKey("?"))
+	m.Update(key("ctrl+/"))
 	m.Update(tea.BlurMsg{})
 	if m.legendPeek.visible {
 		t.Fatal("blur left the legend waiting for a release it may never receive")
@@ -114,12 +114,12 @@ func TestLegendPeekDismissesOnBlur(t *testing.T) {
 
 func TestRepeatedQuestionMarkCollapsesAfterReleaseWindow(t *testing.T) {
 	m := buildModel(t)
-	m.handleKey(runeKey("?"))
+	m.handleKey(key("ctrl+/"))
 	first := m.legendPeek.seq
-	m.handleKey(runeKey("?"))
+	m.handleKey(key("ctrl+/"))
 	last := m.legendPeek.seq
 	if last == first {
-		t.Fatal("a repeated ? was not recognized as a hold")
+		t.Fatal("a repeated ctrl+/ was not recognized as a hold")
 	}
 	m.settleLegendPeek(legendPeekDecayMsg{seq: first})
 	if !m.legendPeek.visible {
@@ -138,7 +138,7 @@ func TestLegendPeekOverlaysWithoutChangingFooterOrFrameHeight(t *testing.T) {
 	m.applyCmd(t, m.refreshCmd())
 	footerRows := m.footerRows()
 	before := m.frame()
-	m.handleKey(runeKey("?"))
+	m.handleKey(key("ctrl+/"))
 	after := m.frame()
 
 	if m.footerRows() != footerRows {
@@ -148,7 +148,7 @@ func TestLegendPeekOverlaysWithoutChangingFooterOrFrameHeight(t *testing.T) {
 		t.Fatalf("peek changed frame height from %d to %d", lipgloss.Height(before), lipgloss.Height(after))
 	}
 	plain := ansi.Strip(after)
-	if !strings.Contains(plain, "Available") || !strings.Contains(plain, "h full key map") {
+	if !strings.Contains(plain, "Available") || !strings.Contains(plain, "^h full key map") {
 		t.Fatalf("peek did not overlay the full applicable legend:\n%s", plain)
 	}
 }

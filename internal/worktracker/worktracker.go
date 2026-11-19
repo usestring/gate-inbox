@@ -88,7 +88,11 @@ type Session struct {
 	// launch prompt, the screen, and the mention lines the search index kept from the
 	// transcript.
 	Text string
-	Live bool
+	// Artifacts is the pages the session published itself, each a KindArtifact reference
+	// from the session's own publish call. Not scanned out of Text: a session links pages
+	// it did not publish as often as ones it did.
+	Artifacts []workspec.Ref
+	Live      bool
 	// Visible marks a session the operator is looking at right now.
 	//
 	// The caller decides what that means, because only the view knows what it drew. The
@@ -296,8 +300,7 @@ func (*gitCommands) run(dir string, args ...string) (string, bool) {
 			subcommand = args[0]
 		}
 		tracing.Record("worktracker.git", started, time.Now(), err,
-			tracing.Attr{Key: "git.subcommand", Value: subcommand},
-			tracing.Attr{Key: "dir", Value: dir})
+			tracing.Attr{Key: "git.subcommand", Value: subcommand})
 	}
 	if err != nil {
 		return "", false
@@ -403,16 +406,19 @@ type Tracker struct {
 	// one: everything is asked about from cold on every start.
 	Memory Memory
 	Now    func() time.Time
+	// Restored cache entries must never trigger actions; only fresh results reach this hook.
+	OnPRRefresh func(map[string]forge.PR)
 	// SettleAfter is how long a settled artifact outlives its first sighting
 	// on screen. Zero means DefaultSettleAfter.
 	SettleAfter time.Duration
 
-	mu      sync.RWMutex
-	refs    map[string][]workspec.Ref
-	prs     map[string]forge.PR
-	tickets map[string]forge.Ticket
-	fetched map[string]time.Time
-	health  struct{ gh, linear forge.Health }
+	mu        sync.RWMutex
+	refreshMu sync.Mutex
+	refs      map[string][]workspec.Ref
+	prs       map[string]forge.PR
+	tickets   map[string]forge.Ticket
+	fetched   map[string]time.Time
+	health    struct{ gh, linear forge.Health }
 	// seen is when each settled artifact was first on screen. dirty and
 	// dropped are what Refresh has yet to write through to the store: the
 	// marks arrive off the event loop, where a database write does not
@@ -664,6 +670,9 @@ func (t *Tracker) enabled(kind workspec.Kind) bool {
 		return t.GitHub != nil
 	case workspec.KindTicket:
 		return t.Linear != nil
+	case workspec.KindArtifact:
+		// A published page has no provider to switch off and nothing to ask about.
+		return true
 	}
 	return false
 }
@@ -741,6 +750,7 @@ func (t *Tracker) Discover(session Session) []workspec.Ref {
 	// the same scan as the mentions and are told apart by provenance.
 	refs = append(refs, creationRefs(session.Text)...)
 	refs = append(refs, workspec.ScanText(session.Text, repo, workspec.FromText)...)
+	refs = append(refs, session.Artifacts...)
 	// "go#1392" at a superproject root names the submodule at go, which is
 	// exactly the mention the bare-number rule above cannot place.
 	if session.Dir != "" && t.Git != nil {
@@ -756,7 +766,6 @@ func (t *Tracker) Discover(session Session) []workspec.Ref {
 	if traced {
 		tracing.Record("worktracker.discover", started, time.Now(), nil,
 			tracing.Attr{Key: "session", Value: session.ID},
-			tracing.Attr{Key: "dir", Value: session.Dir},
 			tracing.Attr{Key: "refs", Value: len(refs)},
 			tracing.Attr{Key: "live", Value: session.Live})
 	}
@@ -837,6 +846,9 @@ func (p *refreshSpans) emit() {
 // what to ask about, and forget reads it to decide what to keep. Handing this a subset would drop
 // the state of every session left out of it.
 func (t *Tracker) Refresh(sessions []Session) {
+	// Overlapping ticks must not deliver observations in response-completion order.
+	t.refreshMu.Lock()
+	defer t.refreshMu.Unlock()
 	// Declared before the defer that emits it and registered before every
 	// other defer here, so the pass's span closes after the store writes the
 	// others do. Those writes are part of what a refresh costs, and a span
@@ -911,6 +923,9 @@ func (t *Tracker) Refresh(sessions []Session) {
 	// Outside the lock: this writes to SQLite, and holding the tracker's lock across a disk
 	// write would stall every render that reads it. Only what was resolved this pass goes in.
 	defer t.remember(prs, tickets)
+	if t.OnPRRefresh != nil {
+		defer func() { t.OnPRRefresh(prs) }()
+	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -1135,6 +1150,10 @@ func (t *Tracker) due(sessions []Session) []workspec.Ref {
 			sessionTier = tierLive
 		}
 		for _, ref := range t.refs[session.ID] {
+			// A published page has no source to ask, so it is never due.
+			if !resolvable(ref.Kind) {
+				continue
+			}
 			key := ref.Key()
 			if i, seen := at[key]; seen {
 				if sessionTier < candidates[i].tier {
@@ -1171,6 +1190,10 @@ func (t *Tracker) due(sessions []Session) []workspec.Ref {
 	}
 	return due
 }
+
+// resolvable reports whether a source answers for this kind of reference. A published page is
+// what its publish call said it was, with no live state behind it to look up.
+func resolvable(kind workspec.Kind) bool { return kind != workspec.KindArtifact }
 
 // tier is how much somebody is looking at a reference, strongest first.
 type tier int
@@ -1235,7 +1258,9 @@ func (t *Tracker) For(sessionID string) Work {
 		if ticket, ok := t.tickets[key]; ok {
 			work.Tickets[key] = ticket
 		}
-		if _, ok := t.fetched[key]; ok {
+		// A published page is settled the moment it is known: there is nothing further to
+		// look up, so it must not read as "not looked up" for ever.
+		if _, ok := t.fetched[key]; ok || !resolvable(ref.Kind) {
 			work.Looked[key] = true
 		}
 	}

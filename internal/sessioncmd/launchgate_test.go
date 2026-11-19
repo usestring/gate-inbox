@@ -158,3 +158,23 @@ func TestLaunchJevTurnsAreTheUsersOwnLatest(t *testing.T) {
 		t.Fatalf("turns = %q", got)
 	}
 }
+
+// With the board's confirm_launches setting off, a top-level agent launches
+// nested sessions on a voiced turn without asking, while a detached launch
+// still needs its user's go.
+func TestConfirmLaunchesOffSkipsTheQuestionForNestedLaunches(t *testing.T) {
+	h, _ := gatedHarness(t, false)
+	if err := h.store.SetSetting(store.ConfirmLaunchesKey, "off"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"probe-one", "probe-two"} {
+		if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: name}); err != nil {
+			t.Fatalf("nested launch %s with confirmation off: %v", name, err)
+		}
+	}
+	detach := false
+	var needed *LaunchApprovalNeeded
+	if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "standalone", Nest: &detach}); !errors.As(err, &needed) {
+		t.Fatalf("detached launch with confirmation off: err = %v", err)
+	}
+}

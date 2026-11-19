@@ -3,12 +3,122 @@
 package sessioncmd
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/store"
 )
+
+func TestReservationPathAliasesConflict(t *testing.T) {
+	t.Parallel()
+	for _, reverse := range []bool{false, true} {
+		name := "relative first"
+		if reverse {
+			name = "absolute first"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := newSessionHarness(t)
+			rival := createReservationCaller(t, h, h.caller.Cwd)
+			first := filepath.Join("dir", "file.md")
+			second := filepath.Join(h.caller.Cwd, first)
+			if reverse {
+				first, second = second, first
+			}
+			if _, err := h.sessions.Reserve(h.caller.ID, []string{first}, "", "", 0); err != nil {
+				t.Fatal(err)
+			}
+			got, err := h.sessions.Reserve(rival, []string{second}, "", "", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Conflicts) != 1 || got.Conflicts[0].SessionID != h.caller.ID || got.Conflicts[0].Pattern != first {
+				t.Errorf("conflicts = %+v, want one lease from %s for %q", got.Conflicts, h.caller.ID, first)
+			}
+			if len(got.Reserved) != 1 || got.Reserved[0].Pattern != second {
+				t.Errorf("reserved = %+v, want the advisory lease for %q", got.Reserved, second)
+			}
+		})
+	}
+}
+
+func TestReservationRelativePathsAreScopedToTheirCheckout(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	rival := createReservationCaller(t, h, t.TempDir())
+	path := filepath.Join("dir", "file.md")
+	if _, err := h.sessions.Reserve(h.caller.ID, []string{path}, "", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.sessions.Reserve(rival, []string{path}, "", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Conflicts) != 0 || len(got.Reserved) != 1 {
+		t.Fatalf("reservation in separate checkout = %+v, want one lease and no conflicts", got)
+	}
+}
+
+func TestReservationGlobTreatsTheCheckoutDirectoryLiterally(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	dir := filepath.Join(t.TempDir(), "checkout[demo]")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	holder := createReservationCaller(t, h, dir)
+	if _, err := h.sessions.Reserve(holder, []string{"dir/*.md"}, "", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.sessions.Reserve(h.caller.ID, []string{filepath.Join(dir, "dir", "file.md")}, "", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Conflicts) != 1 || got.Conflicts[0].Pattern != "dir/*.md" {
+		t.Fatalf("conflicts = %+v, want the glob in %q", got.Conflicts, dir)
+	}
+}
+
+func TestReservationPathAliasRenewsAndReleasesTheSameLease(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	relative := filepath.Join("dir", "file.md")
+	absolute := filepath.Join(h.caller.Cwd, relative)
+	if _, err := h.sessions.Reserve(h.caller.ID, []string{relative}, "", "first", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.sessions.Reserve(h.caller.ID, []string{absolute}, "", "renewed", 0); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := h.sessions.Reservations(h.caller.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Pattern != relative || listed[0].Note != "renewed" {
+		t.Fatalf("leases = %+v, want one renewed lease with the original spelling", listed)
+	}
+	if count, err := h.sessions.ReleaseFiles(h.caller.ID, []string{absolute}); err != nil || count != 1 {
+		t.Fatalf("release by absolute path = %d, %v; want one lease released", count, err)
+	}
+
+	if _, err := h.sessions.Reserve(h.caller.ID, []string{absolute}, "", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := h.sessions.ReleaseFiles(h.caller.ID, []string{relative}); err != nil || count != 1 {
+		t.Fatalf("release by relative path = %d, %v; want one lease released", count, err)
+	}
+}
+
+func createReservationCaller(t *testing.T, h *sessionHarness, dir string) string {
+	t.Helper()
+	const id = "cafe0001"
+	if err := h.store.CreateSession(store.Session{ID: id, Name: "rival", Tool: h.caller.Tool, Cwd: dir}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
 
 func TestReservationsSurfaceOverlapWithoutBlockingIt(t *testing.T) {
 	t.Parallel()

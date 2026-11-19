@@ -7,6 +7,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/tracetest"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 // Three reads per session per pass, on a board with dozens of sessions, is the
@@ -37,7 +38,7 @@ func TestEachMailboxReadNamesItself(t *testing.T) {
 			t.Fatalf("a read span carries no mailbox: %v", read.Attrs)
 		}
 		found[mailbox] = read.Attr("found") == true
-		if read.Attr("session") != "abcd1234" {
+		if read.Attr("session") != tracing.KeyedID("session", "abcd1234") {
 			t.Errorf("%s read reports session %v, want abcd1234", mailbox, read.Attr("session"))
 		}
 	}

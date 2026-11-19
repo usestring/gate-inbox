@@ -29,7 +29,8 @@ func benchmarkLimitPoll(p *poller, sessions []store.Session, panes map[string]st
 	hashes := make(map[string]uint64, len(sessions))
 	for _, sess := range sessions {
 		clean := ansi.Strip(panes[sess.ID])
-		derived, err := p.deriveCleanPaneStatus(sess, clean, true, hashes)
+		var authFailure string
+		derived, err := p.deriveCleanPaneStatus(sess, clean, true, hashes, &authFailure)
 		if err != nil {
 			return err
 		}

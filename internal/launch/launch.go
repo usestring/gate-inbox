@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,9 +22,11 @@ import (
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/keyconfine"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/piext"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
@@ -486,6 +490,9 @@ func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
+	if err := config.CheckVersion(baseCommand); err != nil {
+		return "", nil, err
+	}
 	// Refused before anything is removed or written: a style nothing
 	// implements is a config mistake, not a launch half made.
 	if err := tooldrivers.CheckTool(toolName, tool); err != nil {
@@ -670,12 +677,71 @@ var ensureShared = func(configDir string) (string, error) {
 	return mcpshared.Ensure(configDir, Executable(), sharedWait)
 }
 
+// confine runs a session's command with the board's key directory hidden from
+// it (keyconfine). Only a claude session launched with the board's settings
+// is kept out of that directory by the CLI itself, so every other launch goes
+// through here, and one that cannot be confined is refused.
+//
+// An opencode pane is the exception to the wrapping, not to the refusal: it
+// runs the opencode-attach verb first, which writes the session's binding
+// into that directory and may start the shared server, so the verb runs
+// unconfined and confines the TUI it execs (app's runOpencodeAttach).
+//
+// The session keeps read-only sight of the two files there that are its own
+// to read (sessionFiles); one that does not exist when it starts stays
+// absent.
+func confine(configDir, style, id, command string) (string, error) {
+	keyDir := parentseal.KeyDir(configDir)
+	refused := func(err error) error {
+		return fmt.Errorf("it has no way to keep itself out of Gate Inbox's key directory (%s), "+
+			"and it could not be confined: %w; install bubblewrap (Linux) so the board can hide that directory from it",
+			keyDir, err)
+	}
+	if style == "opencode" {
+		if err := keyconfine.Available(); err != nil {
+			return "", refused(err)
+		}
+		return command, nil
+	}
+	run := []string{"/bin/sh", "-c", command}
+	argv, err := keyconfine.Argv(keyDir, sessionFiles(configDir, id), run)
+	if err != nil {
+		return "", refused(err)
+	}
+	if slices.Equal(argv, run) {
+		return command, nil
+	}
+	quoted := make([]string, len(argv))
+	for i, arg := range argv {
+		quoted[i] = tmux.ShellQuote(arg)
+	}
+	return strings.Join(quoted, " "), nil
+}
+
+// sealPublicKey is the public half of the board's seal key under the key
+// directory. A session's prompt hook checks every seal Gate Inbox puts on a
+// message to it with that key, and needs nothing else there to do it.
+const sealPublicKey = "seal.pub"
+
+// sessionFiles are the key directory's files a confined session reads
+// itself: the board's public seal key, and the session's own config for the
+// shared MCP server, which carries its own caller token and no other
+// session's. A pi session reads that config in its extension, which runs
+// inside the confinement. The caller key every token is made from stays
+// hidden, so the session can act as itself and nobody else.
+func sessionFiles(configDir, id string) []string {
+	return []string{filepath.Join(parentseal.KeyDir(configDir), sealPublicKey), mcpshared.ClaudeConfigPath(configDir, id)}
+}
+
 // resolveAccount reads an account's token, replaced in tests so a launch
 // plan never reaches a real secret store.
 var resolveAccount = accounts.Resolve
 
 func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, skip bool, contributed map[string]string, profile string, write bool) (string, map[string]string, error) {
 	if err := config.CheckInstalled(baseCommand); err != nil {
+		return "", nil, err
+	}
+	if err := config.CheckVersion(baseCommand); err != nil {
 		return "", nil, err
 	}
 	if err := checkContributed(tool, contributed); err != nil {
@@ -737,9 +803,15 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return "", nil, err
 	}
 	if pi {
-		return withPiExtension(manager, command, env, id, profile, sharedConfig, write)
+		if command, env, err = withPiExtension(manager, command, env, id, profile, sharedConfig, write); err != nil {
+			return "", nil, err
+		}
 	}
 	if tool.StatusSource != hooks.StatusSourceClaude {
+		command, err = confine(manager.ConfigDir(), style, id, command)
+		if err != nil {
+			return "", nil, fmt.Errorf("%s cannot be launched: %w", toolName, err)
+		}
 		return command, env, nil
 	}
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)

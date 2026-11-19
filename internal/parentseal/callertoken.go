@@ -38,6 +38,28 @@ const callerDomain = "gate-inbox caller v2\n"
 // schema does not advertise.
 const agentSessionDir = "opencode-sessions"
 
+// CallerVerification are the paths under the key dir that a process checking
+// callers reads: the caller key and opencode's session bindings. An MCP server
+// started inside a session's own confinement (keyconfine) still needs them,
+// and nothing else in the directory. With mint the key and the bindings
+// directory are made first: a confinement maps in only what exists when it
+// starts, and a server started before the first binding is written must
+// still see the bindings written after. Without mint the paths are only
+// named.
+func CallerVerification(configDir string, mint bool) ([]string, error) {
+	key := filepath.Join(KeyDir(configDir), callerKeyFile)
+	bindings := filepath.Join(KeyDir(configDir), agentSessionDir)
+	if mint {
+		if _, err := mintKey(key); err != nil {
+			return nil, err
+		}
+		if err := os.MkdirAll(bindings, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	return []string{key, bindings}, nil
+}
+
 // CallerToken is session's caller token, minting the key on first use.
 func CallerToken(configDir, session string) (string, error) {
 	key, err := mintKey(filepath.Join(KeyDir(configDir), callerKeyFile))

@@ -969,6 +969,9 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err != nil {
 		return Session{}, err
 	}
+	if flag := trustFlagFor(tool, caller.Cwd, dir); flag != "" && launchDir == dir {
+		base += " " + flag
+	}
 	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, base, id, plan.Model, plan.Account, sess.SkipPermissions, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
@@ -1577,7 +1580,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 	pane = strings.TrimRight(ansi.Strip(pane), "\r\n")
 	noteSpawnerRead(runtime, sessionID, target)
 
-	cursor, delta, note, readable := s.readDelta(target, since)
+	cursor, delta, note, readable := s.readDelta(target, since, runtime.cfg.Tools)
 	screen = SessionScreen{
 		Session: runtime.sessionInfo(target, running, target.ID == sessionID),
 		Cursor:  cursor,

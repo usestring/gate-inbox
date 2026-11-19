@@ -8,6 +8,7 @@ default  board.offer_cli_on_limit = false
 default  board.sidebar = "right"
 file*    children.auto_archive_after = "1h0m0s"
          (file: "1h")
+file     children.dry_run = true
 default  children.finished_grace = "10m0s"
 default  children.keep_finished = false
 default  claude_code.setup = <unset>

@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -25,6 +27,7 @@ type Task struct {
 	CreatorName  string   `json:"created_by_name,omitempty" jsonschema:"name of the session that created the task; empty once its row is gone, when created_by alone names it"`
 	Assignee     string   `json:"assignee,omitempty" jsonschema:"session id the task is assigned to; only it may claim the task while it is pending"`
 	AssigneeName string   `json:"assignee_name,omitempty" jsonschema:"name of the session the task is assigned to"`
+	Note         string   `json:"note,omitempty" jsonschema:"what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set"`
 	DependsOn    []string `json:"depends_on,omitempty" jsonschema:"task ids that must be done before this one can be claimed"`
 	BlockedBy    []string `json:"blocked_by,omitempty" jsonschema:"the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way"`
 	Blocked      bool     `json:"blocked" jsonschema:"whether unfinished dependencies currently stop this task being claimed"`
@@ -75,6 +78,10 @@ type TaskList struct {
 	// Truncated is stated rather than left to matched > returned, so a
 	// caller reading the structured payload does not have to derive it.
 	Truncated bool `json:"truncated" jsonschema:"true when limit left matching tasks out; narrow state or mine, or raise limit"`
+	// Bodies is whether the caller asked for full text, which the text
+	// reply follows for notes as well as bodies. The structured reply
+	// carries notes whole either way.
+	Bodies bool `json:"-"`
 }
 
 func (o TaskListOptions) query(callerID string, fleet func() ([]string, error)) (store.TaskQuery, error) {
@@ -162,6 +169,7 @@ func (s *Sessions) Tasks(sessionID string, opts TaskListOptions) (TaskList, erro
 		Matched:   page.Matched,
 		Returned:  len(tasks),
 		Truncated: page.Matched > len(tasks),
+		Bodies:    opts.IncludeBody,
 	}, nil
 }
 
@@ -183,6 +191,7 @@ func (r *runtime) taskRows(sessionID string, stored []store.Task) ([]Task, error
 			CreatorName:  names[task.CreatedBy],
 			Assignee:     task.Assignee,
 			AssigneeName: names[task.Assignee],
+			Note:         task.Note,
 			DependsOn:    task.DependsOn,
 			BlockedBy:    task.Blocking,
 			Blocked:      task.State == store.TaskPending && len(task.Blocking) > 0,
@@ -500,69 +509,344 @@ func (r *runtime) refusedClaim(sessionID, taskID string) error {
 	return fmt.Errorf("task %s could not be claimed", taskID)
 }
 
-func (s *Sessions) FinishTask(sessionID, taskID string) (Task, error) {
-	return s.settleTask(sessionID, taskID, true)
+// MaxTaskNoteBytes bounds a finish note. A note is what came of the work
+// -- the outcome, a PR link, what is left -- and it rides the message to
+// the task's creator, so it has to fit inside one with room for the rest.
+const MaxTaskNoteBytes = 4000
+
+// TaskFinish is a finish and what it set off: the dependents it made
+// claimable and whether the task's creator was told.
+type TaskFinish struct {
+	Task Task `json:"task"`
+	// Unblocked is read after the finish, so a dependent another session
+	// claimed in between is left out: it is no longer anyone's to pick up.
+	Unblocked []Task `json:"unblocked,omitempty" jsonschema:"dependents this finish made claimable: pending, with every dependency now done"`
+	// Notified and NotNotified are exclusive; at most one is set.
+	Notified    string `json:"notified,omitempty" jsonschema:"session id of the task's creator, which was sent a message saying the task is done"`
+	NotNotified string `json:"not_notified,omitempty" jsonschema:"why the creator was not sent a message: you created the task, it predates recorded creators, or the creator is archived, gone or would not take the message"`
+}
+
+// FinishTask marks a claimed task done, keeps note on it, and tells the
+// session that created it. The message is what closes the loop for a lead
+// that split a plan into tasks: without it, the lead learns a piece landed
+// only by polling the list, and the note is where the finisher says what
+// came of it.
+func (s *Sessions) FinishTask(sessionID, taskID, note string) (TaskFinish, error) {
+	note = strings.TrimSpace(note)
+	if len(note) > MaxTaskNoteBytes {
+		return TaskFinish{}, fmt.Errorf("note is %d bytes, over the %d byte limit; say what came of the work and link the detail", len(note), MaxTaskNoteBytes)
+	}
+	runtime, caller, taskID, err := s.settling(sessionID, taskID)
+	if err != nil {
+		return TaskFinish{}, err
+	}
+	defer runtime.store.Close()
+	changed, err := runtime.store.FinishTask(taskID, caller.ID, note, time.Now())
+	if err != nil {
+		return TaskFinish{}, err
+	}
+	if !changed {
+		return TaskFinish{}, runtime.unsettled(caller.ID, taskID)
+	}
+	finished, err := runtime.task(caller.ID, taskID)
+	if err != nil {
+		return TaskFinish{}, err
+	}
+	result := TaskFinish{Task: finished}
+	ready, err := runtime.store.ReadyDependents(taskID)
+	if err != nil {
+		return TaskFinish{}, err
+	}
+	if result.Unblocked, err = runtime.taskRows(caller.ID, ready); err != nil {
+		return TaskFinish{}, err
+	}
+	// The finish has landed whatever happens to the message, so a message
+	// that does not go is reported on the result rather than failing it:
+	// a finisher retrying would find the task already done.
+	result.Notified, result.NotNotified = runtime.notifyCreator(caller, result)
+	return result, nil
 }
 
 func (s *Sessions) ReleaseTask(sessionID, taskID string) (Task, error) {
-	return s.settleTask(sessionID, taskID, false)
-}
-
-func (s *Sessions) settleTask(sessionID, taskID string, done bool) (Task, error) {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return Task{}, fmt.Errorf("task_id is empty; call %s to get one", s.words.ListTasks)
-	}
-	runtime, err := s.open()
+	runtime, caller, taskID, err := s.settling(sessionID, taskID)
 	if err != nil {
 		return Task{}, err
 	}
 	defer runtime.store.Close()
-	caller, err := runtime.caller(sessionID)
-	if err != nil {
-		return Task{}, err
-	}
-	now := time.Now()
-	settle := runtime.store.ReleaseTask
-	if done {
-		settle = runtime.store.FinishTask
-	}
-	changed, err := settle(taskID, caller.ID, now)
+	changed, err := runtime.store.ReleaseTask(taskID, caller.ID, time.Now())
 	if err != nil {
 		return Task{}, err
 	}
 	if !changed {
-		task, err := runtime.task(caller.ID, taskID)
-		if err != nil {
-			return Task{}, err
-		}
-		if task.State == store.TaskInProgress && task.Owner != caller.ID {
-			return Task{}, fmt.Errorf("task %s is not yours to settle; %s holds it", taskID, holderOf(task))
-		}
-		return Task{}, fmt.Errorf("task %s is %s, not in progress", taskID, task.State)
+		return Task{}, runtime.unsettled(caller.ID, taskID)
 	}
 	return runtime.task(caller.ID, taskID)
 }
 
-func (s *Sessions) DeleteTask(sessionID, taskID string) error {
+// settling opens the store for a finish or release; the caller closes it.
+func (s *Sessions) settling(sessionID, taskID string) (*runtime, store.Session, string, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
-		return fmt.Errorf("task_id is empty; call %s to get one", s.words.ListTasks)
+		return nil, store.Session{}, "", fmt.Errorf("task_id is empty; call %s to get one", s.words.ListTasks)
 	}
 	runtime, err := s.open()
 	if err != nil {
-		return err
+		return nil, store.Session{}, "", err
 	}
-	defer runtime.store.Close()
-	if _, err := runtime.caller(sessionID); err != nil {
-		return err
+	caller, err := runtime.caller(sessionID)
+	if err != nil {
+		runtime.store.Close()
+		return nil, store.Session{}, "", err
 	}
-	deleted, err := runtime.store.DeleteTask(taskID)
+	return runtime, caller, taskID, nil
+}
+
+// unsettled says why a finish or release matched no row.
+func (r *runtime) unsettled(callerID, taskID string) error {
+	task, err := r.task(callerID, taskID)
 	if err != nil {
 		return err
 	}
-	if !deleted {
-		return fmt.Errorf("task %s does not exist; call %s for current ids", taskID, runtime.words.ListTasks)
+	if task.State == store.TaskInProgress && task.Owner != callerID {
+		return fmt.Errorf("task %s is not yours to settle; %s holds it", taskID, holderOf(task))
 	}
-	return nil
+	return fmt.Errorf("task %s is %s, not in progress", taskID, task.State)
+}
+
+// notifyCreator sends the session that created a finished task a short
+// message saying so. It returns the creator's id when the message was
+// queued, or why none was.
+//
+// It goes through the same queue and checks as send_session, under the
+// finisher's name, so the creator reads it as that session's words, which
+// they are: the note is the finisher's. It is not the finisher answering
+// the creator, though, so unlike a send it leaves the finisher's unread
+// messages from the creator as they are.
+func (r *runtime) notifyCreator(finisher store.Session, finish TaskFinish) (string, string) {
+	task := finish.Task
+	switch task.CreatedBy {
+	case "":
+		return "", "the task predates recorded creators"
+	case finisher.ID:
+		return "", "you created the task"
+	}
+	creator, err := r.store.Get(task.CreatedBy)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "its creator " + task.CreatedBy + " is gone"
+	}
+	if err != nil {
+		return "", "could not read its creator " + task.CreatedBy + ": " + err.Error()
+	}
+	if creator.Archived {
+		return "", "its creator " + task.CreatedBy + " is archived"
+	}
+	from := sender{id: finisher.ID, name: finisher.Name}
+	subject := "task " + task.ID + " finished"
+	if _, err := r.enqueue(from, creator.ID, taskFinishedMessage(finisher, finish), subject, false); err != nil {
+		logging.Info("could not tell a task's creator it is done",
+			"task", task.ID, "creator", creator.ID, logging.Err(err))
+		return "", "its creator " + creator.ID + " would not take the message: " + err.Error()
+	}
+	return creator.ID, ""
+}
+
+// maxNotifiedDependents bounds the dependents a finish message names; the
+// rest are counted, since the creator can list them.
+const maxNotifiedDependents = 10
+
+func taskFinishedMessage(finisher store.Session, finish TaskFinish) string {
+	task := finish.Task
+	name := finisher.Name
+	if name == "" {
+		name = finisher.ID
+	}
+	lines := []string{fmt.Sprintf("Task %s you created is done: %s. Finished by %s (%s).",
+		task.ID, oneLine(task.Title, 200), name, finisher.ID)}
+	if task.Note != "" {
+		lines = append(lines, "Note: "+task.Note)
+	}
+	if len(finish.Unblocked) > 0 {
+		names := make([]string, 0, maxNotifiedDependents)
+		for i, dep := range finish.Unblocked {
+			if i == maxNotifiedDependents {
+				names = append(names, fmt.Sprintf("and %d more", len(finish.Unblocked)-i))
+				break
+			}
+			names = append(names, fmt.Sprintf("%s (%s)", oneLine(dep.Title, 200), dep.ID))
+		}
+		lines = append(lines, "Now claimable: "+strings.Join(names, "; ")+".")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// oneLine flattens text to one line of at most limit bytes, cut on a rune
+// boundary, with an ellipsis when it was cut.
+func oneLine(text string, limit int) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) <= limit {
+		return text
+	}
+	cut := limit - len("…")
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut] + "…"
+}
+
+// TaskDeletion is a delete and the work it set free.
+type TaskDeletion struct {
+	Task      Task   `json:"task" jsonschema:"the task as it stood when it was deleted"`
+	Unblocked []Task `json:"unblocked,omitempty" jsonschema:"dependents the delete made claimable; only a forced delete of unfinished work has any, since its edges go with it"`
+}
+
+// DeleteTask removes a task, refusing one another session holds or one
+// unfinished work waits on unless force is set. A forced delete takes the
+// task's edges with it, so its dependents are unblocked as though it had
+// been finished; the reply names them. Keeping them blocked instead would
+// leave them on an edge that names no task, which nothing can ever clear.
+func (s *Sessions) DeleteTask(sessionID, taskID string, force bool) (TaskDeletion, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return TaskDeletion{}, fmt.Errorf("task_id is empty; call %s to get one", s.words.ListTasks)
+	}
+	runtime, err := s.open()
+	if err != nil {
+		return TaskDeletion{}, err
+	}
+	defer runtime.store.Close()
+	caller, err := runtime.caller(sessionID)
+	if err != nil {
+		return TaskDeletion{}, err
+	}
+	deleted, found, err := runtime.store.DeleteTask(taskID, store.DeleteGuard{CallerID: caller.ID, Force: force})
+	var refused *store.DeleteRefusedError
+	if errors.As(err, &refused) {
+		return TaskDeletion{}, runtime.refusedDelete(caller.ID, refused)
+	}
+	if err != nil {
+		return TaskDeletion{}, err
+	}
+	if !found {
+		return TaskDeletion{}, fmt.Errorf("task %s does not exist; call %s for current ids", taskID, runtime.words.ListTasks)
+	}
+	rows, err := runtime.taskRows(caller.ID, append([]store.Task{deleted.Task}, deleted.Unblocked...))
+	if err != nil {
+		return TaskDeletion{}, err
+	}
+	return TaskDeletion{Task: rows[0], Unblocked: rows[1:]}, nil
+}
+
+// maxNamedTasks bounds how many tasks one sentence names; the rest are
+// counted.
+const maxNamedTasks = 10
+
+// refusedDelete says why a delete did not go and how to make it go anyway,
+// naming the holder or assignee and the dependents so the caller can ask
+// the one or clear the others first.
+func (r *runtime) refusedDelete(callerID string, refused *store.DeleteRefusedError) error {
+	var reasons []string
+	names, _ := r.sessionNames()
+	named := func(id string) string {
+		if names[id] != "" {
+			return names[id]
+		}
+		return id
+	}
+	if refused.HeldBy != "" {
+		reasons = append(reasons, fmt.Sprintf("it is in progress, held by %s, and deleting it pulls the work out from under that session; ask it to finish or release the task", named(refused.HeldBy)))
+	}
+	if refused.AssignedTo != "" {
+		reasons = append(reasons, fmt.Sprintf("it is assigned to %s, which is waiting to claim it; ask that session or the task's creator before dropping work handed to it", named(refused.AssignedTo)))
+	}
+	if len(refused.Dependents) > 0 {
+		dependents, err := r.taskRows(callerID, refused.Dependents)
+		if err != nil {
+			return err
+		}
+		reasons = append(reasons, fmt.Sprintf("%d unfinished %s on it: %s; deleting it makes them claimable although it was never done, so delete or finish them first",
+			len(dependents), plural(len(dependents), "task waits", "tasks wait"), namedTasks(dependents)))
+	}
+	return fmt.Errorf("task %s was not deleted: %s. Call %s to delete it anyway; its dependents are then unblocked",
+		refused.Task.ID, strings.Join(reasons, "; and "), r.words.ForceDelete)
+}
+
+// namedTasks lists tasks as "title (id) [state]", up to maxNamedTasks.
+func namedTasks(tasks []Task) string {
+	names := make([]string, 0, min(len(tasks), maxNamedTasks)+1)
+	for i, task := range tasks {
+		if i == maxNamedTasks {
+			names = append(names, fmt.Sprintf("and %d more", len(tasks)-i))
+			break
+		}
+		names = append(names, fmt.Sprintf("%s (%s) [%s]", task.Title, task.ID, task.State))
+	}
+	return strings.Join(names, ", ")
+}
+
+const (
+	// DefaultPruneDays is how old a stale task must be before prune takes
+	// it. Two weeks is past any workstream still coming back to its plan.
+	DefaultPruneDays = 14
+	// MaxPruneDays bounds the age a caller can ask for, so a typo is a
+	// refusal rather than a prune that silently matches nothing.
+	MaxPruneDays = 3650
+)
+
+// TaskPruneOptions narrows a prune. The zero value is the dry run over
+// tasks older than DefaultPruneDays.
+type TaskPruneOptions struct {
+	// OlderThanDays is the age past which a stale task is swept; zero
+	// takes DefaultPruneDays.
+	OlderThanDays int
+	// Delete deletes what the prune finds. Without it the prune only
+	// reports, which is the default because a delete cannot be undone.
+	Delete bool
+}
+
+// TaskPrune is what a prune found and, unless it was a dry run, deleted.
+type TaskPrune struct {
+	DryRun        bool   `json:"dry_run" jsonschema:"true when nothing was deleted and tasks is what a prune with dry_run false would delete"`
+	OlderThanDays int    `json:"older_than_days" jsonschema:"the age in days past which a stale task was swept"`
+	Count         int    `json:"count" jsonschema:"how many tasks are in tasks"`
+	Tasks         []Task `json:"tasks" jsonschema:"the stale tasks deleted, or on a dry run those that would be: pending, older than older_than_days, and created by a session that is archived, deleted or was never recorded"`
+	Kept          []Task `json:"kept,omitempty" jsonschema:"stale tasks left alone because a task that depends on them is in progress"`
+	Unblocked     []Task `json:"unblocked,omitempty" jsonschema:"surviving tasks the prune made claimable by deleting what they waited on"`
+}
+
+// PruneTasks sweeps the pending tasks nobody is left to want: older than
+// the cutoff, and put up by a session that is archived, deleted, or from
+// before creators were recorded. Those are what pile up on a long-lived
+// board, since nothing else ever takes a pending task off it.
+func (s *Sessions) PruneTasks(sessionID string, opts TaskPruneOptions) (TaskPrune, error) {
+	days := opts.OlderThanDays
+	switch {
+	case days == 0:
+		days = DefaultPruneDays
+	case days < 0 || days > MaxPruneDays:
+		return TaskPrune{}, fmt.Errorf("older_than_days %d is out of range; ask for between 1 and %d", opts.OlderThanDays, MaxPruneDays)
+	}
+	runtime, err := s.open()
+	if err != nil {
+		return TaskPrune{}, err
+	}
+	defer runtime.store.Close()
+	caller, err := runtime.caller(sessionID)
+	if err != nil {
+		return TaskPrune{}, err
+	}
+	cutoff := time.Now().AddDate(0, 0, -days)
+	pruned, err := runtime.store.PruneTasks(cutoff, !opts.Delete)
+	if err != nil {
+		return TaskPrune{}, err
+	}
+	result := TaskPrune{DryRun: !opts.Delete, OlderThanDays: days, Count: len(pruned.Tasks)}
+	for _, rows := range []struct {
+		from []store.Task
+		to   *[]Task
+	}{{pruned.Tasks, &result.Tasks}, {pruned.Kept, &result.Kept}, {pruned.Unblocked, &result.Unblocked}} {
+		if *rows.to, err = runtime.taskRows(caller.ID, rows.from); err != nil {
+			return TaskPrune{}, err
+		}
+	}
+	return result, nil
 }

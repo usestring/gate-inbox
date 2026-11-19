@@ -314,6 +314,8 @@ type Children struct {
 	// KeepFinished turns that off board-wide: finished children stay until
 	// someone archives them.
 	KeepFinished bool `toml:"keep_finished"`
+	// DryRun records proposed child archives so the closure policy can be reviewed safely.
+	DryRun bool `toml:"dry_run"`
 }
 
 // Work configures how the board follows its sessions' pull requests and tickets.

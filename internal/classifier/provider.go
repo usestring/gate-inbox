@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/usestring/gate-inbox/internal/envname"
 )
 
 type Provider string
@@ -41,7 +43,7 @@ func (p Provider) Name() string {
 func (p Provider) KeyEnv() string {
 	switch p {
 	case JEV:
-		return "TYPESAFE_API_KEY"
+		return envname.TypeSafeKey
 	case Clef:
 		return "WORKERS_API_KEY"
 	default:

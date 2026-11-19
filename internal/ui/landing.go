@@ -335,7 +335,7 @@ func (m *Model) dropLanding(id string) {
 // the pane answers, exactly as it does for a tool whose rules carry no hooks.
 func (m *Model) landingProbeFor(sess store.Session, dialog bool, pane string) *landingProbe {
 	p := &landingProbe{dialog: dialog}
-	if m.hooks != nil && m.poller != nil && m.poller.statusSources[sess.Tool] == hooks.StatusSourceClaude && !m.isHookless(sess) {
+	if m.hooks != nil && m.poller != nil && hooks.FileStatus(m.poller.statusSources[sess.Tool]) && !m.isHookless(sess) {
 		p.hooks, p.hookID = m.hooks, sess.ID
 		p.hookOffset = fileSize(m.hooks.StatusFile(sess.ID))
 	}

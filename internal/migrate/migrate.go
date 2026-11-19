@@ -15,6 +15,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/handover"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -109,8 +110,9 @@ func Locate(roots Roots, toolName string, tool config.Tool, source store.Session
 // locateByDriver asks the extension driver named by the tool's
 // session_store. ok is false when no driver answers the format, or the
 // driver cannot hand a conversation over, so the caller's refusal stands.
-// The transcript has no Kind: the handover filter reads only the layouts the
-// core knows.
+// The transcript's Kind is the format when it is a layout the core's
+// handover filter reads (pi's session JSONL), and empty otherwise, so a
+// driver's unknown layout is handed over as it is.
 func locateByDriver(format string, source store.Session) (Transcript, bool, error) {
 	driver, ok, err := tooldrivers.Lookup(format)
 	if err != nil || !ok {
@@ -128,7 +130,11 @@ func locateByDriver(format string, source store.Session) (Transcript, bool, erro
 	if (found.Path == "") == (found.Command == "") {
 		return Transcript{}, true, fmt.Errorf("the %s driver must locate %s's transcript by exactly one of a path and a command", format, source.Name)
 	}
-	return Transcript{Path: found.Path, Command: found.Command, Format: found.Format}, true, nil
+	transcript := Transcript{Path: found.Path, Command: found.Command, Format: found.Format}
+	if found.Path != "" && handover.Reads(format) {
+		transcript.Kind = format
+	}
+	return transcript, true, nil
 }
 
 // opencodeExportCommand prints a session's transcript.

@@ -1172,9 +1172,13 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 			} else if dialog.HasReader(sess.Tool) {
 				_, answerableWait[sess.ID] = dialog.ReadQuestions(sess.Tool, childPane[sess.ID], nil)
 			}
-			if answerableWait[sess.ID] &&
-				asksForApproval(sess.Tool, childPane[sess.ID], asks.PendingQuestions(childAskTarget(sess))) {
-				answerableWait[sess.ID] = false
+			if answerableWait[sess.ID] {
+				// A pi child's call is only in the file its ask-pending hook saved.
+				target := childAskTarget(sess)
+				target.PendingAskFile = p.pendingAskFile(sess)
+				if asksForApproval(sess.Tool, childPane[sess.ID], asks.PendingQuestions(target)) {
+					answerableWait[sess.ID] = false
+				}
 			}
 		}
 		if newStatus != sess.Status {
@@ -1666,7 +1670,7 @@ func (p *poller) maybeSendPendingInputWhenReady(sess store.Session, capture tmux
 	if !sess.PendingInputClaimed && agentAlive {
 		// The paste ends in Enter, so a line someone has part way written
 		// at the newly idle prompt would be submitted with it.
-		if p.engine.DeliveryHold(sess.Tool, ansi.Strip(capture.Text)) != "" || p.operatorTyping(sess, capture.State) {
+		if p.hookDialog(sess) || p.engine.DeliveryHold(sess.Tool, ansi.Strip(capture.Text)) != "" || p.operatorTyping(sess, capture.State) {
 			return false, nil
 		}
 		typing, err := p.composerCarriesDraft(sess, capture)
@@ -1837,6 +1841,11 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	// turn whose first request fails. Held before the interrupt, too, so a
 	// working agent is not stopped for a message that is not going in.
 	if p.offline() {
+		return false, nil
+	}
+	// Held before the interrupt too: its Escape cancels a dialog just as the
+	// message's Enter would answer one.
+	if p.hookDialog(sess) {
 		return false, nil
 	}
 	if msg.Interrupt && derived == status.Working && msg.ClaimedAt.IsZero() {
@@ -2159,6 +2168,16 @@ func (p *poller) interruptForMessage(sess store.Session, msg store.InboxMessage,
 	return true, nil
 }
 
+// hookDialog reports whether sess's own status hooks say a dialog is on its
+// screen, which holds every key the board would send it on its own: a
+// message, its interrupt, a launch prompt, a limit retry. The pane rules
+// cannot see a dialog drawn with a legend they do not know, and a paste's
+// Enter answers it. Only pi reports its dialogs this way; see
+// hooks.PromptOpen.
+func (p *poller) hookDialog(sess store.Session) bool {
+	return p != nil && p.hooks != nil && p.statusSources[sess.Tool] == hooks.StatusSourcePi && p.hooks.PromptOpen(sess.ID)
+}
+
 // safeToInterrupt reports whether the pane is plainly a turn at work: its
 // input line drawn and no rule seeing a dialog. Anything less holds, since a
 // dialog that has replaced the input line trips TypingHold's not-ready branch
@@ -2378,9 +2397,9 @@ func (p *poller) seal(sess store.Session, msg store.InboxMessage, text string) s
 	if p.hooks == nil {
 		return text
 	}
-	key, err := parentseal.Key(p.hooks.ConfigDir(), sess.ID)
+	key, err := parentseal.SigningKey(p.hooks.ConfigDir())
 	if err != nil {
-		logging.Warn("could not mint a session's sealing key", "session", sess.ID, logging.Err(err))
+		logging.Warn("could not read or mint the seal key", "session", sess.ID, logging.Err(err))
 		return text
 	}
 	return parentseal.Seal(key, msg.ID, sess.ID, msg.SenderID, text)
@@ -2780,7 +2799,7 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 	// exactly like a turn that ended -- so the extension that knows writes
 	// the file, and this reads it.
 	pinned := sessionhooks.Role(sess.Role).PinnedStatus
-	if p.statusSources[sess.Tool] == hooks.StatusSourceClaude || pinned {
+	if hooks.FileStatus(p.statusSources[sess.Tool]) || pinned {
 		if !agentAlive {
 			// The agent died without its SessionEnd cleanup hook
 			// (crash, SIGKILL); a stale file must not mask the pane.

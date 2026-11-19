@@ -35,9 +35,11 @@ import (
 // JEV_EVAL_CONFIG names the gate-inbox config directory (for the key and for
 // which sessions were archived); JEV_EVAL_TURNS, JEV_EVAL_CHARS and
 // JEV_EVAL_QUESTIONS (comma-separated: current, previous) narrow the grid.
+// JEV_EVAL_REVIEWED_ONLY=1 runs only the reviewed closure cases, without
+// loading any local transcripts.
 //
-// A case is the transcript as it stood the moment the user replied, labelled
-// by what the user did next:
+// The historical cases use the transcript as it stood when the user replied,
+// labelled by what the user did next:
 //
 //   - done, the agent had finished: the user's last word on a session they
 //     archived, or the nuke prompt on a session that then ended.
@@ -53,6 +55,43 @@ import (
 const jevEvalPreviousQuestion = "Has the agent delivered what the user asked for in this session, with no work left open, " +
 	"nothing pending on the user, and no blocker stopping it?"
 
+// These reviewed closures are paraphrased with synthetic details so the cases
+// retain what was known at the time without taking private transcripts with them.
+func jevEvalReviewedClosures() []jevEvalCase {
+	return []jevEvalCase{
+		{
+			Class: "reviewed-open", Source: "new-assignment-after-handoff",
+			msgs: []search.Message{
+				{Role: "user", Text: "Review the proposed import change and send a pass or hold."},
+				{Role: "assistant", Text: "HOLD. I reproduced missing records after a retry and sent the verdict to the parent."},
+				{Role: "user", Text: "Assignment from your parent: resume the ten backlog alerts. Reproduce the two parser failures, prepare a fix if verified, report all ten dispositions, and finish the assigned task."},
+			},
+		},
+		{
+			Class: "reviewed-done", Source: "investigation-handed-off-before-scheduled-check",
+			msgs: []search.Message{
+				{Role: "user", Text: "Investigate the four inventory alerts, check alternate sources, and give me the exact row dispositions and the fastest way to resolve them."},
+				{Role: "assistant", Text: "Investigation complete. The source reassigned the inventory and no alternate source supplied the old assignments. Each of the four alerts remains open. The parent received the dispositions and should repeat the source comparison after the scheduled run before clearing any warnings. I released the investigation claim."},
+			},
+		},
+		{
+			Class: "reviewed-open", Source: "sleep-during-conflict-repair-wrap-up",
+			msgs: []search.Message{
+				{Role: "user", Text: "Resolve this pull request's merge conflicts, verify the final head, record the result, and finish the board task."},
+				{Role: "assistant", Text: "Both checks passed on the new head. I'm writing the session log and finishing the board task."},
+				{Role: "assistant", Text: "API Error: Your computer went to sleep mid-response. The response above may be incomplete."},
+			},
+		},
+		{
+			Class: "reviewed-done", Source: "shared-test-merge-completed",
+			msgs: []search.Message{
+				{Role: "user", Text: "Merge the pull request that moves the audited tests to the shared process after verification."},
+				{Role: "assistant", Text: "I verified that all required checks passed on the signed head, squash-merged the pull request, and confirmed the branch was deleted."},
+			},
+		},
+	}
+}
+
 var jevEvalQuestions = map[string]string{
 	"current":  jevFinishedQuestion,
 	"previous": jevEvalPreviousQuestion,
@@ -63,7 +102,7 @@ var (
 	jevEvalCorrection = regexp.MustCompile(`^(no[,. !]|nope|wrong|that's not|thats not|you didn't|you did not|you haven't|still |it still|this still|doesn't work|does not work|not working|didn't work)`)
 	jevEvalThresholds = []float64{0.5, 0.6, 0.7, 0.8}
 	jevEvalCaps       = map[string]int{"archived": 40, "nuke-ended": 60, "nuke-continued": 60, "correction": 30, "continue": 30, "followup": 60}
-	jevEvalLabel      = map[string]string{"archived": "done", "nuke-ended": "done", "nuke-continued": "open", "correction": "open", "continue": "open", "followup": "followup"}
+	jevEvalLabel      = map[string]string{"archived": "done", "nuke-ended": "done", "nuke-continued": "open", "correction": "open", "continue": "open", "followup": "followup", "reviewed-open": "open", "reviewed-done": "done"}
 )
 
 type jevEvalCase struct {
@@ -237,22 +276,24 @@ func TestJevFinishEval(t *testing.T) {
 	if err := os.MkdirAll(outDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	home, _ := os.UserHomeDir()
-	files, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", "*.jsonl"))
-	byClass := jevEvalCases(files, jevEvalArchived(t, configDir))
+	cases := jevEvalReviewedClosures()
+	if os.Getenv("JEV_EVAL_REVIEWED_ONLY") != "1" {
+		home, _ := os.UserHomeDir()
+		files, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", "*.jsonl"))
+		byClass := jevEvalCases(files, jevEvalArchived(t, configDir))
 
-	rng := rand.New(rand.NewSource(1))
-	var cases []jevEvalCase
-	classes := make([]string, 0, len(byClass))
-	for class := range byClass {
-		classes = append(classes, class)
-	}
-	sort.Strings(classes)
-	for _, class := range classes {
-		list := byClass[class]
-		t.Logf("pool %-15s %d", class, len(list))
-		rng.Shuffle(len(list), func(i, j int) { list[i], list[j] = list[j], list[i] })
-		cases = append(cases, list[:min(len(list), jevEvalCaps[class])]...)
+		rng := rand.New(rand.NewSource(1))
+		classes := make([]string, 0, len(byClass))
+		for class := range byClass {
+			classes = append(classes, class)
+		}
+		sort.Strings(classes)
+		for _, class := range classes {
+			list := byClass[class]
+			t.Logf("pool %-15s %d", class, len(list))
+			rng.Shuffle(len(list), func(i, j int) { list[i], list[j] = list[j], list[i] })
+			cases = append(cases, list[:min(len(list), jevEvalCaps[class])]...)
+		}
 	}
 	// The ID lets scores from different variants be joined per case, to read
 	// a cheap first call followed by a larger confirming one.

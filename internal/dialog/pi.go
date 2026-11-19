@@ -17,6 +17,11 @@ import "strings"
 // a permission prompt whatever its text says, since the extension draws no
 // other dialog with it, so a command whose words happen to read like another
 // kind of dialog cannot change how it is read.
+//
+// The extension's AskUserQuestion dialog is Claude Code's question dialog row
+// for row, so it is read by Claude's question reader. Registering that reader
+// tells the board pi has questions it can read, which is what brings the
+// pending call into the board's question card.
 
 // piPermissionLegend closes the extension's permission dialog.
 const piPermissionLegend = "Enter to confirm · Esc to cancel"
@@ -34,5 +39,5 @@ func ReadPiScreen(pane string) (Screen, bool) {
 }
 
 func init() {
-	RegisterTool("pi", ToolReader{Screen: ReadPiScreen})
+	RegisterTool("pi", ToolReader{Questions: readClaudeQuestions, Screen: ReadPiScreen})
 }

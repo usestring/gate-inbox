@@ -3,6 +3,7 @@ package sessioncmd
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -81,6 +82,10 @@ func (s *Sessions) SendChildrenAbout(sessionID, message, subject string) (ChildS
 	if err != nil {
 		return ChildSend{}, err
 	}
+	hibernated, err := runtime.store.Hibernated()
+	if err != nil {
+		return ChildSend{}, err
+	}
 	now := time.Now()
 	stamp := textfmt.Fingerprint(message)
 	result := ChildSend{}
@@ -99,7 +104,7 @@ func (s *Sessions) SendChildrenAbout(sessionID, message, subject string) (ChildS
 		// send to the one that is wanted brings it back.
 		case child.Archived:
 			delivery.Skipped = fmt.Sprintf("archived; %s to it alone restores it", runtime.words.Send)
-		case child.Status == status.Dead:
+		case child.Status == status.Dead && !slices.Contains(hibernated, child.ID):
 			delivery.Skipped = fmt.Sprintf("dead; %s to it alone revives it", runtime.words.Send)
 		// A terminal is a shell the caller opened to watch, not an agent with
 		// an inbox, so it is not part of the fan-out this is instructing.
@@ -111,6 +116,16 @@ func (s *Sessions) SendChildrenAbout(sessionID, message, subject string) (ChildS
 		case skipsSendChildren(child) != "":
 			delivery.Skipped = skipsSendChildren(child)
 		default:
+			// A hibernated child is resting until a message comes, and this
+			// is one: it wakes on its conversation, as a send to it alone
+			// wakes it, and the message waits in its queue until it is at
+			// its prompt.
+			if slices.Contains(hibernated, child.ID) {
+				if _, err := s.wakeForSend(runtime, child.ID); err != nil {
+					delivery.Skipped = err.Error()
+					break
+				}
+			}
 			if err := runtime.reach(child); err != nil {
 				return ChildSend{}, err
 			}

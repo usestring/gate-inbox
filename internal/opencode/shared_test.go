@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,7 +17,7 @@ import (
 )
 
 // fakeServerEnv makes the test binary an opencode server: it answers
-// /api/health and /api/session with the password it was started with, and
+// /api/info and /api/session with the password it was started with, and
 // records every session request's body in the file the variable names.
 const fakeServerEnv = "GATE_INBOX_TEST_FAKE_OPENCODE"
 
@@ -37,7 +38,7 @@ func fakeServe() {
 		return ok && user == serverUser && pass == password
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
 		if !authed(r) {
 			w.WriteHeader(http.StatusUnauthorized)
 		}
@@ -149,6 +150,36 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 			t.Fatalf("timed out waiting for %s", what)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A server is alive when it answers the endpoint its version serves: the
+// current /api/info, the retired /api/health, and no answer when it refuses
+// or is still starting.
+func TestServerAnswering(t *testing.T) {
+	cases := []struct {
+		name         string
+		info, health int
+		want         bool
+	}{
+		{"current", http.StatusOK, http.StatusNotFound, true},
+		{"legacy", http.StatusNotFound, http.StatusOK, true},
+		{"neither", http.StatusNotFound, http.StatusNotFound, false},
+		{"refused", http.StatusUnauthorized, http.StatusOK, false},
+		{"starting", http.StatusServiceUnavailable, http.StatusOK, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(tc.info) })
+			mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(tc.health) })
+			ts := httptest.NewServer(mux)
+			defer ts.Close()
+			srv := Server{URL: ts.URL, Password: "pw"}
+			if got := srv.answering(context.Background()); got != tc.want {
+				t.Fatalf("answering = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

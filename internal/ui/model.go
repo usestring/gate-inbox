@@ -690,7 +690,11 @@ type Model struct {
 	jump          groupJump
 	search        string
 	searching     bool
-	panePicker    panePicker
+	// searchTitleOnly narrows the filter to what names a session (its name
+	// and generated title), dropping pane and transcript matches. Tab toggles
+	// it while the search field is open. See titlesearch.go.
+	searchTitleOnly bool
+	panePicker      panePicker
 	// triage mirrors the persisted status-ordered queue: the rail drops its
 	// group structure and sorts by what needs a person, and ctrl+q walks on
 	// to the next such session instead of returning to the list.
@@ -1828,8 +1832,7 @@ func (m *Model) searchedListedSessions() []store.Session {
 	}
 	matched := make([]store.Session, 0, len(listed))
 	for _, sess := range listed {
-		_, historyMatch := m.historyHit(sess)
-		if matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) || historyMatch {
+		if m.searchMatches(sess, query) {
 			matched = append(matched, sess)
 		}
 	}
@@ -3456,9 +3459,7 @@ func (m *Model) buildTree() {
 	// per-group slices inherit the user's manual order.
 	matched := make(map[string]bool, len(listed))
 	for _, sess := range listed {
-		if query == "" || matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) {
-			matched[sess.ID] = true
-		} else if _, ok := m.historyHit(sess); ok {
+		if query == "" || m.searchMatches(sess, query) {
 			matched[sess.ID] = true
 		}
 	}

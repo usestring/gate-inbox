@@ -40,6 +40,8 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.ciFeedback }},
 	{arrowsStaySetting, "Arrows stay in sessions", "Send Left and Right to the focused session at the prompt's edges too.\nOff, Left at the prompt's head and Right at its end go back to the list.",
 		func(s *settingsState) *bool { return &s.arrowsStay }},
+	{nextStepSetting, "Next step", "On a finished session, suggest the next instruction from its pull request's checks and reviews.\nShown in the hotkey menu; ctrl+y inserts it unsent. Asks no model and fetches nothing.",
+		func(s *settingsState) *bool { return &s.nextStep }},
 }
 
 func storedExperiment(st *store.Store, setting string) bool {

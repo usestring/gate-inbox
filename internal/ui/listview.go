@@ -2067,10 +2067,18 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 		limit = min(limit, max(1, m.listBodyHeight()-6))
 	}
 	lines := m.quickMenuLines(width, limit)
-	if suggestion := m.selectedAutoSuggestion(); !m.quick.launch && suggestion != "" && limit > 1 {
+	// One suggestion line: the card worked out from pull request state when
+	// there is one, since it is about what just happened, else Auto Suggest's.
+	suggestion := ""
+	if step, ok := m.nextStepCard(); ok {
+		suggestion = m.nextStepLine(step)
+	} else if picked := m.selectedAutoSuggestion(); picked != "" {
+		suggestion = "ctrl+y insert · " + picked
+	}
+	if !m.quick.launch && suggestion != "" && limit > 1 {
 		_, _, note := m.quickMenuInks()
 		lines = m.quickMenuLines(width, limit-1)
-		lines = append(lines, note(truncateTail("ctrl+y insert · "+suggestion, width)))
+		lines = append(lines, note(truncateTail(suggestion, width)))
 	}
 	if m.quickHoldsPane() {
 		return strings.Join(lines, "\n")

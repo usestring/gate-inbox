@@ -22,10 +22,11 @@ poll_interval = "2s"
 # on, "right" or "left"; the session's pane takes the other side. Settings
 # can pick the other side on one machine, and picking this value there again
 # goes back to following this file. offer_cli_on_limit has the usage-limit
-# card offer the other CLIs as well as another subscription of the same one.
+# card offer the other CLIs as well as another subscription of the same one;
+# the subscription stays the default. Set it false to offer only that.
 # [board]
 # sidebar = "right"
-# offer_cli_on_limit = false
+# offer_cli_on_limit = true
 
 # Asking a live agent to name its session interrupts it for a housekeeping
 # turn: the rename directive on a managed launch, the pending note in an

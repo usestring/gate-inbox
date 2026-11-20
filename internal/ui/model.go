@@ -2321,6 +2321,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentPickQuotaMsg:
 		m.finishAgentPickQuota(msg)
 		return m, nil
+	case worktreesLoadedMsg:
+		m.finishWorktreePicker(msg)
+		return m, nil
+	case recentWorktreeMsg:
+		m.finishRecentWorktree(msg)
+		return m, nil
 	case migrateAutoMsg:
 		return m.finishMigrateAuto(msg)
 	case accountAutoMsg:
@@ -3125,6 +3131,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev(), m.scheduleNextStepLocal())
 
 	case tea.PasteMsg:
+		if m.mode == modeForm && m.form.worktrees != nil {
+			return m, m.form.worktrees.updateFilter(msg)
+		}
 		if m.mode == modeSettings && m.settings.searching {
 			var cmd tea.Cmd
 			m.settings.search, cmd = m.settings.search.Update(msg)

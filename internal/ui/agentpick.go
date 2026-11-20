@@ -531,6 +531,9 @@ func (m *Model) handleAgentPickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.submitAgentPick()
 	}
+	if action, bound := m.action(keymap.ContextList, msg); bound && action == keymap.NewSessionForm {
+		return m, m.openFormFromAgentPick()
+	}
 	m.agentPick.touched = true
 	switch msg.String() {
 	case "tab", "down", "right":
@@ -554,6 +557,24 @@ func (m *Model) handleAgentPickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.agentPick.fresh = false
 	m.snapAgentPick()
 	return m, cmd
+}
+
+func (m *Model) openFormFromAgentPick() tea.Cmd {
+	typed := strings.TrimSpace(m.agentPick.input.Value())
+	if typed != "" && len(m.agentPickMatches()) == 0 {
+		m.errBar.text = m.noMatchText(m.agentPick.names, typed)
+		return nil
+	}
+	group := m.contextGroup()
+	if m.agentPick.pinned {
+		if !m.groupStillOpen(m.agentPick.group) {
+			m.agentPick.pinned = false
+			m.errBar.text = "group changed: open more options to choose where to start"
+			return nil
+		}
+		group = m.agentPick.group
+	}
+	return m.openFormFor(group, m.agentPickName())
 }
 
 // submitAgentPick starts the agent the box is showing, or a plain terminal

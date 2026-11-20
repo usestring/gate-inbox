@@ -178,6 +178,9 @@ func fitBody(body []string, room, offset int) []string {
 }
 
 func (m *Model) viewForm() string {
+	if m.form.worktrees != nil {
+		return m.viewWorktreePicker()
+	}
 	m.form.prompt.input.SetHeight(textareaRows(m.form.prompt.input, m.formValueWidth()-2, formPromptMaxRows))
 
 	var b strings.Builder
@@ -203,6 +206,9 @@ func (m *Model) viewForm() string {
 	}
 
 	b.WriteString(formField("dir", m.form.dir.View(), m.form.focus == fieldDir))
+	if m.hasRecentWorktree() {
+		b.WriteString(formField("recent", m.viewRecentWorktree(), false))
+	}
 	if m.form.focus == fieldDir && m.pathSugg.showing() {
 		b.WriteString(m.viewPathSuggestions() + "\n")
 	}
@@ -232,6 +238,10 @@ func (m *Model) viewForm() string {
 			change = [2]string{"space/←→", "toggle"}
 		}
 		hint = [][2]string{change, {"tab/↑↓", "move"}, {"↵", "create"}, {"esc", "cancel"}}
+	}
+	hint = append([][2]string{{"F2", "worktrees"}}, hint...)
+	if m.hasRecentWorktree() {
+		hint = append([][2]string{{"F4", "use recent"}}, hint...)
 	}
 	return m.card("◆ New Session", strings.TrimRight(b.String(), "\n"), hint)
 }
@@ -701,7 +711,13 @@ func (m *Model) viewAgentPick() string {
 	m.agentPick.input.SetWidth(max(4, inner-3))
 	m.agentPick.input.SetCursor(m.agentPick.input.Position())
 
-	hint := [][2]string{{"type", "pick a CLI"}, {"←→", "change"}, {"↵", "start"}, {"esc", "cancel"}}
+	more := m.fullCap(keymap.ContextList, keymap.NewSessionForm)
+	launch := [][2]string{{"↵", "start"}}
+	if more != "" {
+		launch = append(launch, [2]string{more, "more options"})
+	}
+	launch = append(launch, [2]string{"esc", "cancel"})
+	hint := append([][2]string{{"type", "pick a CLI"}, {"←→", "change"}}, launch...)
 	hintRows := lipgloss.Height(legendInline(hint, cardInnerWidth(m.cardWidth())))
 	room := m.height - 6 - hintRows
 	if m.errBar.text != "" {
@@ -709,6 +725,15 @@ func (m *Model) viewAgentPick() string {
 	}
 	if room < 1 {
 		hint = [][2]string{{"←→", "pick"}, {"↵", "start"}, {"esc", "cancel"}}
+		if more != "" {
+			options := [2]string{m.tightCap(keymap.ContextList, keymap.NewSessionForm), "options"}
+			hint = [][2]string{{"↵", "start"}, options, {"esc", "cancel"}}
+			// A long binding such as ctrl+alt+n wraps the footer at this size;
+			// enter is the obvious key, so its hint is the one to give up.
+			if lipgloss.Height(legendInline(hint, cardInnerWidth(m.cardWidth()))) > 1 {
+				hint = [][2]string{options, {"esc", "cancel"}}
+			}
+		}
 		room += hintRows - lipgloss.Height(legendInline(hint, cardInnerWidth(m.cardWidth())))
 	}
 	quotaRows := agentPickQuotaRows(m.agentPick.names, m.agentPick.quotas, m.agentPick.recommended, m.agentPick.reason, inner)

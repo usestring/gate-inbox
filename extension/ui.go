@@ -28,6 +28,12 @@ type UIProvider interface {
 	UI(host UIHost) (UI, error)
 }
 
+// BadgeLegendProvider describes an extension's row badge in the board legend.
+// The label should match the wording on the row so the legend search can find it.
+type BadgeLegendProvider interface {
+	BadgeLegend() (label, detail string)
+}
+
 // UI is what an extension adds to the board's screens.
 type UI struct {
 	Keys    []KeyBinding
@@ -510,10 +516,12 @@ const (
 
 // UIResult is what one extension's UI came to.
 type UIResult struct {
-	ID      string
-	Version string
-	UI      UI
-	Err     error
+	ID          string
+	Version     string
+	UI          UI
+	BadgeLabel  string
+	BadgeDetail string
+	Err         error
 }
 
 // StartUI asks every enabled UIProvider, in order, for its UI. hostFor gives
@@ -529,20 +537,27 @@ func (r *Registry) StartUI(hostFor func(id string) UIHost) ([]UIResult, error) {
 		if !ok || !r.serving(i) {
 			continue
 		}
-		ui, err := uiOne(provider, hostFor(r.ids[i]))
-		if err != nil {
-			ui = UI{}
-		}
-		results = append(results, UIResult{ID: r.ids[i], Version: ext.Descriptor().Version, UI: ui, Err: err})
+		result := uiOne(provider, hostFor(r.ids[i]))
+		result.ID = r.ids[i]
+		result.Version = ext.Descriptor().Version
+		results = append(results, result)
 	}
 	return results, nil
 }
 
-func uiOne(provider UIProvider, host UIHost) (ui UI, err error) {
+func uiOne(provider UIProvider, host UIHost) (result UIResult) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			ui, err = UI{}, fmt.Errorf("panicked while building its UI: %v", recovered)
+			result = UIResult{Err: fmt.Errorf("panicked while building its UI: %v", recovered)}
 		}
 	}()
-	return provider.UI(host)
+	ui, err := provider.UI(host)
+	if err != nil {
+		return UIResult{Err: err}
+	}
+	result.UI = ui
+	if legend, ok := provider.(BadgeLegendProvider); ok {
+		result.BadgeLabel, result.BadgeDetail = legend.BadgeLegend()
+	}
+	return result
 }

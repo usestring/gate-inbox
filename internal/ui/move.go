@@ -121,6 +121,7 @@ func (m *Model) handleMoveKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.errBar.text = err.Error()
 			return m, nil
 		}
+		m.noteAutoGroupPlaced(m.moveID)
 		for _, member := range m.sessions {
 			if member.ID == m.moveID || store.Linked(sess, member) {
 				m.relabelSession(member.ID)

@@ -52,6 +52,8 @@ func (m mode) String() string {
 		return "restart-with"
 	case modeHeadPane:
 		return "head-pane"
+	case modeCleared:
+		return "cleared"
 	}
 	return fmt.Sprintf("mode(%d)", int(m))
 }

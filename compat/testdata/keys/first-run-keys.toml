@@ -27,7 +27,7 @@
 # jump_pane           = ["ctrl+g"]  # find a pane by name and focus it
 # previous_pane       = ["ctrl+up", "ctrl+alt+up"]  # previous pane in list order, from any screen
 # next_pane           = ["ctrl+down", "ctrl+alt+down"]  # next pane in list order, from any screen
-# rescind_submission  = ["ctrl+z"]  # undo the latest submission while its turn is active
+# rescind_submission  = ["alt+z"]  # undo the latest submission while its turn is active
 # jump_attention      = ["tab"]  # enter the next session waiting on you
 # jump_waiting        = []  # enter the next waiting session
 # jump_finished       = []  # enter the next finished session
@@ -67,7 +67,7 @@
 # mute                = ["ctrl+m"]  # mute / unmute: keep it out of triage until unmuted
 # snooze              = ["alt+z"]  # snooze: mute it for 1h → 4h → 1d → off, or until it asks or errors
 # unmute_all          = ["alt+m"]  # unmute every muted session listed
-# quick_prompt        = ["ctrl+s"]  # hotkey menu
+# quick_prompt        = ["ctrl+z"]  # hotkey menu
 # rename_from_agent   = ["ctrl+alt+r"]  # rename it after its conversation
 # rename              = []  # rename it yourself, and re-pick its tool
 # name_sweep          = []  # name sweep over idle adopted panes
@@ -90,7 +90,7 @@
 # search              = ["ctrl+f"]  # fuzzy session search
 # clear_search        = []  # clear the search
 # resize_split        = []  # resize the split
-# settings            = ["ctrl+alt+s"]  # settings
+# settings            = ["ctrl+s"]  # settings
 # refresh_clis        = []  # refresh installed CLIs: look on PATH again for each agent CLI
 # toggle_chrome       = []  # hide / show the key hints along the foot
 # toggle_rail         = []  # hide / show the list beside the pane
@@ -103,7 +103,7 @@
 # leave               = ["ctrl+q"]  # back to the manager; in triage, on to the next (cannot be unbound)
 # hand_over           = ["§"]  # ctrl+q's one-press alias
 # leave_stop          = ["ctrl+\\"]  # back to the manager, always stopping there (cannot be unbound)
-# rescind_submission  = ["ctrl+z"]  # undo the latest submission while its turn is active
+# rescind_submission  = ["alt+z"]  # undo the latest submission while its turn is active
 # dismiss             = ["alt+."]  # skip
 # toggle_conversation = ["f3"]  # show the conversation or the terminal
 # toggle_chrome       = ["alt+,"]  # hide / show the key hints along the foot
@@ -115,7 +115,7 @@
 # unmute_all          = ["alt+m"]  # unmute every muted session listed
 # restore_all         = ["alt+d"]  # restore every dead session listed
 # help                = ["ctrl+h"]  # this key map
-# quick_prompt        = ["ctrl+s"]  # hotkey menu: send a snippet without leaving the session
+# quick_prompt        = ["ctrl+z"]  # hotkey menu: send a snippet without leaving the session
 # new_session         = ["ctrl+n"]  # new session in this one's group
 # triage_content      = ["alt+]"]  # cycle triage: sessions, reviews, or both
 # reviews_tab         = ["ctrl+]"]  # switch to the Reviews tab
@@ -134,7 +134,7 @@
 # triage              = ["ctrl+i"]  # triage this group as one queue
 # search              = ["ctrl+f"]  # fuzzy session search
 # quick_actions       = ["ctrl+k"]  # quick actions: find any action by name, run it, see its key
-# settings            = ["ctrl+alt+s"]  # settings
+# settings            = ["ctrl+s"]  # settings
 # new_group           = ["ctrl+alt+g"]  # new group
 # new_terminal        = ["ctrl+alt+t"]  # new terminal tab
 # revive_all          = ["ctrl+alt+v"]  # revive every dead session

@@ -15,10 +15,26 @@ import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { pathToFileURL } from "node:url";
+// A namespace import, not named ones: omp (oh-my-pi) loads pi extensions
+// through a compatibility module that lacks some of pi's exports, and a named
+// import of a missing one fails the whole extension at link time.
+import * as piAgent from "@earendil-works/pi-coding-agent";
+import type { BashOperations, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
 const bin = process.env.GATE_INBOX_BIN ?? "";
 const statusFile = process.env.GATE_INBOX_STATUS_FILE ?? "";
+// skipPermissions is a launch with its permission prompts off. Every gate in
+// this extension stops asking under it; what still holds is what never asks:
+// the sandbox around bash, and the OS confinement around the whole session.
+const skipPermissions = process.env.GATE_INBOX_SKIP_PERMISSIONS === "1";
+
+// onPi is false under omp, pi's fork, which runs this extension without
+// registerMcpServer and without the events pi raises when a run settles, a
+// dialog opens or closes, or a prompt's system sections are built. Each place
+// that relies on one of those says what it does under omp instead.
+let onPi = true;
 
 // hookTimeoutMs bounds one hook call. A hook that hangs must never hold pi
 // up: the call is killed and answers undefined, as a failed one does.
@@ -120,6 +136,9 @@ function endedInError(messages: unknown): boolean {
 // both.
 const mcpServer = "gate-inbox";
 const renameTool = `mcp__${mcpServer.replace(/[^A-Za-z0-9_]/g, "_")}__rename`;
+// omp reaches the server through the plugin the launch gives it (Go:
+// piext.OmpToolPrefix) and spells the tool its own way.
+const ompRenameTool = "mcp__gate_inbox_board_rename";
 
 type McpServerConfig = Parameters<ExtensionAPI["registerMcpServer"]>[1];
 
@@ -182,7 +201,7 @@ function overridingConfigs(cwd: string): string[] {
 // Its registration is for this run only; nothing is written to ~/.pi.
 function boardTools(pi: ExtensionAPI) {
   let registerError = "";
-  if (mcpConfigFile) {
+  if (mcpConfigFile && onPi) {
     try {
       pi.registerMcpServer(mcpServer, boardServerConfig());
     } catch (err) {
@@ -200,7 +219,7 @@ function boardTools(pi: ExtensionAPI) {
     if (registerError) {
       ctx.ui.notify(`Gate Inbox: the board's MCP tools are not registered: ${registerError}`, "error");
     }
-    const overrides = overridingConfigs(ctx.cwd);
+    const overrides = onPi ? overridingConfigs(ctx.cwd) : [];
     if (overrides.length > 0) {
       ctx.ui.notify(
         `Gate Inbox: ${overrides.join(" and ")} defines a "${mcpServer}" MCP server, which overrides the board's; this session's board tools come from that entry.`,
@@ -215,17 +234,12 @@ function boardTools(pi: ExtensionAPI) {
     }
   });
 
-  // A section rather than a rewritten prompt: pi patches only a section
-  // that changed, so the model's cached prefix survives every turn after
-  // the first.
-  pi.on("before_agent_start", async (event) => {
-    if (steering) event.systemPromptOptions.sections[mcpServer] = steering;
-  });
+  pi.on("before_agent_start", async (event) => (steering ? systemSection(event, mcpServer, steering) : undefined));
 
   // The board's rename names the row; the session's own name follows it,
   // so pi's session list and the board agree.
   pi.on("tool_result", async (event) => {
-    if (event.toolName !== renameTool || event.isError) return;
+    if (event.toolName !== (onPi ? renameTool : ompRenameTool) || event.isError) return;
     const name = typeof event.input?.name === "string" ? event.input.name.trim() : "";
     if (!name || name === mirrored) return;
     mirrored = name;
@@ -238,6 +252,20 @@ function boardTools(pi: ExtensionAPI) {
     mirrored = event.name;
     await runHook("session_info_changed", { name: event.name });
   });
+}
+
+// systemSection adds text to the system prompt of the run about to start.
+// Under pi it is a named section rather than a rewritten prompt: pi patches
+// only a section that changed, so the model's cached prefix survives every
+// turn after the first. omp has no sections; it takes the prompt's parts
+// back from each handler in turn, and text appended at the end leaves the
+// prefix before it cached all the same.
+function systemSection(event: any, name: string, text: string): { systemPrompt: string[] } | undefined {
+  if (onPi) {
+    event.systemPromptOptions.sections[name] = text;
+    return undefined;
+  }
+  return Array.isArray(event.systemPrompt) ? { systemPrompt: [...event.systemPrompt, text] } : undefined;
 }
 
 // hookNote reads the model-facing text out of a Claude Code hook answer:
@@ -284,8 +312,10 @@ function sessionNotes(pi: ExtensionAPI) {
     return { action: "continue" };
   });
 
-  pi.on("before_agent_start", async (event) => {
-    if (event.messageType !== "user" || pending.length === 0) return;
+  pi.on("before_agent_start", async (event: any) => {
+    // omp names why a run starts rather than what started it.
+    const fromUser = onPi ? event.messageType === "user" : event.reason === "prompt";
+    if (!fromUser || pending.length === 0) return;
     const content = pending.join("\n\n");
     pending = [];
     return { message: { customType: noteType, content, display: true } };
@@ -295,14 +325,23 @@ function sessionNotes(pi: ExtensionAPI) {
   // chance to do the same is agent_before_settle, which may append a message
   // and ask for one more provider request. turn_end would fire after every
   // tool round, not once the run is over.
+  const stopNote = async () => hookNote(await runClaudeHook("child-dialogs", { hook_event_name: "Stop", session_id: piSession }));
   pi.on("agent_before_settle", async (event) => {
-    const note = hookNote(await runClaudeHook("child-dialogs", { hook_event_name: "Stop", session_id: piSession }));
+    const note = await stopNote();
     if (!note) return;
     return {
       entries: [...event.entries, { type: "custom_message", customType: noteType, content: note, display: true }],
       continue: true,
     };
   });
+  // omp has no agent_before_settle; once its run ends, the note starts the
+  // next one.
+  if (!onPi) {
+    pi.on("agent_end", async () => {
+      const note = await stopNote();
+      if (note) pi.sendMessage({ customType: noteType, content: note, display: true }, { triggerTurn: true });
+    });
+  }
 }
 
 // pluginDir is the board's Claude Code plugin (Go: piext.PluginDirEnv).
@@ -397,14 +436,24 @@ function boardSkills(pi: ExtensionAPI) {
   }
 }
 
+// ompWithheld are omp's own tools a board session goes without. ask draws a
+// question the board cannot read or answer, where AskUserQuestion draws one
+// it can. eval runs code outside the sandbox the board's bash runs in, and so
+// does task: omp gives the subagents it starts none of an extension's tools,
+// so their bash is omp's own.
+const ompWithheld = new Set(["ask", "eval", "task"]);
+
 export default function gateInbox(pi: ExtensionAPI) {
   if (!bin || !statusFile) return;
+  onPi = typeof (pi as { registerMcpServer?: unknown }).registerMcpServer === "function";
   boardTools(pi);
   sessionNotes(pi);
   boardSkills(pi);
   askUserQuestion(pi);
+  sandboxedBash(pi);
 
   pi.on("session_start", async (event, ctx) => {
+    if (!onPi) await pi.setActiveTools(pi.getActiveTools().filter((name) => !ompWithheld.has(name)));
     await report("session_start", { reason: event.reason, cwd: ctx.cwd, session_id: ctx.sessionManager.getSessionId() });
   });
   pi.on("agent_start", async () => {
@@ -412,6 +461,16 @@ export default function gateInbox(pi: ExtensionAPI) {
   });
   pi.on("agent_end", async (event) => {
     await report("agent_end", { errored: endedInError(event.messages) });
+    // omp raises no agent_settled: its run is over at agent_end.
+    if (!onPi) await report("agent_settled", { aborted: false });
+  });
+  // omp's own approval prompt, which its approval mode or a tool's policy
+  // raises, is a dialog the board must hold the session's keys for.
+  pi.on("tool_approval_requested" as never, async () => {
+    await report("ui_prompt_start", { kind: "approval" });
+  });
+  pi.on("tool_approval_resolved" as never, async (_event: unknown, ctx: { isIdle(): boolean }) => {
+    await report("ui_prompt_end", { idle: ctx.isIdle() });
   });
   pi.on("agent_settled", async (event) => {
     await report("agent_settled", { aborted: event.aborted === true });
@@ -507,7 +566,7 @@ type Answer = { choice: "yes" | "always" | "no" | "cancel"; reason?: string };
 async function askUser(
   d: GateDecision,
   toolUseId: string,
-  ctx: { hasUI: boolean; cwd: string; signal?: AbortSignal; ui: { custom: Function } },
+  ctx: DialogContext & { hasUI: boolean; cwd: string; signal?: AbortSignal },
 ): Promise<{ block: true; reason: string } | undefined> {
   const title = d.title || d.tool || "Tool use";
   const block = d.block || "";
@@ -525,7 +584,8 @@ async function askUser(
   });
   let answer: Answer = { choice: "cancel" };
   try {
-    answer = (await ctx.ui.custom(
+    answer = (await openDialog(
+      ctx,
       (_tui: unknown, _theme: unknown, keybindings: Keybindings, done: (a: Answer) => void) =>
         permissionDialog({ title, block, reason: d.reason, suggestion: d.ruleSuggestion }, keybindings, done, ctx.signal),
       { blocked: { kind: "permission", message: title } },
@@ -550,6 +610,21 @@ async function askUser(
 }
 
 type Keybindings = { matches(data: string, id: string): boolean };
+
+type DialogContext = { ui: { custom: Function }; isIdle(): boolean };
+
+// openDialog draws one of the extension's dialogs. Pi reports a dialog opening
+// and closing itself (ui_prompt_start and ui_prompt_end); omp does not, so
+// under omp the extension reports both.
+async function openDialog(ctx: DialogContext, factory: Function, options: { blocked: { kind: string; message: string } }): Promise<unknown> {
+  if (onPi) return ctx.ui.custom(factory, options);
+  await report("ui_prompt_start", { kind: options.blocked.kind });
+  try {
+    return await ctx.ui.custom(factory, options);
+  } finally {
+    await report("ui_prompt_end", { idle: ctx.isIdle() });
+  }
+}
 
 type DialogSpec = { title: string; block: string; reason?: string; suggestion?: string };
 
@@ -699,9 +774,7 @@ function askUserQuestion(pi: ExtensionAPI) {
   pi.on("session_start", async () => {
     childNote = hookNote(await runClaudeHook("session-start", { hook_event_name: "SessionStart" }));
   });
-  pi.on("before_agent_start", async (event) => {
-    if (childNote) event.systemPromptOptions.sections["gate-inbox-child"] = childNote;
-  });
+  pi.on("before_agent_start", async (event) => (childNote ? systemSection(event, "gate-inbox-child", childNote) : undefined));
 
   pi.registerTool({
     name: "AskUserQuestion",
@@ -710,7 +783,11 @@ function askUserQuestion(pi: ExtensionAPI) {
       "Ask the user 1-4 multiple-choice questions and wait for their answers. Use it to settle ambiguous " +
       "instructions, get their preferences or decisions, and ask for approval of an action (header " +
       '"Approval"). The user can always type an answer of their own instead of an option.',
-    parameters: askParameters as never,
+    // omp registers a tool only with a schema its Type builder made, and
+    // mounts an extension's tool behind an xd:// device unless it is
+    // essential; this one is offered as Claude Code offers it, by name.
+    parameters: (onPi ? askParameters : Type.Unsafe(askParameters)) as never,
+    ...(onPi ? {} : { loadMode: "essential" }),
     async execute(toolCallId: string, params: { questions: AskQuestion[] }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: any) {
       const questions = params.questions;
       const hookInput = { tool_name: "AskUserQuestion", tool_use_id: toolCallId, tool_input: { questions } };
@@ -728,7 +805,8 @@ function askUserQuestion(pi: ExtensionAPI) {
         } else if (!ctx.hasUI) {
           return askResult("This session has no screen to ask the user on, so the question was not asked.", { questions, outcome: "cancel" });
         } else {
-          outcome = (await ctx.ui.custom(
+          outcome = (await openDialog(
+            ctx,
             (_tui: unknown, _theme: unknown, keybindings: Keybindings, done: (o: AskOutcome) => void) =>
               askDialog(questions, keybindings, done, signal),
             { blocked: { kind: "question", message: questions[0]?.header || "Question" } },
@@ -1087,4 +1165,195 @@ function renderReview(questions: AskQuestion[], states: AskState[], cursor: numb
   lines.push(`${cursor === 0 ? "❯ " : "  "}1. Submit answers`, `${cursor === 1 ? "❯ " : "  "}2. Cancel`);
   lines.push("", ...wrapWords(askLegendSingle, w));
   return lines;
+}
+
+// The sandboxed bash tool.
+//
+// pi's bash runs every command with pi's own permissions. This replaces it
+// with the same tool whose commands run inside @anthropic-ai/sandbox-runtime
+// (bubblewrap on Linux, sandbox-exec on macOS), the runtime Claude Code's own
+// sandbox is built on. What a command may read, write and reach is the
+// board's answer to `hook pi sandbox` (piext.Plan): the operator's Claude
+// sandbox settings plus the board's key directory, and no tmux socket.
+//
+// It fails closed. When the board does not answer, the runtime will not
+// load, or bubblewrap or socat is missing, every command asks first and
+// says why. A command the model asks to run outside the sandbox
+// (dangerouslyDisableSandbox) asks too. Only `[tools.pi] sandbox = "off"` in
+// the board's config runs commands unsandboxed without asking, or a launch
+// with permissions skipped, which still runs every other command sandboxed.
+
+type SandboxManagerLike = {
+  isSupportedPlatform(): boolean;
+  checkDependencies(): { errors: string[]; warnings: string[] };
+  initialize(config: unknown): Promise<void>;
+  wrapWithSandbox(command: string, binShell?: string, customConfig?: unknown, abortSignal?: AbortSignal): Promise<string>;
+  cleanupAfterCommand(): void;
+  reset(): Promise<void>;
+};
+
+type SandboxState =
+  | { mode: "on"; manager: SandboxManagerLike; tmpDir: string; allowUnsandboxed: boolean }
+  | { mode: "off" }
+  | { mode: "unavailable"; reason: string };
+
+// sandboxStartMs bounds the board's answer, and separately the runtime's
+// start (its network proxies); past either the sandbox is unavailable.
+const sandboxStartMs = 20000;
+
+let sandbox: Promise<SandboxState> | undefined;
+
+async function startSandbox(cwd: string): Promise<SandboxState> {
+  const plan = (await runHook("sandbox", { cwd }, sandboxStartMs)) as
+    | { mode?: string; reason?: string; runtime?: string; tmpDir?: string; allowUnsandboxed?: boolean; config?: unknown }
+    | undefined;
+  if (!plan || typeof plan !== "object") return { mode: "unavailable", reason: "the board did not answer" };
+  if (plan.mode === "off") return { mode: "off" };
+  if (plan.mode !== "on" || !plan.runtime || !plan.tmpDir) {
+    return { mode: "unavailable", reason: plan.reason || "the board gave no sandbox" };
+  }
+  try {
+    const runtime = (await import(pathToFileURL(plan.runtime).href)) as { SandboxManager: SandboxManagerLike };
+    const manager = runtime.SandboxManager;
+    if (!manager.isSupportedPlatform()) return { mode: "unavailable", reason: `${process.platform} is not supported` };
+    const deps = manager.checkDependencies();
+    if (deps.errors.length > 0) return { mode: "unavailable", reason: deps.errors.join("; ") };
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("the sandbox did not start in time")), sandboxStartMs);
+    });
+    // The runtime binds its proxy's unix socket under os.tmpdir() while it
+    // starts, and a long TMPDIR pushes that path past the 108-byte limit, so
+    // it starts under the board's short private directory instead.
+    const tmpdir = process.env.TMPDIR;
+    process.env.TMPDIR = plan.tmpDir;
+    try {
+      await Promise.race([manager.initialize(plan.config), timedOut]);
+    } finally {
+      clearTimeout(timer);
+      if (tmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = tmpdir;
+    }
+    return { mode: "on", manager, tmpDir: plan.tmpDir, allowUnsandboxed: plan.allowUnsandboxed === true };
+  } catch (err) {
+    return { mode: "unavailable", reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// sandboxedOperations runs each command through the runtime's wrapper, with
+// the session's private TMPDIR.
+function sandboxedOperations(state: Extract<SandboxState, { mode: "on" }>, local: BashOperations): BashOperations {
+  return {
+    exec: async (command, cwd, options) => {
+      const wrapped = await state.manager.wrapWithSandbox(command, undefined, undefined, options.signal);
+      try {
+        return await local.exec(wrapped, cwd, { ...options, env: { ...(options.env ?? process.env), TMPDIR: state.tmpDir } });
+      } finally {
+        state.manager.cleanupAfterCommand();
+      }
+    },
+  };
+}
+
+// spawnBashOperations runs a command with bash as pi's local operations do,
+// for omp, whose compatibility module has none to give. Each command leads
+// its own process group, so a cancel or a timeout kills what it started too.
+function spawnBashOperations(): BashOperations {
+  return {
+    exec: (command, cwd, options) =>
+      new Promise((resolve, reject) => {
+        const child = spawn("bash", ["-c", command], { cwd, env: options.env ?? process.env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+        const kill = () => {
+          try {
+            process.kill(-child.pid!, "SIGKILL");
+          } catch {
+            child.kill("SIGKILL");
+          }
+        };
+        let timedOut = false;
+        const timer = options.timeout ? setTimeout(() => ((timedOut = true), kill()), options.timeout * 1000) : undefined;
+        options.signal?.addEventListener("abort", kill, { once: true });
+        child.stdout.on("data", options.onData);
+        child.stderr.on("data", options.onData);
+        child.on("error", (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+        child.on("close", (code) => {
+          clearTimeout(timer);
+          options.signal?.removeEventListener("abort", kill);
+          if (options.signal?.aborted) reject(new Error("aborted"));
+          else if (timedOut) reject(new Error(`timeout:${options.timeout}`));
+          else resolve({ exitCode: code });
+        });
+      }),
+  };
+}
+
+function sandboxedBash(pi: ExtensionAPI) {
+  const { createBashToolDefinition, createLocalBashOperations } = piAgent as typeof piAgent & {
+    createLocalBashOperations?: () => BashOperations;
+  };
+  const local = createLocalBashOperations ? createLocalBashOperations() : spawnBashOperations();
+  const ready = (cwd: string) => (sandbox ??= startSandbox(cwd));
+  const base = createBashToolDefinition(process.cwd());
+  pi.on("session_start", async (_event, ctx) => {
+    void ready(ctx.cwd);
+  });
+  // reset stops the runtime's proxies, so the next session pi starts in this
+  // process builds its sandbox afresh rather than wrapping commands for
+  // proxies that are gone.
+  pi.on("session_shutdown", async () => {
+    const state = await sandbox;
+    sandbox = undefined;
+    if (state?.mode === "on") await state.manager.reset().catch(() => undefined);
+  });
+  const outsideFlag = "Run this command outside the sandbox. The user is asked first.";
+  // omp's bash definition carries the description of omp's own bash, whose
+  // background jobs and pty this one does not have, and a schema whose
+  // properties sit behind toJsonSchema.
+  const ompSchema = onPi ? undefined : (base.parameters as unknown as { toJsonSchema(): { properties?: object } }).toJsonSchema();
+  pi.registerTool({
+    ...base,
+    description:
+      `${onPi ? base.description : "Run a bash command in the working directory and return its output. timeout is in seconds."} ` +
+      "Commands run in a sandbox: writes are limited to the working directory and $TMPDIR, " +
+      "network to allowed hosts, and some paths cannot be read. If a command fails because of the sandbox, " +
+      "retry it with dangerouslyDisableSandbox: true, which asks the user first.",
+    parameters: ompSchema
+      ? (Type.Unsafe({
+          ...ompSchema,
+          properties: { ...ompSchema.properties, dangerouslyDisableSandbox: { type: "boolean", description: outsideFlag } },
+        }) as never)
+      : Type.Object({
+          ...base.parameters.properties,
+          dangerouslyDisableSandbox: Type.Optional(Type.Boolean({ description: outsideFlag })),
+        }),
+    async execute(id, params, signal, onUpdate, ctx) {
+      const { dangerouslyDisableSandbox, ...input } = params as typeof params & { dangerouslyDisableSandbox?: boolean };
+      const state = await ready(ctx.cwd);
+      // The board's gate has already decided this call, asking the user when
+      // it ran outside the sandbox by request, so only a sandbox that could
+      // not start is asked about here, through the gate's own dialog.
+      const outside = dangerouslyDisableSandbox === true;
+      let operations = local;
+      if (state.mode === "on" && !(outside && state.allowUnsandboxed)) {
+        operations = sandboxedOperations(state, local);
+      } else if (state.mode === "unavailable" && !outside && !skipPermissions) {
+        const refused = await askUser(
+          {
+            permissionDecision: "ask",
+            tool: "Bash",
+            title: "Bash command",
+            block: input.command,
+            reason: `Bash command, outside the sandbox (sandbox unavailable: ${state.reason})`,
+          },
+          id,
+          ctx,
+        );
+        if (refused) throw new Error(`Not run: ${refused.reason}`);
+      }
+      return createBashToolDefinition(ctx.cwd, { operations }).execute(id, input, signal, onUpdate, ctx);
+    },
+  });
 }

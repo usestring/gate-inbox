@@ -19,9 +19,9 @@ func menuKey(letter rune) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: letter, Text: string(letter)}
 }
 
-// menuTrigger is the hotkey menu leader in a focused session.
+// menuTrigger is the hotkey menu leader on the list and in a focused session.
 func menuTrigger() tea.KeyPressMsg {
-	return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
+	return tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl}
 }
 
 // writeSnippets replaces the model's snippet file and reloads it, so a test
@@ -52,7 +52,7 @@ func TestMenuKeySendsIntoTheFocusedPane(t *testing.T) {
 	m.enterFocusOn(t, "ask")
 	sess := sessionNamed(t, m, "ask")
 
-	updated, _ := m.handleFocusKey(menuTrigger())
+	updated, _ := m.handleKey(menuTrigger())
 	m = updated.(*Model)
 	if !m.quick.active || !m.quick.fromFocus {
 		t.Fatalf("the leader did not open the focused menu: active=%v fromFocus=%v", m.quick.active, m.quick.fromFocus)
@@ -75,7 +75,11 @@ func TestMenuKeyFromTheListSendsToTheCursorRow(t *testing.T) {
 	m.selectSessionRow(t, "ask")
 	sess := sessionNamed(t, m, "ask")
 
-	m.openQuickMode()
+	updated, _ := m.handleKey(menuTrigger())
+	m = updated.(*Model)
+	if !m.quick.active || m.quick.fromFocus {
+		t.Fatalf("the leader did not open the list menu: active=%v fromFocus=%v", m.quick.active, m.quick.fromFocus)
+	}
 	updated, cmd := m.handleKey(menuKey('d'))
 	m = updated.(*Model)
 	if cmd != nil {

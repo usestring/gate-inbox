@@ -26,12 +26,28 @@ func ClaudeTurnOpen(path string) bool {
 	if err != nil {
 		return true
 	}
-	raw, err := readTail(path, info.Size(), tailBytes)
-	if err != nil {
-		return true
+	// Claude Code writes request bodies into the transcript after each prompt
+	// and tool result, and one can be larger than the tail window on its own.
+	// A window holding only those records says nothing, so widen it until it
+	// reaches a prompt or reply, or the whole file has been read.
+	for window := int64(tailBytes); ; window *= 2 {
+		raw, err := readTail(path, info.Size(), window)
+		if err != nil {
+			return true
+		}
+		partial := info.Size() > int64(len(raw))
+		if open, decided := turnOpenIn(raw, partial); decided || !partial {
+			return open
+		}
 	}
+}
+
+// turnOpenIn reads the last prompt or reply in raw, and reports false for
+// decided when raw holds neither. partial drops the first line, which a
+// window into the middle of a file cuts in half.
+func turnOpenIn(raw []byte, partial bool) (open, decided bool) {
 	lines := bytes.Split(raw, []byte{'\n'})
-	if info.Size() > int64(len(raw)) && len(lines) > 0 {
+	if partial && len(lines) > 0 {
 		lines = lines[1:]
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -45,7 +61,7 @@ func ClaudeTurnOpen(path string) bool {
 		}
 		switch rec.Type {
 		case "assistant":
-			return rec.Message.StopReason == "" || rec.Message.StopReason == "tool_use"
+			return rec.Message.StopReason == "" || rec.Message.StopReason == "tool_use", true
 		case "user":
 			// A tool result has no leading text and leaves the turn open.
 			text, _ := leadingText(rec.Message.Content)
@@ -53,10 +69,10 @@ func ClaudeTurnOpen(path string) bool {
 			if slices.ContainsFunc(localCommandPrefixes, func(p string) bool { return strings.HasPrefix(text, p) }) {
 				continue
 			}
-			return !strings.HasPrefix(text, interruptedPrefix)
+			return !strings.HasPrefix(text, interruptedPrefix), true
 		}
 	}
-	return false
+	return false, false
 }
 
 // leadingText is a message's text when its content is a plain string or

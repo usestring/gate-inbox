@@ -51,7 +51,7 @@ func TestPiProjectDirMatchesPi(t *testing.T) {
 func TestPiConversationReadsNamePromptsAndReply(t *testing.T) {
 	cwd := t.TempDir()
 	root, path := installPiFixture(t, cwd)
-	ix := New("", "").WithPi(root)
+	ix := New("", "").WithPi(PiStore{Tool: PiTool, Root: root})
 	if err := ix.Refresh([]string{cwd}); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestPiConversationReadsNamePromptsAndReply(t *testing.T) {
 func TestPiConversationFollowsAppends(t *testing.T) {
 	cwd := t.TempDir()
 	root, path := installPiFixture(t, cwd)
-	ix := New("", "").WithPi(root)
+	ix := New("", "").WithPi(PiStore{Tool: PiTool, Root: root})
 	if err := ix.Refresh([]string{cwd}); err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestPiConversationFollowsAppends(t *testing.T) {
 // about.
 func TestPiConversationSkipsBoardMessages(t *testing.T) {
 	var convo Conversation
-	foldPi(&convo, []byte(`{"type":"session","version":3,"id":"x","cwd":"/w"}
+	foldPi(&convo, PiTool, []byte(`{"type":"session","version":3,"id":"x","cwd":"/w"}
 {"type":"message","id":"a","parentId":null,"message":{"role":"user","content":"[gate-inbox] keep-warm ping"}}
 {"type":"message","id":"b","parentId":"a","message":{"role":"user","content":"fix the build"}}
 `))
@@ -129,7 +129,7 @@ func TestPiConversationSkipsBoardMessages(t *testing.T) {
 func TestPiConversationLinksToItsPane(t *testing.T) {
 	cwd := t.TempDir()
 	root, _ := installPiFixture(t, cwd)
-	ix := New("", "").WithPi(root)
+	ix := New("", "").WithPi(PiStore{Tool: PiTool, Root: root})
 	if err := ix.Refresh([]string{cwd}); err != nil {
 		t.Fatal(err)
 	}
@@ -150,17 +150,17 @@ func TestPiConversationLinksToItsPane(t *testing.T) {
 func TestPiTranscriptForFindsTheFileByID(t *testing.T) {
 	cwd := t.TempDir()
 	root, path := installPiFixture(t, cwd)
-	if got := PiTranscriptFor(root, piFixtureID, cwd); got != path {
+	if got := (PiStore{Tool: PiTool, Root: root}).TranscriptFor(piFixtureID, cwd); got != path {
 		t.Errorf("direct = %q, want %q", got, path)
 	}
 	// A session resumed from another directory is found across folders.
-	if got := PiTranscriptFor(root, piFixtureID, "/elsewhere"); got != path {
+	if got := (PiStore{Tool: PiTool, Root: root}).TranscriptFor(piFixtureID, "/elsewhere"); got != path {
 		t.Errorf("fallback = %q, want %q", got, path)
 	}
-	if got := PiTranscriptFor(root, "00000000-0000-4000-8000-000000000000", cwd); got != "" {
+	if got := (PiStore{Tool: PiTool, Root: root}).TranscriptFor("00000000-0000-4000-8000-000000000000", cwd); got != "" {
 		t.Errorf("unknown id = %q", got)
 	}
-	if got := PiTranscriptFor(root, "*", cwd); got != "" {
+	if got := (PiStore{Tool: PiTool, Root: root}).TranscriptFor("*", cwd); got != "" {
 		t.Errorf("a glob id matched %q", got)
 	}
 }
@@ -176,11 +176,11 @@ func TestPiConversationInPaneTakesTheNewestFile(t *testing.T) {
 	}
 	past := time.Now().Add(-time.Hour)
 	_ = os.Chtimes(older, past, past)
-	id, gotCwd, ok := PiConversationInPane(root, cwd)
+	id, gotCwd, ok := (PiStore{Tool: PiTool, Root: root}).ConversationInPane(cwd)
 	if !ok || id != piFixtureID || gotCwd != cwd {
 		t.Errorf("= %q %q %v, want %q %q", id, gotCwd, ok, piFixtureID, cwd)
 	}
-	if _, _, ok := PiConversationInPane(root, t.TempDir()); ok {
+	if _, _, ok := (PiStore{Tool: PiTool, Root: root}).ConversationInPane(t.TempDir()); ok {
 		t.Error("a directory with no session file resolved")
 	}
 }
@@ -259,14 +259,14 @@ func TestPiCopiesBesideASessionAreNotConversations(t *testing.T) {
 	if err := os.WriteFile(path+".handover.jsonl", raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ix := New("", "").WithPi(root)
+	ix := New("", "").WithPi(PiStore{Tool: PiTool, Root: root})
 	if err := ix.Refresh([]string{cwd}); err != nil {
 		t.Fatal(err)
 	}
 	if got := ix.Conversations(); len(got) != 1 || got[0].TranscriptPath != path {
 		t.Errorf("conversations = %+v", got)
 	}
-	if newest, _, ok := PiNewestFor(root, cwd); !ok || newest != path {
+	if newest, _, ok := (PiStore{Tool: PiTool, Root: root}).NewestFor(cwd); !ok || newest != path {
 		t.Errorf("newest = %q %v", newest, ok)
 	}
 }

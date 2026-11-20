@@ -24,7 +24,7 @@ func (piSource) Traits() Traits {
 }
 
 func (piSource) path(t Target) string {
-	return convo.PiTranscriptFor(convo.PiSessionsDir(), t.AgentSessionID, t.Cwd)
+	return convo.PiSessions().TranscriptFor(t.AgentSessionID, t.Cwd)
 }
 
 func (p piSource) Located(t Target) bool { return p.path(t) != "" }

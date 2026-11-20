@@ -44,11 +44,14 @@ var darwinManagers = []manager{
 // package the vendor publishes (and that its own installer downloads), never
 // a piped install script. opencode's is the v2 package: the older
 // opencode-ai package is the 1.x line, which the board does not support
-// (opencode.Report.UpgradeNotice).
+// (opencode.Report.UpgradeNotice). omp's package needs Bun: its code imports
+// bun:sqlite, so an npm install has no runtime to run on, and omp's own
+// installer is a piped script.
 var official = map[string]string{
 	"claude":   "npm install -g @anthropic-ai/claude-code",
 	"cmd":      "npm install -g command-code",
 	"codex":    "npm install -g @openai/codex",
+	"omp":      "bun install -g @oh-my-pi/pi-coding-agent",
 	"opencode": "npm install -g @opencode/cli",
 	"pi":       "npm install -g @earendil-works/pi-coding-agent",
 }

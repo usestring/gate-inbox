@@ -112,8 +112,8 @@ func TestTriageLeavesTheExitedRowWhenTheQueueIsEmpty(t *testing.T) {
 	}
 	updated, _ := m.Update(refresh)
 	m = updated.(*Model)
-	if m.mode != modeForm || m.form.focus != fieldPrompt {
-		t.Fatalf("an empty queue left mode %v, want the new-session prompt", m.mode)
+	if m.mode != modeCleared || m.form.focus != fieldPrompt {
+		t.Fatalf("an empty queue left mode %v, want the inbox-cleared pane", m.mode)
 	}
 	if got := focusedName(t, m); got != "done" {
 		t.Fatalf("the cursor landed on %q, want the queue's head rather than the exited session", got)

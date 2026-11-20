@@ -24,9 +24,54 @@ import (
 // pi writes no model title of its own. The name is the operator's or the
 // board's, which is the same name the row would want, so the latest
 // session_info is the title and nothing is generated here either.
+//
+// omp (oh-my-pi), pi's fork, keeps the same header and entries with three
+// differences, all handled by PiStore: its sessions live under ~/.omp/agent,
+// its per-directory folder is named differently (OmpProjectDirs), and a file
+// opens with a fixed-width "title" line that omp rewrites in place whenever
+// the session is named, instead of appending session_info.
 
 // PiTool is the tool name and session store pi conversations are filed under.
 const PiTool = "pi"
+
+// OmpTool is the tool name and session store omp conversations are filed
+// under.
+const OmpTool = "omp"
+
+// PiStore is one pi-family CLI's session store: the tool its conversations
+// are filed under and the directory it keeps them in. An empty Root holds no
+// conversations.
+type PiStore struct {
+	Tool string
+	Root string
+}
+
+// PiSessions is pi's store, at PiSessionsDir.
+func PiSessions() PiStore { return PiStore{Tool: PiTool, Root: PiSessionsDir()} }
+
+// OmpSessions is omp's store, at OmpSessionsDir.
+func OmpSessions() PiStore { return PiStore{Tool: OmpTool, Root: OmpSessionsDir()} }
+
+// PiStoreFor is the session store of the tool named name whose block sets
+// sessionStore: pi's for [tools.pi] or a block storing its conversations
+// as pi does, omp's likewise. ok is false for every other tool.
+func PiStoreFor(name, sessionStore string) (PiStore, bool) {
+	switch {
+	case name == PiTool || sessionStore == PiTool:
+		return PiSessions(), true
+	case name == OmpTool || sessionStore == OmpTool:
+		return OmpSessions(), true
+	}
+	return PiStore{}, false
+}
+
+// projectDirs are the folder names the store may keep cwd's sessions under.
+func (s PiStore) projectDirs(cwd string) []string {
+	if s.Tool == OmpTool {
+		return OmpProjectDirs(cwd)
+	}
+	return []string{PiProjectDir(cwd)}
+}
 
 // piWindow bounds the session files worth reading to ones touched recently
 // enough that they could still be in a pane. A pane launched with an id is
@@ -62,21 +107,23 @@ func PiProjectDir(cwd string) string {
 	return "--" + strings.NewReplacer("/", "-", `\`, "-", ":", "-").Replace(trimmed) + "--"
 }
 
-// PiTranscriptFor is the session file holding conversation id under root, or
-// "" when none does. The file is named <timestamp>_<id>.jsonl inside the
+// TranscriptFor is the session file holding conversation id, or "" when none
+// does. The file is named <timestamp>_<id>.jsonl inside the
 // folder for the directory pi was started in, which is tried first; a session
 // resumed or forked from elsewhere sits in another folder, so a miss globs
 // across them. The header must name the id, so a file merely ending in it is
 // not taken.
-func PiTranscriptFor(root, id, cwd string) string {
-	if root == "" || id == "" || strings.ContainsAny(id, `/\*?[`) {
+func (s PiStore) TranscriptFor(id, cwd string) string {
+	if s.Root == "" || id == "" || strings.ContainsAny(id, `/\*?[`) {
 		return ""
 	}
 	var patterns []string
 	if cwd != "" {
-		patterns = append(patterns, filepath.Join(root, PiProjectDir(cwd), "*_"+id+".jsonl"))
+		for _, folder := range s.projectDirs(cwd) {
+			patterns = append(patterns, filepath.Join(s.Root, folder, "*_"+id+".jsonl"))
+		}
 	}
-	patterns = append(patterns, filepath.Join(root, "*", "*_"+id+".jsonl"))
+	patterns = append(patterns, filepath.Join(s.Root, "*", "*_"+id+".jsonl"))
 	for _, pattern := range patterns {
 		paths, _ := filepath.Glob(pattern)
 		for _, path := range paths {
@@ -88,7 +135,8 @@ func PiTranscriptFor(root, id, cwd string) string {
 	return ""
 }
 
-// PiHeader is a pi session file's first line.
+// PiHeader is a pi session file's header line: the first, or the second in
+// an omp file, behind its title line.
 type PiHeader struct {
 	Type          string `json:"type"`
 	Version       int    `json:"version"`
@@ -105,22 +153,32 @@ func ReadPiHeader(path string) (PiHeader, bool) {
 		return PiHeader{}, false
 	}
 	defer file.Close()
-	line, err := bufio.NewReaderSize(file, 4096).ReadBytes('\n')
-	if err != nil && len(line) == 0 {
-		return PiHeader{}, false
+	reader := bufio.NewReaderSize(file, 4096)
+	for range 2 {
+		line, err := reader.ReadBytes('\n')
+		if err != nil && len(line) == 0 {
+			return PiHeader{}, false
+		}
+		var header PiHeader
+		if json.Unmarshal(line, &header) != nil {
+			return PiHeader{}, false
+		}
+		if header.Type == titleSlotType {
+			continue
+		}
+		if header.Type != "session" || header.ID == "" {
+			return PiHeader{}, false
+		}
+		return header, true
 	}
-	var header PiHeader
-	if json.Unmarshal(line, &header) != nil || header.Type != "session" || header.ID == "" {
-		return PiHeader{}, false
-	}
-	return header, true
+	return PiHeader{}, false
 }
 
-// PiNewestFor is the most recently written session file pi keeps for cwd,
-// with its header, for a pane whose conversation id nothing recorded. ok is
-// false when the directory has none.
-func PiNewestFor(root, cwd string) (string, PiHeader, bool) {
-	paths := piFilesFor(root, cwd, time.Time{}, 0)
+// NewestFor is the most recently written session file the store keeps for
+// cwd, with its header, for a pane whose conversation id nothing recorded. ok
+// is false when the directory has none.
+func (s PiStore) NewestFor(cwd string) (string, PiHeader, bool) {
+	paths := s.filesFor(cwd, time.Time{}, 0)
 	for _, path := range paths {
 		if header, ok := ReadPiHeader(path); ok && sameDir(header.Cwd, cwd) {
 			return path, header, true
@@ -129,25 +187,30 @@ func PiNewestFor(root, cwd string) (string, PiHeader, bool) {
 	return "", PiHeader{}, false
 }
 
-// piFilesFor lists the session files for cwd modified at or after since,
+// filesFor lists the session files for cwd modified at or after since,
 // newest first, at most limit of them (0 for all). Both the spelling given
 // and the resolved path are tried, because the folder is named after the
-// path as pi saw it.
-func piFilesFor(root, cwd string, since time.Time, limit int) []string {
-	if root == "" || cwd == "" {
+// path as the CLI saw it.
+func (s PiStore) filesFor(cwd string, since time.Time, limit int) []string {
+	if s.Root == "" || cwd == "" {
 		return nil
 	}
-	folders := []string{PiProjectDir(cwd)}
+	folders := s.projectDirs(cwd)
 	if resolved, err := filepath.EvalSymlinks(cwd); err == nil && resolved != cwd {
-		folders = append(folders, PiProjectDir(resolved))
+		folders = append(folders, s.projectDirs(resolved)...)
 	}
 	type file struct {
 		path string
 		mod  time.Time
 	}
 	var files []file
+	seen := map[string]bool{}
 	for _, folder := range folders {
-		paths, _ := filepath.Glob(filepath.Join(root, folder, "*.jsonl"))
+		if seen[folder] {
+			continue
+		}
+		seen[folder] = true
+		paths, _ := filepath.Glob(filepath.Join(s.Root, folder, "*.jsonl"))
 		for _, path := range paths {
 			// A session file is <timestamp>_<id>.jsonl; a name with a second
 			// ".jsonl" in it is a copy somebody wrote beside one.
@@ -195,23 +258,22 @@ type piFile struct {
 	convo   Conversation
 }
 
-// piConversations reads the pi session files for the panes' directories and
-// for any id a pane was launched with.
+// piConversations reads each pi-family store's session files for the panes'
+// directories.
 func (ix *Index) piConversations(dirs []string, cost *Cost) []Conversation {
-	if ix.pi == "" {
-		return nil
-	}
 	since := time.Now().Add(-piWindow)
 	seen := map[string]bool{}
 	var out []Conversation
-	for _, dir := range dirs {
-		for _, path := range piFilesFor(ix.pi, dir, since, piFilesPerDir) {
-			if seen[path] {
-				continue
-			}
-			seen[path] = true
-			if convo, ok := ix.readPi(path, cost); ok {
-				out = append(out, convo)
+	for _, store := range ix.piStores {
+		for _, dir := range dirs {
+			for _, path := range store.filesFor(dir, since, piFilesPerDir) {
+				if seen[path] {
+					continue
+				}
+				seen[path] = true
+				if convo, ok := ix.readPi(store.Tool, path, cost); ok {
+					out = append(out, convo)
+				}
 			}
 		}
 	}
@@ -219,8 +281,8 @@ func (ix *Index) piConversations(dirs []string, cost *Cost) []Conversation {
 }
 
 // readPi folds whatever the file gained since the last pass into its cached
-// conversation.
-func (ix *Index) readPi(path string, cost *Cost) (Conversation, bool) {
+// conversation, filed under tool.
+func (ix *Index) readPi(tool, path string, cost *Cost) (Conversation, bool) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return Conversation{}, false
@@ -250,7 +312,14 @@ func (ix *Index) readPi(path string, cost *Cost) (Conversation, bool) {
 	cost.Bytes += int64(len(raw))
 	// Only whole lines; a line still being written is read next pass.
 	end := bytes.LastIndexByte(raw, '\n') + 1
-	foldPi(&state.convo, raw[:end])
+	foldPi(&state.convo, tool, raw[:end])
+	if state.offset > 0 {
+		// omp names a session by rewriting the title line it opened the
+		// file with, behind the offset already read.
+		if title, ok := readTitleSlot(file); ok {
+			state.convo.Title = title
+		}
+	}
 	state.offset += int64(end)
 	state.modTime = info.ModTime()
 	state.convo.TranscriptPath = path
@@ -265,6 +334,7 @@ type piEntry struct {
 	ID      string `json:"id"`
 	Cwd     string `json:"cwd"`
 	Name    string `json:"name"`
+	Title   string `json:"title"`
 	Message struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
@@ -275,8 +345,8 @@ type piEntry struct {
 // reach the message role past the entry's id, parentId and timestamp.
 const piSkipPrefix = 200
 
-// foldPi applies the entries in raw to convo.
-func foldPi(convo *Conversation, raw []byte) {
+// foldPi applies the entries in raw to convo, filed under tool.
+func foldPi(convo *Conversation, tool string, raw []byte) {
 	for _, line := range bytes.Split(raw, []byte{'\n'}) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 || line[0] != '{' || !piWanted(line) {
@@ -286,7 +356,7 @@ func foldPi(convo *Conversation, raw []byte) {
 		if json.Unmarshal(line, &entry) != nil {
 			continue
 		}
-		applyPi(convo, entry)
+		applyPi(convo, tool, entry)
 	}
 }
 
@@ -299,7 +369,8 @@ func piWanted(line []byte) bool {
 		head = head[:piSkipPrefix]
 	}
 	switch {
-	case bytes.Contains(head, []byte(`"type":"session_info"`)), bytes.Contains(head, []byte(`"type":"session"`)):
+	case bytes.Contains(head, []byte(`"type":"session_info"`)), bytes.Contains(head, []byte(`"type":"session"`)),
+		bytes.Contains(head, []byte(`"type":"`+titleSlotType+`"`)), bytes.Contains(head, []byte(`"type":"title_change"`)):
 		return true
 	case bytes.Contains(head, []byte(`"type":"message"`)):
 		return bytes.Contains(head, []byte(`"role":"user"`)) || bytes.Contains(head, []byte(`"role":"assistant"`))
@@ -307,15 +378,19 @@ func piWanted(line []byte) bool {
 	return false
 }
 
-func applyPi(convo *Conversation, entry piEntry) {
+func applyPi(convo *Conversation, tool string, entry piEntry) {
 	switch entry.Type {
 	case "session":
-		convo.Tool = PiTool
+		convo.Tool = tool
 		convo.ID = entry.ID
 		convo.Cwd = entry.Cwd
 	case "session_info":
 		// Cleared with an empty name, which pi treats as no name.
 		convo.Title = strings.TrimSpace(entry.Name)
+	case titleSlotType, "title_change":
+		// omp's: the slot it opens the file with, rewritten in place, and
+		// the entry it appends with each rename.
+		convo.Title = strings.TrimSpace(entry.Title)
 	case "message":
 		switch entry.Message.Role {
 		case "user":
@@ -341,15 +416,15 @@ func applyPi(convo *Conversation, entry piEntry) {
 	}
 }
 
-// PiConversationInPane is the conversation a pi pane holds: the newest
-// session file pi keeps for the pane's directory, which is the one a running
-// pi last wrote to. The process cannot say which it holds: pi 1.5 sets its
+// ConversationInPane is the conversation a pi or omp pane holds: the newest
+// session file the store keeps for the pane's directory, which is the one a
+// running pi last wrote to. The process cannot say which it holds: pi 1.5 sets its
 // process title to "pi", which overwrites its argv, so a --session-id or
 // --session it was started with is gone from /proc/<pid>/cmdline, and it keeps
 // no session file open between writes. ok is false when the directory has no
 // session file.
-func PiConversationInPane(root, cwd string) (id, convCwd string, ok bool) {
-	if _, header, ok := PiNewestFor(root, cwd); ok {
+func (s PiStore) ConversationInPane(cwd string) (id, convCwd string, ok bool) {
+	if _, header, ok := s.NewestFor(cwd); ok {
 		return header.ID, firstNonEmpty(header.Cwd, cwd), true
 	}
 	return "", cwd, false

@@ -18,9 +18,8 @@
 //     the rules a person approved at this session's own dialog with "don't
 //     ask again".
 //  5. Allow rules from the settings files.
-//  6. The read-only fast path: reading or searching inside the working
-//     directory, simple read-only shell commands that stay inside it, and an
-//     MCP tool its server marks read-only.
+//  6. Local operation rules for reads, trusted creation commands and
+//     pushes to opted-in repositories through the PR creation command.
 //  7. Auto mode: the JEV classifier, asked on the board's side, may allow a
 //     call nothing above settled (package piauto). Every doubt asks.
 //  8. Otherwise ask.
@@ -42,6 +41,7 @@ import (
 	"github.com/usestring/gate-inbox/grant"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/piauto"
+	"github.com/usestring/gate-inbox/internal/piext"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -81,13 +81,14 @@ type Decision struct {
 	Suggestion string `json:"ruleSuggestion,omitempty"`
 	// Title and Block are what the permission dialog shows for an ask: what
 	// kind of call it is, and the full command, path or URL it is about.
-	Title string `json:"title,omitempty"`
-	Block string `json:"block,omitempty"`
+	Title          string                  `json:"title,omitempty"`
+	Block          string                  `json:"block,omitempty"`
+	OperationRules []store.PiOperationRule `json:"-"`
 }
 
 // piTools maps pi's built-in tool names to Claude Code's, so the operator's
 // Claude rules apply to pi unchanged. An MCP tool already has Claude's name,
-// and any other tool keeps its own.
+// and any other tool keeps its own. omp, pi's fork, adds glob.
 var piTools = map[string]string{
 	"bash":  "Bash",
 	"read":  "Read",
@@ -95,6 +96,7 @@ var piTools = map[string]string{
 	"edit":  "Edit",
 	"grep":  "Grep",
 	"find":  "Glob",
+	"glob":  "Glob",
 	"ls":    "LS",
 }
 
@@ -103,7 +105,22 @@ func ToolName(pi string) string {
 	if name, ok := piTools[pi]; ok {
 		return name
 	}
+	if tool, ok := strings.CutPrefix(pi, piext.OmpToolPrefix); ok {
+		return "mcp__gate-inbox__" + tool
+	}
 	return pi
+}
+
+// ompDevice reports a read or write of an MCP tool's xd:// device, which is
+// how omp reaches a tool it mounts there rather than offering by name. The
+// read is the tool's docs; the write is its call, which reaches tool_call
+// again under the MCP tool's own name and is decided there.
+func ompDevice(req Request) bool {
+	if req.ToolName != "read" && req.ToolName != "write" {
+		return false
+	}
+	path, _ := req.ToolInput["path"].(string)
+	return strings.HasPrefix(path, "xd://mcp__")
 }
 
 // mcpForm spells an MCP tool name, or a rule naming one, with its server's
@@ -153,7 +170,8 @@ type Env struct {
 	// MergeGate reports whether the standing merge authority covers a
 	// gh pr merge command, and why, or why not. Nil means no merge is
 	// covered.
-	MergeGate func(command, cwd string) (string, bool)
+	MergeGate      func(command, cwd string) (string, bool)
+	OperationRules func(grant.Call) []store.PiOperationRule
 	// AutoMode asks pi's auto-mode classifier (package piauto) about a call
 	// nothing else settled. Nil means auto mode is not asked.
 	AutoMode func(piauto.Request) piauto.Answer
@@ -171,7 +189,7 @@ func Decide(env Env, req Request) Decision {
 	if req.ToolInput == nil {
 		req.ToolInput = map[string]any{}
 	}
-	if passThrough[req.ToolName] {
+	if passThrough[req.ToolName] || ompDevice(req) {
 		d.Decision, d.Reason = Allow, "each call it makes is decided on its own"
 		return d
 	}
@@ -281,7 +299,15 @@ func Decide(env Env, req Request) Decision {
 	}
 	if why, ok := readOnly(call, req.ReadOnly); ok {
 		d.Decision, d.Reason = Allow, why
+		d.OperationRules = []store.PiOperationRule{store.PiReadOnly}
 		return d
+	}
+	if env.OperationRules != nil {
+		if rules := env.OperationRules(call); len(rules) != 0 {
+			d.Decision, d.Reason = Allow, "covered by the configured Pi operation rules"
+			d.OperationRules = rules
+			return d
+		}
 	}
 	reason := "no rule or grant allows it"
 	if autoModeMayAsk(env, call) {

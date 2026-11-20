@@ -1,0 +1,12 @@
+───────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+ │ touch out.txt
+
+ Gate Inbox asks because Bash command, outside the sandbox (sandbox unavailable: the board did not 
+ answer)
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No, and tell pi what to do differently
+
+ Enter to confirm · Esc to cancel

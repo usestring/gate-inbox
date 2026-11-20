@@ -287,9 +287,10 @@ func (s *Sessions) filterForHandover(transcript migrate.Transcript) (migrate.Tra
 // pi takes the newest *.jsonl in that folder whose header names the
 // directory as the conversation to continue (pi --continue, the revive
 // command), and a copy carries the source's header, so a copy named *.jsonl
-// there is the conversation a revive would resume.
+// there is the conversation a revive would resume. omp, pi's fork, also takes
+// only *.jsonl files there for sessions.
 func copyPath(transcript migrate.Transcript, dst string) string {
-	if transcript.Kind != "pi" || !strings.HasSuffix(dst, ".jsonl") || filepath.Dir(dst) != filepath.Dir(transcript.Path) {
+	if (transcript.Kind != "pi" && transcript.Kind != "omp") || !strings.HasSuffix(dst, ".jsonl") || filepath.Dir(dst) != filepath.Dir(transcript.Path) {
 		return dst
 	}
 	return strings.TrimSuffix(dst, ".jsonl")
@@ -304,7 +305,7 @@ func filterTranscript(transcript migrate.Transcript, dst string, opts handover.O
 		stats, err = handover.Claude(transcript.Path, dst, opts)
 	case "codex":
 		stats, err = handover.Codex(transcript.Path, dst, opts)
-	case "pi":
+	case "pi", "omp":
 		stats, err = handover.Pi(transcript.Path, dst, opts)
 	default:
 		return handover.Stats{}, false, nil

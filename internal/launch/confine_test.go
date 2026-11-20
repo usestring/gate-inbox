@@ -118,3 +118,39 @@ func TestAConfinedSessionSeesOnlyItsOwnFiles(t *testing.T) {
 		t.Fatalf("the confined session saw:\n%s\nwant:\n%s", out, want)
 	}
 }
+
+// A terminal's pane runs its shell inside the confinement and ends with it:
+// the launch script drops to an unconfined shell after its command exits,
+// and an agent drives the terminals it creates, so a confined sh handed an
+// empty command, which exits at once, would give it an unconfined shell. An
+// empty command names the user's login shell; the pane execs the whole
+// wrapped command.
+func TestATerminalExecsItsShellInsideTheConfinement(t *testing.T) {
+	t.Cleanup(keyconfine.UseForTests(keyconfine.Bubblewrap, nil))
+	t.Setenv("SHELL", "/bin/zsh")
+	manager := hooks.NewManager(t.TempDir())
+	keyDir := parentseal.KeyDir(manager.ConfigDir())
+	own := func(name string) string {
+		path := filepath.Join(keyDir, name)
+		return "'--ro-bind-try' '" + path + "' '" + path + "' "
+	}
+	wrapped := "'bwrap' '--dev-bind' '/' '/' '--die-with-parent' '--tmpfs' '" + keyDir + "' " +
+		own("seal.pub") + own("mcp-claude-abc.json") +
+		"'--remount-ro' '" + keyDir + "' '--' '/bin/sh' '-c' "
+	for command, want := range map[string]string{
+		"":      "exec " + wrapped + `''\''/bin/zsh'\'' -l'`,
+		"sh -i": "exec " + wrapped + "'sh -i'",
+	} {
+		got, _, err := Compose(manager, "terminal", config.Tool{Command: command, Shell: true}, command, "abc", "", "", false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("command %q:\n got %s\nwant %s", command, got, want)
+		}
+	}
+}
+
+// The real thing: a confined session reads the board's public seal key and its
+// own MCP config, which its hook and extension need, and nothing else in the
+// key directory: not the caller key every token is made from, not another

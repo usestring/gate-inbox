@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/envname"
+	"github.com/usestring/gate-inbox/internal/hooks"
 )
 
 // The shipped defaults are the feature for the two CLIs that have a flag: a
@@ -82,5 +84,30 @@ func TestSkipPermissionsIsRefusedForACLIWithNoWayToSkip(t *testing.T) {
 	}
 	if got, err := WithSkipPermissions("plain", tool, tool.Command, false); err != nil || got != tool.Command {
 		t.Fatalf("skip off = %q, %v; want the command unchanged", got, err)
+	}
+}
+
+// pi has no flag either: the board's extension in it is what asks, so a skip
+// launch leaves the command line bare and tells the extension through the
+// environment. The variable is set on every pi launch and never inherited,
+// so a child launched without skip from a skip session's shell asks.
+func TestSkipPermissionsRidesPisExtensionThroughTheEnvironment(t *testing.T) {
+	tool := config.Tool{Command: "sh", StatusSource: hooks.StatusSourcePi}
+	if !SkipsPermissions("pi", tool) || !SkipPermissionsRidesExtension(tool) {
+		t.Fatal("a pi tool does not report that its extension carries skip permissions")
+	}
+	if got, err := WithSkipPermissions("pi", tool, "sh --session-id x", true); err != nil || got != "sh --session-id x" {
+		t.Fatalf("skip on = %q, %v; want the command unchanged", got, err)
+	}
+	t.Setenv(envname.SkipPermissions, "1")
+	manager := hooks.NewManager(t.TempDir())
+	for skip, want := range map[bool]string{true: "1", false: ""} {
+		_, env, err := Compose(manager, "pi", tool, "sh", "abc", "", "", skip, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, set := env[envname.SkipPermissions]; !set || got != want {
+			t.Errorf("skip %v: %s = %q (set %v), want %q", skip, envname.SkipPermissions, got, set, want)
+		}
 	}
 }

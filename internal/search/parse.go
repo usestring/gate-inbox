@@ -35,6 +35,8 @@ const (
 	ToolCodex    = "codex"
 	ToolOpenCode = "opencode"
 	ToolPi       = "pi"
+	// ToolOmp is omp, pi's fork, whose transcripts are pi's format.
+	ToolOmp = "omp"
 )
 
 // Kind is who or what wrote a piece of a transcript, which is how much a
@@ -97,7 +99,7 @@ func LineSegments(tool string, line []byte, lim Limits) []Segment {
 		return claudeSegments(line, lim)
 	case ToolCodex:
 		return codexSegments(line, lim)
-	case ToolPi:
+	case ToolPi, ToolOmp:
 		return piSegments(line, lim)
 	default:
 		return genericSegments(line, lim)

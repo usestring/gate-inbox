@@ -172,9 +172,17 @@ func TestNoPipedInstallScripts(t *testing.T) {
 		if strings.Contains(got, "|") || strings.Contains(got, "curl") || strings.Contains(got, "wget") {
 			t.Errorf("%s install pipes a remote script: %s", name, got)
 		}
-		if !strings.HasPrefix(got, "npm install -g ") {
+		if !strings.HasPrefix(got, "npm install -g ") && !strings.HasPrefix(got, "bun install -g ") {
 			t.Errorf("%s install is not a package install: %s", name, got)
 		}
+	}
+}
+
+// omp's package runs on Bun (it imports bun:sqlite), so it installs with bun
+// rather than npm, and never through omp.sh's piped installer.
+func TestOmpInstallsWithBun(t *testing.T) {
+	if got := Hint("omp"); got != "install it with: bun install -g @oh-my-pi/pi-coding-agent" {
+		t.Fatalf("Hint = %q", got)
 	}
 }
 

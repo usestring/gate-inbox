@@ -22,8 +22,57 @@ func TestToolNameMapsPiToolsToClaudeNames(t *testing.T) {
 		"mcp__gate_inbox_board_report_status": "mcp__gate-inbox__report_status",
 		"my_tool":                             "my_tool",
 	} {
-		if got := ToolName(pi); got != want {
+		if got := ToolName(Request{ToolName: pi}); got != want {
 			t.Errorf("ToolName(%q) = %q, want %q", pi, got, want)
+		}
+	}
+}
+
+// omp names an MCP tool mcp__<server>_<tool>, which cannot be split back, so
+// the extension sends the server and tool its registration names, and the
+// call is decided under Claude Code's name for it.
+func TestToolNameGivesOmpMCPToolsClaudeNames(t *testing.T) {
+	for _, c := range []struct{ omp, server, tool, want string }{
+		{"mcp__my_srv_do_it", "my_srv", "do_it", "mcp__my_srv__do_it"},
+		{"mcp__string_web_access_web_access_fetch", "string-web-access", "web_access_fetch", "mcp__string-web-access__web_access_fetch"},
+		{"mcp__acme_tools_lookup", "acme:tools", "lookup", "mcp__plugin_acme_tools__lookup"},
+		{"mcp__a_b_c_d_x_y", "a.b:c d", "x.y", "mcp__plugin_a_b_c_d__x_y"},
+		{"mcp__gate_inbox_board_rename", "gate-inbox:board", "rename", "mcp__gate-inbox__rename"},
+		// no registration to name them: omp's spelling, but the board's
+		// prefix still maps
+		{"mcp__my_srv_do_it", "", "", "mcp__my_srv_do_it"},
+		{"mcp__gate_inbox_board_rename", "", "", "mcp__gate-inbox__rename"},
+	} {
+		if got := ToolName(Request{ToolName: c.omp, MCPServer: c.server, MCPTool: c.tool}); got != c.want {
+			t.Errorf("ToolName(%q, %q, %q) = %q, want %q", c.omp, c.server, c.tool, got, c.want)
+		}
+	}
+}
+
+func TestDecideAppliesClaudeMCPRulesToOmpTools(t *testing.T) {
+	cwd := t.TempDir()
+	rules := sources(t, cwd, map[string]map[string][]string{"user settings": {
+		"allow": {"mcp__my-srv__echo", "mcp__plugin_acme_tools", "mcp__wide__*"},
+		"deny":  {"mcp__my-srv__drop"},
+	}})
+	omp := func(server, tool string) Request {
+		return Request{ToolName: "mcp__" + server + "_" + tool, MCPServer: server, MCPTool: tool, ToolInput: map[string]any{}, Cwd: cwd}
+	}
+	for _, c := range []struct {
+		req  Request
+		want string
+	}{
+		{omp("my-srv", "echo"), Allow},
+		{omp("my-srv", "other"), Ask},
+		{omp("my-srv", "drop"), Deny},
+		{omp("acme:tools", "lookup"), Allow},
+		{omp("wide", "anything"), Allow},
+		// omp's name alone matches no Claude rule, so it asks
+		{Request{ToolName: "mcp__my_srv_echo", ToolInput: map[string]any{}, Cwd: cwd}, Ask},
+	} {
+		d := Decide(Env{Rules: rules, Grants: []grant.Grant{}, Approvals: []string{}}, c.req)
+		if d.Decision != c.want {
+			t.Errorf("%s (%s/%s) = %s (%s), want %s", c.req.ToolName, c.req.MCPServer, c.req.MCPTool, d.Decision, d.Reason, c.want)
 		}
 	}
 }

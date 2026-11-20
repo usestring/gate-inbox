@@ -413,13 +413,8 @@
       "id",
       "name",
       "tool",
-      "group",
       "directory",
-      "status",
-      "running",
-      "archived",
-      "muted",
-      "self"
+      "status"
     ],
     "type": "object"
   }
@@ -828,13 +823,8 @@
       "id",
       "name",
       "tool",
-      "group",
       "directory",
-      "status",
-      "running",
-      "archived",
-      "muted",
-      "self"
+      "status"
     ],
     "type": "object"
   }
@@ -1280,13 +1270,8 @@
           "id",
           "name",
           "tool",
-          "group",
           "directory",
-          "status",
-          "running",
-          "archived",
-          "muted",
-          "self"
+          "status"
         ],
         "type": "object"
       }
@@ -1416,13 +1401,8 @@
       "id",
       "name",
       "tool",
-      "group",
       "directory",
-      "status",
-      "running",
-      "archived",
-      "muted",
-      "self"
+      "status"
     ],
     "type": "object"
   }
@@ -1758,13 +1738,8 @@
             "id",
             "name",
             "tool",
-            "group",
             "directory",
-            "status",
-            "running",
-            "archived",
-            "muted",
-            "self"
+            "status"
           ],
           "type": "object"
         },
@@ -2066,13 +2041,8 @@
       "id",
       "name",
       "tool",
-      "group",
       "directory",
-      "status",
-      "running",
-      "archived",
-      "muted",
-      "self"
+      "status"
     ],
     "type": "object"
   }
@@ -2198,13 +2168,8 @@
       "id",
       "name",
       "tool",
-      "group",
       "directory",
-      "status",
-      "running",
-      "archived",
-      "muted",
-      "self"
+      "status"
     ],
     "type": "object"
   }
@@ -2327,13 +2292,8 @@
       "id",
       "name",
       "tool",
-      "group",
       "directory",
-      "status",
-      "running",
-      "archived",
-      "muted",
-      "self"
+      "status"
     ],
     "type": "object"
   }
@@ -2347,7 +2307,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
   },
-  "description": "Read what another agent is doing: call it after create_session to confirm the agent started on the task, and again to check progress, read an answer, or see why a session is waiting. Every read returns a digest -- the session's status, the question it is holding if any, and the last thing it said -- so check whether a child finished there rather than by reading its prose for a verdict. When it is on a question dialog, digest.questions lists every question in it -- index, header, full text, options with their descriptions, and which are already answered -- including the ones a several-question dialog is not showing, read without touching its pane. With no since, output is the plain text visible in that session's pane, which is the current screen rather than its full history, and a stopped session returns the last screen Gate Inbox captured. Pass the cursor a previous read returned as since and output is only what the session has added since then, which is what a repeat read should use: the whole pane again is the same few thousand characters whether the agent worked for a minute or an hour. A session whose transcript cannot be read returns its pane anyway, with degraded saying why.",
+  "description": "Read what another agent is doing: call it after create_session to confirm the agent started on the task, and again to check progress, read an answer, or see why a session is waiting. Every read returns a digest -- the session's status, the question it is holding if any, and the last thing it said -- so check whether a child finished there rather than by reading its prose for a verdict. When it is on a question dialog, digest.questions lists every question in it -- index, header, full text, options with their descriptions, and which are already answered -- including the ones a several-question dialog is not showing, read without touching its pane. With no since, output is the plain text visible in that session's pane, which is the current screen rather than its full history, and a stopped session returns the last screen Gate Inbox captured. A copy of digest.result inside output is replaced by [digest.result]. Pass the cursor a previous read returned as since and output is only what the session has added since then, which is what a repeat read should use: the whole pane again is the same few thousand characters whether the agent worked for a minute or an hour. A session whose transcript cannot be read returns its pane anyway, with degraded saying why.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -2560,92 +2520,26 @@
         "type": "object"
       },
       "mode": {
-        "description": "pane when output is the whole visible screen, delta when it is only what was added after the since cursor",
+        "description": "pane when output is the visible screen, delta when it is only what was added after the since cursor",
         "type": "string"
       },
       "output": {
-        "description": "the session's output: its whole visible pane, or, when since was passed, only the conversation added after that cursor",
+        "description": "the session's output: its visible pane with the CLI's input box and footer removed, or, when since was passed, only the conversation added after that cursor; a copy of digest.result inside it is replaced by a marker",
         "type": "string"
       },
       "session": {
         "additionalProperties": false,
         "properties": {
-          "account": {
-            "description": "named subscription the session runs on; empty is the CLI's own login",
-            "type": "string"
-          },
-          "archived": {
-            "description": "whether the session is archived out of the active list",
-            "type": "boolean"
-          },
-          "children_skip_permissions": {
-            "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
-            "type": "boolean"
-          },
-          "detached": {
-            "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
-            "type": "boolean"
-          },
-          "directory": {
-            "description": "session's current working directory, or its launch directory when stopped",
-            "type": "string"
-          },
-          "group": {
-            "description": "group path holding the session; empty is the root",
-            "type": "string"
-          },
           "id": {
             "description": "agent session id",
             "type": "string"
-          },
-          "model": {
-            "description": "model that CLI runs on; empty is the CLI's own default",
-            "type": "string"
-          },
-          "muted": {
-            "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
-            "type": "boolean"
           },
           "name": {
             "description": "session name shown in Gate Inbox",
             "type": "string"
           },
-          "parent_id": {
-            "description": "session this row is drawn under on the board; empty for a top-level session",
-            "type": "string"
-          },
-          "permissions": {
-            "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
-            "items": {
-              "type": "string"
-            },
-            "type": [
-              "null",
-              "array"
-            ]
-          },
-          "released_tasks": {
-            "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
-            "type": "integer"
-          },
-          "running": {
-            "description": "whether the session currently has a live tmux pane",
-            "type": "boolean"
-          },
-          "self": {
-            "description": "whether this row is the calling session itself",
-            "type": "boolean"
-          },
-          "skip_permissions": {
-            "description": "the session runs with its CLI's permission prompts off",
-            "type": "boolean"
-          },
-          "spawned_by": {
-            "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children unless it is detached; empty for a session nobody spawned",
-            "type": "string"
-          },
           "status": {
-            "description": "Gate Inbox status: starting, working, waiting, delegating, background, finished, idle, errored or dead",
+            "description": "Gate Inbox status: starting, working, waiting, delegating, background, finished, idle, errored, hibernating or dead",
             "type": "string"
           },
           "tool": {
@@ -2657,13 +2551,7 @@
           "id",
           "name",
           "tool",
-          "group",
-          "directory",
-          "status",
-          "running",
-          "archived",
-          "muted",
-          "self"
+          "status"
         ],
         "type": "object"
       }
@@ -3167,13 +3055,8 @@
       "id",
       "name",
       "tool",
-      "group",
       "directory",
-      "status",
-      "running",
-      "archived",
-      "muted",
-      "self"
+      "status"
     ],
     "type": "object"
   }
@@ -3573,13 +3456,8 @@
       "id",
       "name",
       "tool",
-      "group",
       "directory",
-      "status",
-      "running",
-      "archived",
-      "muted",
-      "self"
+      "status"
     ],
     "type": "object"
   }
@@ -4454,13 +4332,8 @@
           "id",
           "name",
           "tool",
-          "group",
           "directory",
-          "status",
-          "running",
-          "archived",
-          "muted",
-          "self"
+          "status"
         ],
         "type": "object"
       },
@@ -4564,13 +4437,8 @@
                 "id",
                 "name",
                 "tool",
-                "group",
                 "directory",
-                "status",
-                "running",
-                "archived",
-                "muted",
-                "self"
+                "status"
               ],
               "type": "object"
             }

@@ -12,7 +12,6 @@ package ui
 
 import (
 	"slices"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -48,39 +47,39 @@ func (m *Model) markReviewsSeen() {
 	}
 }
 
-// reviewsTriageKey is the Reviews tab's key in the triage order. In smart
-// triage it queues as one slot of its own on the newest pending ask's recency,
-// at the review rank, carrying the strongest waiting ask's priority.
+// reviewsTriageKey queues the tab at the strongest pending ask's priority.
+// The tab holds one slot even when several asks share that priority.
 func (m *Model) reviewsTriageKey() triageKey {
 	key := triageKey{band: triageBandRest, priority: priority.Unset.Rank(), tier: triageRank(triageReview)}
-	if !m.reviewsWaiting() {
-		return key
-	}
-	key.band = triageBandWalkable
-	set := false
+	oldest := m.triageOrder == triageOrderOldest
 	for _, r := range m.reviews {
-		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
-			if rank := m.reviewPriority(r).Rank(); !set || rank < key.priority {
-				key.priority = rank
-				set = true
-			}
+		if r.State != store.ReviewPending || !r.CreatedAt.After(m.reviewsSeen) {
+			continue
 		}
-	}
-	if !m.smartTriage {
-		return key
-	}
-	var newest time.Time
-	for _, r := range m.reviews {
+		rank := m.reviewPriority(r).Rank()
 		at := r.TriggeredAt
 		if at.IsZero() {
 			at = r.CreatedAt
 		}
-		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) && m.reviewPriority(r).Rank() == key.priority && at.After(newest) {
-			newest = at
+		score := triageRecency(at)
+		if oldest {
+			score = -triageRecency(r.CreatedAt)
+		}
+		if key.band == triageBandRest || rank < key.priority || (rank == key.priority && score > key.score) {
+			key.band, key.priority, key.score = triageBandWalkable, rank, score
 		}
 	}
-	key.band, key.score = triageBandScored, triageRecency(newest)
-	key.tier = slices.Index(triageScoredTiers, triageReview)
+	if key.band == triageBandRest {
+		return key
+	}
+	switch {
+	case oldest:
+		key.band, key.tier = triageBandScored, 0
+	case m.smartTriage:
+		key.band, key.tier = triageBandScored, slices.Index(triageScoredTiers, triageReview)
+	default:
+		key.score = 0
+	}
 	return key
 }
 

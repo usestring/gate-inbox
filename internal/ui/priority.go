@@ -23,14 +23,9 @@ import (
 // a fact about the work rather than about one
 // pass, which is what sets it apart from a mute (see mute.go).
 //
-// Sessions ready for input lead those still working, so the rail starts with
-// work the operator can act on, and among them a question leads, whatever its
-// tier bar low: an agent stopped on a dialog is stalled this second. Past that
-// a higher tier wins over state, deadline or wait: an urgent finished session
-// goes before an untiered finished one, but after an untiered question, and an
-// urgent working session waits below all of them. Errored rows
-// follow other unmuted rows because their turn has already failed. A mute
-// still sorts last: it says skip this one.
+// Sessions ready for input queue by tier before state, deadline or wait.
+// Working and errored sessions follow work the operator can move forward.
+// A mute keeps the session out of the queue.
 //
 // The scale itself lives in internal/priority, because a goal's frontmatter
 // and a session's own declaration write the same tiers this key cycles.

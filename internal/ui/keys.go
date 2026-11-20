@@ -623,7 +623,7 @@ func (m *Model) reorderSelected(delta int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.triage {
-		m.errBar.text = "triage orders by status — press " + m.cap(keymap.ContextList, keymap.Triage) + " to leave triage before reordering"
+		m.errBar.text = "triage uses the queue order — press " + m.cap(keymap.ContextList, keymap.Triage) + " to leave triage before reordering"
 		return m, nil
 	}
 	if refusal := m.listSortRefusal(); refusal != "" {

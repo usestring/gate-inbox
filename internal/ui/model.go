@@ -138,6 +138,10 @@ type Model struct {
 	gitDrv *git.Driver
 	engine *status.Engine
 
+	// recentSaves tracks the background writes of the last checkout each
+	// repository launched in; lookups wait on it so they never read stale.
+	recentSaves *sync.WaitGroup
+
 	// snips are the operator's canned answers, read once at startup;
 	// snipErr is why there are none, when the file would not be read.
 	snips         snippets.Set

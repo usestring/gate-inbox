@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"sync"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/extension/textfmt"
@@ -19,17 +21,29 @@ type recentWorktreeMsg struct {
 
 // Remember the checkout root rather than the launch directory, which can be
 // a subdirectory. The common Git directory keeps separate clones apart.
+//
+// Finding the root runs git, which a slow disk or a large repository can
+// hold up, so it runs off the update loop rather than delaying the launch.
 func (m *Model) rememberRecentWorktree(dir string) {
-	if m.gitDrv == nil {
+	driver, st := m.gitDrv, m.store
+	if driver == nil {
 		return
 	}
-	repo, root, err := m.gitDrv.WorktreeLocation(dir)
-	if err != nil {
-		return
+	if m.recentSaves == nil {
+		m.recentSaves = new(sync.WaitGroup)
 	}
-	if err := m.store.SetSetting(recentWorktreePrefix+repo, root); err != nil {
-		logging.Warn("save recent worktree", logging.Err(err))
-	}
+	saves := m.recentSaves
+	saves.Add(1)
+	go func() {
+		defer saves.Done()
+		repo, root, err := driver.WorktreeLocation(dir)
+		if err != nil {
+			return
+		}
+		if err := st.SetSetting(recentWorktreePrefix+repo, root); err != nil {
+			logging.Warn("save recent worktree", logging.Err(err))
+		}
+	}()
 }
 
 func (m *Model) lookupRecentWorktree() tea.Cmd {
@@ -39,7 +53,12 @@ func (m *Model) lookupRecentWorktree() tea.Cmd {
 		return nil
 	}
 	formGen, raw := m.form.prompt.gen, m.form.dir.Value()
+	saves := m.recentSaves
 	return func() tea.Msg {
+		// A launch moments ago may still be saving its checkout.
+		if saves != nil {
+			saves.Wait()
+		}
 		result := recentWorktreeMsg{formGen: formGen, dir: raw}
 		dir, ok := resolveExistingDir(raw, "")
 		if !ok {

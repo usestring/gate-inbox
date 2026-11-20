@@ -28,7 +28,7 @@ type ModelScreen struct {
 }
 
 // resultMarker stands in output for the copy of digest.result it held.
-const resultMarker = "[digest.result]"
+const resultMarker = "[same text as digest.result]"
 
 // ForModel is screen as read_session hands it to an agent. Measured over
 // 2,310 reads, output was three quarters of a reply, and half of all
@@ -73,7 +73,7 @@ func (m ModelScreen) Screen() SessionScreen {
 // saves nothing and a short phrase can match where it was not the result.
 func elideResult(output, result string) string {
 	result = strings.TrimSpace(result)
-	if len(result) < 2*len(resultMarker) {
+	if len(result) <= len(resultMarker) {
 		return output
 	}
 	at := strings.LastIndex(output, result)

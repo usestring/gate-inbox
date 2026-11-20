@@ -24,8 +24,9 @@ import (
 // Every hook also keeps the status line's segment current.
 
 // ChildNudgeSuffix is the file beside a session's status log that records
-// the standing dialogs the session has already been shown, one key a line.
-const ChildNudgeSuffix = ".child-nudged"
+// the standing dialogs the session has already been shown, one key a line. It
+// is named in hooks, whose session teardown removes it.
+const ChildNudgeSuffix = hooks.ChildNudgeSuffix
 
 // ChildNudgeHook is what a session's Stop, UserPromptSubmit and PostToolUse
 // hooks print for the children it tracks, given the hook's stdin payload.

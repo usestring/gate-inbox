@@ -1,6 +1,7 @@
 package pigate
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +29,9 @@ func TestAutoModeIsAskedOnlyAboutWhatNothingElseSettled(t *testing.T) {
 		want  string
 	}{
 		{bashReq(cwd, "go test ./..."), true, Allow},
+		{bashReq(cwd, "gofmt -w main.go"), true, Allow},
+		{Request{ToolName: "write", Cwd: cwd, ToolInput: map[string]any{"path": "main.go", "content": "package main"}}, true, Allow},
+		{Request{ToolName: "mcp__example__lookup", Cwd: cwd, ToolInput: map[string]any{"query": "docs"}}, true, Allow},
 		{bashReq(cwd, "rm -rf build"), false, Deny},
 		{bashReq(cwd, "git push --force origin main"), false, Ask},
 		{bashReq(cwd, "gh pr merge 1 --squash"), false, Ask},
@@ -36,15 +40,18 @@ func TestAutoModeIsAskedOnlyAboutWhatNothingElseSettled(t *testing.T) {
 	} {
 		asked := 0
 		env := Env{Rules: rules, Grants: []grant.Grant{}, Approvals: []string{},
-			AutoMode: func(piauto.Request) piauto.Answer {
+			AutoMode: func(req piauto.Request) piauto.Answer {
 				asked++
-				return piauto.Answer{Allow: true, Judged: true, InScope: 0.97, Safe: 0.95}
+				c := piauto.Classifier{Ask: func(context.Context, string, any, map[string]string) (map[string]float64, bool) {
+					return map[string]float64{"in_scope": 0.50, "safe": 0.98}, true
+				}}
+				return c.Judge("s1", "key", req)
 			}}
 		d := Decide(env, c.req)
 		if (asked == 1) != c.asked || d.Decision != c.want {
 			t.Errorf("%v: %+v, asked %d", c.req.ToolInput, d, asked)
 		}
-		if c.asked && d.Reason != "auto-allowed by JEV (in_scope 0.97, safe 0.95)" {
+		if c.asked && d.Reason != "auto-allowed by JEV (in_scope 0.50, safe 0.98)" {
 			t.Errorf("reason %q", d.Reason)
 		}
 	}

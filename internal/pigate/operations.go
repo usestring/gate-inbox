@@ -240,6 +240,10 @@ func literalCommand(command string) []string {
 		stmt.Semicolon.IsValid() || stmt.Background || stmt.Coprocess {
 		return nil
 	}
+	return literalArgs(call)
+}
+
+func literalArgs(call *syntax.CallExpr) []string {
 	words := make([]string, 0, len(call.Args))
 	for _, arg := range call.Args {
 		var word strings.Builder

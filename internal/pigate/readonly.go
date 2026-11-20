@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/usestring/gate-inbox/grant"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 // The read-only fast path is what Claude Code's default mode runs without
@@ -100,15 +101,41 @@ func within(cwd, path string) bool {
 	}
 }
 
-// readOnlyCommand reports whether a shell call is one read-only command
-// whose every argument that could be a path stays inside the working
-// directory.
+// Compound reads need the same path and side-effect checks as individual reads.
 func readOnlyCommand(call grant.Call) bool {
 	if outside, _ := call.Input["dangerouslyDisableSandbox"].(bool); outside {
 		return false
 	}
 	command, _ := call.Input["command"].(string)
-	words := literalCommand(command)
+	if strings.ContainsRune(command, 0) {
+		return false
+	}
+	file, err := syntax.NewParser().Parse(strings.NewReader(command), "")
+	if err != nil || len(file.Stmts) == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(file.Stmts, func(stmt *syntax.Stmt) bool {
+		return !readOnlyStatement(call, stmt)
+	})
+}
+
+func readOnlyStatement(call grant.Call, stmt *syntax.Stmt) bool {
+	if len(stmt.Redirs) != 0 || stmt.Background || stmt.Coprocess || stmt.Negated {
+		return false
+	}
+	switch cmd := stmt.Cmd.(type) {
+	case *syntax.BinaryCmd:
+		switch cmd.Op {
+		case syntax.AndStmt, syntax.OrStmt, syntax.Pipe, syntax.PipeAll:
+			return readOnlyStatement(call, cmd.X) && readOnlyStatement(call, cmd.Y)
+		}
+	case *syntax.CallExpr:
+		return len(cmd.Assigns) == 0 && readOnlyArgs(call, literalArgs(cmd))
+	}
+	return false
+}
+
+func readOnlyArgs(call grant.Call, words []string) bool {
 	if len(words) == 0 {
 		return false
 	}

@@ -46,7 +46,7 @@ type reviewCommentArgs struct {
 
 type reportStatusArgs struct {
 	State string `json:"state" jsonschema:"done, waiting (on the user, a review or another person), blocked, or working"`
-	Note  string `json:"note,omitempty" jsonschema:"one line on what is left or who it waits on"`
+	Note  string `json:"note,omitempty" jsonschema:"one line: the evidence for done, or what is left or who it waits on"`
 }
 
 type listTerminalsArgs struct{}
@@ -577,6 +577,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Description: "Say where your work stands as you hand control back, as the last thing you do in a turn. " +
 			"done: you have done everything you can, and anything left waits on a review, a blocked merge, another person, or a step only the user can run. " +
 			"waiting: you need the user's answer or decision to go on. blocked: an error or missing access stops you. working: you will carry on without being asked. " +
+			"When done covers work that changed something, note names the check you ran and its result; if no check ran, it says what is unverified. " +
 			"The board reads it to tell the user which sessions they can close; it is not shown to them as a message.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reportStatusArgs) (*mcp.CallToolResult, any, error) {
 		// Nothing is stored: the call in the transcript is the record
@@ -657,7 +658,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Description: "Start another agent CLI in its own Gate Inbox session and hand it a task. " +
 			"Delegate within the user's task or an explicitly invoked skill without asking for separate permission to open a session. Respect explicit limits on delegation and ask before expanding the task's scope. Delegation does not grant tool permissions or replace required approvals. Call list_sessions first and reuse the session that owns the workstream, idle or working; use send_session with interrupt true when its current turn is wrong. Create a session only for a distinct workstream with no suitable owner. " +
 			"When it is called for, use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's subagent); keep the built-in tool for a quick read-only lookup. " +
-			"Pass a descriptive name and a prompt stating the whole task, since the new agent cannot see this conversation; put a long brief in prompt_file. For repo work beside other agents, pass a directory that is its own checkout. " +
+			"Pass a descriptive name and a prompt that is the whole brief, since the new agent cannot see this conversation: the goal and why, what is already known or ruled out, the files or docs to read (paths, not pasted text), the scope and its limits, the approvals it already has, and what to report back. Put a long brief in prompt_file. For repo work beside other agents, pass a directory that is its own checkout. " +
 			"Omit account to follow the board's launch-account setting; a child does not inherit its parent's account. " +
 			"The new session is your child: its questions, rests and finishes are relayed here. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session the user owns, with nothing relayed here. " +
 			"Pass tasks to hand it work from the shared task list: existing ids, or new tasks to create, all assigned to it alone. " +

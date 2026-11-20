@@ -1980,3 +1980,34 @@ func TestCreateWithPlaceholderNameAsksForARename(t *testing.T) {
 		t.Fatalf("launch prompt should carry the rename directive alone:\n%s", row.LaunchPrompt)
 	}
 }
+
+// A session that never relaunched was launched when it was created. A
+// relaunch moves LaunchedAt forward and leaves CreatedAt alone, which is how
+// an extension tells what the process now in the pane did from what an
+// earlier one left in the transcript.
+func TestSessionCarriesWhenItsAgentWasLaunched(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker", Tool: "claude"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	fresh, err := h.sessions.Get(h.caller.ID, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if fresh.LaunchedAt.IsZero() || !fresh.LaunchedAt.Equal(fresh.CreatedAt) {
+		t.Fatalf("LaunchedAt = %v, want the creation time %v", fresh.LaunchedAt, fresh.CreatedAt)
+	}
+	relaunched := fresh.CreatedAt.Add(time.Hour)
+	if err := h.store.SetAgentLaunchedAt(created.ID, relaunched); err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.sessions.Get(h.caller.ID, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !got.LaunchedAt.Equal(relaunched) || !got.CreatedAt.Equal(fresh.CreatedAt) {
+		t.Fatalf("LaunchedAt = %v CreatedAt = %v, want %v and %v", got.LaunchedAt, got.CreatedAt, relaunched, fresh.CreatedAt)
+	}
+}

@@ -966,6 +966,19 @@ func TestSessionDescriptionsTeachWhenAndHowToChainTools(t *testing.T) {
 			}
 		}
 	}
+	// The parts of a brief and the evidence a done report carries are each
+	// stated in one description, and nowhere a session loads before it needs
+	// them.
+	for tool, wants := range map[string][]string{
+		"create_session": {"the goal and why", "already known or ruled out", "files or docs to read", "scope and its limits", "approvals it already has", "what to report back"},
+		"report_status":  {"the check you ran and its result", "what is unverified"},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(descriptions[tool], want) {
+				t.Errorf("%s description does not contain %q: %s", tool, want, descriptions[tool])
+			}
+		}
+	}
 }
 
 func TestSessionToolsExposeStructuredResultsAndForwardArguments(t *testing.T) {

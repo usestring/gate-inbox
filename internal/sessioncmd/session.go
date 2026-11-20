@@ -76,6 +76,9 @@ type Session struct {
 	// the extension host among them; the tools' JSON leaves them out.
 	CreatedAt  time.Time `json:"-"`
 	ArchivedAt time.Time `json:"-"`
+	// LaunchedAt is when the agent process now in the pane started, as the
+	// row had it when it was read; like CreatedAt, for the Go callers.
+	LaunchedAt time.Time `json:"-"`
 	// ReplacedBy reaches extensions only, as Role does.
 	ReplacedBy string `json:"-"`
 	// Permissions is only filled in by a list, which reads every grant in
@@ -341,6 +344,7 @@ func (r *runtime) sessionInfoIn(sess store.Session, dir string, running, self bo
 		Terminal:       r.cfg.Tools[sess.Tool].Shell,
 		CreatedAt:      sess.CreatedAt,
 		ArchivedAt:     sess.ArchivedAt,
+		LaunchedAt:     sess.LaunchTime(),
 		ReplacedBy:     sess.ReplacedBy,
 	}
 }

@@ -119,14 +119,38 @@ func ReadStatusReport(target Target) (StatusReport, bool, error) {
 				if block.Type != "tool_use" || !strings.HasSuffix(block.Name, "__report_status") {
 					continue
 				}
-				var next StatusReport
-				if json.Unmarshal(block.Input, &next) == nil && next.State != "" {
+				if next, ok := statusReportInput(block.Input); ok {
 					report, found = next, true
 				}
 			}
 		}
 	}
 	return report, found, nil
+}
+
+// statusReportInput reads one report_status call's input as the tool
+// served it. The server accepts status and summary for state and note
+// (mcpserver.argAliases), and the transcript keeps the names the model
+// sent, so a call the server recorded under an alias has to read the same
+// way here; the schema's own name wins when both are present.
+func statusReportInput(raw json.RawMessage) (StatusReport, bool) {
+	var input struct {
+		State   string `json:"state"`
+		Note    string `json:"note"`
+		Status  string `json:"status"`
+		Summary string `json:"summary"`
+	}
+	if json.Unmarshal(raw, &input) != nil {
+		return StatusReport{}, false
+	}
+	report := StatusReport{State: input.State, Note: input.Note}
+	if report.State == "" {
+		report.State = input.Status
+	}
+	if report.Note == "" {
+		report.Note = input.Summary
+	}
+	return report, report.State != ""
 }
 
 // promptSetsWork reports a user row holding input from a person or another

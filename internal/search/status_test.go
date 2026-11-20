@@ -77,6 +77,10 @@ func TestReadStatusReport(t *testing.T) {
 		{"lapses on an image-only prompt", []string{prompt("ship it"), report, result,
 			`{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":""}}]}}`}, ""},
 		{"none", []string{prompt("ship it")}, ""},
+		// The server serves status for state, so the board has to read it too.
+		{"under the alias the server accepts", []string{prompt("ship it"),
+			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__gate-inbox__report_status","input":{"state":"blocked"}}]}}`,
+			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__gate-inbox__report_status","input":{"status":"done","summary":"merged"}}]}}`}, "done"},
 	} {
 		path := filepath.Join(t.TempDir(), "c.jsonl")
 		if err := os.WriteFile(path, []byte(strings.Join(tc.lines, "\n")+"\n"), 0o644); err != nil {

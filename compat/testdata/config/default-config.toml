@@ -14,6 +14,10 @@ poll_interval = "2s"
 # [children]
 # auto_archive_after = "30m"
 
+# Save Finish check candidates locally for review.
+# [finish_check]
+# collect_only = true
+
 # The board's layout. sidebar is the side of the frame the sessions list sits
 # on, "right" or "left"; the session's pane takes the other side. Settings
 # can pick the other side on one machine, and picking this value there again

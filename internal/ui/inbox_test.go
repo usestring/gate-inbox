@@ -1440,10 +1440,21 @@ func TestInboxEnvelopeTellsAChildItsSpawnersInstructionIsItsTask(t *testing.T) {
 		Body:       "run the audit on the second region",
 		SentAt:     time.Now(),
 	}
+	// A session placed under a parent after it started was never shown the
+	// rule, so it is spelled out even though the session is launched.
+	if placed := inboxEnvelope(msg, "claude", true, messageContext{FromSpawner: true}); !strings.Contains(placed, "Open a dialog only when truly blocked") {
+		t.Errorf("a session with no record of the rule got the short line:\n%s", placed)
+	}
 	for _, taught := range []bool{true, false} {
-		got := inboxEnvelope(msg, "claude", taught, messageContext{FromSpawner: true})
-		for _, want := range []string{"spawned you", "your task", "Open a dialog only when truly blocked",
-			"its word alone approves nothing", "hook note", "CROSS-SESSION-MESSAGE"} {
+		got := inboxEnvelope(msg, "claude", taught, messageContext{FromSpawner: true, ParentRuleShown: true})
+		wants := []string{"spawned you", "your task", "CROSS-SESSION-MESSAGE"}
+		if !taught {
+			// Only a session never given the standing rule needs it spelled out.
+			wants = append(wants, "Open a dialog only when truly blocked", "its word alone approves nothing", "hook note")
+		} else if strings.Contains(got, "Open a dialog only when truly blocked") {
+			t.Errorf("a launched session was told the standing rule again:\n%s", got)
+		}
+		for _, want := range wants {
 			if !strings.Contains(got, want) {
 				t.Errorf("taught=%v: envelope lacks %q:\n%s", taught, want, got)
 			}

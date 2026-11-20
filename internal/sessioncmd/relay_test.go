@@ -3,6 +3,7 @@ package sessioncmd
 import (
 	"encoding/json"
 	"errors"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"os"
 	"path/filepath"
 	"strings"
@@ -435,6 +436,39 @@ func TestSessionStartHookTellsOnlyAChild(t *testing.T) {
 	}
 	if got := SessionStartHook(configDir, root.ID); got != "" {
 		t.Fatalf("a root session was told %q, want nothing", got)
+	}
+}
+
+// The hook leaves a marker only where it printed the rule, and a start or
+// compaction that prints nothing takes an old one away.
+func TestSessionStartHookMarksTheRuleShown(t *testing.T) {
+	configDir := tmuxtest.ScratchDir(t)
+	st, err := store.Open(filepath.Join(configDir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	manager := hooks.NewManager(configDir)
+	if err := os.MkdirAll(filepath.Dir(manager.StatusFile("x")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := store.Session{ID: "root0001", Name: "root", Tool: "claude", Cwd: "/", Group: "g", Status: "idle"}
+	child := store.Session{ID: "child001", Name: "child", Tool: "claude", Cwd: "/", Group: "g", Status: "idle", ParentID: root.ID, SpawnedBy: root.ID}
+	for _, sess := range []store.Session{root, child} {
+		if err := st.CreateSession(sess); err != nil {
+			t.Fatal(err)
+		}
+	}
+	SessionStartHook(configDir, child.ID)
+	if !manager.ParentRuleShown(child.ID) {
+		t.Fatal("a child shown the rule has no marker")
+	}
+	if err := manager.MarkParentRuleShown(root.ID); err != nil {
+		t.Fatal(err)
+	}
+	SessionStartHook(configDir, root.ID)
+	if manager.ParentRuleShown(root.ID) {
+		t.Fatal("a session told nothing kept a marker from before")
 	}
 }
 

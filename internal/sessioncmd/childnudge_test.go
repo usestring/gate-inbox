@@ -63,15 +63,31 @@ func TestChildNudgeRaisesEachDialogOnceATurn(t *testing.T) {
 		t.Errorf("second Stop held the turn again: %s", out)
 	}
 
-	// The next turn raises both again, since both still stand.
-	if out := f.nudge("UserPromptSubmit", ledger, segDir); !strings.Contains(out, "b1b1b1b1") || !strings.Contains(out, "c2c2c2c2") {
-		t.Errorf("next turn's context = %s, want both dialogs", out)
+	// The next turn reminds of both in one line, since both still stand, but
+	// does not repeat questions and options the session was already shown.
+	out := f.nudge("UserPromptSubmit", ledger, segDir)
+	if !strings.Contains(out, "Still waiting on a dialog you were shown") ||
+		!strings.Contains(out, "b1b1b1b1") || !strings.Contains(out, "c2c2c2c2") {
+		t.Errorf("next turn's context = %s, want a reminder naming both dialogs", out)
+	}
+	if strings.Contains(out, "Push branch feat/x") || strings.Contains(out, "relay: true") {
+		t.Errorf("next turn repeated a dialog in full: %s", out)
 	}
 
 	seg, err := os.ReadFile(filepath.Join(segDir, claudeConversation, "gate-inbox.seg"))
 	if err != nil || strings.TrimSpace(string(seg)) != "⚑2 dialogs 14m" {
 		t.Errorf("segment = %q (%v)", seg, err)
 	}
+
+	// A dialog that goes up after that is still shown in full, beside the
+	// reminder for the old ones.
+	f.child("d3d3d3d3", status.Working)
+	f.hookLog("d3d3d3d3", "waiting Notification")
+	out = f.nudge("UserPromptSubmit", ledger, segDir)
+	if !strings.Contains(out, "kid-d3d3d3d3 (d3d3d3d3) has waited") || !strings.Contains(out, "Still waiting") {
+		t.Errorf("new dialog context = %s, want it in full beside the reminder", out)
+	}
+	f.hookLog("d3d3d3d3", "working PostToolUse")
 
 	// Once nothing waits the segment goes, and nothing is raised.
 	f.hookLog("b1b1b1b1", "working PostToolUse")

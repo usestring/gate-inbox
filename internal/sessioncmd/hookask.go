@@ -109,6 +109,10 @@ func SessionStartHook(configDir, sessionID string) string {
 		return ""
 	}
 	defer st.Close()
+	manager := hooks.NewManager(configDir)
+	// A start or compaction leaves the session holding none of what it was
+	// told before, so the marker goes until the note is printed again.
+	_ = os.Remove(manager.StatusFile(sessionID) + hooks.ParentRuleSuffix)
 	sess, err := st.Get(sessionID)
 	if err != nil || store.SpawnerOf(sess) == "" {
 		return ""
@@ -120,6 +124,7 @@ func SessionStartHook(configDir, sessionID string) string {
 	if err != nil {
 		return ""
 	}
+	_ = manager.MarkParentRuleShown(sessionID)
 	return string(out)
 }
 

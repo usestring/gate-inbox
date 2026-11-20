@@ -16,14 +16,15 @@ import (
 
 // A parent learns a child is waiting when something puts it in front of it.
 // ChildNudgeHook does that from the parent's own hooks: at the start of a
-// turn it adds the waiting dialogs to the prompt's context, and when a turn
-// would end with one still standing that the turn was not told about, it
-// blocks the stop once and says which. Each dialog is raised at most once a
-// turn, so a parent that decides to leave one waiting is not held in a loop.
+// turn it adds newly waiting dialogs to the prompt's context, and when a turn
+// would end with one still standing that it was not told about, it blocks the
+// stop once and says which. Each dialog is shown in full once; later turns get
+// a one-line reminder, so a parent that leaves one waiting is neither held in
+// a loop nor has its context refilled with the same question every prompt.
 // Every hook also keeps the status line's segment current.
 
 // ChildNudgeSuffix is the file beside a session's status log that records
-// the dialogs this turn has already been told about, one key a line.
+// the standing dialogs the session has already been shown, one key a line.
 const ChildNudgeSuffix = ".child-nudged"
 
 // ChildNudgeHook is what a session's Stop, UserPromptSubmit and PostToolUse
@@ -51,14 +52,24 @@ func ChildNudgeHook(configDir, claudeHome, sessionID, ledger, segDir string, pay
 	}
 	switch event.Event {
 	case "UserPromptSubmit":
-		fresh := unraised(board, nil)
-		writeLedger(ledger, keysOf(fresh))
-		if len(fresh) == 0 {
+		// The ledger outlives the turn, so a dialog the parent already read
+		// in full comes back as one reminder line, not the whole question
+		// again on every prompt. Keys of dialogs that no longer stand are
+		// dropped, so the ledger never grows past the board.
+		raised := readLedger(ledger)
+		fresh := unraised(board, raised)
+		standing := standingRaised(board, raised)
+		writeLedger(ledger, append(keysOf(standing), keysOf(fresh)...))
+		if len(fresh) == 0 && len(standing) == 0 {
 			return ""
+		}
+		text := reminderText(standing)
+		if len(fresh) > 0 {
+			text += nudgeText(fresh)
 		}
 		return hookJSON(map[string]any{"hookSpecificOutput": map[string]string{
 			"hookEventName":     "UserPromptSubmit",
-			"additionalContext": nudgeText(fresh),
+			"additionalContext": strings.TrimRight(text, "\n"),
 		}})
 	case "Stop":
 		raised := readLedger(ledger)
@@ -89,6 +100,31 @@ func unraised(board ChildBoard, raised []string) []ChildState {
 		}
 	}
 	return fresh
+}
+
+// standingRaised is the waiting children whose dialog raised already names.
+func standingRaised(board ChildBoard, raised []string) []ChildState {
+	var standing []ChildState
+	for _, child := range board.Children {
+		if child.Waiting && slices.Contains(raised, dialogKey(child)) {
+			standing = append(standing, child)
+		}
+	}
+	return standing
+}
+
+// reminderText is one line for dialogs the parent was already shown in full.
+func reminderText(children []ChildState) string {
+	if len(children) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(children))
+	for _, child := range children {
+		wait := FormatWait(time.Duration(child.WaitedSeconds) * time.Second)
+		parts = append(parts, fmt.Sprintf("%s (%s, %s)", child.Name, child.ID, wait))
+	}
+	return "Still waiting on a dialog you were shown: " + strings.Join(parts, ", ") +
+		". `gate-inbox children` prints them again.\n"
 }
 
 func keysOf(children []ChildState) []string {

@@ -3,6 +3,7 @@ package sessioncmd
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,13 +100,32 @@ const (
 
 func TestPromptHookGivesTheParentAuthority(t *testing.T) {
 	f := newChannelFixture(t)
+	// A session with no record of being shown the parent rule -- one placed
+	// under a parent after it started -- is given it in full.
 	_, prompt := f.deliver(t, "parent01", "child001", "Rebase onto main and run the tests.")
 	note, attested := f.submit(t, "child001", prompt)
-	if !strings.Contains(note, parentVerdict) || !strings.Contains(note, "without asking your parent or your user") {
-		t.Fatalf("note = %q; want the parent's authority", note)
+	for _, want := range []string{parentVerdict, "carry your parent's authority", "without asking your parent or your user to confirm", "approves nothing"} {
+		if !strings.Contains(note, want) {
+			t.Fatalf("note = %q; want %q", note, want)
+		}
 	}
 	if attested || strings.Contains(note, "Relay attestation") {
 		t.Fatalf("a plain parent message carried an attestation: %q", note)
+	}
+
+	// Once its SessionStart note has shown it the rule, the verdict alone.
+	manager := hooks.NewManager(f.configDir)
+	if err := os.MkdirAll(filepath.Dir(manager.StatusFile("child001")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.MarkParentRuleShown("child001"); err != nil {
+		t.Fatal(err)
+	}
+	_, prompt = f.deliver(t, "parent01", "child001", "Now open the PR.")
+	note, _ = f.submit(t, "child001", prompt)
+	if !strings.Contains(note, parentVerdict) || !strings.Contains(note, "carries your parent's authority, not your user's approval") ||
+		strings.Contains(note, "without asking") {
+		t.Fatalf("note = %q; want the short verdict", note)
 	}
 }
 

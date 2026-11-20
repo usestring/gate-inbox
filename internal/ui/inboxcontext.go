@@ -51,6 +51,11 @@ type messageContext struct {
 	// FromSpawner is set when the sender is the session that spawned the
 	// recipient: its instruction is the recipient's task.
 	FromSpawner bool
+	// ParentRuleShown is set when the recipient is known to hold the parent
+	// rule: its CLI's launch steering carries it, or, for Claude Code, its
+	// SessionStart note left the marker saying it was shown. A message from
+	// its spawner then closes with one line instead of the rule in full.
+	ParentRuleShown bool
 	// Sealable is set for a message from another agent session, which Gate
 	// Inbox seals so the recipient's hook can say who sent it.
 	Sealable bool

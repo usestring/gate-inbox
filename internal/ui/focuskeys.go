@@ -132,12 +132,14 @@ func focusKeyText(key tea.Key) string {
 // focusKeyParts splits a forwarded key for PaneInput: the characters it
 // typed, or else the tmux name it goes by. An alt-modified rune is a
 // command to the line editor (alt+b, alt+f) rather than a character, so it
-// goes by name too, as "M-b".
+// goes by name too. The rune is masked as typed text is, so alt+b is "M-x":
+// a character typed just after Escape arrives as alt with it, and its name
+// would otherwise carry what was typed.
 func focusKeyParts(key tea.Key) (text, name string) {
 	alt := key.Mod.Contains(tea.ModAlt)
 	if text = focusKeyText(key); text != "" {
 		if alt {
-			return "", "M-" + text
+			return "", "M-" + maskText(text)
 		}
 		return text, ""
 	}

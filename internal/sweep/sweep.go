@@ -1,11 +1,14 @@
-// Package sweep reports the board's stale rows and what to do with each,
-// and does none of it. The board's own cleanup only files finished
-// children: a top-level session left idle for days, a session parked on a
-// question nobody answers, an errored one, a row whose agent never came up
-// and a message no session ever took stay on the list, and the board keeps
-// checking them on every pass. A sweep lists each with its age, the question it holds, the
-// mail waiting for it, and the one call that would clear it, so whoever
-// reads the report decides.
+// Package sweep reports the board's stale rows and what to do with each.
+// It does none of it itself: Sweep only reads, and an apply (see Applied)
+// is carried out by sessioncmd, through the code the tools run. The board's
+// own cleanup only files finished children: a top-level session left idle
+// for days, a session parked on a question nobody answers, an errored one,
+// a row whose agent never came up and a message no session ever took stay
+// on the list, and the board keeps checking them on every pass. A sweep
+// lists each with its age, the question it holds, the mail waiting for it,
+// and the one call that would clear it, so whoever reads the report
+// decides. A row hibernate stopped is resting, not stale, and is never
+// listed.
 package sweep
 
 import (
@@ -100,6 +103,48 @@ type Report struct {
 	Orphaned int            `json:"orphaned_messages,omitempty"`
 	Counts   map[Action]int `json:"counts"`
 	Rows     int            `json:"rows_scanned"`
+	// Applied is what an apply did with the proposals; nil when the sweep
+	// only proposed.
+	Applied *Applied `json:"applied,omitempty"`
+}
+
+// What an apply did with one proposal.
+const (
+	// Hibernated stopped the agent and kept its row, mail and claims; its
+	// next message wakes it.
+	Hibernated = "hibernated"
+	Archived   = "archived"
+	Revived    = "revived"
+	Killed     = "killed"
+	// Held left the row as it was, because something would have been lost
+	// or the action needs a flag that was not passed.
+	Held   = "held"
+	Failed = "failed"
+)
+
+// outcomeOrder is the order an apply's counts are printed in.
+var outcomeOrder = []string{Hibernated, Archived, Revived, Killed, Held, Failed}
+
+// Outcome is what an apply did with one proposal.
+type Outcome struct {
+	SessionID string `json:"session_id"`
+	Name      string `json:"name"`
+	Proposed  Action `json:"proposed"`
+	// Outcome is hibernated, archived, revived, killed, held or failed.
+	Outcome string `json:"outcome"`
+	// Detail is why a row was held or failed, or what else the action did.
+	Detail string `json:"detail,omitempty"`
+	// ReleasedTasks is how many task claims went back to pending.
+	ReleasedTasks int `json:"released_tasks,omitempty"`
+}
+
+// Applied is what one apply did, a line per proposal.
+type Applied struct {
+	// DryRun means Outcomes is the plan with every check made and nothing
+	// changed.
+	DryRun   bool           `json:"dry_run"`
+	Outcomes []Outcome      `json:"outcomes"`
+	Counts   map[string]int `json:"counts"`
 }
 
 // Input is what a sweep reads.
@@ -108,7 +153,11 @@ type Input struct {
 	Messages []store.InboxMessage
 	// Question returns the dialog a session is holding, if one is recorded.
 	Question func(id string) (Question, bool)
-	Now      time.Time
+	// Hibernated is the ids hibernate stopped. Their rows read dead in the
+	// store but are resting until their next message, which the board
+	// delivers by waking them, so the sweep leaves them alone.
+	Hibernated []string
+	Now        time.Time
 }
 
 // Sweep builds the report. It never acts.
@@ -140,6 +189,9 @@ func Sweep(in Input, limits Thresholds) Report {
 			continue
 		}
 		report.Rows++
+		if store.Shown(sess, in.Hibernated) == status.Hibernating {
+			continue
+		}
 		since := sess.LastStatusAt
 		if since.IsZero() {
 			since = sess.CreatedAt
@@ -244,7 +296,11 @@ func Format(report Report) string {
 				parts = append(parts, fmt.Sprintf("%d to %s", n, action))
 			}
 		}
-		fmt.Fprintf(&b, "%s, of %d rows. Nothing was changed: each line below is a proposal.\n", strings.Join(parts, ", "), report.Rows)
+		changed := "Nothing was changed: each line below is a proposal."
+		if report.Applied != nil && !report.Applied.DryRun {
+			changed = "The proposals follow, then what was done with each."
+		}
+		fmt.Fprintf(&b, "%s, of %d rows. %s\n", strings.Join(parts, ", "), report.Rows, changed)
 	}
 	if report.Orphaned > 0 {
 		fmt.Fprintf(&b, "%d waiting messages name a session with no row; no call delivers them.\n", report.Orphaned)
@@ -273,7 +329,37 @@ func Format(report Report) string {
 			fmt.Fprintf(&b, "        %s\n", c)
 		}
 	}
+	if report.Applied != nil {
+		formatApplied(&b, *report.Applied)
+	}
 	return b.String()
+}
+
+// formatApplied is an apply as text: its counts, then a line per proposal
+// saying what became of it.
+func formatApplied(b *strings.Builder, applied Applied) {
+	var parts []string
+	for _, outcome := range outcomeOrder {
+		if n := applied.Counts[outcome]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, outcome))
+		}
+	}
+	summary := strings.Join(parts, ", ")
+	if summary == "" {
+		summary = "nothing to apply"
+	}
+	if applied.DryRun {
+		fmt.Fprintf(b, "\nDry run, nothing was changed. An apply would leave: %s.\n", summary)
+	} else {
+		fmt.Fprintf(b, "\nApplied: %s.\n", summary)
+	}
+	for _, o := range applied.Outcomes {
+		fmt.Fprintf(b, "%-10s %s %s", o.Outcome, o.SessionID, o.Name)
+		if o.Detail != "" {
+			fmt.Fprintf(b, ": %s", o.Detail)
+		}
+		b.WriteString("\n")
+	}
 }
 
 func oneLine(text string, limit int) string {

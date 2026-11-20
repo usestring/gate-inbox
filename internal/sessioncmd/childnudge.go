@@ -137,7 +137,8 @@ func nudgeText(children []ChildState) string {
 		wait := FormatWait(time.Duration(child.WaitedSeconds) * time.Second)
 		if child.Dialog == nil {
 			fmt.Fprintf(&b, "Child %s (%s) has waited %s on a permission prompt. Read it with read_session, "+
-				"then grant_permission or put it to your user.\n", child.Name, child.ID, wait)
+				"put it to your user word for word, then answer_session with relay: true. "+
+				"It is always your user's call; grant_permission asks them too.\n", child.Name, child.ID, wait)
 			continue
 		}
 		for _, q := range child.Dialog.Questions {
@@ -154,7 +155,7 @@ func nudgeText(children []ChildState) string {
 	b.WriteString("Answer what your brief or your user's standing decisions settle with answer_session. " +
 		"Put the rest to your user with AskUserQuestion, copying header, question and options verbatim " +
 		"(`gate-inbox children` prints them whole, previews included), then pass their answer to answer_session " +
-		"marked as your user's own answer. " +
+		"with relay: true. " +
 		"Approval questions are always your user's.")
 	return b.String()
 }

@@ -269,6 +269,8 @@ func helpSections() []helpSection {
 			bound(keymap.ContextReviews, keymap.ReviewAuthor, "return to the originating session to ask about this pull request"),
 			bound(keymap.ContextReviews, keymap.ReviewOpen, "open the pull request on GitHub"),
 			bound(keymap.ContextReviews, keymap.ReviewDismiss, "dismiss it: a new ask on it queues it again"),
+			bound(keymap.ContextReviews, keymap.ReviewDifficulty, "set its difficulty by hand, or go back to the guess"),
+			bound(keymap.ContextReviews, keymap.ReviewDifficultyFilter, "hand over only reviews up to a difficulty, or every one"),
 			bound(keymap.ContextReviews, keymap.Refresh, "fetch new reviews"),
 			bound(keymap.ContextReviews, keymap.Close, "back to the sessions"),
 		}},

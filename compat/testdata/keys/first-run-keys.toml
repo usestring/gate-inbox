@@ -170,15 +170,17 @@
 # confirm_always = ["A", "shift+a"]  # go ahead and stop asking
 
 # [reviews]
-# close          = ["esc"]  # back to the sessions (cannot be unbound)
-# cursor_up      = ["up", "k"]  # move up (cannot be unbound)
-# cursor_down    = ["down", "j"]  # move down (cannot be unbound)
-# review_view    = ["enter"]  # open the pull request (cannot be unbound)
-# review_author  = ["f"]  # ask the originating session
-# review_start   = ["s"]  # start the review
-# review_open    = ["o"]  # open on GitHub
-# review_dismiss = ["x"]  # dismiss
-# refresh        = ["P", "shift+p"]  # fetch new reviews
+# close                    = ["esc"]  # back to the sessions (cannot be unbound)
+# cursor_up                = ["up", "k"]  # move up (cannot be unbound)
+# cursor_down              = ["down", "j"]  # move down (cannot be unbound)
+# review_view              = ["enter"]  # open the pull request (cannot be unbound)
+# review_author            = ["f"]  # ask the originating session
+# review_start             = ["s"]  # start the review
+# review_open              = ["o"]  # open on GitHub
+# review_dismiss           = ["x"]  # dismiss
+# review_difficulty        = ["d"]  # set the difficulty
+# review_difficulty_filter = ["D", "shift+d"]  # hand over only reviews up to a difficulty
+# refresh                  = ["P", "shift+p"]  # fetch new reviews
 
 # [review_page]
 # close                  = ["esc", "q"]  # back to the queue (cannot be unbound)

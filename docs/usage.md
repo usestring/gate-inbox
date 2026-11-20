@@ -179,12 +179,18 @@ Each ask is stored once. Fetching it again refreshes its title, size and checks 
 
 `enter` on the Reviews row opens its page: one entry per pull request, with its repo and number, title, author, what asked and when, lines added and removed, files, checks, and whether it is a draft or already has a review session.
 
+Each entry also shows a **difficulty**: trivial, easy, medium or hard. It is guessed from the change's size. Up to 20 changed lines in at most 2 files is trivial, up to 150 lines in 6 files is easy, up to 600 lines in 20 files is medium, and anything bigger is hard. Failing checks push it up one tier. Press `d` to set the tier yourself once you have seen the diff. A tier set by hand is marked with `*`, applies to every ask on that pull request, and outlasts later fetches.
+
+Difficulty never changes the order by itself: the queue still goes by priority. When you want to choose by difficulty instead, press `D` to set the hardest tier the queue hands over, for example "up to easy" when you have ten minutes. The tab bar names the filter while it is set, as `max easy`; on a narrow rail the count gives way to it. Reviews past it stay on the tab below the rest, and triage passes them by. The filter is kept across restarts. Press `D` until it reads any difficulty to turn it off.
+
 | Key | Action |
 |-----|--------|
 | `enter` | Open the pull request |
 | `s` | Open or start a review session, or refresh a stale briefing |
 | `o` | Open the pull request on GitHub |
 | `x` | Dismiss it; a new ask on it queues it again |
+| `d` | Set its difficulty by hand: each press steps trivial, easy, medium, hard, then back to the guess |
+| `D` | Hand over only reviews up to a difficulty: each press steps any, up to trivial, easy, medium, then any again |
 | `P` | Fetch new reviews |
 | `esc` / `q` | Back to the list |
 
@@ -372,6 +378,20 @@ The exit status comes from the pane's launch script, which records the agent's s
 Archiving ends the agent, so `ctrl+x` asks for confirmation by default. To skip the prompt for a single session, change **ask before archiving** in Settings (`ctrl+s`). Press `alt+x` (Option+X on Mac) to undo the last kill, with or without confirmation.
 
 The wide gestures keep their dialog whatever the setting says. `ctrl+x` on a group takes its whole subtree and killing every row on screen (quick actions) takes all of it, and neither is a keystroke aimed at something you picked out — which is what makes a silent answer safe. The wide kill keeps its tick for the same reason it has one.
+
+## Sweeping stale sessions
+
+`gate-inbox sweep` lists the rows nobody is using and what to do with each: archive a session idle or finished for longer than `--idle` (72h by default) or one that ended and stayed on the list, revive one that ended or errored with work or mail still due, kill one parked on a dialog longer than `--waiting`, and check on mail held for a session that is running. Each line carries the MCP call that would carry it out. It reads `state.db` read-only and changes nothing, and `/gi-sweep` runs it from inside a Claude Code session. A hibernated session is resting rather than stale, and is never listed.
+
+`gate-inbox sweep --apply` carries the safe part out, through the same code the archive, revive, kill and hibernate tools run:
+
+- A row proposed for archive that is idle or finished, and that `gate-inbox hibernate` would accept, is hibernated instead. Its row, mail and task claims stay and its next message wakes it, where an archived row is deleted after 7 days.
+- Any other row proposed for archive is archived, unless that would lose something: mail not yet typed in, a session under it that is still on the board (an archive takes those with it), a task claim it holds, a background task or shell running under it, or a `--keep` its spawner asked for. Such a row is held, and the report says why.
+- A revive starts a process and a kill loses the question a session is waiting on, so both are held unless you pass `--revive` or `--kill-waiting`. `--force` archives or kills a row despite what it would lose.
+- Terminals, panes the board adopted, the session running the sweep and the sessions above it are always left alone, and so is a row whose status moved after the sweep read it.
+- The board has to be running. Every check starts from the status it last wrote, so with no board polling an apply refuses rather than act on statuses that may be days old.
+
+The report then lists every proposal with what became of it: `hibernated`, `archived`, `revived`, `killed`, `held` or `failed`. `--json` carries the same under `applied`. `--apply --dry-run` makes every check and prints that list without changing anything. An agent running `/gi-sweep` only proposes; it passes `--apply` when you ask it to apply the sweep.
 
 ## Restarting a session on the conversation it is on
 

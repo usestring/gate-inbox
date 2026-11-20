@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
+	"github.com/usestring/gate-inbox/internal/agentnudge"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
@@ -201,6 +202,46 @@ func TestAdoptedPluginSteeringNamesOnlyTheCLI(t *testing.T) {
 	for _, tool := range []string{"create_session", "send_session", "list_sessions", "answer_session"} {
 		if strings.Contains(text, tool) {
 			t.Errorf("steering names the MCP tool %s", tool)
+		}
+	}
+}
+
+// The Agent hook lets Claude Code's read-only subagents run in-process, so
+// the steering must not list one among the agents create_session replaces.
+func TestClaudeSteeringReplacesOnlyTheSubagentsTheHookSteers(t *testing.T) {
+	skill, err := os.ReadFile(filepath.Join("..", "claudeplugin", "plugindir", "skills", "delegate-with-gate-inbox", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, subagent := range []string{"Explore", "Plan", "claude-code-guide"} {
+		if !agentnudge.ReadOnly(subagent, "", "") {
+			t.Fatalf("the hook no longer passes %s; the steering may name it again", subagent)
+		}
+		for name, text := range map[string]string{"steering": DelegationSteering("claude"), "skill": string(skill)} {
+			if strings.Contains(text, subagent) {
+				t.Errorf("the claude %s lists %s as replaced by create_session, and the hook lets it run", name, subagent)
+			}
+		}
+	}
+}
+
+// A finished child is archived for its parent after a grace period, and
+// archive_session ends a session with everything it spawned, so no steering
+// tells a parent to archive a child as the routine last step.
+func TestNoSteeringTellsAParentToArchiveWhenDone(t *testing.T) {
+	texts := map[string]string{
+		"adopted codex":    AdoptedCLISteering("codex"),
+		"adopted opencode": AdoptedPluginSteering("opencode"),
+	}
+	for style := range builtinDelegation {
+		texts[style] = DelegationSteering(style)
+	}
+	for name, text := range texts {
+		if strings.Contains(text, "when done") || strings.Contains(text, "when it is done") {
+			t.Errorf("%s steering still says to archive when done:\n%s", name, text)
+		}
+		if !strings.Contains(text, "archives on its own after a grace period") {
+			t.Errorf("%s steering does not say a finished child archives on its own", name)
 		}
 	}
 }

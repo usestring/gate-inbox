@@ -528,7 +528,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "rename",
 		Description: "Rename this session to a short 2-4 word kebab-case name for the broad feature it is about. " +
-			"Call once at the start only when the session still has a placeholder name (e.g. claude-a1b2). " +
+			"Call once, only while the session still has a placeholder name (e.g. claude-a1b2); your launch instructions say when. " +
 			"If the session already has a real name, leave it unless the user asks to rename. " +
 			"Prefer a broad feature name over a single subtask.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args renameArgs) (*mcp.CallToolResult, any, error) {
@@ -867,7 +867,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Description: "Park until a session you are waiting on stops working, instead of calling read_session in a loop. " +
 			"Call it after handing an agent a task when your next step depends on its result. " +
 			"For a fan-out pass children true, or several session_ids: one call parks on the whole set and returns the moment any one of them arrives, so never wait on children one at a time. " +
-			"By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead; a session at rest while its own children are still going reads delegating, one resting on a shell still running reads background, and neither ends the wait); pass until to wait for particular states. " +
+			"By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored, hibernating or dead; a session at rest while its own children are still going reads delegating, one resting on a shell still running reads background, and neither ends the wait); pass until to wait for particular states. " +
 			"It counts from your own handoff. While a message you sent that session is still queued, its state describes the turn before, so the wait carries on until that message goes in and its turn ends. " +
 			"Pass timeout_s for how long to park. A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. " +
 			"standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",

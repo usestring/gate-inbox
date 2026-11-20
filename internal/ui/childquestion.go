@@ -415,8 +415,8 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 	}
 	if len(approvals) > 0 {
 		fmt.Fprintf(&out, "\n\nQuestion %s is headed Approval: the child is asking for your user's approval. "+
-			"Never answer it yourself. Your user is shown it in triage on the board and may answer it at the "+
-			"child's pane; read_session first, and if it is answered there is nothing to carry. Otherwise ask "+
+			"Never answer it yourself. Your user is shown it in triage on the board and may already have answered "+
+			"it there; read_session first, and if it is answered there is nothing to carry. Otherwise ask "+
 			"your user verbatim, then answer with relay: true; any other answer is refused.", strings.Join(approvals, ", "))
 	}
 	if len(person) > 0 {

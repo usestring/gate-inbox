@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/config"
 )
 
@@ -72,6 +73,7 @@ type toolRules struct {
 	limitLine      *matcher
 	scrolledLine   *matcher
 	jumpToBottom   string
+	betweenRules   bool
 	rules          []rule
 }
 
@@ -90,7 +92,7 @@ func NewEngine(cfg config.Config) (*Engine, error) {
 		if def == "" {
 			def = Idle
 		}
-		tr := toolRules{defaultStatus: def, typeAhead: tool.TypeAhead, jumpToBottom: tool.JumpToBottomKey, rules: compiled}
+		tr := toolRules{defaultStatus: def, typeAhead: tool.TypeAhead, jumpToBottom: tool.JumpToBottomKey, betweenRules: tool.InputBetweenRules, rules: compiled}
 		optional := []struct {
 			pattern string
 			target  **matcher
@@ -238,7 +240,7 @@ func (tr toolRules) limitLines(pane string) []string {
 		return nil
 	}
 	region, ok := tr.activityRegion(pane)
-	if !ok {
+	if !ok || tr.limitBelowCutoff(pane, len(region)) {
 		// No input line bounds the turn -- the limit's own menu can be what
 		// is on the screen -- so a banner anywhere counts. It is still only
 		// the banner's rows: the whole pane would hand the limit card the
@@ -267,6 +269,17 @@ func (tr toolRules) limitLines(pane string) []string {
 		return nil
 	}
 	return lines[i:end]
+}
+
+// limitBelowCutoff reports whether a limit banner starts on a row below the
+// last activity_cutoff row, which begins at offset at. An input line sits
+// below every turn, so such a row is not one: it is the limited turn's own
+// "❯" prompt echo, left last on screen because Claude's limit menu replaced
+// the input line.
+func (tr toolRules) limitBelowCutoff(pane string, at int) bool {
+	rest := pane[at:]
+	nl := strings.IndexByte(rest, '\n')
+	return nl >= 0 && tr.limitLine.MatchString(rest[nl+1:])
 }
 
 // newestLimit finds the lowest banner in lines: the row it starts on, and
@@ -693,6 +706,42 @@ func (e *Engine) InputPrefix(tool, row string) (string, bool) {
 		return "", false
 	}
 	return row[:indent+loc[1]], true
+}
+
+// ComposerBetweenRules reports, for a tool with input_between_rules, whether
+// row y of rows is a line of its composer: below a chrome_line rule, above
+// another, and with no rule under that one, so it is the last pair on screen
+// and not a separator quoted in the transcript. top is the rule above. Rows
+// are matched stripped of styling.
+func (e *Engine) ComposerBetweenRules(tool string, rows []string, y int) (top int, ok bool) {
+	tr, known := e.tools[tool]
+	if !known || !tr.betweenRules || tr.chromeLine == nil || y < 0 || y >= len(rows) {
+		return 0, false
+	}
+	isRule := func(i int) bool {
+		return tr.chromeLine.MatchString(strings.TrimRight(ansi.Strip(rows[i]), " \t"))
+	}
+	if isRule(y) {
+		return 0, false
+	}
+	top = -1
+	for i := y - 1; i >= 0; i-- {
+		if isRule(i) {
+			top = i
+			break
+		}
+	}
+	bottom := -1
+	for i := y + 1; i < len(rows); i++ {
+		if !isRule(i) {
+			continue
+		}
+		if bottom >= 0 {
+			return 0, false
+		}
+		bottom = i
+	}
+	return top, top >= 0 && bottom >= 0
 }
 
 func (tr toolRules) activityRegion(pane string) (string, bool) {

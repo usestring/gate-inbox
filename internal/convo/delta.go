@@ -52,6 +52,11 @@ type Delta struct {
 	// the gap was larger than deltaCap. The window still ends at Next; it
 	// just does not begin where the caller asked.
 	Rewound bool
+	// latest is where the reply to the window's last prompt begins in Turns.
+	// A reply can carry no prose at all -- a model that only thinks, or only
+	// calls tools -- and without this mark LastTurn would hand back an answer
+	// to an earlier prompt as if it were the current one.
+	latest int
 }
 
 // Result is one tool_result a user record carried.
@@ -62,10 +67,11 @@ type Result struct {
 	Rejected bool
 }
 
-// LastTurn is the conversation's most recent prose, which is the closest
-// thing a transcript holds to a result.
+// LastTurn is the most recent prose of the reply to the window's last prompt,
+// which is the closest thing a transcript holds to a result. It is "" while
+// that reply has said nothing.
 func (d Delta) LastTurn() string {
-	if len(d.Turns) == 0 {
+	if len(d.Turns) <= d.latest {
 		return ""
 	}
 	return d.Turns[len(d.Turns)-1]
@@ -81,6 +87,18 @@ func (d Delta) Empty() bool { return len(d.Prompts) == 0 && len(d.Turns) == 0 }
 // gets back ends at the last newline, so a record still being appended is
 // read on the next call.
 func Since(path string, offset int64) (Delta, error) {
+	return since(path, offset, parseDelta)
+}
+
+// SincePi is Since over a pi session file. A pi session is a tree, but it is
+// written append-only like a Claude transcript, so a byte offset is as honest
+// a cursor there; a window reads the entries appended to whichever branch
+// was being written, which is the conversation as it went.
+func SincePi(path string, offset int64) (Delta, error) {
+	return since(path, offset, parsePiDelta)
+}
+
+func since(path string, offset int64, parse func([]byte, bool) Delta) (Delta, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return Delta{}, err
@@ -124,7 +142,7 @@ func Since(path string, offset int64) (Delta, error) {
 			partial = true
 		}
 	}
-	delta := parseDelta(raw, partial)
+	delta := parse(raw, partial)
 	delta.Next = next
 	delta.Rewound = rewound
 	return delta, nil
@@ -168,6 +186,7 @@ func parseDelta(raw []byte, partial bool) Delta {
 			}
 			if prompt := typedPrompt(rec.Message.Content); prompt != "" {
 				delta.Prompts = append(delta.Prompts, prompt)
+				delta.latest = len(delta.Turns)
 			}
 			delta.Results = append(delta.Results, toolResults(rec.Message.Content)...)
 		case "assistant":
@@ -176,6 +195,45 @@ func parseDelta(raw []byte, partial bool) Delta {
 			for _, text := range assistantProse(rec.Message.Content) {
 				delta.Turns = append(delta.Turns, text)
 			}
+		}
+	}
+	return delta
+}
+
+// parsePiDelta reads the entries in a window of a pi session file: user
+// prompts, assistant prose, and tool results by call id.
+func parsePiDelta(raw []byte, partial bool) Delta {
+	lines := bytes.Split(raw, []byte{'\n'})
+	if partial && len(lines) > 0 {
+		lines = lines[1:]
+	}
+	var delta Delta
+	for _, line := range lines {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || line[0] != '{' || !bytes.Contains(line, []byte(`"type":"message"`)) {
+			continue
+		}
+		var entry struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role       string          `json:"role"`
+				Content    json.RawMessage `json:"content"`
+				ToolCallID string          `json:"toolCallId"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(line, &entry) != nil || entry.Type != "message" {
+			continue
+		}
+		switch entry.Message.Role {
+		case "user":
+			if prompt := typedPrompt(entry.Message.Content); prompt != "" {
+				delta.Prompts = append(delta.Prompts, prompt)
+				delta.latest = len(delta.Turns)
+			}
+		case "assistant":
+			delta.Turns = append(delta.Turns, assistantProse(entry.Message.Content)...)
+		case "toolResult":
+			delta.Results = append(delta.Results, Result{ToolUseID: entry.Message.ToolCallID})
 		}
 	}
 	return delta

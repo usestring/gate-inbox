@@ -24,12 +24,16 @@ func ReadFirstPrompts(target Target, count int) ([]string, error) {
 	return readFirstPrompts(target, count, func(text string) bool { return !band.Has(text) })
 }
 
+// ReadFirstWorkPrompt reads the original assignment from the start of the
+// conversation. A recent tail can begin with a follow-up or a different task.
 func ReadFirstWorkPrompt(target Target) (string, error) {
-	prompts, err := readFirstPrompts(target, 1, func(text string) bool { return ClassifyTurn(text) == TurnWork })
-	if err != nil || len(prompts) == 0 {
+	prompts, err := readFirstPrompts(target, 1, func(text string) bool {
+		return ClassifyTurn(text) == TurnWork
+	})
+	if len(prompts) == 0 {
 		return "", err
 	}
-	return prompts[0], nil
+	return prompts[0], err
 }
 
 func readFirstPrompts(target Target, count int, accept func(string) bool) ([]string, error) {
@@ -139,6 +143,11 @@ func parseMessage(line []byte, tool string) (Message, bool) {
 			return Message{}, false
 		}
 		envelope = row.Payload
+	case ToolPi, ToolOmp:
+		if row.Type != "message" {
+			return Message{}, false
+		}
+		envelope = row.Message
 	default:
 		return Message{}, false
 	}

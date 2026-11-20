@@ -1,7 +1,7 @@
 === absent
 y  "yes" -> "yes"
 t  "continue" -> "continue"
-e  "eli5" -> "I'm confused, explain like I'm 5"
+e  "tldr" -> "tldr explain simply"
 w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. Continue where you left off."
 n  "needs?" -> "what do you need from me?"
 f  "fix it" -> "fix it"
@@ -25,9 +25,9 @@ p  "progress" -> "summarise all current progress in bullet points, including eve
   },
   {
     "key": "e",
-    "label": "eli5",
+    "label": "tldr",
     "chord": "alt+e",
-    "text": "I'm confused, explain like I'm 5",
+    "text": "tldr explain simply",
     "autoSubmit": true
   },
   {

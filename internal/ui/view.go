@@ -21,11 +21,14 @@ import (
 
 func (m *Model) View() tea.View {
 	view := tea.NewView(m.frame())
-	m.notePaintedKey()
+	m.noteKeyDrawn()
 	view.AltScreen = true
 	// The app holds mouse reporting so a drag on the split divider and an
 	// Alt-click forwarded into a pane both reach handleMouse.
 	view.MouseMode = tea.MouseModeCellMotion
+	if m.textScroll == textScrollHover && (m.mode == modeList || m.mode == modeFocus) {
+		view.MouseMode = tea.MouseModeAllMotion
+	}
 	// Ask the terminal to say when it gains and loses focus. It costs
 	// nothing and, where the terminal answers, it releases the manager's
 	// window pin the instant the operator looks away rather than at the next
@@ -158,7 +161,7 @@ func clampFrame(frame string, height int) string {
 }
 
 // splitWidths is the body's horizontal split: the sessions panel takes
-// splitRatio of the terminal (default 30%), floored so both sides stay
+// splitRatio of the terminal (default 40%), floored so both sides stay
 // usable when the window is wide enough.
 func (m *Model) splitWidths() (int, int) {
 	if m.width <= 0 {

@@ -10,6 +10,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/gatechannel"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -93,8 +94,8 @@ const ChildApprovalNote = `Another agent session spawned you, so your questions 
 	`and never ask the session that spawned you to do the blocked action for you.`
 
 // SessionStartHook is what a child's SessionStart hook prints: the approval
-// note as additionalContext for a session another session spawned, and
-// nothing for any other or on any fault.
+// note and the report note as additionalContext for a session another
+// session spawned, and nothing for any other or on any fault.
 func SessionStartHook(configDir, sessionID string) string {
 	if sessionID == "" {
 		return ""
@@ -114,7 +115,7 @@ func SessionStartHook(configDir, sessionID string) string {
 	}
 	out, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
 		"hookEventName":     "SessionStart",
-		"additionalContext": ChildApprovalNote,
+		"additionalContext": ChildApprovalNote + " " + mcpreg.ChildReportNote,
 	}})
 	if err != nil {
 		return ""
@@ -151,6 +152,30 @@ func AskPendingHook(configDir, sessionID string, payload []byte) {
 	tmp := path + ".tmp"
 	if os.WriteFile(tmp, raw, 0o600) == nil {
 		_ = os.Rename(tmp, path)
+	}
+}
+
+// AskResolvedHook removes the call AskPendingHook saved once its dialog has
+// closed, for a session with no transcript to say so (pi). Only the call the
+// payload names is removed, so a later call's file is left standing.
+func AskResolvedHook(configDir, sessionID string, payload []byte) {
+	if sessionID == "" {
+		return
+	}
+	var event struct {
+		ToolUseID string `json:"tool_use_id"`
+	}
+	if json.Unmarshal(payload, &event) != nil || event.ToolUseID == "" {
+		return
+	}
+	path := hooks.NewManager(configDir).PendingAskFile(sessionID)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var saved convo.AskCall
+	if json.Unmarshal(raw, &saved) == nil && saved.ToolUseID == event.ToolUseID {
+		_ = os.Remove(path)
 	}
 }
 

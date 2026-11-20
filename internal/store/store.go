@@ -625,6 +625,8 @@ CREATE TABLE IF NOT EXISTS settings (
 		`CREATE INDEX IF NOT EXISTS review_drafts_pr ON review_drafts (repo, number)`,
 		// The head a review session was started on. See ReviewRequest.SessionHead.
 		`ALTER TABLE review_requests ADD COLUMN session_head TEXT NOT NULL DEFAULT ''`,
+		// A review difficulty set by hand, empty for the guess. See difficulty.go.
+		`ALTER TABLE review_requests ADD COLUMN difficulty TEXT NOT NULL DEFAULT ''`,
 		// The session that put a task on the list, which scopes a bare
 		// claim to the caller's fleet. Rows from before it read ''. See
 		// tasks.go.
@@ -632,6 +634,10 @@ CREATE TABLE IF NOT EXISTS settings (
 		// The one session allowed to claim a task, empty for anyone. See
 		// tasks.go.
 		`ALTER TABLE tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''`,
+		// What the finisher said came of a task: the outcome, a PR link,
+		// what is left. Rows finished before it, and every unfinished row,
+		// read ''. See FinishTask.
+		`ALTER TABLE tasks ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {

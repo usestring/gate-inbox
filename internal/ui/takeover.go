@@ -244,6 +244,10 @@ func (m *Model) takeOver(sess store.Session, procs *adopt.ProcTable, claude []co
 				}
 			}
 		}
+	} else if store, ok := convo.PiStoreFor(sess.Tool, m.cfg.Tools[sess.Tool].SessionStore); ok {
+		if id, convCwd, ok := store.ConversationInPane(sess.Cwd); ok {
+			convID, cwd = id, convCwd
+		}
 	}
 	// A tool that resumes by id needs the id: relaunching on its continue
 	// command would resume the directory's most recent conversation, which

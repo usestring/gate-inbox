@@ -87,6 +87,10 @@ const (
 	// modeHeadPane routes the keyboard into the page behind an extension's
 	// header row, drawn where a session's pane is. See headpane.go.
 	modeHeadPane
+	// modeCleared is the inbox-cleared pane: the list stays up and the
+	// content pane offers one prompt to launch the next session. See
+	// cleared.go.
+	modeCleared
 )
 
 type treeRow struct {
@@ -134,6 +138,10 @@ type Model struct {
 	gitDrv *git.Driver
 	engine *status.Engine
 
+	// recentSaves tracks the background writes of the last checkout each
+	// repository launched in; lookups wait on it so they never read stale.
+	recentSaves *sync.WaitGroup
+
 	// snips are the operator's canned answers, read once at startup;
 	// snipErr is why there are none, when the file would not be read.
 	snips         snippets.Set
@@ -161,6 +169,9 @@ type Model struct {
 	jevCopy        jevCopyState
 	autoGroupOn    bool
 	autoGroup      autoGroupState
+	// nextStepOn is the Next step experiment; nextStep is what it remembers.
+	nextStepOn bool
+	nextStep   nextStepState
 	// reviewQueue is the Review queue experiment: off, the ingest key
 	// refuses and the rail draws no Reviews tab.
 	reviewQueue    bool
@@ -229,6 +240,9 @@ type Model struct {
 	// the last triage sort lifted it. See reviewtriage.go.
 	reviewsSeen   time.Time
 	triageLineage map[string]triageKey
+	// reviewCeiling is the hardest review difficulty the queue hands over,
+	// empty for every tier. See reviewdifficulty.go.
+	reviewCeiling string
 
 	// extensionNotes are the build's extensions the operator's config
 	// switched off, and the config sections nothing owns, each with its
@@ -303,12 +317,14 @@ type Model struct {
 	// childSweeping is set while a child sweep is out on a command goroutine,
 	// so the poll clock cannot stack a second set of tmux forks behind the
 	// set already waiting. See childsweep.go.
-	childSweeping bool
+	childSweeping     bool
+	childClosurePlans map[childClosureKey]bool
 	// hibernating is set while a settleHibernated pass is out, and
 	// hibernateSweptAt is when the last one swept for idle sessions. See
 	// hibernate.go.
-	hibernating      bool
-	hibernateSweptAt time.Time
+	hibernating       bool
+	hibernateSweptAt  time.Time
+	hibernatePressure bool
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -455,6 +471,13 @@ type Model struct {
 	adoptFinishedAt time.Time
 	// adoptBusy is set while an adopt scan is out on its own goroutine.
 	adoptBusy bool
+	// unsureFlagged is the panes an adopt scan last found looking like an
+	// agent without adopting them, by adoptKey, so each is flagged once.
+	unsureFlagged map[string]bool
+	// unsureShownAt is when the unadopted-panes line was last put up, and
+	// unsureText is that line, so the bar can hold it while it is current.
+	unsureShownAt time.Time
+	unsureText    string
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -608,7 +631,13 @@ type Model struct {
 	glyphs string
 	// rowDetail is whether session rows spell their state and CLI out or
 	// leave them to marks. See rowdetail.go.
-	rowDetail string
+	rowDetail          string
+	textScroll         string
+	workingActivities  map[string]workingActivity
+	activityAnimating  bool
+	activityHover      string
+	activityHoverSince time.Time
+	activitySince      time.Time
 	// priorityScale is the persisted tier scale, "+2/-1" by default. See
 	// tierscale.go.
 	priorityScale string
@@ -673,7 +702,11 @@ type Model struct {
 	jump          groupJump
 	search        string
 	searching     bool
-	panePicker    panePicker
+	// searchTitleOnly narrows the filter to what names a session (its name
+	// and generated title), dropping pane and transcript matches. Tab toggles
+	// it while the search field is open. See titlesearch.go.
+	searchTitleOnly bool
+	panePicker      panePicker
 	// triage mirrors the persisted status-ordered queue: the rail drops its
 	// group structure and sorts by what needs a person, and ctrl+q walks on
 	// to the next such session instead of returning to the list.
@@ -718,6 +751,8 @@ type Model struct {
 	// done; see mute.go for why it is memory of the pass rather than state
 	// on the session.
 	muted map[string]muteMark
+	// Skipping postpones work until the rest of the queue has been offered.
+	triageDeferred []string
 	// deaf holds the sessions whose panes were found ignoring input, and
 	// focusDeaf counts the run of no-repaint keystrokes in the focused one
 	// that gets a session there. focusDeafID is which session that run
@@ -732,6 +767,7 @@ type Model struct {
 	heldAckID string
 
 	form      form
+	cleared   clearedState
 	agentPick agentPick
 	actions   quickActions
 	groupForm groupForm
@@ -769,11 +805,9 @@ type Model struct {
 	heldSnippetsRestored bool
 	landings             map[string]*pendingLanding
 	landingGen           int
-	// writing measures the line being typed into each focused pane, by
-	// session, until the key that submits it; see writing.go. keyFrame is
-	// the line a key just went to, until the frame after that key is painted.
-	writing  map[string]*lineWriting
-	keyFrame *lineWriting
+	// lastKey is the key last handed a session's pane, for the next one's
+	// PaneInput.Ready; see paneinput.go.
+	lastKey keyStamp
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
@@ -1034,6 +1068,7 @@ type settingsState struct {
 	palette              string
 	glyphs               string
 	rowDetail            string
+	textScroll           string
 	priorityScale        string
 	archiveConfirm       string
 	deleteConfirm        string
@@ -1065,10 +1100,13 @@ type settingsState struct {
 	jevFinishCheck     bool
 	jevCopyOn          bool
 	autoGroupOn        bool
-	promptSuggest      bool
-	reviewQueue        bool
-	ciFeedback         bool
-	arrowsStay         bool
+	// piAutoMode is pi's auto mode (package piauto) as the JEV card holds it.
+	piAutoMode    bool
+	promptSuggest bool
+	nextStep      bool
+	reviewQueue   bool
+	ciFeedback    bool
+	arrowsStay    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -1080,45 +1118,46 @@ type settingsState struct {
 }
 
 const (
-	settingsFieldTool = iota
-	settingsFieldAccountRouting
-	settingsFieldNewSessionAgent
-	settingsFieldTheme
-	settingsFieldBackdrop
-	settingsFieldDensity
-	settingsFieldLayout
-	settingsFieldSidebar
-	settingsFieldPalette
-	settingsFieldGlyphs
-	settingsFieldRowDetail
-	settingsFieldPriorityScale
+	settingsFieldHibernate = iota
+	settingsFieldLeave
+	settingsFieldReopenSessions
+	settingsFieldOutsidePanes
+	settingsFieldIdleSwitch
 	settingsFieldArchiveConfirm
 	settingsFieldDeleteConfirm
 	settingsFieldRestartConfirm
+	settingsFieldTool
+	settingsFieldAccountRouting
+	settingsFieldNewSessionAgent
+	settingsFieldConfirmLaunches
+	settingsFieldCLIs
+	settingsFieldClaudeSetup
+	settingsFieldRestartFlags
+	settingsFieldTheme
+	settingsFieldBackdrop
+	settingsFieldLayout
+	settingsFieldSidebar
+	settingsFieldDensity
+	settingsFieldPalette
+	settingsFieldGlyphs
+	settingsFieldRowDetail
+	settingsFieldWorkingActivity
 	settingsFieldListSort
 	settingsFieldListConsistency
-	settingsFieldChrome
-	settingsFieldLeave
-	settingsFieldQuickClose
-	settingsFieldFocusKey
+	settingsFieldPriorityScale
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
 	settingsFieldTriageOrder
 	settingsFieldTriageContent
 	settingsFieldTriageKeepAlives
-	settingsFieldIdleSwitch
-	settingsFieldConfirmLaunches
-	settingsFieldReopenSessions
-	settingsFieldOutsidePanes
-	settingsFieldHibernate
-	settingsFieldClaudeSetup
+	settingsFieldChrome
+	settingsFieldFocusKey
+	settingsFieldQuickClose
+	settingsFieldSnippets
+	settingsFieldKeys
 	settingsFieldJev
 	settingsFieldExperimental
-	settingsFieldSnippets
-	settingsFieldRestartFlags
-	settingsFieldCLIs
 	settingsFieldGuide
-	settingsFieldKeys
 	settingsFieldVersion
 	settingsFieldCount
 )
@@ -1157,6 +1196,7 @@ type refreshMsg struct {
 	compactWindows   map[string]compactView
 	archivedChildren map[string]int
 	searchText       map[string]string
+	workingActivity  map[string]string
 	answerableWait   map[string]bool
 	choreRests       map[string]time.Time
 	// askQuestions is each Claude session's pending AskUserQuestion call,
@@ -1449,12 +1489,15 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		autoGroupOn:      storedAutoGroup(st),
 		reviewQueue:      reviewQueue,
 		promptSuggest:    storedPromptSuggestions(st),
+		nextStepOn:       storedNextStep(st),
 		comfortableRows:  storedComfortableRows(st),
 		layout:           storedLayout(st),
 		sidebar:          storedSidebar(st, cfg.Board.Sidebar),
 		palette:          storedPalette(st),
 		glyphs:           storedGlyphs(st),
 		rowDetail:        storedRowDetail(st),
+		textScroll:       storedWorkingActivity(st),
+		activitySince:    time.Now(),
 		priorityScale:    storedPriorityScale(st),
 		archiveConfirm:   storedArchiveConfirm(st),
 		deleteConfirm:    storedConfirmAsk(st, deleteConfirmSetting),
@@ -1470,6 +1513,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		smartTriage:      storedSmartTriage(st),
 		triageOrder:      storedTriageOrder(st),
 		triageContent:    triageContent,
+		reviewCeiling:    storedReviewCeiling(st),
 		reviewsTab:       reviewQueue && triageContent == triageContentReviews,
 		triageKeepAlives: storedTriageKeepAlives(st),
 		idleSwitch:       storedIdleSwitch(st),
@@ -1685,12 +1729,6 @@ func (m *Model) syncPollInput() {
 		selectedID = sess.ID
 	}
 	m.poller.setInput(m.showArchived, selectedID)
-	m.poller.mu.Lock()
-	m.poller.jevFinishFocusedID = ""
-	if m.mode == modeFocus {
-		m.poller.jevFinishFocusedID = m.focusedID
-	}
-	m.poller.mu.Unlock()
 }
 
 // requestRefresh publishes the current UI state to the poller and asks
@@ -1805,8 +1843,7 @@ func (m *Model) searchedListedSessions() []store.Session {
 	}
 	matched := make([]store.Session, 0, len(listed))
 	for _, sess := range listed {
-		_, historyMatch := m.historyHit(sess)
-		if matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) || historyMatch {
+		if m.searchMatches(sess, query) {
 			matched = append(matched, sess)
 		}
 	}
@@ -2296,6 +2333,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentPickQuotaMsg:
 		m.finishAgentPickQuota(msg)
 		return m, nil
+	case worktreesLoadedMsg:
+		m.finishWorktreePicker(msg)
+		return m, nil
+	case recentWorktreeMsg:
+		m.finishRecentWorktree(msg)
+		return m, nil
 	case migrateAutoMsg:
 		return m.finishMigrateAuto(msg)
 	case accountAutoMsg:
@@ -2372,6 +2415,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.setVisible(true), m.ownPaneVisibleCmd())
 
 	case tea.BlurMsg:
+		m.activityHover = ""
 		m.dismissLegendPeek()
 		return m, m.setVisible(false)
 
@@ -2394,6 +2438,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case browserOpenMsg:
 		m.handleBrowserOpen(msg)
 		return m, nil
+
+	case activityTickMsg:
+		m.activityAnimating = false
+		if !m.activityActive() {
+			m.frameUnchanged()
+		}
+		return m, m.startActivityTick()
 
 	case startupTickMsg:
 		if !m.needsLoaderTick() {
@@ -2496,7 +2547,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.readConversation(), conversationTick(), m.startStartupTick())
 	case conversationMsg:
 		m.applyConversation(msg)
-		return m, m.scheduleAutoSuggestion()
+		return m, tea.Batch(m.scheduleAutoSuggestion(), m.scheduleNextStepLocal())
+	case nextStepLocalMsg:
+		m.applyNextStepLocal(msg)
+		return m, nil
 	case tokenUsageMsg:
 		m.applyTokenUsage(msg)
 		return m, nil
@@ -2610,6 +2664,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.compactWindows = msg.compactWindows
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
+		m.updateWorkingActivity(msg.workingActivity)
 		m.answerableWait = msg.answerableWait
 		m.choreRests = msg.choreRests
 		m.askQuestions = msg.askQuestions
@@ -2682,12 +2737,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.loadDrafts())
+			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.startActivityTick(), m.loadDrafts())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.loadDrafts())
+		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.startActivityTick(), m.loadDrafts())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)
@@ -2714,6 +2769,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errBar.text = "adopting a pane: " + msg.err.Error()
 		}
 		m.noteAdopted(msg)
+		m.noteUnsure(msg.unsure, time.Now())
 		if msg.taken > 0 {
 			// The rows are in the store but not yet on the board; the sweep
 			// is what reads them back.
@@ -3061,11 +3117,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
+		mouse := msg.Mouse()
+		hoverChanged := m.updateActivityHover(mouse.X, mouse.Y)
 		model, cmd := m.handleMouse(msg)
+		if hoverChanged {
+			m.frameReuse = false
+		}
 		// A click can select a session or leave focus, so the poller hears
 		// about it the same way it hears about a keystroke.
 		m.syncPollInput()
-		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
+		return model, tea.Batch(cmd, m.startActivityTick(), m.scheduleAutoSuggestion(), m.scheduleNextStepLocal())
 
 	case tea.KeyboardEnhancementsMsg:
 		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()
@@ -3082,9 +3143,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		model, cmd := m.handleKey(msg)
 		m.syncPollInput()
-		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
+		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev(), m.scheduleNextStepLocal())
 
 	case tea.PasteMsg:
+		if m.mode == modeForm && m.form.worktrees != nil {
+			return m, m.form.worktrees.updateFilter(msg)
+		}
 		if m.mode == modeSettings && m.settings.searching {
 			var cmd tea.Cmd
 			m.settings.search, cmd = m.settings.search.Update(msg)
@@ -3112,6 +3176,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == modeFocus {
 			return m.handleFocusPaste(msg)
+		}
+		if m.mode == modeCleared {
+			return m, m.form.prompt.updateInput(msg)
 		}
 	}
 	return m, nil
@@ -3309,7 +3376,8 @@ func (m *Model) ageError() {
 		return
 	}
 	m.errBar.age++
-	if m.errBar.age >= 2 && !m.offerLive(time.Now()) {
+	now := time.Now()
+	if m.errBar.age >= 2 && !m.offerLive(now) && !m.unsureLive(now) {
 		m.errBar = errBar{}
 	}
 }
@@ -3361,7 +3429,6 @@ func (m *Model) rebuildRows() {
 	// them ask, and every ask was its own fork. See holdLivePanes.
 	defer m.releaseLivePanes(m.holdLivePanes())
 	m.pruneMutes(m.sessions)
-	m.pruneWriting(m.sessions)
 	m.buildTree()
 	if m.cursorSessionID() != m.railCursorSess {
 		m.buildTree()
@@ -3418,9 +3485,7 @@ func (m *Model) buildTree() {
 	// per-group slices inherit the user's manual order.
 	matched := make(map[string]bool, len(listed))
 	for _, sess := range listed {
-		if query == "" || matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) {
-			matched[sess.ID] = true
-		} else if _, ok := m.historyHit(sess); ok {
+		if query == "" || m.searchMatches(sess, query) {
 			matched[sess.ID] = true
 		}
 	}

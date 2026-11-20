@@ -87,7 +87,7 @@ func (m *Model) applyQuestionTyped(msg questionTypedMsg) tea.Cmd {
 		return nil
 	}
 	m.noteSubmission(msg.sess)
-	m.noteOperator(msg.sess, extension.OperatorSnippet, msg.text, extension.OperatorWriting{}, true, msg.started)
+	m.noteOperator(msg.sess, extension.OperatorSnippet, msg.text, true, msg.started)
 	if m.heldAckID == msg.sess.ID {
 		m.heldAckID = ""
 	}

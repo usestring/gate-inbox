@@ -18,6 +18,10 @@ no_compress = true
 
 [children]
 auto_archive_after = "1h"
+dry_run = true
+
+[finish_check]
+collect_only = true
 
 [naming]
 ask = false

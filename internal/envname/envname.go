@@ -27,7 +27,24 @@ const (
 	// Outbox set to "off" stops the manager probing the network, so sends
 	// are never held as offline.
 	Outbox = "GATE_INBOX_OUTBOX"
+	// SkipPermissions is "1" in a pi session launched with its permission
+	// prompts off. Pi has no flag for it, so the board's extension reads this
+	// and stops asking; it is set, to "1" or "", on every pi launch and never
+	// inherited, so a session launched without it cannot pick up its
+	// parent's.
+	SkipPermissions = "GATE_INBOX_SKIP_PERMISSIONS"
+	// TypeSafeKey is the TypeSafe API key the board asks the JEV classifier
+	// with.
+	TypeSafeKey = "TYPESAFE_API_KEY"
+	// TraceSecret names the secret the board reads its trace ingest token
+	// from.
+	TraceSecret = "GATE_INBOX_TRACE_SECRET"
 )
+
+// BoardSecrets are the board's own credentials. The board uses them from its
+// own process, so no agent it launches needs them, and every pane it opens
+// starts without them (see tmux.Driver.Create).
+var BoardSecrets = []string{TypeSafeKey, TraceSecret}
 
 // Get reads a variable, treating a blank value as unset.
 func Get(name string) string {

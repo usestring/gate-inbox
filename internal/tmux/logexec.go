@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/tmuxguard"
 	"github.com/usestring/gate-inbox/internal/tracing"
@@ -27,7 +30,7 @@ func (d *Driver) combined(full []string) ([]byte, error) {
 	defer release()
 	start := time.Now()
 	countExec(full)
-	out, err := exec.Command(d.bin, full...).CombinedOutput()
+	out, err := d.command(full...).CombinedOutput()
 	logTmux(full, start, err, out)
 	return out, err
 }
@@ -51,7 +54,7 @@ func (d *Driver) combinedWithin(ctx context.Context, full []string) ([]byte, err
 	tmuxguard.Enforce(full)
 	start := time.Now()
 	countExec(full)
-	cmd := exec.CommandContext(ctx, d.bin, full...)
+	cmd := d.commandContext(ctx, full...)
 	// CombinedOutput collects through a pipe, and Wait does not return while
 	// anything still holds the write end -- a killed tmux's own children do.
 	// WaitDelay caps that second wait, so the deadline bounds the call rather
@@ -80,7 +83,7 @@ func (d *Driver) output(full []string) ([]byte, error) {
 	defer release()
 	start := time.Now()
 	countExec(full)
-	out, err := exec.Command(d.bin, full...).Output()
+	out, err := d.command(full...).Output()
 	// Output keeps stderr off the return value, so tmux's complaint is only
 	// reachable through the exit error.
 	logTmux(full, start, err, stderrOf(err))
@@ -103,7 +106,7 @@ func (d *Driver) silent(full []string) error {
 	}
 	defer release()
 	start := time.Now()
-	err = exec.Command(d.bin, full...).Run()
+	err = d.command(full...).Run()
 	logTmux(full, start, err, nil)
 	return err
 }
@@ -205,4 +208,32 @@ func firstLine(out []byte) string {
 		return line
 	}
 	return text
+}
+
+// command is tmux run with args, from the board's environment without the
+// board's own credentials. A tmux client that finds no server starts one,
+// and the server keeps the client's environment for good: in its global
+// environment, which every pane starts from, and in its own environ, which
+// its panes' processes can read as their parent's. So a server the board
+// starts never holds them, and neither can anything running under it.
+func (d *Driver) command(args ...string) *exec.Cmd {
+	return d.commandContext(context.Background(), args...)
+}
+
+func (d *Driver) commandContext(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, d.bin, args...)
+	cmd.Env = withoutBoardSecrets(os.Environ())
+	return cmd
+}
+
+// withoutBoardSecrets is environ without envname.BoardSecrets.
+func withoutBoardSecrets(environ []string) []string {
+	kept := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		key, _, _ := strings.Cut(entry, "=")
+		if !slices.Contains(envname.BoardSecrets, key) {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
 }

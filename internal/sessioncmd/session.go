@@ -25,6 +25,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/launchpace"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/migrate"
+	"github.com/usestring/gate-inbox/internal/piauto"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -74,6 +75,9 @@ type Session struct {
 	// the extension host among them; the tools' JSON leaves them out.
 	CreatedAt  time.Time `json:"-"`
 	ArchivedAt time.Time `json:"-"`
+	// LaunchedAt is when the agent process now in the pane started, as the
+	// row had it when it was read; like CreatedAt, for the Go callers.
+	LaunchedAt time.Time `json:"-"`
 	// ReplacedBy reaches extensions only, as Role does.
 	ReplacedBy string `json:"-"`
 	// Permissions is only filled in by a list, which reads every grant in
@@ -338,6 +342,7 @@ func (r *runtime) sessionInfoIn(sess store.Session, dir string, running, self bo
 		Terminal:       r.cfg.Tools[sess.Tool].Shell,
 		CreatedAt:      sess.CreatedAt,
 		ArchivedAt:     sess.ArchivedAt,
+		LaunchedAt:     sess.LaunchTime(),
 		ReplacedBy:     sess.ReplacedBy,
 	}
 }
@@ -969,6 +974,9 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err != nil {
 		return Session{}, err
 	}
+	if flag := trustFlagFor(tool, caller.Cwd, dir); flag != "" && launchDir == dir {
+		base += " " + flag
+	}
 	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, base, id, plan.Model, plan.Account, sess.SkipPermissions, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
@@ -1195,6 +1203,10 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 		}
 	}
 	from := sender{callerID: caller.ID, id: caller.ID, name: caller.Name}
+	// Refuse retired recipients before a send can wake or restore them.
+	if _, err := runtime.addressee(from, targetID, interrupt); err != nil {
+		return SendResult{}, err
+	}
 	// A helper an extension launched to speak for the operator -- one
 	// holding a question for them, say -- writing to the session it was
 	// filed under. What it sends is the operator's answer, not its own
@@ -1365,6 +1377,9 @@ func (r *runtime) addressee(from sender, targetID string, interrupt bool) (store
 	target, err := r.agent(targetID)
 	if err != nil {
 		return store.Session{}, err
+	}
+	if target.ReplacedBy != "" {
+		return store.Session{}, fmt.Errorf("session %s was replaced by %s; send to its successor", target.ID, target.ReplacedBy)
 	}
 	if from.callerID != "" && target.ID == from.callerID {
 		return store.Session{}, errors.New("a session cannot message itself")
@@ -1570,7 +1585,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 	pane = strings.TrimRight(ansi.Strip(pane), "\r\n")
 	noteSpawnerRead(runtime, sessionID, target)
 
-	cursor, delta, note, readable := s.readDelta(target, since)
+	cursor, delta, note, readable := s.readDelta(target, since, runtime.cfg.Tools)
 	screen = SessionScreen{
 		Session: runtime.sessionInfo(target, running, target.ID == sessionID),
 		Cursor:  cursor,
@@ -1583,6 +1598,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 		}
 		screen.Digest.RelayAsk = s.relayAskOn(target, raw)
 	}
+	screen.Digest.AutoAllowed = piauto.Recent(hooks.NewManager(s.configDir).StatusFile(target.ID), autoAllowedShown)
 	if since != "" && readable {
 		screen.Mode, screen.Output, screen.Degraded = "delta", renderDelta(delta), note
 		return screen, nil
@@ -1713,6 +1729,12 @@ func (s *Sessions) Revive(sessionID, targetID string) (revived Session, err erro
 	if err != nil {
 		return Session{}, err
 	}
+	return s.reviveRow(runtime, target)
+}
+
+// reviveRow is Revive for a row already resolved, on a runtime the caller
+// holds open.
+func (s *Sessions) reviveRow(runtime *runtime, target store.Session) (Session, error) {
 	// A live adopted pane is not gi_<id>, so without reaching it this would
 	// launch a second agent on the conversation the first is still holding.
 	if err := runtime.reach(target); err != nil {

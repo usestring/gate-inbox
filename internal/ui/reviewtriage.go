@@ -12,7 +12,6 @@ package ui
 
 import (
 	"slices"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -32,14 +31,16 @@ const reviewsTriedKey = "\x00reviews"
 // it back.
 func (m *Model) reviewsWaiting() bool {
 	for _, r := range m.reviews {
-		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
+		if m.reviewQueued(r) {
 			return true
 		}
 	}
 	return false
 }
 
-// markReviewsSeen is the operator leaving the tab a drain handed over.
+// markReviewsSeen is the operator leaving the tab a drain handed over. It
+// covers asks past the difficulty filter too: the watermark is one time, so
+// skipping them would leave an older one marked seen and a newer one queued.
 func (m *Model) markReviewsSeen() {
 	for _, r := range m.reviews {
 		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
@@ -48,39 +49,39 @@ func (m *Model) markReviewsSeen() {
 	}
 }
 
-// reviewsTriageKey is the Reviews tab's key in the triage order. In smart
-// triage it queues as one slot of its own on the newest pending ask's recency,
-// at the review rank, carrying the strongest waiting ask's priority.
+// reviewsTriageKey queues the tab at the strongest pending ask's priority.
+// The tab holds one slot even when several asks share that priority.
 func (m *Model) reviewsTriageKey() triageKey {
 	key := triageKey{band: triageBandRest, priority: priority.Unset.Rank(), tier: triageRank(triageReview)}
-	if !m.reviewsWaiting() {
-		return key
-	}
-	key.band = triageBandWalkable
-	set := false
+	oldest := m.triageOrder == triageOrderOldest
 	for _, r := range m.reviews {
-		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
-			if rank := m.reviewPriority(r).Rank(); !set || rank < key.priority {
-				key.priority = rank
-				set = true
-			}
+		if !m.reviewQueued(r) {
+			continue
 		}
-	}
-	if !m.smartTriage {
-		return key
-	}
-	var newest time.Time
-	for _, r := range m.reviews {
+		rank := m.reviewPriority(r).Rank()
 		at := r.TriggeredAt
 		if at.IsZero() {
 			at = r.CreatedAt
 		}
-		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) && m.reviewPriority(r).Rank() == key.priority && at.After(newest) {
-			newest = at
+		score := triageRecency(at)
+		if oldest {
+			score = -triageRecency(r.CreatedAt)
+		}
+		if key.band == triageBandRest || rank < key.priority || (rank == key.priority && score > key.score) {
+			key.band, key.priority, key.score = triageBandWalkable, rank, score
 		}
 	}
-	key.band, key.score = triageBandScored, triageRecency(newest)
-	key.tier = slices.Index(triageScoredTiers, triageReview)
+	if key.band == triageBandRest {
+		return key
+	}
+	switch {
+	case oldest:
+		key.band, key.tier = triageBandScored, 0
+	case m.smartTriage:
+		key.band, key.tier = triageBandScored, slices.Index(triageScoredTiers, triageReview)
+	default:
+		key.score = 0
+	}
 	return key
 }
 
@@ -117,7 +118,7 @@ func (m *Model) reviewsTriageAt(rows []treeRow, from int) int {
 func (m *Model) handOverReviews() (bool, tea.Cmd) {
 	next := -1
 	for i, r := range m.reviews {
-		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
+		if m.reviewQueued(r) {
 			if next < 0 || m.reviewPriority(r).Rank() < m.reviewPriority(m.reviews[next]).Rank() {
 				next = i
 			}

@@ -1184,7 +1184,29 @@ func (m *Model) sweepArchivesBefore(cutoff time.Time) tea.Cmd {
 	if len(expired) > 0 || len(removed) > 0 {
 		m.rebuildRows()
 	}
+	m.pruneOrphanHookFiles()
 	return nil
+}
+
+// pruneOrphanHookFiles clears the hooks directory of files left by sessions
+// the store no longer holds. It rides the archive sweep's cadence because
+// both are tidying with nobody waiting on them.
+func (m *Model) pruneOrphanHookFiles() {
+	if m.hooks == nil {
+		return
+	}
+	rows, err := m.store.ListSessions(true)
+	if err != nil {
+		m.errBar.text = "hook file sweep: " + err.Error()
+		return
+	}
+	live := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		live[row.ID] = true
+	}
+	if _, err := m.hooks.PruneOrphans(live, time.Now()); err != nil {
+		m.errBar.text = "hook file sweep: " + err.Error()
+	}
 }
 
 func (m *Model) sessionAndChildren(sess store.Session) ([]store.Session, error) {

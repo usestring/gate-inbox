@@ -30,7 +30,7 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.jevAutoSuggest }},
 	{promptSuggestionsSetting, "Prompt suggestions", "Reuse recurring prompts in New Session.\nReads local history; sends matches to the selected classifier only with Auto Suggest on.",
 		func(s *settingsState) *bool { return &s.promptSuggest }},
-	{jevFinishCheckSetting, "Finish check", "On finish, say when a Claude session is done, asking the agent when the classifier is unsure,\nand relaunch one that stopped without Chrome with --chrome. Uses the selected classifier; sends its last turns to that service.",
+	{jevFinishCheckSetting, "Finish check", "Checks whether a Claude session fulfilled its original request.\nSends the opening request and recent turns to the selected classifier.\nCollect-only saves candidates. See [finish_check] in config.toml.",
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},
 	{jevCopySetting, "Smart copy", "On a key, copy the command, link or value the agent left for you in its last message.\nUses the selected classifier; sends that message to that service.",
 		func(s *settingsState) *bool { return &s.jevCopyOn }},
@@ -42,6 +42,8 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.ciFeedback }},
 	{arrowsStaySetting, "Arrows stay in sessions", "Send Left and Right to the focused session at the prompt's edges too.\nOff, Left at the prompt's head and Right at its end go back to the list.",
 		func(s *settingsState) *bool { return &s.arrowsStay }},
+	{nextStepSetting, "Next step", "On a finished session, suggest the next instruction from its pull request's checks and reviews.\nShown in the hotkey menu; ctrl+y inserts it unsent. Asks no model and fetches nothing.",
+		func(s *settingsState) *bool { return &s.nextStep }},
 }
 
 func storedExperiment(st *store.Store, setting string) bool {

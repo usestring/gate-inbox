@@ -12,7 +12,7 @@ import (
 // twinMeta is what both rows in twinSessions say about themselves. The whole
 // point of the fixture is that this run reads the same on the row with work
 // and the row without, so the tests name it once.
-const twinMeta = "working · claude · 4h ago"
+const twinMeta = "working · cld · 4h ago"
 
 // twinSessions are two rows the reader should be able to read straight down:
 // same status, same tool, same age, so the only difference between them is
@@ -76,7 +76,7 @@ func metaColumn(t *testing.T, row string) int {
 }
 
 // The badge used to be spliced between the state and the age, which moved
-// "claude · 4h ago" a different distance on every row that had work. Two rows
+// "cld · 4h ago" a different distance on every row that had work. Two rows
 // whose state, tool and age read identically must now put that run in
 // identical columns whether or not one of them is on something.
 func TestBadgeDoesNotShiftTheMetaColumn(t *testing.T) {
@@ -139,7 +139,7 @@ func TestALongNameKeepsItsRowFromTheBadge(t *testing.T) {
 	)
 	m.selectSessionRow(t, "elsewhere")
 	m.rebuildRows()
-	row := badgeRow(t, m, 90, long)
+	row := badgeRow(t, m, 87, long)
 
 	if !strings.HasSuffix(row, twinMeta) {
 		t.Fatalf("the meta did not survive a long name:\n%q", row)
@@ -165,14 +165,14 @@ func TestTheBadgeWalksTheLadderDownAsTheRailNarrows(t *testing.T) {
 		width int
 		want  string
 	}{
-		{100, "◆ 1 pr · 1 issue"},
-		{63, "◆ 1 pr 1 issue"},
-		{58, "◆ 1pr 1is"},
-		{56, "1pr 1is"},
-		{54, "1p 1i"},
-		{52, "▣ ◭"},
-		{50, "+2"},
-		{48, ""},
+		{97, "◆ 1 pr · 1 issue"},
+		{60, "◆ 1 pr 1 issue"},
+		{55, "◆ 1pr 1is"},
+		{53, "1pr 1is"},
+		{51, "1p 1i"},
+		{49, "▣ ◭"},
+		{47, "+2"},
+		{45, ""},
 	} {
 		m := twinSessions(t)
 		row := badgeRow(t, m, tc.width, "has-work-here")

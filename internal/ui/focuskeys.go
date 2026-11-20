@@ -129,17 +129,19 @@ func focusKeyText(key tea.Key) string {
 	return string(code)
 }
 
-// focusKeyParts splits a forwarded key the way writing measures it: the
-// characters it typed, or else the tmux name it went by. An alt-modified
-// rune is a command to the line editor (alt+b, alt+f), not a character.
+// focusKeyParts splits a forwarded key for PaneInput: the characters it
+// typed, or else the tmux name it goes by. An alt-modified rune is a
+// command to the line editor (alt+b, alt+f) rather than a character, so it
+// goes by name too, as "M-b".
 func focusKeyParts(key tea.Key) (text, name string) {
-	if !key.Mod.Contains(tea.ModAlt) {
-		if text = focusKeyText(key); text != "" {
-			return text, ""
+	alt := key.Mod.Contains(tea.ModAlt)
+	if text = focusKeyText(key); text != "" {
+		if alt {
+			return "", "M-" + text
 		}
-		return "", focusNamedKeys[focusKeyID{code: key.Code, mod: key.Mod}]
+		return text, ""
 	}
-	if name = focusNamedKeys[focusKeyID{code: key.Code, mod: key.Mod &^ tea.ModAlt}]; name != "" {
+	if name = focusNamedKeys[focusKeyID{code: key.Code, mod: key.Mod &^ tea.ModAlt}]; alt && name != "" {
 		name = "M-" + name
 	}
 	return "", name
@@ -250,12 +252,30 @@ func (m *Model) caretAtInputStart(sessID, tool string) bool {
 	row, caretX := ansi.Strip(rows[y]), m.pane.cursor.x
 	prefix, ok := m.engine.InputPrefix(tool, row)
 	if !ok {
-		return false
+		return m.caretAtBareComposerStart(tool, rows, y, caretX)
 	}
 	if textBeforeCaret(m.engine, tool, row, caretX) || caretX < textfmt.Width(prefix) {
 		return false
 	}
 	return m.composerAboveIsBlank(tool, rows, y)
+}
+
+// caretAtBareComposerStart is caretAtInputStart for a composer with no marker
+// (input_between_rules): the caret's row lies between the last two rules,
+// nothing is written to its left, and the composer rows above it are blank.
+// The last check is what keeps Left with the pane at the head of a second
+// line of a message.
+func (m *Model) caretAtBareComposerStart(tool string, rows []string, y, caretX int) bool {
+	top, ok := m.engine.ComposerBetweenRules(tool, rows, y)
+	if !ok || status.TextBetweenCells(ansi.Strip(rows[y]), 0, caretX) {
+		return false
+	}
+	for i := top + 1; i < y; i++ {
+		if strings.TrimSpace(ansi.Strip(rows[i])) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // composerAboveIsBlank reports whether the rows of the composer above the
@@ -640,13 +660,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.triageResume = false
 			return m, m.leaveFocus()
 		}
-		// Handing the session over is the operator saying they are done with
-		// it. Muting it rather than skipping it for one hop is what makes the
-		// queue converge: the status it is left showing lags a poll behind
-		// whatever was just typed into it, so a plain skip only defers the
-		// return by one session. See mute.go.
 		if onRow {
-			return m, m.handOverFocused(sess)
+			m.deferTriageSession(sess.ID)
+			return m, m.moveOnFrom(sess)
 		}
 		return m, tea.Batch(m.leaveFocus(), m.advanceTriage(leftID))
 	}
@@ -702,6 +718,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.toggleReviewsTab()
 		case action == keymap.CopySessionID:
 			return m.copySessionID(sess)
+		case action == keymap.OpenLastURL:
+			return m, m.openLastURL(sess)
 		case action == keymap.CopyJev:
 			return m.copyWithJev(sess)
 		case action == keymap.RunJev:
@@ -842,21 +860,15 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if err := m.sendFocusKey(sess.ID, command); err != nil {
 		m.errBar.text = err.Error()
 		quiet = false
-		// The key never reached the pane, so there is nothing to land, and
-		// the line it would have sent is still being written.
+		// The key never reached the pane, so there is nothing to land or to
+		// report.
 		if arms {
 			m.dropLanding(sess.ID)
 			landing = nil
 		}
-	} else if arms {
-		writing := m.submitWriting(sess.ID, keyAt, dialog, key.Code == tea.KeyEnter)
-		if pending := m.landings[sess.ID]; pending != nil {
-			pending.writing = writing
-		}
 	} else {
 		text, name := focusKeyParts(key)
-		m.keyFrame = m.writingFor(sess.ID)
-		m.keyFrame.key(keyAt, text, name, dialog)
+		m.notePaneInput(extension.PaneInput{SessionID: sess.ID, Text: text, Key: name, Dialog: dialog, Sends: arms, At: keyAt})
 	}
 	// The key is the pane's now, so start looking for what it did with it.
 	// This is the whole echo path: no timer, no client, and no cost at all
@@ -926,7 +938,7 @@ func (m *Model) handleFocusPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 		quiet = false
 	} else {
 		dialog := sess.Status == status.Waiting || paneHasDialog(sess.Tool, m.preview)
-		m.writingFor(sess.ID).paste(pastedAt, msg.Content, dialog)
+		m.notePaneInput(extension.PaneInput{SessionID: sess.ID, Text: msg.Content, Paste: true, Dialog: dialog, At: pastedAt})
 	}
 	m.noteFocusActivity()
 	var echo tea.Cmd

@@ -140,6 +140,41 @@ func TestFormatSaysNothingWasChanged(t *testing.T) {
 	}
 }
 
+// A hibernated row reads dead in the store but is resting: proposing to
+// archive it would undo what hibernate kept.
+func TestHibernatedRowsAreNotStale(t *testing.T) {
+	sessions := []store.Session{row("asleep", status.Dead, 90*time.Hour), row("ended", status.Dead, 90*time.Hour)}
+	report := Sweep(Input{Sessions: sessions, Hibernated: []string{"asleep"}, Now: now}, DefaultThresholds)
+	got := byID(report)
+	if _, ok := got["asleep"]; ok || got["ended"].Action != Archive || report.Rows != 2 {
+		t.Errorf("proposals = %v over %d rows, want only the ended row of 2", keys(got), report.Rows)
+	}
+}
+
+func TestFormatSaysWhatAnApplyDid(t *testing.T) {
+	report := Sweep(Input{Sessions: []store.Session{row("idle-old", status.Idle, 263*time.Hour), row("asking", status.Waiting, 40*time.Hour)}, Now: now}, DefaultThresholds)
+	report.Applied = &Applied{
+		Outcomes: []Outcome{
+			{SessionID: "idle-old", Name: "idle-old-name", Proposed: Archive, Outcome: Hibernated, Detail: "kept"},
+			{SessionID: "asking", Name: "asking-name", Proposed: Kill, Outcome: Held, Detail: "pass --kill-waiting"},
+		},
+		Counts: map[string]int{Hibernated: 1, Held: 1},
+	}
+	text := Format(report)
+	for _, want := range []string{"Applied: 1 hibernated, 1 held.", "hibernated idle-old idle-old-name: kept", "held       asking asking-name: pass --kill-waiting"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("report lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "Nothing was changed") {
+		t.Errorf("an applied report says nothing was changed:\n%s", text)
+	}
+	report.Applied.DryRun = true
+	if text := Format(report); !strings.Contains(text, "Nothing was changed") || !strings.Contains(text, "Dry run, nothing was changed. An apply would leave: 1 hibernated, 1 held.") {
+		t.Errorf("dry run report:\n%s", text)
+	}
+}
+
 func TestAge(t *testing.T) {
 	for d, want := range map[time.Duration]string{
 		5 * time.Minute: "5m", 70 * time.Hour: "70h", 263 * time.Hour: "10d",

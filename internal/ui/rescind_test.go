@@ -39,7 +39,7 @@ func TestRescindTargetsTheLatestSubmissionInsteadOfTheSelectedRow(t *testing.T) 
 	tool := m.cfg.Tools["claude"]
 	tool.InterruptKeys = []string{"r", "e", "s", "c", "i", "n", "d", "Enter"}
 	m.cfg.Tools["claude"] = tool
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'z', Mod: tea.ModAlt})
 	m = updated.(*Model)
 	if m.latestSubmission.sessionID != "" {
 		t.Fatalf("successful rescind left target %q armed", m.latestSubmission.sessionID)

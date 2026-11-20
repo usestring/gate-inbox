@@ -76,7 +76,6 @@ type pendingLanding struct {
 	sess     store.Session
 	via      extension.OperatorVia
 	text     string
-	writing  extension.OperatorWriting
 	armed    time.Time
 	deadline time.Time
 	// handOver is whether landing should also move the drain on. It is read
@@ -336,7 +335,7 @@ func (m *Model) dropLanding(id string) {
 // the pane answers, exactly as it does for a tool whose rules carry no hooks.
 func (m *Model) landingProbeFor(sess store.Session, dialog bool, pane string) *landingProbe {
 	p := &landingProbe{dialog: dialog}
-	if m.hooks != nil && m.poller != nil && m.poller.statusSources[sess.Tool] == hooks.StatusSourceClaude && !m.isHookless(sess) {
+	if m.hooks != nil && m.poller != nil && hooks.FileStatus(m.poller.statusSources[sess.Tool]) && !m.isHookless(sess) {
 		p.hooks, p.hookID = m.hooks, sess.ID
 		p.hookOffset = fileSize(m.hooks.StatusFile(sess.ID))
 	}
@@ -604,7 +603,7 @@ func (m *Model) settleLandings(listedAt time.Time, unseen map[string]bool) {
 // has seen the new one start. The new turn raises its own alert when it ends.
 func (m *Model) answerLanded(pending pendingLanding) tea.Cmd {
 	m.noteSubmission(pending.sess)
-	m.noteOperator(pending.sess, pending.via, pending.text, pending.writing, pending.probe.dialog, pending.armed)
+	m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog, pending.armed)
 	if m.heldAckID == pending.sess.ID {
 		m.heldAckID = ""
 	}

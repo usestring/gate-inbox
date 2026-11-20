@@ -187,6 +187,7 @@ func (m *Model) openSettings() {
 		palette:              normalizePalette(m.palette),
 		glyphs:               normalizeGlyphs(m.glyphs),
 		rowDetail:            normalizeRowDetail(m.rowDetail),
+		textScroll:           m.textScroll,
 		priorityScale:        normalizePriorityScale(m.priorityScale),
 		archiveConfirm:       normalizeArchiveConfirm(m.archiveConfirm),
 		deleteConfirm:        normalizeConfirmAsk(m.deleteConfirm),
@@ -203,6 +204,7 @@ func (m *Model) openSettings() {
 		triageKeepAlives:     m.triageKeepAlives,
 		idleSwitch:           m.idleSwitch,
 		confirmLaunches:      m.store.ConfirmLaunches(),
+		piAutoMode:           m.store.PiAutoMode(),
 		reopenSessions:       m.reopenSessionsMode(),
 		outsidePanes:         m.outsidePanesMode(),
 		claudeSetup:          m.claudeSetupSwitch(),
@@ -211,12 +213,14 @@ func (m *Model) openSettings() {
 		jevCopyOn:            m.jevCopyOn,
 		autoGroupOn:          m.autoGroupOn,
 		promptSuggest:        m.promptSuggest,
+		nextStep:             m.nextStepOn,
 		reviewQueue:          m.reviewQueue,
 		ciFeedback:           storedExperiment(m.store, store.CIFeedbackSetting),
 		arrowsStay:           m.arrowsStay,
 		backdropSync:         storedBackdrop(m.store) == backdropSync,
 	}
-	m.settings.search.Placeholder = "search settings"
+	m.settings.search.Prompt = ""
+	m.settings.search.Placeholder = "Filter settings"
 	m.settings.search.CharLimit = 100
 	m.mode = modeSettings
 }
@@ -317,13 +321,38 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func settingsSection(field int) string {
+	switch {
+	case field < settingsFieldTool:
+		return "Sessions"
+	case field < settingsFieldTheme:
+		return "Launch & tools"
+	case field < settingsFieldAutoProceed:
+		return "Board appearance"
+	case field < settingsFieldChrome:
+		return "Triage"
+	case field < settingsFieldJev:
+		return "Keyboard & snippets"
+	case field < settingsFieldGuide:
+		return "Advanced"
+	default:
+		return "About"
+	}
+}
+
 func (m *Model) matchingSettings() []int {
 	terms := strings.Fields(strings.ToLower(m.settings.search.Value()))
-	var fields []int
+	fields := make([]int, 0, settingsFieldCount)
+	if len(terms) == 0 {
+		for field := range settingsFieldCount {
+			fields = append(fields, field)
+		}
+		return fields
+	}
 	for field, row := range m.settingsRows(true) {
-		text := strings.ToLower(ansi.Strip(row))
+		text := strings.ToLower(settingsSection(field) + " " + ansi.Strip(row))
 		if field == settingsFieldHibernate {
-			text += " hibernation memory sensitivity active sessions age"
+			text += " memory sensitivity active sessions age"
 		}
 		if slices.ContainsFunc(terms, func(term string) bool { return !strings.Contains(text, term) }) {
 			continue
@@ -364,7 +393,7 @@ func (m *Model) saveAndCloseSettings() (tea.Model, tea.Cmd) {
 	}
 	m.rebuildRows()
 	m.mode = modeList
-	return m, cmd
+	return m, tea.Batch(cmd, m.startActivityTick())
 }
 
 func (m *Model) persistSettings() tea.Cmd {
@@ -430,6 +459,9 @@ func (m *Model) persistSettings() tea.Cmd {
 		m.errBar.text = err.Error()
 	}
 	if err := m.store.SetSetting(rowDetailSetting, normalizeRowDetail(m.settings.rowDetail)); err != nil {
+		m.errBar.text = err.Error()
+	}
+	if err := m.store.SetSetting(workingActivitySetting, m.settings.textScroll); err != nil {
 		m.errBar.text = err.Error()
 	}
 	if err := m.store.SetSetting(priorityScaleSetting, normalizePriorityScale(m.settings.priorityScale)); err != nil {
@@ -500,6 +532,13 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(store.ConfirmLaunchesKey, confirmLaunches); err != nil {
 		m.errBar.text = err.Error()
 	}
+	piAutoMode := "off"
+	if m.settings.piAutoMode {
+		piAutoMode = "on"
+	}
+	if err := m.store.SetSetting(store.PiAutoModeKey, piAutoMode); err != nil {
+		m.errBar.text = err.Error()
+	}
 	if err := m.store.SetSetting(reopenSessionsSetting, normalizeReopenSessions(m.settings.reopenSessions)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -528,6 +567,10 @@ func (m *Model) persistSettings() tea.Cmd {
 	if !m.promptSuggest {
 		m.promptSnips = nil
 	}
+	m.nextStepOn = m.settings.nextStep
+	if !m.nextStepOn {
+		m.nextStep = nextStepState{}
+	}
 	m.jevAutoSuggest = m.settings.jevAutoSuggest
 	if !m.promptSuggest || !m.jevAutoSuggest {
 		m.promptJev = promptJevState{seq: m.promptJev.seq + 1}
@@ -548,6 +591,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.glyphs = normalizeGlyphs(m.settings.glyphs)
 	applyGlyphSet(m.glyphs)
 	m.rowDetail = normalizeRowDetail(m.settings.rowDetail)
+	m.textScroll = m.settings.textScroll
 	m.priorityScale = normalizePriorityScale(m.settings.priorityScale)
 	m.archiveConfirm = normalizeArchiveConfirm(m.settings.archiveConfirm)
 	m.deleteConfirm = normalizeConfirmAsk(m.settings.deleteConfirm)
@@ -749,6 +793,8 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		applyGlyphSet(m.settings.glyphs)
 	case settingsFieldRowDetail:
 		m.settings.rowDetail = cycleMode(rowDetailModes, normalizeRowDetail(m.settings.rowDetail), step)
+	case settingsFieldWorkingActivity:
+		m.settings.textScroll = cycleMode(textScrollModes, m.settings.textScroll, step)
 	case settingsFieldPriorityScale:
 		m.settings.priorityScale = cycleMode(priorityScaleModes, normalizePriorityScale(m.settings.priorityScale), step)
 	case settingsFieldArchiveConfirm:

@@ -1,14 +1,14 @@
 Screenshot {{SHOTS}}/01-session-ready.png
 Sleep 1s
 
-Type " "
+Ctrl+Z
 Sleep 500ms
-Type "c"
+Type "t"
 Sleep 500ms
 Screenshot {{SHOTS}}/02-rescind-available.png
 Sleep 500ms
 
-Ctrl+z
+Alt+z
 Sleep 700ms
 Screenshot {{SHOTS}}/03-submission-rescinded.png
 Sleep 1s

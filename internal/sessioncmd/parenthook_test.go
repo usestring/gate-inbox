@@ -101,7 +101,7 @@ func TestPromptHookGivesTheParentAuthority(t *testing.T) {
 	f := newChannelFixture(t)
 	_, prompt := f.deliver(t, "parent01", "child001", "Rebase onto main and run the tests.")
 	note, attested := f.submit(t, "child001", prompt)
-	if !strings.Contains(note, parentVerdict) || !strings.Contains(note, "without asking your parent or your user") {
+	if !strings.Contains(note, parentVerdict) || !strings.Contains(note, "carries your parent's authority") {
 		t.Fatalf("note = %q; want the parent's authority", note)
 	}
 	if attested || strings.Contains(note, "Relay attestation") {

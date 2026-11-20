@@ -2307,11 +2307,22 @@ func inboxEnvelope(msg store.InboxMessage, mcpStyle string, taught bool, ctx mes
 			replyInstruction(msg.SenderID, mcpStyle)
 	}
 	if ctx.FromSpawner {
-		tail += "\n\n" + spawnerInstruction
+		// A launched session already has the whole rule once, from its
+		// SessionStart note or its launch steering, so a parent that writes
+		// thirty times a session does not restate it thirty times.
+		if taught {
+			tail += "\n\n" + spawnerLine
+		} else {
+			tail += "\n\n" + spawnerInstruction
+		}
 	}
 	return head + contextWords(msg, ctx) + "\n\n" +
 		fence + "\n" + parentseal.Neutralise(textfmt.StripControl(msg.Body)) + "\n" + fence + tail
 }
+
+// spawnerLine is spawnerInstruction for a session whose standing
+// instructions already carry the rule.
+const spawnerLine = "From the session that spawned you: your task, under your standing rules for its messages."
 
 // spawnerInstruction closes a message from the session that spawned and
 // tracks the recipient. Children re-confirmed plain instructions with a

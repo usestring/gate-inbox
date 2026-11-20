@@ -55,3 +55,25 @@ func TestLaunchSteeringCarriesTheParentRule(t *testing.T) {
 		t.Error("opencode's server-carried steering lacks the parent rule")
 	}
 }
+
+// The envelope shortens a parent's closing words only for a CLI known to hold
+// Rule 2. Codex, OpenCode and pi carry it at launch; Claude Code hears it from
+// a hook, and an extension-driven CLI is handed only the MCP server.
+func TestLaunchCarriesParentRule(t *testing.T) {
+	for _, style := range []string{"codex", "opencode", "pi"} {
+		if !LaunchCarriesParentRule(style) {
+			t.Errorf("%s carries Rule 2 at launch but is reported as not", style)
+		}
+	}
+	if !strings.Contains(PiSteering(false), parentSteeringHeading) {
+		t.Error("pi's launch steering lacks Rule 2")
+	}
+	if steering, _ := ServerSteering("opencode", false); !strings.Contains(steering, parentSteeringHeading) {
+		t.Error("opencode's server steering lacks Rule 2")
+	}
+	for _, style := range []string{"claude", StyleNone, "grok", "gemini", "hermes", ""} {
+		if LaunchCarriesParentRule(style) {
+			t.Errorf("%s is reported as carrying Rule 2 at launch", style)
+		}
+	}
+}

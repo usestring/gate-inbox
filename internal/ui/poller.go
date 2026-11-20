@@ -2355,10 +2355,11 @@ func (p *poller) envelope(sess store.Session, msg store.InboxMessage) string {
 	_, fromExtension := store.ExtensionSender(msg.SenderID)
 	if !store.SpeaksAsOperator(msg.SenderID) && !fromExtension && !store.FromSystem(msg.SenderID) {
 		ctx = p.messageContext(sess, msg, time.Now())
-		// Claude Code alone hears the parent rule from a hook rather than
-		// its launch steering, and only if it had a spawner when it started
-		// or compacted; a row placed under a parent later did not.
-		ctx.ParentRuleShown = style != "claude" || p.hooks.ParentRuleShown(sess.ID)
+		// Codex, OpenCode and pi carry the parent rule in their launch
+		// steering. Claude Code hears it from a hook, and only if it had a
+		// spawner when it started or compacted; a row placed under a parent
+		// later did not. An extension-driven CLI is never given it.
+		ctx.ParentRuleShown = mcpreg.LaunchCarriesParentRule(style) || p.hooks.ParentRuleShown(sess.ID)
 	}
 	text := inboxEnvelope(msg, style, taught, ctx)
 	if ctx.Sealable {

@@ -250,6 +250,7 @@ func info(sess sessioncmd.Session) extension.SessionInfo {
 		Terminal:       sess.Terminal,
 		CreatedAt:      sess.CreatedAt,
 		ArchivedAt:     sess.ArchivedAt,
+		LaunchedAt:     sess.LaunchedAt,
 		ReplacedBy:     sess.ReplacedBy,
 	}
 }

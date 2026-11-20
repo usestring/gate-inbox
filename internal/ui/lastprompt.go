@@ -42,6 +42,9 @@ func truncatePrompt(prompt string) string {
 // live pane's input box so what was last asked stays in view. Nothing when
 // the panel is too small to spare the rows or no prompt is on file.
 func (m *Model) lastPromptLines(width, height int) []contentLine {
+	if m.scrolledBack() {
+		return nil
+	}
 	sess, ok := m.selected()
 	if !ok || m.conversation == nil || m.tokens.key != m.conversationIdentity(sess) {
 		return nil

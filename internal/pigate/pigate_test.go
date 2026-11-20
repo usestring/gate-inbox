@@ -16,7 +16,7 @@ import (
 func TestToolNameMapsPiToolsToClaudeNames(t *testing.T) {
 	for pi, want := range map[string]string{
 		"bash": "Bash", "read": "Read", "write": "Write", "edit": "Edit",
-		"grep": "Grep", "find": "Glob", "ls": "LS",
+		"grep": "Grep", "find": "Glob", "ls": "LS", "glob": "Glob",
 		"mcp__gate-inbox__report_status": "mcp__gate-inbox__report_status",
 		"my_tool":                        "my_tool",
 	} {

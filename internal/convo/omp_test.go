@@ -12,7 +12,7 @@ import (
 // with and appended a title_change entry. omp prefixed the name it was given
 // with a tag of its own.
 const (
-	ompFixtureID    = "01a1f6b7-740d-7670-ac1f-7dbd56d81e0e"
+	ompFixtureID    = "eeeeeeee-ffff-7777-8888-aaaaaaaaaaaa"
 	ompFixtureCwd   = "/srv/omp-project"
 	ompFixtureTitle = "🧷 FXTR: fixture run"
 )

@@ -100,7 +100,7 @@ func TestPiRowIsSearchable(t *testing.T) {
 // omp's store and indexed with pi's reader.
 func TestOmpTranscriptIsFoundAndIndexed(t *testing.T) {
 	root := t.TempDir()
-	const id = "01a1f6b7-740d-7670-ac1f-7dbd56d81e0e"
+	const id = "eeeeeeee-ffff-7777-8888-aaaaaaaaaaaa"
 	path := filepath.Join(root, "--srv-omp-project--", "2026-11-20T02-09-40-365Z_"+id+".jsonl")
 	raw, err := os.ReadFile(filepath.Join("..", "convo", "testdata", "omp-19.0.1", "named.jsonl"))
 	if err != nil {

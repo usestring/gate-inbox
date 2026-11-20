@@ -11,8 +11,12 @@ Enter
 Sleep 6s
 Ctrl+\
 Sleep 1s
-# Fresh boards start in triage. Return to the grouped session list.
-Ctrl+i
+# Start from the grouped list. Quick Actions avoids Ctrl+I arriving as Tab.
+Ctrl+k
+Sleep 500ms
+Type "triage this group as one queue"
+Sleep 500ms
+Enter
 Sleep 1s
 
 Ctrl+S

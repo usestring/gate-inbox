@@ -526,6 +526,10 @@ function registerToolGate(pi: ExtensionAPI) {
       cwd: ctx.cwd,
       tool_use_id: event.toolCallId,
       read_only: tool?.annotations?.readOnlyHint === true,
+      // omp's name for an MCP tool joins server and tool with one
+      // underscore, which the gate cannot split back; its registration
+      // names both, and the gate decides the call under Claude Code's name.
+      ...mcpOrigin(tool),
       ...userMessages(ctx.sessionManager.getBranch()),
     });
     if (ctx.signal?.aborted) return { block: true, reason: "cancelled" };
@@ -535,6 +539,14 @@ function registerToolGate(pi: ExtensionAPI) {
     }
     return askUser(d, event.toolCallId, ctx);
   });
+}
+
+// mcpOrigin is the server and tool an omp MCP tool's registration names, as
+// the gate reads them, or nothing for any other tool.
+function mcpOrigin(tool: unknown): { mcp_server?: string; mcp_tool?: string } {
+  const t = tool as { mcpServerName?: unknown; mcpToolName?: unknown } | undefined;
+  if (typeof t?.mcpServerName !== "string" || typeof t?.mcpToolName !== "string") return {};
+  return { mcp_server: t.mcpServerName, mcp_tool: t.mcpToolName };
 }
 
 // userMessages is the session's first user message and its latest three,

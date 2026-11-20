@@ -20,6 +20,9 @@ const (
 	boardServer = "gate-inbox"
 )
 
+// OmpServer is the board's server as omp names it: <plugin>:<server>.
+const OmpServer = ompPluginName + ":" + ompServerName
+
 // OmpToolPrefix is how omp names the board's tools. It names a plugin's
 // server <plugin>:<server> and a tool mcp__<server>_<tool>, lowercased with
 // every other character an underscore, so the board's rename reaches the

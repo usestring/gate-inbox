@@ -63,6 +63,14 @@ type Request struct {
 	// (pi.getAllTools), which the model cannot set. It counts only for an
 	// MCP tool.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// MCPServer and MCPTool are an omp MCP tool's server and tool as its
+	// registration names them (mcpServerName and mcpToolName in
+	// pi.getAllTools), which the model cannot set. omp's own name for the
+	// tool, mcp__<server>_<tool> sanitised and maybe shortened, cannot be
+	// split back into the two, so these are what give the call its Claude
+	// Code name. Pi sends neither.
+	MCPServer string `json:"mcp_server,omitempty"`
+	MCPTool   string `json:"mcp_tool,omitempty"`
 	// Brief and Recent are the session's first and latest user messages,
 	// which auto mode shows the classifier.
 	Brief  string   `json:"brief,omitempty"`
@@ -100,8 +108,15 @@ var piTools = map[string]string{
 	"ls":    "LS",
 }
 
-// ToolName is a pi tool's name as Claude Code's rules spell it.
-func ToolName(pi string) string {
+// ToolName is the call's tool as Claude Code's rules spell it. An omp MCP
+// tool the extension names the server and tool of is given Claude Code's
+// name for it; one it could not, outside the board's own server, keeps omp's
+// name, which no Claude rule is written in, so it asks.
+func ToolName(req Request) string {
+	if name := claudeMCPName(req.MCPServer, req.MCPTool); name != "" {
+		return name
+	}
+	pi := req.ToolName
 	if name, ok := piTools[pi]; ok {
 		return name
 	}
@@ -109,6 +124,36 @@ func ToolName(pi string) string {
 		return "mcp__gate-inbox__" + tool
 	}
 	return pi
+}
+
+// claudeMCPName is the Claude Code name of server's tool, or "" without both.
+// omp names a plugin's server <plugin>:<server>, and Claude Code names it
+// plugin:<plugin>:<server>; either way it then spells the server and the tool
+// with each character outside [A-Za-z0-9_-] as an underscore, so a plugin
+// server's tools are mcp__plugin_<plugin>_<server>__<tool>. The board's own
+// plugin server keeps the name its grants and rules use, mcp__gate-inbox__.
+func claudeMCPName(server, tool string) string {
+	if server == "" || tool == "" {
+		return ""
+	}
+	if server == piext.OmpServer {
+		return "mcp__gate-inbox__" + tool
+	}
+	if strings.Contains(server, ":") {
+		server = "plugin:" + server
+	}
+	return "mcp__" + claudeMCPPart(server) + "__" + claudeMCPPart(tool)
+}
+
+// claudeMCPPart spells a server or tool name as Claude Code puts it in a
+// tool name.
+func claudeMCPPart(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '_' || r == '-' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return '_'
+	}, s)
 }
 
 // ompDevice reports a read or write of an MCP tool's xd:// device, which is
@@ -184,7 +229,7 @@ type Env struct {
 
 // Decide answers one call.
 func Decide(env Env, req Request) Decision {
-	tool := ToolName(req.ToolName)
+	tool := ToolName(req)
 	d := Decision{Tool: tool}
 	if req.ToolInput == nil {
 		req.ToolInput = map[string]any{}

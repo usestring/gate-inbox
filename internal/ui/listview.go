@@ -1837,7 +1837,8 @@ func (m *Model) previewLines(width, height int, gutter string) []contentLine {
 	}
 	var lines []contentLine
 	loader := m.startupLoader(width, height)
-	pane := paneExact(m.preview, height, width, m.paneCaretRow())
+	prompt := m.lastPromptLines(width, height)
+	pane := paneExact(m.preview, height-len(prompt), width, m.paneCaretRow())
 	if len(pane) == 0 {
 		// No rows painted means nothing to hit-test: a box left over from
 		// the previous session would catch clicks on empty space.
@@ -1866,6 +1867,7 @@ func (m *Model) previewLines(width, height int, gutter string) []contentLine {
 		}
 		lines = append(lines, contentLine{text: m.renderPaneRow(i, line, width), raw: true})
 	}
+	lines = append(lines, prompt...)
 	// Rows past the capture stay raw too: a painted tail under unpainted
 	// output would read as a box drawn around the agent's last line.
 	for len(lines) < height {

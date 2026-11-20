@@ -30,7 +30,7 @@ type renameArgs struct {
 }
 
 type priorityArgs struct {
-	Tier string `json:"tier" jsonschema:"how much the work in this session matters: urgent (+3), high (+2), medium (+1), none (0), or low (-1)"`
+	Tier string `json:"tier" jsonschema:"how much the work in this session matters: urgent (+3), high (+2), medium (+1), none (0), low (-1), lower (-2) or lowest (-3); the board shows tiers past its configured scale at the scale's edge"`
 }
 
 type reviewCommentArgs struct {
@@ -157,7 +157,7 @@ type cleanupChildrenArgs struct {
 }
 
 type taskArgs struct {
-	Action    string   `json:"action" jsonschema:"list, create, claim, assign, finish, release or delete"`
+	Action    string   `json:"action" jsonschema:"list, create, claim, assign, finish, release, delete or prune"`
 	TaskID    string   `json:"task_id,omitempty" jsonschema:"task to act on; omit on claim to take the oldest pending task nothing is blocking that your fleet created"`
 	Title     string   `json:"title,omitempty" jsonschema:"create: one-line summary of the work, specific enough that another agent knows what done looks like"`
 	Body      string   `json:"body,omitempty" jsonschema:"create: full instruction for whoever claims it; it cannot see this conversation; or name a file in body_file"`
@@ -166,14 +166,18 @@ type taskArgs struct {
 	Assignee  string   `json:"assignee,omitempty" jsonschema:"create, assign: the one session that may claim the task: me, or a session id; on assign, omit it to unassign"`
 	// The list arguments below mirror list_sessions: the default read is the
 	// open work, capped, and the reply says what the cap left out.
-	State       []string `json:"state,omitempty" jsonschema:"list: keep only tasks in these states: pending, in_progress or done; omit for pending and in_progress, which is the work still open"`
-	IncludeDone bool     `json:"include_done,omitempty" jsonschema:"list: also list finished tasks, which on a long-lived list are most of it; pass it only when checking what was done"`
-	Mine        bool     `json:"mine,omitempty" jsonschema:"list: keep only tasks this session holds or finished"`
-	CreatedBy   string   `json:"created_by,omitempty" jsonschema:"list: keep only tasks this session created: me, or a session id"`
-	Fleet       bool     `json:"fleet,omitempty" jsonschema:"list: keep only tasks your fleet created: you, the session that spawned you or the parent you sit under, and every session you spawned or have under you; the same set a claim without task_id takes from"`
-	IncludeBody bool     `json:"include_body,omitempty" jsonschema:"list: carry each task's full instruction; claim returns the body anyway, so choosing what to claim needs only the titles"`
-	Limit       int      `json:"limit,omitempty" jsonschema:"list: how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent"`
-	Any         bool     `json:"any,omitempty" jsonschema:"claim: without task_id, take the oldest ready task on the whole list instead of only your fleet's; tasks created by unrelated sessions or before creators were recorded are often stale"`
+	State         []string `json:"state,omitempty" jsonschema:"list: keep only tasks in these states: pending, in_progress or done; omit for pending and in_progress, which is the work still open"`
+	IncludeDone   bool     `json:"include_done,omitempty" jsonschema:"list: also list finished tasks, which on a long-lived list are most of it; pass it only when checking what was done"`
+	Mine          bool     `json:"mine,omitempty" jsonschema:"list: keep only tasks this session holds or finished"`
+	CreatedBy     string   `json:"created_by,omitempty" jsonschema:"list: keep only tasks this session created: me, or a session id"`
+	Fleet         bool     `json:"fleet,omitempty" jsonschema:"list: keep only tasks your fleet created: you, the session that spawned you or the parent you sit under, and every session you spawned or have under you; the same set a claim without task_id takes from"`
+	IncludeBody   bool     `json:"include_body,omitempty" jsonschema:"list: carry each task's full instruction; claim returns the body anyway, so choosing what to claim needs only the titles"`
+	Limit         int      `json:"limit,omitempty" jsonschema:"list: how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent"`
+	Note          string   `json:"note,omitempty" jsonschema:"finish: what came of the work, for whoever reads the list and for the task's creator, who is sent it: the outcome, a PR link, what is left undone; at most 4000 bytes"`
+	Any           bool     `json:"any,omitempty" jsonschema:"claim: without task_id, take the oldest ready task on the whole list instead of only your fleet's; tasks created by unrelated sessions or before creators were recorded are often stale"`
+	Force         bool     `json:"force,omitempty" jsonschema:"delete: delete a task another session holds, or one unfinished tasks depend on; its dependency edges go with it, so its dependents become claimable and the reply names them"`
+	OlderThanDays int      `json:"older_than_days,omitempty" jsonschema:"prune: sweep only stale tasks created more than this many days ago (default 14)"`
+	DryRun        *bool    `json:"dry_run,omitempty" jsonschema:"prune: true (the default) lists what would be deleted and deletes nothing; false deletes it"`
 }
 
 type reserveFilesArgs struct {
@@ -217,6 +221,12 @@ type taskOutput struct {
 	Returned  int              `json:"returned,omitempty" jsonschema:"list: how many rows are in tasks"`
 	Truncated bool             `json:"truncated,omitempty" jsonschema:"list: true when limit left matching tasks out; narrow state or mine, or raise limit"`
 	Task      *sessioncmd.Task `json:"task,omitempty" jsonschema:"the task acted on"`
+	// Unblocked, Notified and NotNotified are sessioncmd.TaskFinish's; Unblocked
+	// is also sessioncmd.TaskDeletion's, and Prune is the whole prune.
+	Unblocked   []sessioncmd.Task     `json:"unblocked,omitempty" jsonschema:"finish, delete: dependents the finish or a forced delete made claimable"`
+	Notified    string                `json:"notified,omitempty" jsonschema:"finish: session id of the task's creator, which was sent a message saying the task is done"`
+	NotNotified string                `json:"not_notified,omitempty" jsonschema:"finish: why the creator was not sent a message"`
+	Prune       *sessioncmd.TaskPrune `json:"prune,omitempty" jsonschema:"prune: what was swept, or on a dry run what would be"`
 }
 
 type listReservationsOutput struct {
@@ -313,9 +323,10 @@ type sessionCommands interface {
 	CreateTask(sessionID string, spec sessioncmd.TaskSpec) (sessioncmd.Task, error)
 	AssignTask(sessionID, taskID, assignee string) (sessioncmd.Task, error)
 	ClaimTask(sessionID, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error)
-	FinishTask(sessionID, taskID string) (sessioncmd.Task, error)
+	FinishTask(sessionID, taskID, note string) (sessioncmd.TaskFinish, error)
 	ReleaseTask(sessionID, taskID string) (sessioncmd.Task, error)
-	DeleteTask(sessionID, taskID string) error
+	DeleteTask(sessionID, taskID string, force bool) (sessioncmd.TaskDeletion, error)
+	PruneTasks(sessionID string, opts sessioncmd.TaskPruneOptions) (sessioncmd.TaskPrune, error)
 	Reserve(sessionID string, patterns []string, mode, note string, ttl time.Duration) (sessioncmd.ReserveResult, error)
 	ReleaseFiles(sessionID string, patterns []string) (int, error)
 	Reservations(sessionID string) ([]sessioncmd.Reservation, error)
@@ -528,7 +539,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Name: "set_priority",
 		Description: "Declare how much the work in this session matters, so the user's triage queue hands it over ahead of the sessions that matter less. " +
 			"Call it when you know something the manager cannot see from outside: the user says this is urgent or can wait, or the task turns out to be a production incident, a release blocker, or a background experiment. " +
-			"Tiers are urgent (+3), high (+2), medium (+1), and low (-1); none or 0 clears it. Numeric levels from -1 to 3 are also accepted. " +
+			"Tiers are urgent (+3), high (+2), medium (+1), low (-1), lower (-2) and lowest (-3); none or 0 clears it. Numeric levels from -3 to 3 are also accepted. " +
+			"The user's board uses two raised tiers and one lowered by default, and shows a tier past its scale at the scale's edge. " +
 			"It orders this session within the queue it is already in, so it never puts a session that needs nobody ahead of one waiting on an answer, and the user can always override it.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args priorityArgs) (*mcp.CallToolResult, any, error) {
 		return textResult(sessioncmd.Priority(configDir, callerOf(ctx), args.Tier))
@@ -767,7 +779,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Call it first with the kind, value and window: unless your user already approved exactly that, it refuses with the exact question to put to them -- header Approval, the question naming the child, the window and the permission, options Grant and Don't grant. Ask your user that word for word with your own question tool, then call again; Gate Inbox checks your transcript for their Grant and spends it on this one grant. " +
 			"A step that runs several commands -- add, commit, push, merge -- is one decision: pass every prefix in values and the one question names them all. A prefix is one command, so chaining with && or ; is refused; list each command instead. " +
 			"Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. " +
-			"Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code children can be granted to. " +
+			"Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code and pi children can be granted to. A pi child takes rule and unsandboxed_command grants (a soft_command or domain is refused, since pi has nothing for one to change) and is never restarted: its tool gate reads grants on every call, so a grant or revoke applies from its next tool call. " +
 			"A child adopted from outside the board is not restarted: rule and command-prefix grants and soft notes reach it through its hooks from its next tool call, and the result says plainly when part of a grant (a sandbox exclusion, a domain) needs a resume, which calling again with restart true does. " +
 			"revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: pass message with the instruction the grant is for, and it is queued for the child carrying your user's Grant as an attestation.",
 		Annotations: mcptool.Annotations(false, false, true),
@@ -993,9 +1005,11 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. " +
 			"create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. " +
 			"claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. " +
-			"finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. " +
+			"finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle, and pass a note saying what came of it (the outcome, a PR link, what is left): the note stays on the task, and the session that created the task is sent a message with it and with the dependents that just became claimable, unless you created it yourself or its creator is archived or gone. " +
 			"assign points a pending task at one session, the only one that may then claim it, or omitting assignee unassigns it; its creator or current assignee can do it, and create takes assignee too. A claim without task_id takes the tasks assigned to you first; create_session's tasks argument assigns work to a child as it starts, and an archived or killed session's assigned tasks go back to anyone. " +
-			"release hands a claimed task back for another session. delete removes work that turned out not to be needed. " +
+			"release hands a claimed task back for another session. " +
+			"delete removes work that turned out not to be needed; it refuses a task another session holds, and one unfinished tasks depend on, naming them, and force true deletes it anyway, taking its dependency edges along so its dependents become claimable, which the reply lists. " +
+			"prune clears stale work off the list: pending tasks older than older_than_days (default 14) whose creator is archived, deleted or was never recorded; it is a dry run listing them unless dry_run is false, and it keeps any task a task in progress depends on. " +
 			"A session that is archived or killed gives its in-progress claims back to pending, and its assignments back to anyone, on its own, so no task waits behind an agent that is gone.",
 		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args taskArgs) (*mcp.CallToolResult, taskOutput, error) {
@@ -1042,11 +1056,16 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			}
 			return mcptool.Text("assigned " + sessioncmd.FormatTask(assigned)), taskOutput{Task: &assigned}, nil
 		case "finish":
-			finished, err := sessions.FinishTask(callerOf(ctx), args.TaskID)
+			finished, err := sessions.FinishTask(callerOf(ctx), args.TaskID, args.Note)
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
-			return mcptool.Text("finished " + sessioncmd.FormatTask(finished)), taskOutput{Task: &finished}, nil
+			return mcptool.Text(sessioncmd.FormatTaskFinish(finished)), taskOutput{
+				Task:        &finished.Task,
+				Unblocked:   finished.Unblocked,
+				Notified:    finished.Notified,
+				NotNotified: finished.NotNotified,
+			}, nil
 		case "release":
 			released, err := sessions.ReleaseTask(callerOf(ctx), args.TaskID)
 			if err != nil {
@@ -1054,12 +1073,22 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			}
 			return mcptool.Text("released " + sessioncmd.FormatTask(released)), taskOutput{Task: &released}, nil
 		case "delete":
-			if err := sessions.DeleteTask(callerOf(ctx), args.TaskID); err != nil {
+			deleted, err := sessions.DeleteTask(callerOf(ctx), args.TaskID, args.Force)
+			if err != nil {
 				return nil, taskOutput{}, err
 			}
-			return mcptool.Text("deleted task " + args.TaskID), taskOutput{}, nil
+			return mcptool.Text(sessioncmd.FormatTaskDeletion(deleted)), taskOutput{Task: &deleted.Task, Unblocked: deleted.Unblocked}, nil
+		case "prune":
+			pruned, err := sessions.PruneTasks(callerOf(ctx), sessioncmd.TaskPruneOptions{
+				OlderThanDays: args.OlderThanDays,
+				Delete:        args.DryRun != nil && !*args.DryRun,
+			})
+			if err != nil {
+				return nil, taskOutput{}, err
+			}
+			return mcptool.Text(sessioncmd.FormatTaskPrune(pruned)), taskOutput{Prune: &pruned}, nil
 		default:
-			return nil, taskOutput{}, fmt.Errorf("unknown action %q (list, create, claim, assign, finish, release, delete)", args.Action)
+			return nil, taskOutput{}, fmt.Errorf("unknown action %q (list, create, claim, assign, finish, release, delete, prune)", args.Action)
 		}
 	})
 

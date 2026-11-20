@@ -66,13 +66,15 @@ const (
 	UnmuteAll     Action = "unmute_all"
 	CopySessionID Action = "copy_session_id"
 	CopyJev       Action = "copy_jev"
-	RunJev        Action = "run_jev"
-	HandOver      Action = "hand_over"
-	QuickInput    Action = "quick_prompt"
-	RenameSelf    Action = "rename_from_agent"
-	Rename        Action = "rename"
-	NameSweep     Action = "name_sweep"
-	Move          Action = "move"
+	// OpenLastURL opens the newest link the session's pane printed.
+	OpenLastURL Action = "open_last_url"
+	RunJev      Action = "run_jev"
+	HandOver    Action = "hand_over"
+	QuickInput  Action = "quick_prompt"
+	RenameSelf  Action = "rename_from_agent"
+	Rename      Action = "rename"
+	NameSweep   Action = "name_sweep"
+	Move        Action = "move"
 
 	ShowAllWork  Action = "show_all_work"
 	StatusFilter Action = "status_filter"
@@ -192,7 +194,7 @@ var Catalog = []Binding{
 	{ContextList, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
 	{ContextList, PreviousPane, []string{"ctrl+up", "ctrl+alt+up"}, "previous pane in list order, from any screen", false},
 	{ContextList, NextPane, []string{"ctrl+down", "ctrl+alt+down"}, "next pane in list order, from any screen", false},
-	{ContextList, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
+	{ContextList, Rescind, []string{"alt+z"}, "undo the latest submission while its turn is active", false},
 	{ContextList, JumpAttention, []string{"tab"}, "enter the next session waiting on you", false},
 	{ContextList, JumpWaiting, []string{}, "enter the next waiting session", false},
 	{ContextList, JumpFinished, []string{}, "enter the next finished session", false},
@@ -228,12 +230,12 @@ var Catalog = []Binding{
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"ctrl+u"}, "restore it out of the archive", false},
 	{ContextList, RestoreAll, []string{"alt+d"}, "restore every dead session: revive the dead, bring the archived back", false},
-	{ContextList, UndoArchive, []string{"ctrl+alt+u"}, "bring back what the last kill filed away", false},
+	{ContextList, UndoArchive, []string{"alt+x"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"alt+."}, "skip", false},
-	{ContextList, Priority, []string{"ctrl+p"}, "cycle priority: urgent → high → medium → low → none", false},
+	{ContextList, Priority, []string{"ctrl+p"}, "cycle priority: high → medium → low → none (tiers set in Settings)", false},
 	{ContextList, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	{ContextList, UnmuteAll, []string{"alt+m"}, "unmute every muted session listed", false},
-	{ContextList, QuickInput, []string{"ctrl+s"}, "hotkey menu", false},
+	{ContextList, QuickInput, []string{"ctrl+z"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"ctrl+alt+r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{}, "name sweep over idle adopted panes", false},
@@ -244,6 +246,7 @@ var Catalog = []Binding{
 	{ContextList, BringIn, []string{"ctrl+alt+a"}, "bring an outside pane in: resume it as a board session once idle", false},
 	{ContextList, LeaveOut, []string{"ctrl+o"}, "leave an outside pane off the board, still running", false},
 	{ContextList, Move, []string{"ctrl+e"}, "move it to a group", false},
+	{ContextList, OpenLastURL, []string{"ctrl+alt+o"}, "open the most recent link the session showed", false},
 	{ContextList, CopyJev, []string{"alt+'"}, "copy what JEV reads as left for you to copy", false},
 	{ContextList, RunJev, []string{"alt+\""}, "run the next command JEV reads as left for you to run", false},
 
@@ -266,7 +269,7 @@ var Catalog = []Binding{
 	// filter with no visible field used to read as sessions gone missing.
 	{ContextList, ClearSearch, []string{}, "clear the search", false},
 	{ContextList, Resize, []string{}, "resize the split", false},
-	{ContextList, Settings, []string{"ctrl+alt+s"}, "settings", false},
+	{ContextList, Settings, []string{"ctrl+s"}, "settings", false},
 	// No key: what is installed changes rarely, and quick actions finds it.
 	{ContextList, RefreshCLIs, []string{}, "refresh installed CLIs: look on PATH again for each agent CLI", false},
 	{ContextList, ToggleChrome, []string{}, "hide / show the key hints along the foot", false},
@@ -274,7 +277,7 @@ var Catalog = []Binding{
 	{ContextList, LegendPeek, []string{"ctrl+/"}, "peek at every available key", false},
 	{ContextList, QuickActions, []string{"ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
 	{ContextList, Help, []string{"ctrl+h"}, "this key map", true},
-	{ContextList, Quit, []string{"ctrl+alt+q"}, "quit (sessions keep running)", true},
+	{ContextList, Quit, []string{"ctrl+q", "ctrl+alt+q"}, "quit (sessions keep running)", true},
 
 	// ---- a focused session ----
 	// Every key this screen does not claim is typed into the agent, so a
@@ -283,7 +286,7 @@ var Catalog = []Binding{
 	{ContextFocus, Leave, []string{"ctrl+q"}, "back to the manager; in triage, on to the next", true},
 	{ContextFocus, HandOver, []string{"§"}, "ctrl+q's one-press alias", false},
 	{ContextFocus, LeaveHard, []string{`ctrl+\`}, "back to the manager, always stopping there", true},
-	{ContextFocus, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
+	{ContextFocus, Rescind, []string{"alt+z"}, "undo the latest submission while its turn is active", false},
 	// A chord for the same reason alt+, is one: a plain "." is a character
 	// the agent was owed. It mirrors the list's own dismiss key.
 	{ContextFocus, Dismiss, []string{"alt+."}, "skip", false},
@@ -300,7 +303,7 @@ var Catalog = []Binding{
 	// The list's ctrl+p, so the tier moves from wherever the operator is. It
 	// takes the agent's ctrl+p, which every agent CLI also answers on the up
 	// arrow.
-	{ContextFocus, Priority, []string{"ctrl+p"}, "cycle priority: urgent → high → medium → low → none", false},
+	{ContextFocus, Priority, []string{"ctrl+p"}, "cycle priority: high → medium → low → none (tiers set in Settings)", false},
 	// The list's mute on the same chord. A terminal without an enhanced
 	// keyboard protocol sends ctrl+m as enter, so there it stays a submit.
 	{ContextFocus, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
@@ -313,11 +316,7 @@ var Catalog = []Binding{
 	// reach the agent as readline's backward-delete, and backspace still sends
 	// that edit under its own name.
 	{ContextFocus, Help, []string{"ctrl+h"}, "this key map", false},
-	// The hotkey menu from inside the pane: the same snippet menu the list
-	// opens, answering the focused session. One more claimed ctrl key, and
-	// ctrl+s is free on both screens. It is rebindable like every other
-	// action for an operator who misses it.
-	{ContextFocus, QuickInput, []string{"ctrl+s"}, "hotkey menu: send a snippet without leaving the session", false},
+	{ContextFocus, QuickInput, []string{"ctrl+z"}, "hotkey menu: send a snippet without leaving the session", false},
 	// Session controls reached from inside the pane: a drain that had to leave
 	// the queue to spawn, copy an id or step back was not one queue. See the
 	// ui package's focusactions.go. Option+letter belongs to snippet chords,
@@ -326,6 +325,8 @@ var Catalog = []Binding{
 	{ContextFocus, TriageContent, []string{"alt+]"}, "cycle triage: sessions, reviews, or both", false},
 	{ContextFocus, ReviewsTab, []string{"ctrl+]"}, "switch to the Reviews tab", false},
 	{ContextFocus, CopySessionID, []string{"alt+/"}, "copy the agent's session id", false},
+	// ctrl+alt rather than option+letter, which belongs to snippet chords.
+	{ContextFocus, OpenLastURL, []string{"ctrl+alt+o"}, "open the most recent link the session showed", false},
 	{ContextFocus, CopyJev, []string{"alt+'"}, "copy what JEV reads as left for you to copy", false},
 	{ContextFocus, RunJev, []string{"alt+\""}, "run the next command JEV reads as left for you to run", false},
 	{ContextFocus, LastPane, []string{"ctrl+l", "alt+;"}, "back to the previous pane; again walks further back", false},
@@ -338,20 +339,20 @@ var Catalog = []Binding{
 	{ContextFocus, PreviewTop, []string{"alt+home"}, "oldest history", false},
 	{ContextFocus, PreviewBottom, []string{"alt+end"}, "back to the live bottom", false},
 	// The board's own chords, so a drain reaches the board without a trip
-	// back to it: each leaves the pane and runs the list's action. Each is
-	// ctrl or ctrl+option, never a bare letter, and none takes a key an
-	// agent CLI leans on -- interrupt, paste, history search, the line-edit
-	// keys -- so those actions stay list-only. See runBoardActionFromFocus.
+	// back to it: each leaves the pane and runs the list's action. Modified
+	// keys leave ordinary typing to the agent. Chords the agent relies on
+	// for interrupt, paste, history search and line editing stay with it.
+	// See runBoardActionFromFocus.
 	{ContextFocus, Triage, []string{"ctrl+i"}, "triage this group as one queue", false},
 	{ContextFocus, Search, []string{"ctrl+f"}, "fuzzy session search", false},
 	{ContextFocus, QuickActions, []string{"ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
-	{ContextFocus, Settings, []string{"ctrl+alt+s"}, "settings", false},
+	{ContextFocus, Settings, []string{"ctrl+s"}, "settings", false},
 	{ContextFocus, NewGroup, []string{"ctrl+alt+g"}, "new group", false},
 	{ContextFocus, NewTerminal, []string{"ctrl+alt+t"}, "new terminal tab", false},
 	{ContextFocus, ReviveAll, []string{"ctrl+alt+v"}, "revive every dead session", false},
 	{ContextFocus, WakeAll, []string{"ctrl+alt+w"}, "wake every hibernated session listed", false},
 	{ContextFocus, IngestReviews, []string{"ctrl+alt+p"}, "fetch reviews asked of you on GitHub", false},
-	{ContextFocus, UndoArchive, []string{"ctrl+alt+u"}, "bring back what the last kill filed away", false},
+	{ContextFocus, UndoArchive, []string{"alt+x"}, "bring back what the last kill filed away", false},
 	{ContextFocus, RenameSelf, []string{"ctrl+alt+r"}, "rename it after its conversation", false},
 	// The list's attach, so a focused pane takes the whole terminal without a
 	// trip back to the list. It takes readline's line-start from the agent;

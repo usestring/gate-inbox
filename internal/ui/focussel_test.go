@@ -441,6 +441,35 @@ func TestPaneBoxMatchesPaintedFrame(t *testing.T) {
 	}
 }
 
+// With the rail hidden the pane is drawn across the whole terminal, and the
+// box selection hit-tests against must start where those rows land. It was
+// recorded at the off-screen column a rail-only frame uses, so no click or
+// drag in the pane could start a selection.
+func TestPaneBoxMatchesPaintedFrameWithRailHidden(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "wide", t.TempDir(), "")
+	m.selectSessionRow(t, "wide")
+	m.preview = "pane row one\npane row two\n"
+
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	*m = *updated.(*Model)
+	m.toggleRail()
+	frame := splitLines(m.frame())
+	if !m.pane.box.ok || m.pane.box.x >= m.width {
+		t.Fatalf("pane box %+v falls outside a %d-column frame", m.pane.box, m.width)
+	}
+	row := plainCells(frame[m.pane.box.y])
+	if got := string(row[m.pane.box.x : m.pane.box.x+len("pane row one")]); got != "pane row one" {
+		t.Fatalf("box column %d reads %q, want the pane row\nrow: %q", m.pane.box.x, got, string(row))
+	}
+
+	press(m, m.pane.box.x, m.pane.box.y)
+	drag(m, m.pane.box.x+8, m.pane.box.y+1)
+	if got := m.selectionText(); got != "pane row one\npane row" {
+		t.Fatalf("drag selected %q, want the pane text", got)
+	}
+}
+
 // A triple click on a painted pane row copies that row and nothing from
 // the rail beside it.
 func TestTripleClickOnRealFrameTakesPaneRowOnly(t *testing.T) {

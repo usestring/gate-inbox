@@ -2,8 +2,10 @@
 
 // Package deps reports how to install the external tools Gate Inbox runs,
 // so a missing binary names the command that fixes it instead of a bare
-// "not found in PATH". Agent CLIs use the vendor's portable installer;
-// tmux and git use the package manager on this machine.
+// "not found in PATH". Agent CLIs install from the vendor's npm package
+// (or the vendor's install page when there is none); tmux and git use the
+// package manager on this machine. Nothing here downloads a script and
+// pipes it into a shell.
 package deps
 
 import (
@@ -36,18 +38,43 @@ var darwinManagers = []manager{
 	{"brew", "brew install "},
 }
 
-// official is the vendor installer for a built-in agent CLI. It is the same
-// command on macOS, Linux, and WSL, and it wins over a package manager
-// that would guess `brew install claude`. opencode's is the v2 installer:
-// the unversioned one still resolves to the 1.x line, which the board does
-// not support (opencode.Report.UpgradeNotice).
+// official is the vendor's npm package install for a built-in agent CLI. It
+// is the same command on macOS, Linux, and WSL, and it wins over a package
+// manager that would guess `brew install claude`. Each name is the exact
+// package the vendor publishes (and that its own installer downloads), never
+// a piped install script. opencode's is the v2 package: the older
+// opencode-ai package is the 1.x line, which the board does not support
+// (opencode.Report.UpgradeNotice). omp's package needs Bun: its code imports
+// bun:sqlite, so an npm install has no runtime to run on, and omp's own
+// installer is a piped script.
 var official = map[string]string{
-	"claude":   "curl -fsSL https://claude.ai/install.sh | bash",
+	"claude":   "npm install -g @anthropic-ai/claude-code",
 	"cmd":      "npm install -g command-code",
-	"codex":    "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-	"muse":     "curl -fsSL https://dev.meta.ai/install.sh | bash",
-	"opencode": "curl -fsSL https://opencode.ai/v2/install | bash",
-	"pi":       "curl -fsSL https://pi.dev/install.sh | sh",
+	"codex":    "npm install -g @openai/codex",
+	"omp":      "bun install -g @oh-my-pi/pi-coding-agent",
+	"opencode": "npm install -g @opencode/cli",
+	"pi":       "npm install -g @earendil-works/pi-coding-agent",
+}
+
+// installPage is where a built-in agent CLI with no package-manager release
+// says to install it from. The board links it rather than running the
+// vendor's piped install script, so the dialog has no command to offer.
+var installPage = map[string]string{
+	"muse": "https://dev.meta.ai",
+}
+
+// floors is the oldest release of an agent CLI the board launches. pi 1.0
+// made a fullscreen TUI the default, which the board's pane reading cannot
+// follow without --tui-mode regular, and the board's pi integration is built
+// on 1.5's extension API (built-in MCP, blocked custom dialogs).
+var floors = map[string]string{
+	"pi": "1.5.0",
+}
+
+// Floor is the oldest version of tool the board launches, empty when any
+// version will do.
+func Floor(tool string) string {
+	return floors[tool]
 }
 
 func Hint(tool string) string {
@@ -56,7 +83,7 @@ func Hint(tool string) string {
 
 // Command is the install command the setup dialog offers to run, empty
 // when there is none to offer. Only the agent CLIs with a vendor
-// installer have one: a package-manager line is built from the tool's
+// npm package have one: a package-manager line is built from the tool's
 // own command name, so for a custom tool it would install whatever
 // package happens to share that name. Those stay a suggestion to read.
 func Command(tool string) string {
@@ -66,6 +93,9 @@ func Command(tool string) string {
 func hint(goos, tool string) string {
 	if command := official[tool]; command != "" {
 		return "install it with: " + command
+	}
+	if page := installPage[tool]; page != "" {
+		return "install it from " + page
 	}
 	if command := installCommand(goos, tool); command != "" {
 		return "install it with: " + command

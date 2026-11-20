@@ -178,6 +178,9 @@ func fitBody(body []string, room, offset int) []string {
 }
 
 func (m *Model) viewForm() string {
+	if m.form.worktrees != nil {
+		return m.viewWorktreePicker()
+	}
 	m.form.prompt.input.SetHeight(textareaRows(m.form.prompt.input, m.formValueWidth()-2, formPromptMaxRows))
 
 	var b strings.Builder
@@ -203,6 +206,9 @@ func (m *Model) viewForm() string {
 	}
 
 	b.WriteString(formField("dir", m.form.dir.View(), m.form.focus == fieldDir))
+	if m.hasRecentWorktree() {
+		b.WriteString(formField("recent", m.viewRecentWorktree(), false))
+	}
 	if m.form.focus == fieldDir && m.pathSugg.showing() {
 		b.WriteString(m.viewPathSuggestions() + "\n")
 	}
@@ -232,6 +238,10 @@ func (m *Model) viewForm() string {
 			change = [2]string{"space/←→", "toggle"}
 		}
 		hint = [][2]string{change, {"tab/↑↓", "move"}, {"↵", "create"}, {"esc", "cancel"}}
+	}
+	hint = append([][2]string{{"F2", "worktrees"}}, hint...)
+	if m.hasRecentWorktree() {
+		hint = append([][2]string{{"F4", "use recent"}}, hint...)
 	}
 	return m.card("◆ New Session", strings.TrimRight(b.String(), "\n"), hint)
 }
@@ -426,6 +436,57 @@ func (m *Model) viewSettings() string {
 	if m.settings.jevPanel {
 		return m.viewJevSettings()
 	}
+	rows := m.settingsRows(false)
+	var visible []string
+	var section string
+	selectedLine := 0
+	for _, field := range m.matchingSettings() {
+		if name := settingsSection(field); name != section {
+			section = name
+			visible = append(visible, cardTitle(section))
+		}
+		if field == m.settings.field {
+			selectedLine = len(visible)
+		}
+		visible = append(visible, rows[field])
+	}
+	if len(visible) == 0 {
+		visible = append(visible, mutedStyle.Render("No settings match"))
+	}
+	if m.height > 0 {
+		room := max(3, m.height-10)
+		visible = fitBody(visible, room, selectedLine-room/2)
+	}
+	search := valueStyle.Render("Search settings") + "  " + keyStyle.Render("/") + " " + keyStyle.Render("ctrl+f")
+	if m.settings.searching || m.settings.search.Value() != "" {
+		m.settings.search.SetWidth(cardInnerWidth(m.cardWidth()) - len("Search  "))
+		search = valueStyle.Render("Search") + "  " + m.settings.search.View()
+	}
+	body := search + "\n" + strings.Join(visible, "\n")
+	hint := [][2]string{{"↑↓", "field"}, {"←→", "change"}, {"↵/esc", "save"}}
+	switch m.settings.field {
+	case settingsFieldJev:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "classifier provider and key"}, {"esc", "save"}}
+	case settingsFieldExperimental:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "experimental features"}, {"esc", "save"}}
+	case settingsFieldSnippets:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit snippets"}, {"esc", "save"}}
+	case settingsFieldRestartFlags:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit restart flags"}, {"esc", "save"}}
+	case settingsFieldCLIs:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "manage CLIs"}, {"esc", "save"}}
+	case settingsFieldGuide:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "show the guide"}, {"esc", "save"}}
+	case settingsFieldKeys:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "rebind keys"}, {"esc", "save"}}
+	}
+	if m.settings.searching {
+		hint = [][2]string{{"type", "filter"}, {"↵/↓", "results"}, {"esc", "clear"}}
+	}
+	return m.cardFlex("▣ Settings", body, hint)
+}
+
+func (m *Model) settingsRows(forSearch bool) [settingsFieldCount]string {
 	density := "compact"
 	if m.settings.comfortableRows {
 		density = "comfortable"
@@ -487,6 +548,10 @@ func (m *Model) viewSettings() string {
 		labelColumn = max(room, 8)
 	}
 	lead := func(field int, name string) string {
+		// Search keeps the full label even when the terminal clips its displayed column.
+		if forSearch {
+			return name + " "
+		}
 		marker := "  "
 		labelStyle := valueStyle
 		if m.settings.field == field {
@@ -507,63 +572,50 @@ func (m *Model) viewSettings() string {
 	if m.themeDevice != "" {
 		deviceScope = m.themeDevice
 	}
-	body := row(settingsFieldTool, "default tool", toolValue) + "\n" +
-		row(settingsFieldAccountRouting, "launch accounts", m.settings.launchAccountValue()) + "\n" +
-		row(settingsFieldNewSessionAgent, "new session agent", normalizeNewSessionAgent(m.settings.newSessionAgent)) + "\n" +
-		row(settingsFieldTheme, "theme", themes[m.settings.themeIndex].Name) + "  " +
-		themeSwatch(themes[m.settings.themeIndex]) + "  " + mutedStyle.Render(deviceScope) + "\n" +
-		row(settingsFieldBackdrop, "terminal background", backdrop) + "\n" +
-		row(settingsFieldDensity, "list density", density) + "\n" +
-		row(settingsFieldLayout, "layout", normalizeLayout(m.settings.layout)) + "  " + mutedStyle.Render(deviceScope) + "\n" +
-		row(settingsFieldSidebar, "sidebar", normalizeSidebar(m.settings.sidebar)) + "\n" +
-		row(settingsFieldPalette, "colour", normalizePalette(m.settings.palette)) + "\n" +
-		row(settingsFieldGlyphs, "status marks", normalizeGlyphs(m.settings.glyphs)+"  "+statusGlyph("waiting")+statusGlyph("finished")+statusGlyph("errored")) + "\n" +
-		row(settingsFieldRowDetail, "row detail", normalizeRowDetail(m.settings.rowDetail)) + "\n" +
-		row(settingsFieldArchiveConfirm, "ask before killing", normalizeArchiveConfirm(m.settings.archiveConfirm)) + "\n" +
-		row(settingsFieldDeleteConfirm, "ask before deleting", normalizeConfirmAsk(m.settings.deleteConfirm)) + "\n" +
-		row(settingsFieldRestartConfirm, "ask before restarting", normalizeConfirmAsk(m.settings.restartConfirm)) + "\n" +
-		row(settingsFieldListSort, "sort", normalizeListSort(m.settings.listSort)) + "\n" +
-		row(settingsFieldListConsistency, "list consistency", normalizeListConsistency(m.settings.listConsistency)) + "\n" +
-		row(settingsFieldChrome, "key hints", normalizeChrome(m.settings.chrome)) + "\n" +
-		row(settingsFieldLeave, "on leaving a session", normalizeLeaveMode(m.settings.leaveMode)) + "\n" +
-		row(settingsFieldQuickClose, "after hotkey send", quickClose) + "\n" +
-		row(settingsFieldFocusKey, "session keys", focusKey) + "\n" +
-		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
-		row(settingsFieldSmartTriage, "smart triage", smartTriage) + "\n" +
-		row(settingsFieldTriageOrder, "triage order", triageOrderLabel(m.settings.triageOrder)) + "\n" +
-		row(settingsFieldTriageContent, "triage includes", normalizeTriageContent(m.settings.triageContent)) + "\n" +
-		row(settingsFieldTriageKeepAlives, "walk keep-alives", triageKeepAlives) + "\n" +
-		row(settingsFieldIdleSwitch, "switch when idle", idleSwitch) + "\n" +
-		row(settingsFieldConfirmLaunches, "confirm launches", confirmLaunches) + "\n" +
-		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
-		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
-		row(settingsFieldClaudeSetup, "claude code setup", claudeSetupLabel(m.cfg.ClaudeCode.SetupOn(), m.settings.claudeSetup)) + "\n" +
-		actionRow(settingsFieldJev, "Classifier", m.jevSettingsSummary()) + "\n" +
-		actionRow(settingsFieldExperimental, "experimental", "features (default off)") + "\n" +
-		actionRow(settingsFieldSnippets, "snippets", "edit quick replies") + "\n" +
-		actionRow(settingsFieldRestartFlags, "restart flags", "edit restart flag presets") + "\n" +
-		actionRow(settingsFieldCLIs, "CLIs", "show or hide for new sessions") + "\n" +
-		actionRow(settingsFieldGuide, "welcome guide", "read the first-run introduction again") + "\n" +
-		actionRow(settingsFieldKeys, "keys", "see and rebind every key") + "\n" +
-		m.settingsVersionRow(lead)
-	hint := [][2]string{{"↑↓", "field"}, {"←→", "change"}, {"↵/esc", "save"}}
-	switch m.settings.field {
-	case settingsFieldJev:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "classifier provider and key"}, {"esc", "save"}}
-	case settingsFieldExperimental:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "experimental features"}, {"esc", "save"}}
-	case settingsFieldSnippets:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit snippets"}, {"esc", "save"}}
-	case settingsFieldRestartFlags:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit restart flags"}, {"esc", "save"}}
-	case settingsFieldCLIs:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "manage CLIs"}, {"esc", "save"}}
-	case settingsFieldGuide:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "show the guide"}, {"esc", "save"}}
-	case settingsFieldKeys:
-		hint = [][2]string{{"↑↓", "field"}, {"↵", "rebind keys"}, {"esc", "save"}}
+	return [settingsFieldCount]string{
+		settingsFieldHibernate:       row(settingsFieldHibernate, "hibernation", m.settings.hibernateSensitivity),
+		settingsFieldLeave:           row(settingsFieldLeave, "on leaving a session", normalizeLeaveMode(m.settings.leaveMode)),
+		settingsFieldReopenSessions:  row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)),
+		settingsFieldOutsidePanes:    row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)),
+		settingsFieldIdleSwitch:      row(settingsFieldIdleSwitch, "switch when idle", idleSwitch),
+		settingsFieldArchiveConfirm:  row(settingsFieldArchiveConfirm, "ask before killing", normalizeArchiveConfirm(m.settings.archiveConfirm)),
+		settingsFieldDeleteConfirm:   row(settingsFieldDeleteConfirm, "ask before deleting", normalizeConfirmAsk(m.settings.deleteConfirm)),
+		settingsFieldRestartConfirm:  row(settingsFieldRestartConfirm, "ask before restarting", normalizeConfirmAsk(m.settings.restartConfirm)),
+		settingsFieldTool:            row(settingsFieldTool, "default tool", toolValue),
+		settingsFieldAccountRouting:  row(settingsFieldAccountRouting, "launch accounts", m.settings.launchAccountValue()),
+		settingsFieldNewSessionAgent: row(settingsFieldNewSessionAgent, "new session agent", normalizeNewSessionAgent(m.settings.newSessionAgent)),
+		settingsFieldConfirmLaunches: row(settingsFieldConfirmLaunches, "confirm launches", confirmLaunches),
+		settingsFieldCLIs:            actionRow(settingsFieldCLIs, "CLIs", "show or hide for new sessions"),
+		settingsFieldClaudeSetup:     row(settingsFieldClaudeSetup, "claude code setup", claudeSetupLabel(m.cfg.ClaudeCode.SetupOn(), m.settings.claudeSetup)),
+		settingsFieldRestartFlags:    actionRow(settingsFieldRestartFlags, "restart flags", "edit restart flag presets"),
+		settingsFieldTheme: row(settingsFieldTheme, "theme", themes[m.settings.themeIndex].Name) + "  " +
+			themeSwatch(themes[m.settings.themeIndex]) + "  " + mutedStyle.Render(deviceScope),
+		settingsFieldBackdrop:         row(settingsFieldBackdrop, "terminal background", backdrop),
+		settingsFieldLayout:           row(settingsFieldLayout, "layout", normalizeLayout(m.settings.layout)) + "  " + mutedStyle.Render(deviceScope),
+		settingsFieldSidebar:          row(settingsFieldSidebar, "sidebar", normalizeSidebar(m.settings.sidebar)),
+		settingsFieldDensity:          row(settingsFieldDensity, "list density", density),
+		settingsFieldPalette:          row(settingsFieldPalette, "colour", normalizePalette(m.settings.palette)),
+		settingsFieldGlyphs:           row(settingsFieldGlyphs, "status marks", normalizeGlyphs(m.settings.glyphs)+"  "+statusGlyph("waiting")+statusGlyph("finished")+statusGlyph("errored")),
+		settingsFieldRowDetail:        row(settingsFieldRowDetail, "row detail", normalizeRowDetail(m.settings.rowDetail)),
+		settingsFieldWorkingActivity:  row(settingsFieldWorkingActivity, "scrolling text", workingActivityLabel(m.settings.textScroll)),
+		settingsFieldListSort:         row(settingsFieldListSort, "sort", normalizeListSort(m.settings.listSort)),
+		settingsFieldListConsistency:  row(settingsFieldListConsistency, "list consistency", normalizeListConsistency(m.settings.listConsistency)),
+		settingsFieldPriorityScale:    row(settingsFieldPriorityScale, "priority tiers", parsePriorityScale(m.settings.priorityScale).Label()),
+		settingsFieldAutoProceed:      row(settingsFieldAutoProceed, "triage auto proceed", autoProceed),
+		settingsFieldSmartTriage:      row(settingsFieldSmartTriage, "smart triage", smartTriage),
+		settingsFieldTriageOrder:      row(settingsFieldTriageOrder, "triage order", triageOrderLabel(m.settings.triageOrder)),
+		settingsFieldTriageContent:    row(settingsFieldTriageContent, "triage includes", normalizeTriageContent(m.settings.triageContent)),
+		settingsFieldTriageKeepAlives: row(settingsFieldTriageKeepAlives, "walk keep-alives", triageKeepAlives),
+		settingsFieldChrome:           row(settingsFieldChrome, "key hints", normalizeChrome(m.settings.chrome)),
+		settingsFieldFocusKey:         row(settingsFieldFocusKey, "session keys", focusKey),
+		settingsFieldQuickClose:       row(settingsFieldQuickClose, "after hotkey send", quickClose),
+		settingsFieldSnippets:         actionRow(settingsFieldSnippets, "snippets", "edit quick replies"),
+		settingsFieldKeys:             actionRow(settingsFieldKeys, "keys", "see and rebind every key"),
+		settingsFieldJev:              actionRow(settingsFieldJev, "Classifier", m.jevSettingsSummary()),
+		settingsFieldExperimental:     actionRow(settingsFieldExperimental, "experimental", "features (default off)"),
+		settingsFieldGuide:            actionRow(settingsFieldGuide, "welcome guide", "read the first-run introduction again"),
+		settingsFieldVersion:          m.settingsVersionRow(lead),
 	}
-	return m.cardFlex("▣ Settings", body, hint)
 }
 
 // settingsVersionRow reports the running build. It carries no action: this
@@ -659,7 +711,13 @@ func (m *Model) viewAgentPick() string {
 	m.agentPick.input.SetWidth(max(4, inner-3))
 	m.agentPick.input.SetCursor(m.agentPick.input.Position())
 
-	hint := [][2]string{{"type", "pick a CLI"}, {"←→", "change"}, {"↵", "start"}, {"esc", "cancel"}}
+	more := m.fullCap(keymap.ContextList, keymap.NewSessionForm)
+	launch := [][2]string{{"↵", "start"}}
+	if more != "" {
+		launch = append(launch, [2]string{more, "more options"})
+	}
+	launch = append(launch, [2]string{"esc", "cancel"})
+	hint := append([][2]string{{"type", "pick a CLI"}, {"←→", "change"}}, launch...)
 	hintRows := lipgloss.Height(legendInline(hint, cardInnerWidth(m.cardWidth())))
 	room := m.height - 6 - hintRows
 	if m.errBar.text != "" {
@@ -667,6 +725,15 @@ func (m *Model) viewAgentPick() string {
 	}
 	if room < 1 {
 		hint = [][2]string{{"←→", "pick"}, {"↵", "start"}, {"esc", "cancel"}}
+		if more != "" {
+			options := [2]string{m.tightCap(keymap.ContextList, keymap.NewSessionForm), "options"}
+			hint = [][2]string{{"↵", "start"}, options, {"esc", "cancel"}}
+			// A long binding such as ctrl+alt+n wraps the footer at this size;
+			// enter is the obvious key, so its hint is the one to give up.
+			if lipgloss.Height(legendInline(hint, cardInnerWidth(m.cardWidth()))) > 1 {
+				hint = [][2]string{options, {"esc", "cancel"}}
+			}
+		}
 		room += hintRows - lipgloss.Height(legendInline(hint, cardInnerWidth(m.cardWidth())))
 	}
 	quotaRows := agentPickQuotaRows(m.agentPick.names, m.agentPick.quotas, m.agentPick.recommended, m.agentPick.reason, inner)

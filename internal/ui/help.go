@@ -274,7 +274,7 @@ func (m *Model) helpCatalog() []helpSection {
 	}
 	catalog = append(catalog, helpSections()...)
 	catalog = append(catalog, m.extensionHelpSections()...)
-	return append(catalog, m.snippetHelpSection())
+	return append(catalog, m.snippetHelpSection(), m.launchSnippetHelpSection())
 }
 
 // SetExtensionNotes hands the board what configuring its extensions came
@@ -345,6 +345,15 @@ func (m *Model) resolvedLegend() []resolvedSection {
 			rows = append(rows, resolvedRow{key: row.key, text: row.text})
 		}
 		out = append(out, resolvedSection{title: section.title, rows: rows})
+	}
+	var badges []resolvedRow
+	for _, ext := range m.extUIs {
+		if ext.BadgeLabel != "" && ext.BadgeDetail != "" {
+			badges = append(badges, resolvedRow{key: ext.BadgeLabel, text: ext.BadgeDetail})
+		}
+	}
+	if len(badges) > 0 {
+		out = append(out, resolvedSection{title: "legend: extension badges", rows: badges})
 	}
 	return out
 }

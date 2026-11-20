@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
@@ -16,6 +19,18 @@ const sharedMCPEvery = 5 * time.Second
 
 // sharedMCPStart is how long the board waits for the server it starts.
 const sharedMCPStart = 5 * time.Second
+
+// piAutoModeConfigured reports whether any pi tool leaves auto mode on. Pi's
+// auto mode (package piauto) asks on the shared server, so the board keeps
+// it up for that even with shared_mcp off: auto mode is on by default.
+func piAutoModeConfigured(cfg config.Config) bool {
+	for _, tool := range cfg.Tools {
+		if tool.StatusSource == hooks.StatusSourcePi && !strings.EqualFold(strings.TrimSpace(tool.AutoMode), "off") {
+			return true
+		}
+	}
+	return false
+}
 
 // keepSharedMCP starts the shared MCP server (mcpshared) when the board
 // starts, and again whenever it has stopped. A launch only waits a moment

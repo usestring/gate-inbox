@@ -289,3 +289,39 @@ func TestBoardDeliversViewEventsInOrder(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+// What reaches a session's pane reaches a host's pane input subscribers in
+// order, and stops reaching one that unsubscribed.
+func TestBoardDeliversPaneInputInOrder(t *testing.T) {
+	board := NewEvents(NewBoard("", nil), nil)
+	host, release := board.For("ext")
+	defer release()
+	source, ok := host.(extension.PaneInputSource)
+	if !ok {
+		t.Fatal("the board's host does not report pane input")
+	}
+	var got []extension.PaneInput
+	done := make(chan struct{})
+	unsubscribe := source.OnPaneInput(func(in extension.PaneInput) {
+		got = append(got, in)
+		if len(got) == 2 {
+			close(done)
+		}
+	})
+	at := time.Unix(100, 0)
+	first := extension.PaneInput{SessionID: "a", Text: "o", At: at}
+	second := extension.PaneInput{SessionID: "a", Key: "Enter", Sends: true, Ready: at, At: at.Add(time.Second)}
+	board.PaneInput(first)
+	board.PaneInput(second)
+	within(t, "two pane inputs", done)
+	if got[0] != first || got[1] != second {
+		t.Fatalf("got %+v", got)
+	}
+	unsubscribe()
+	board.mu.Lock()
+	left := len(board.paneInputs)
+	board.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("%d pane input subscriptions left after unsubscribing", left)
+	}
+}

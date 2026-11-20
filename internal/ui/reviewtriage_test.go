@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -56,6 +57,20 @@ func TestReviewQueuesByItsNewestAskAmongSessions(t *testing.T) {
 	m.rebuildRows()
 	if got, want := reviewDrain(m), []string{"asking", "reviews", "done"}; !slices.Equal(got, want) {
 		t.Fatalf("a thirty-second-old ask: drain = %v, want %v", got, want)
+	}
+}
+
+func TestOldestTriageHonorsPriorityAcrossReviewsAndSessions(t *testing.T) {
+	m := smartFleet(t, smartSess("asking", status.Waiting, 30*time.Minute))
+	m.reviewQueue = true
+	m.smartTriage = false
+	m.triageOrder = triageOrderOldest
+	ask := reviewAsk(1, time.Minute)
+	ask.OriginSession = &store.Session{Priority: priority.High}
+	m.reviews = []store.ReviewRequest{ask}
+	m.rebuildRows()
+	if got, want := reviewDrain(m), []string{"reviews", "asking"}; !slices.Equal(got, want) {
+		t.Fatalf("drain = %v, want %v", got, want)
 	}
 }
 
@@ -154,6 +169,9 @@ func TestTriageStartupKeepsTheSelectedTab(t *testing.T) {
 			}
 			if m.triageStartupEnter {
 				t.Fatal("startup entry remained armed after the first poll")
+			}
+			if m.mode == modeForm {
+				m.handleKey(key("esc"))
 			}
 			m.Update(tea.KeyPressMsg{Code: ']', Mod: tea.ModCtrl})
 			if m.onReviewsTab() == manual {

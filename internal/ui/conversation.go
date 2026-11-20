@@ -160,6 +160,9 @@ func (m *Model) readConversation() tea.Cmd {
 			return msg
 		}
 		msg.messages, msg.err = search.ReadMessages(target, database)
+		// The view is the conversation between the session and its user:
+		// keep-alives and other sessions' messages are the board's, not theirs.
+		msg.messages = search.OperatorMessages(msg.messages)
 		if sess.Status == status.Dead && target.Tool != search.ToolOpenCode && msg.err == nil {
 			if prompts, err := search.ReadFirstPrompts(target, 1); err == nil && len(prompts) > 0 {
 				msg.opening = prompts[0]

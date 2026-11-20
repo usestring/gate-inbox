@@ -20,4 +20,8 @@ package mcpreg
 const claudeSteering = "Gate Inbox manages this session. Before handing work to another agent " +
 	"(Agent, Task or Workflow tool), load the gate-inbox:delegate-with-gate-inbox skill: " +
 	"real work goes to create_session sessions on the user's board.\n" +
-	"End every turn by calling the gate-inbox report_status tool with done, waiting, blocked or working.\n"
+	reportStatusRule
+
+// reportStatusRule is the turn-end report every launch that has the board's
+// tools carries, claude's and pi's alike.
+const reportStatusRule = "End every turn by calling the gate-inbox report_status tool with done, waiting, blocked or working.\n"

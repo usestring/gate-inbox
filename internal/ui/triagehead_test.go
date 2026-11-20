@@ -100,10 +100,9 @@ func TestTurningTriageOnEntersTheHeadOfTheQueue(t *testing.T) {
 	}
 }
 
-// A queue with nothing waiting and nothing idle has no head to enter, and
-// triage still has to be reachable as a plain reordering of the board. An
-// idle session would be entered; see TestTriageHeadFallsBackToIdle.
-func TestTurningTriageOnWithNothingWaitingEntersNothing(t *testing.T) {
+// A queue with nothing waiting and nothing idle opens the inbox-cleared
+// prompt. An idle session is entered first; see TestTriageHeadFallsBackToIdle.
+func TestTurningTriageOnWithNothingWaitingOpensThePrompt(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{
 		"busy":  status.Working,
@@ -111,8 +110,8 @@ func TestTurningTriageOnWithNothingWaitingEntersNothing(t *testing.T) {
 	})
 	m.applyCmd(t, m.toggleTriage())
 
-	if m.mode != modeList {
-		t.Fatalf("triage entered mode %v with nothing on its queue", m.mode)
+	if m.mode != modeCleared || m.form.focus != fieldPrompt || !m.form.prompt.input.Focused() {
+		t.Fatalf("triage entered mode %v, want the focused inbox-cleared pane", m.mode)
 	}
 	if !m.triage {
 		t.Fatal("triage did not turn on")

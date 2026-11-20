@@ -193,10 +193,9 @@ func TestHotkeyMenuSendsTheSectionAndPlusMinusKeys(t *testing.T) {
 	}
 }
 
-func TestHotkeyMenuSpaceAndEscClose(t *testing.T) {
+func TestHotkeyMenuEscCloses(t *testing.T) {
 	for name, msg := range map[string]tea.KeyPressMsg{
-		"ctrl+s": key("ctrl+s"),
-		"esc":    {Code: tea.KeyEsc},
+		"esc": {Code: tea.KeyEsc},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := buildModel(t)

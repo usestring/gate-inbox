@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/extension/gitroot"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -337,9 +340,18 @@ func (t *Terminals) Create(sessionID string, opts CreateTerminalOptions) (create
 			}
 		}
 	}
+	// Composed as a terminal opened on the board is, so it runs confined
+	// out of the key directory as every non-Claude launch does
+	// (launch.compose). An agent drives this one through send_terminal, and
+	// a shell started outside that confinement would read the keys for any
+	// session that asked it to.
+	command, env, err := launch.Environment(hooks.NewManager(runtime.configDir), toolName, tool, tool.Command, sess.ID, "", "", false, nil)
+	if err != nil {
+		return Terminal{}, err
+	}
 	launched := false
 	if err := create(sess, func() error {
-		err := runtime.createPane(sess.ID, sess.Cwd, tool.Command, nil)
+		err := runtime.createPane(sess.ID, sess.Cwd, command, env)
 		launched = err == nil
 		return err
 	}); err != nil {
@@ -507,6 +519,11 @@ func launchDirectory(tool config.Tool, callerCwd, requested string) string {
 	if tool.LaunchInPlace || caller == "" || requested == "" {
 		return requested
 	}
+	if tool.TrustFlag != "" && callerVouches(caller, requested) {
+		// The launch carries the trust flag (see trustFlagFor), so the pane
+		// opens where it was asked, past the dialog.
+		return requested
+	}
 	if gitroot.Within(requested, caller) && !nestedRepository(caller, requested) {
 		return requested
 	}
@@ -517,6 +534,50 @@ func launchDirectory(tool config.Tool, callerCwd, requested string) string {
 		return requested
 	}
 	return caller
+}
+
+// callerVouches reports whether the spawning session's launch directory
+// vouches for requested, which earns the child's CLI its trust_flag: the
+// same evidence launchDirectory accepts (requested in the caller's own tree,
+// not in a repository nested there), or requested being a worktree of the
+// caller's repository -- they share one git common directory -- which is
+// where a manager puts the child it gives a checkout of its own.
+func callerVouches(callerCwd, requested string) bool {
+	caller := strings.TrimSpace(callerCwd)
+	if caller == "" || requested == "" {
+		return false
+	}
+	if _, err := resolveTerminalDirectory(caller); err != nil {
+		return false
+	}
+	if gitroot.Within(requested, caller) && !nestedRepository(caller, requested) {
+		return true
+	}
+	callerCommon, requestedCommon := gitCommonDir(caller), gitCommonDir(requested)
+	return callerCommon != "" && callerCommon == requestedCommon
+}
+
+// gitCommonDir is the repository's shared git directory for dir, which every
+// worktree of one repository names alike; empty outside git.
+func gitCommonDir(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return ""
+	}
+	common := strings.TrimSpace(string(out))
+	if resolved, err := filepath.EvalSymlinks(common); err == nil {
+		common = resolved
+	}
+	return common
+}
+
+// trustFlagFor is the trust_flag a spawn into requested carries, or empty
+// when the caller does not vouch for it.
+func trustFlagFor(tool config.Tool, callerCwd, requested string) string {
+	if tool.TrustFlag == "" || !callerVouches(callerCwd, requested) {
+		return ""
+	}
+	return tool.TrustFlag
 }
 
 // nestedRepository reports whether requested sits in a different git

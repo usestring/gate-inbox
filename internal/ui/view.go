@@ -21,10 +21,14 @@ import (
 
 func (m *Model) View() tea.View {
 	view := tea.NewView(m.frame())
+	m.noteKeyDrawn()
 	view.AltScreen = true
 	// The app holds mouse reporting so a drag on the split divider and an
 	// Alt-click forwarded into a pane both reach handleMouse.
 	view.MouseMode = tea.MouseModeCellMotion
+	if m.textScroll == textScrollHover && (m.mode == modeList || m.mode == modeFocus) {
+		view.MouseMode = tea.MouseModeAllMotion
+	}
 	// Ask the terminal to say when it gains and loses focus. It costs
 	// nothing and, where the terminal answers, it releases the manager's
 	// window pin the instant the operator looks away rather than at the next
@@ -157,7 +161,7 @@ func clampFrame(frame string, height int) string {
 }
 
 // splitWidths is the body's horizontal split: the sessions panel takes
-// splitRatio of the terminal (default 30%), floored so both sides stay
+// splitRatio of the terminal (default 40%), floored so both sides stay
 // usable when the window is wide enough.
 func (m *Model) splitWidths() (int, int) {
 	if m.width <= 0 {
@@ -551,15 +555,20 @@ func (m *Model) viewFooter() string {
 		}})
 	}
 	if m.quick.active {
-		closeCap := "space/esc"
+		context := keymap.ContextList
 		if m.quick.fromFocus {
-			// Unbound by the operator's own rebind: the key map still
-			// offers the row, but a footer names only keys that work.
-			closeCap = "esc"
-			if key := m.tightCap(keymap.ContextFocus, keymap.QuickInput); key != "" {
-				closeCap = key + "/esc"
-			}
+			context = keymap.ContextFocus
 		}
+		launchCap := m.tightCap(context, keymap.QuickInput)
+		if m.quick.launch {
+			pairs := [][2]string{{"key", "launch session"}}
+			if launchCap != "" {
+				pairs = append(pairs, [2]string{launchCap, "back to snippets"})
+			}
+			pairs = append(pairs, [2]string{"esc", "close"})
+			return m.transientFooter(legendSection{title: "Launches", pairs: pairs})
+		}
+		closeCap := "esc"
 		pairs := [][2]string{
 			{"key", "send snippet"}, {"↑↓", "switch target"}, {closeCap, "close"},
 		}
@@ -569,6 +578,9 @@ func (m *Model) viewFooter() string {
 			pairs = [][2]string{
 				{"key", "send snippet"}, {closeCap, "close"},
 			}
+		}
+		if launchCap != "" {
+			pairs = append(pairs, [2]string{launchCap, "launch snippets"})
 		}
 		if m.showsConversation() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})
@@ -736,7 +748,7 @@ func (m *Model) defaultRowLegend() legendSection {
 	// queue, and the footer names what the next press sets.
 	var pairs [][2]string
 	if key := m.tightCap(keymap.ContextList, keymap.Priority); key != "" {
-		pairs = append(pairs, [2]string{key, priorityLegend(row.sess.Priority)})
+		pairs = append(pairs, [2]string{key, priorityLegend(m.scale(), row.sess.Priority)})
 	}
 	pairs = append(pairs,
 		[2]string{openKey, enterHint}, [2]string{m.tightCap(keymap.ContextList, keymap.Attach), attachHint})
@@ -850,7 +862,7 @@ func (m *Model) rowLegend() legendSection {
 			text   string
 		}{
 			{keymap.RenameSelf, "rename"}, {keymap.Move, "move"},
-			{keymap.Priority, priorityLegend(m.priorityGroups[row.group])},
+			{keymap.Priority, priorityLegend(m.scale(), m.priorityGroups[row.group])},
 			{keymap.Archive, "kill"}, {keymap.Revive, "revive"}, {keymap.Restore, "restore"},
 		} {
 			if m.applies(keymap.ContextList, candidate.action, row) {

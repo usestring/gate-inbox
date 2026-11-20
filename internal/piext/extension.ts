@@ -641,6 +641,8 @@ function userMessages(entries: unknown[]): { brief?: string; recent?: string[] }
         : Array.isArray(content)
           ? content.filter((p) => p?.type === "text").map((p) => String(p.text ?? "")).join("\n")
           : "";
+    // Agent notices must not displace the user's request from the context window.
+    if (["----CROSS-SESSION-MESSAGE-", "----GATE-INBOX-NOTICE-", "----EXTENSION-MESSAGE-"].some((fence) => text.includes(fence))) continue;
     if (text.trim()) texts.push(text.slice(0, 4000));
   }
   return texts.length ? { brief: texts[0], recent: texts.slice(-3) } : {};

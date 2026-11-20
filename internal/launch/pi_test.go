@@ -64,6 +64,36 @@ func TestEnvironmentLoadsThePiExtension(t *testing.T) {
 	}
 }
 
+// An omp launch runs the same extension, and also loads a plugin of its own
+// holding the board's MCP server, since omp has no registerMcpServer. A dry
+// run names that plugin without writing it.
+func TestEnvironmentGivesOmpTheBoardsServerThroughAPlugin(t *testing.T) {
+	manager := hooks.NewManager(t.TempDir())
+	omp := config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi, AutoMode: "off"}
+	preview, _, err := Compose(manager, "omp", omp, omp.Command, "abcd1234", "", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, env, err := Environment(manager, "omp", omp, omp.Command, "abcd1234", "", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugin := piext.OmpPluginPath(env[piext.MCPConfigEnv], "abcd1234")
+	want := piext.Argv(tmux.ShellQuote(piext.Path(manager.Dir()))) + " " + piext.OmpPluginArgv(tmux.ShellQuote(plugin))
+	for _, got := range []string{preview, command} {
+		if !strings.HasSuffix(got, " "+want) {
+			t.Fatalf("command = %q, want it to end in %q", got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(plugin, ".mcp.json")); err != nil {
+		t.Fatalf("the launch did not write the plugin it loads: %v", err)
+	}
+	pi := config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi, AutoMode: "off"}
+	if command, _, err := Compose(manager, "pi", pi, pi.Command, "abcd1234", "", "", false, nil); err != nil || strings.Contains(command, "--plugin-dir") {
+		t.Fatalf("a pi launch loads omp's plugin: %q, %v", command, err)
+	}
+}
+
 // A launch clears what the last run of the same session left in its status
 // file, so a pi row does not start out reading a turn that ended long ago.
 func TestEnvironmentClearsAPiSessionsStaleStatus(t *testing.T) {

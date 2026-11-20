@@ -41,6 +41,7 @@ import (
 	"github.com/usestring/gate-inbox/grant"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/piauto"
+	"github.com/usestring/gate-inbox/internal/piext"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -104,7 +105,22 @@ func ToolName(pi string) string {
 	if name, ok := piTools[pi]; ok {
 		return name
 	}
+	if tool, ok := strings.CutPrefix(pi, piext.OmpToolPrefix); ok {
+		return "mcp__gate-inbox__" + tool
+	}
 	return pi
+}
+
+// ompDevice reports a read or write of an MCP tool's xd:// device, which is
+// how omp reaches a tool it mounts there rather than offering by name. The
+// read is the tool's docs; the write is its call, which reaches tool_call
+// again under the MCP tool's own name and is decided there.
+func ompDevice(req Request) bool {
+	if req.ToolName != "read" && req.ToolName != "write" {
+		return false
+	}
+	path, _ := req.ToolInput["path"].(string)
+	return strings.HasPrefix(path, "xd://mcp__")
 }
 
 // mcpForm spells an MCP tool name, or a rule naming one, with its server's
@@ -173,7 +189,7 @@ func Decide(env Env, req Request) Decision {
 	if req.ToolInput == nil {
 		req.ToolInput = map[string]any{}
 	}
-	if passThrough[req.ToolName] {
+	if passThrough[req.ToolName] || ompDevice(req) {
 		d.Decision, d.Reason = Allow, "each call it makes is decided on its own"
 		return d
 	}

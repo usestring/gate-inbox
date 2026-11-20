@@ -87,6 +87,10 @@ const (
 	// modeHeadPane routes the keyboard into the page behind an extension's
 	// header row, drawn where a session's pane is. See headpane.go.
 	modeHeadPane
+	// modeCleared is the inbox-cleared pane: the list stays up and the
+	// content pane offers one prompt to launch the next session. See
+	// cleared.go.
+	modeCleared
 )
 
 type treeRow struct {
@@ -747,6 +751,7 @@ type Model struct {
 	heldAckID string
 
 	form      form
+	cleared   clearedState
 	agentPick agentPick
 	actions   quickActions
 	groupForm groupForm
@@ -3142,6 +3147,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == modeFocus {
 			return m.handleFocusPaste(msg)
+		}
+		if m.mode == modeCleared {
+			return m, m.form.prompt.updateInput(msg)
 		}
 	}
 	return m, nil

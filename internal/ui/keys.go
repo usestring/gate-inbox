@@ -66,6 +66,8 @@ func (m *Model) handleScreenKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeForm:
 		return m.handleFormKey(msg)
+	case modeCleared:
+		return m.handleClearedKey(msg)
 	case modeConfirmDelete:
 		return m.handleConfirmKey(msg)
 	case modeLaunchHint:

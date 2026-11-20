@@ -128,3 +128,21 @@ func TestCodexFailedCompletionsRemainInConversation(t *testing.T) {
 		t.Fatalf("prompts = %#v", prompts)
 	}
 }
+
+func TestReadFirstWorkPromptStartsWithTheFirstAssignment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "conversation.jsonl")
+	transcript := `{"type":"user","isMeta":true,"message":{"role":"user","content":"Injected instructions"}}
+{"type":"user","message":{"role":"user","content":"[gate-inbox] This request is from Gate Inbox itself. Name this session."}}
+{"type":"assistant","message":{"role":"assistant","content":"Named."}}
+{"type":"user","message":{"role":"user","content":"[gate-inbox] From agent: Verify the parser and run the integration tests."}}
+{"type":"assistant","message":{"role":"assistant","content":"The parser is fixed."}}
+{"type":"user","message":{"role":"user","content":"Now publish the release notes."}}
+`
+	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadFirstWorkPrompt(Target{Tool: ToolClaude, Path: path})
+	if err != nil || got != "[gate-inbox] From agent: Verify the parser and run the integration tests." {
+		t.Fatalf("opening = %q, err = %v", got, err)
+	}
+}

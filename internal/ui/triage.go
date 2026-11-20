@@ -35,7 +35,7 @@ import (
 // triageBlocked sits between review and finished. No status reaches it: it
 // is the tier an extension ranks a session at when it is blocked on a
 // decision about a whole piece of work rather than on one question in front
-// of somebody, so the sessions asking a live question are handed over first.
+// of somebody, so a live question leads other work of the same priority.
 //
 // This is the strict order, which smart triage off restores. Smart triage,
 // the default, also ranks walkable sessions by state, then newest turn first
@@ -307,14 +307,9 @@ func (m *Model) endedTurnNews(sess store.Session) bool {
 // first row it can, so the two cannot disagree. See nextTriageInput.
 //
 // Errored rows follow other unmuted rows so a failed turn cannot displace
-// work that can move forward. Within each band a session stopped on a
-// question leads, whatever its tier bar low, and past that a higher priority
-// tier sorts above any lower one, so busy sessions cannot displace sessions
-// ready for input. Smart triage orders the scored band (every walkable session; the
-// walkable band is then empty) by priority, then state, then most
-// recent turn first (see triageScore); every other band, and the strict
-// order, sorts by status rank, then oldest first. See priority.go.
-//
+// work that can move forward. Among ready sessions, priority sets the order
+// before any status, deadline or recency tie-break.
+
 // LastStatusAt is when the session entered the state it is in, which is
 // exactly how long it has been waiting; the two fields under it only keep
 // the order total, so a redraw cannot reshuffle equal rows.
@@ -334,18 +329,20 @@ func (m *Model) triageLess(a, b store.Session) bool {
 // deadline for every warm session, so a deadline that outranked the state
 // put every session touched in the last hour ahead of every question.
 func (m *Model) triageBefore(ka, kb triageKey, a, b store.Session, now time.Time) bool {
-	// Oldest first puts every walkable row in one state, so a deadline there
-	// would order the whole walk, which is the bug above over again.
-	if normalizeTriageOrder(m.triageOrder) != triageOrderOldest &&
+	oldest := m.triageOrder == triageOrderOldest
+	if !oldest &&
 		ka.deferred == kb.deferred &&
 		ka.errored == kb.errored && ka.band == triageBandScored && kb.band == triageBandScored &&
-		ka.asking == kb.asking && ka.priority == kb.priority && ka.tier == kb.tier {
+		ka.priority == kb.priority && ka.tier == kb.tier {
 		if before, differ := m.deadlineBefore(a.ID, b.ID, now); differ {
 			return before
 		}
 	}
 	if ka != kb {
 		return ka.before(kb)
+	}
+	if oldest {
+		return triageLessByAge(a, b)
 	}
 	return m.triageLessWithin(a, b, now)
 }
@@ -375,12 +372,6 @@ type triageKey struct {
 	// unmuted row, errored ones included: handing it over relaunches it, so it
 	// is the drain's last stop once nothing awake is left to steer.
 	hibernating bool
-	// asking is a session stopped on a question or permission dialog. It
-	// leads every other unmuted row whatever their priority: the agent is
-	// stalled this second, and a queue that ranks a finished urgent session
-	// above it can leave the question unreached for as long as the urgent
-	// work keeps finishing.
-	asking bool
 	// pastBackground is a session ranked below status.Background: working,
 	// starting, hibernating or dead. It sorts under every other row of its
 	// band whatever their priority: a background shell or a delegating parent
@@ -415,9 +406,6 @@ func (k triageKey) before(o triageKey) bool {
 	if k.band != o.band {
 		return k.band < o.band
 	}
-	if k.asking != o.asking {
-		return k.asking
-	}
 	if k.pastBackground != o.pastBackground {
 		return !k.pastBackground
 	}
@@ -447,14 +435,12 @@ func (m *Model) triageKeyOf(sess store.Session, now time.Time) triageKey {
 	}
 	if m.triageWalkable(sess) {
 		key.band = triageBandWalkable
-		// A low tier is the operator deferring the work on purpose, and a
-		// question there waits its tier's turn like everything else in it.
-		key.asking = m.triageStateOf(sess) == status.Waiting && !m.tierOf(sess).Deferred()
-		if m.smartTriage {
+		if m.triageOrder == triageOrderOldest {
+			key.band, key.tier, key.score = triageBandScored, 0, -triageScore(sess)
+		} else if m.smartTriage {
 			key.band, key.score = triageBandScored, triageScore(sess)
 			key.tier = m.triageScoredRank(sess)
 		}
-		key = m.orderTriageKey(key, sess)
 	}
 	return key
 }
@@ -530,7 +516,6 @@ func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string
 			// undo the operator deferring the whole branch.
 			if tier := m.tierOf(sess); tier.Deferred() {
 				k.priority = tier.Rank()
-				k.asking = false
 			}
 			if k.before(best) {
 				best, holder = k, kid
@@ -605,7 +590,7 @@ const (
 
 // storedSmartTriage reads whether triage orders newest turn first. On is
 // the default; "off" is the strict order triage had before it: every
-// question first, then every finished session, by state then tier then age.
+// question first within its priority, then by state and age.
 func storedSmartTriage(st *store.Store) bool {
 	chosen, err := st.Setting(smartTriageSetting)
 	return err != nil || chosen != "off"
@@ -860,7 +845,7 @@ func isSubagent(sess store.Session) bool {
 // finished turn. A newly idle session can wait for the next explicit pass.
 // With nothing to pick up the drain stays open, so a later arrival is picked up.
 func (m *Model) triagePickupCmd() tea.Cmd {
-	if !m.triageResume || !m.triage || m.mode != modeList || m.onReviewsTab() {
+	if !m.triageResume || !m.triage || !m.clearedYields() || m.onReviewsTab() {
 		return nil
 	}
 	if _, ready := m.reviewsSlot(nil); ready {
@@ -895,7 +880,7 @@ func (m *Model) enterTriageHead() tea.Cmd {
 }
 
 // advanceTriage hands over the next session or the Reviews tab. A nil command
-// means there was none; in triage the new-session prompt takes the keyboard.
+// means there was none; in triage the inbox-cleared pane takes the keyboard.
 //
 // A scoped queue that has run dry widens rather than stopping: the scope is
 // where the drain starts, not a promise that nothing else needs the operator,
@@ -925,10 +910,7 @@ func (m *Model) advanceTriage(leftID string) tea.Cmd {
 		m.triageScope = drained
 		m.rebuildRows()
 	}
-	m.openForm()
-	if m.mode == modeForm {
-		m.formFocus(fieldPrompt - m.form.focus)
-	}
+	m.openCleared()
 	return nil
 }
 

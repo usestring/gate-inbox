@@ -2,7 +2,7 @@
 # no editor in config.toml, no $EDITOR -- so Enter proves the terminal-editor
 # fallback hands over the screen and comes back to the same Settings card.
 
-Type "s"
+Ctrl+S
 Sleep 2s
 
 # Snippets is four rows above the first field through the wrapping cursor.

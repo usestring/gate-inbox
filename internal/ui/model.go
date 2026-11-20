@@ -87,6 +87,10 @@ const (
 	// modeHeadPane routes the keyboard into the page behind an extension's
 	// header row, drawn where a session's pane is. See headpane.go.
 	modeHeadPane
+	// modeCleared is the inbox-cleared pane: the list stays up and the
+	// content pane offers one prompt to launch the next session. See
+	// cleared.go.
+	modeCleared
 )
 
 type treeRow struct {
@@ -159,6 +163,9 @@ type Model struct {
 	jevFinish      jevFinishState
 	jevCopyOn      bool
 	jevCopy        jevCopyState
+	// nextStepOn is the Next step experiment; nextStep is what it remembers.
+	nextStepOn bool
+	nextStep   nextStepState
 	// reviewQueue is the Review queue experiment: off, the ingest key
 	// refuses and the rail draws no Reviews tab.
 	reviewQueue    bool
@@ -686,7 +693,11 @@ type Model struct {
 	jump          groupJump
 	search        string
 	searching     bool
-	panePicker    panePicker
+	// searchTitleOnly narrows the filter to what names a session (its name
+	// and generated title), dropping pane and transcript matches. Tab toggles
+	// it while the search field is open. See titlesearch.go.
+	searchTitleOnly bool
+	panePicker      panePicker
 	// triage mirrors the persisted status-ordered queue: the rail drops its
 	// group structure and sorts by what needs a person, and ctrl+q walks on
 	// to the next such session instead of returning to the list.
@@ -747,6 +758,7 @@ type Model struct {
 	heldAckID string
 
 	form      form
+	cleared   clearedState
 	agentPick agentPick
 	actions   quickActions
 	groupForm groupForm
@@ -1081,6 +1093,7 @@ type settingsState struct {
 	// piAutoMode is pi's auto mode (package piauto) as the JEV card holds it.
 	piAutoMode    bool
 	promptSuggest bool
+	nextStep      bool
 	reviewQueue   bool
 	ciFeedback    bool
 	arrowsStay    bool
@@ -1095,46 +1108,46 @@ type settingsState struct {
 }
 
 const (
-	settingsFieldTool = iota
+	settingsFieldHibernate = iota
+	settingsFieldLeave
+	settingsFieldReopenSessions
+	settingsFieldOutsidePanes
+	settingsFieldIdleSwitch
+	settingsFieldArchiveConfirm
+	settingsFieldDeleteConfirm
+	settingsFieldRestartConfirm
+	settingsFieldTool
 	settingsFieldAccountRouting
 	settingsFieldNewSessionAgent
+	settingsFieldConfirmLaunches
+	settingsFieldCLIs
+	settingsFieldClaudeSetup
+	settingsFieldRestartFlags
 	settingsFieldTheme
 	settingsFieldBackdrop
-	settingsFieldDensity
 	settingsFieldLayout
 	settingsFieldSidebar
+	settingsFieldDensity
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldRowDetail
 	settingsFieldWorkingActivity
-	settingsFieldPriorityScale
-	settingsFieldArchiveConfirm
-	settingsFieldDeleteConfirm
-	settingsFieldRestartConfirm
 	settingsFieldListSort
 	settingsFieldListConsistency
-	settingsFieldChrome
-	settingsFieldLeave
-	settingsFieldQuickClose
-	settingsFieldFocusKey
+	settingsFieldPriorityScale
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
 	settingsFieldTriageOrder
 	settingsFieldTriageContent
 	settingsFieldTriageKeepAlives
-	settingsFieldIdleSwitch
-	settingsFieldConfirmLaunches
-	settingsFieldReopenSessions
-	settingsFieldOutsidePanes
-	settingsFieldHibernate
-	settingsFieldClaudeSetup
+	settingsFieldChrome
+	settingsFieldFocusKey
+	settingsFieldQuickClose
+	settingsFieldSnippets
+	settingsFieldKeys
 	settingsFieldJev
 	settingsFieldExperimental
-	settingsFieldSnippets
-	settingsFieldRestartFlags
-	settingsFieldCLIs
 	settingsFieldGuide
-	settingsFieldKeys
 	settingsFieldVersion
 	settingsFieldCount
 )
@@ -1465,6 +1478,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		jevCopyOn:        storedJevCopy(st),
 		reviewQueue:      reviewQueue,
 		promptSuggest:    storedPromptSuggestions(st),
+		nextStepOn:       storedNextStep(st),
 		comfortableRows:  storedComfortableRows(st),
 		layout:           storedLayout(st),
 		sidebar:          storedSidebar(st, cfg.Board.Sidebar),
@@ -1703,12 +1717,6 @@ func (m *Model) syncPollInput() {
 		selectedID = sess.ID
 	}
 	m.poller.setInput(m.showArchived, selectedID)
-	m.poller.mu.Lock()
-	m.poller.jevFinishFocusedID = ""
-	if m.mode == modeFocus {
-		m.poller.jevFinishFocusedID = m.focusedID
-	}
-	m.poller.mu.Unlock()
 }
 
 // requestRefresh publishes the current UI state to the poller and asks
@@ -1823,8 +1831,7 @@ func (m *Model) searchedListedSessions() []store.Session {
 	}
 	matched := make([]store.Session, 0, len(listed))
 	for _, sess := range listed {
-		_, historyMatch := m.historyHit(sess)
-		if matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) || historyMatch {
+		if m.searchMatches(sess, query) {
 			matched = append(matched, sess)
 		}
 	}
@@ -2522,7 +2529,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.readConversation(), conversationTick(), m.startStartupTick())
 	case conversationMsg:
 		m.applyConversation(msg)
-		return m, m.scheduleAutoSuggestion()
+		return m, tea.Batch(m.scheduleAutoSuggestion(), m.scheduleNextStepLocal())
+	case nextStepLocalMsg:
+		m.applyNextStepLocal(msg)
+		return m, nil
 	case tokenUsageMsg:
 		m.applyTokenUsage(msg)
 		return m, nil
@@ -3095,7 +3105,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A click can select a session or leave focus, so the poller hears
 		// about it the same way it hears about a keystroke.
 		m.syncPollInput()
-		return model, tea.Batch(cmd, m.startActivityTick(), m.scheduleAutoSuggestion())
+		return model, tea.Batch(cmd, m.startActivityTick(), m.scheduleAutoSuggestion(), m.scheduleNextStepLocal())
 
 	case tea.KeyboardEnhancementsMsg:
 		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()
@@ -3112,7 +3122,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		model, cmd := m.handleKey(msg)
 		m.syncPollInput()
-		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
+		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev(), m.scheduleNextStepLocal())
 
 	case tea.PasteMsg:
 		if m.mode == modeSettings && m.settings.searching {
@@ -3142,6 +3152,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == modeFocus {
 			return m.handleFocusPaste(msg)
+		}
+		if m.mode == modeCleared {
+			return m, m.form.prompt.updateInput(msg)
 		}
 	}
 	return m, nil
@@ -3448,9 +3461,7 @@ func (m *Model) buildTree() {
 	// per-group slices inherit the user's manual order.
 	matched := make(map[string]bool, len(listed))
 	for _, sess := range listed {
-		if query == "" || matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) {
-			matched[sess.ID] = true
-		} else if _, ok := m.historyHit(sess); ok {
+		if query == "" || m.searchMatches(sess, query) {
 			matched[sess.ID] = true
 		}
 	}

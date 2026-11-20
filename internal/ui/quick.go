@@ -52,6 +52,14 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	if msg.String() == "ctrl+y" {
+		if model, cmd, handled := m.acceptNextStep(func(text string) (tea.Model, tea.Cmd) {
+			no := false
+			return m.sendSnippetToSelected(snippets.Snippet{Text: text, AutoSubmit: &no})
+		}); handled {
+			return model, cmd
+		}
+	}
 	if candidates := m.autoSuggestions(); len(candidates) > 0 {
 		if msg.String() == "ctrl+y" {
 			no := false
@@ -108,6 +116,14 @@ func (m *Model) handleFocusQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.canRescindLatestSubmission() {
 				return m.rescindLatestSubmission()
 			}
+		}
+	}
+	if msg.String() == "ctrl+y" {
+		if model, cmd, handled := m.acceptNextStep(func(text string) (tea.Model, tea.Cmd) {
+			no := false
+			return m.sendSnippetToFocused(snippets.Snippet{Text: text, AutoSubmit: &no})
+		}); handled {
+			return model, cmd
 		}
 	}
 	if candidates := m.autoSuggestions(); len(candidates) > 0 {

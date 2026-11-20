@@ -346,6 +346,15 @@ func (m *Model) resolvedLegend() []resolvedSection {
 		}
 		out = append(out, resolvedSection{title: section.title, rows: rows})
 	}
+	var badges []resolvedRow
+	for _, ext := range m.extUIs {
+		if ext.BadgeLabel != "" && ext.BadgeDetail != "" {
+			badges = append(badges, resolvedRow{key: ext.BadgeLabel, text: ext.BadgeDetail})
+		}
+	}
+	if len(badges) > 0 {
+		out = append(out, resolvedSection{title: "legend: extension badges", rows: badges})
+	}
 	return out
 }
 

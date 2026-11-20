@@ -50,9 +50,11 @@ type poller struct {
 	snippetRecipients sync.Map
 	// net reads whether the machine is online. Nil, as in every test that
 	// does not set one, reads online.
-	net           *netwatch.Watcher
-	store         *store.Store
-	tmux          *tmux.Driver
+	net   *netwatch.Watcher
+	store *store.Store
+	tmux  *tmux.Driver
+	// panes stands in for tmux where a test captures and keys panes.
+	panes         paneKeyer
 	engine        *status.Engine
 	hooks         *hooks.Manager
 	gitDrv        *git.Driver

@@ -62,6 +62,9 @@ type childDialogRelay struct {
 	// which holds every message to it; the relay's undelivered wait runs
 	// from then.
 	heldUntil time.Time
+	// questions are the relayed dialog's questions, so a parent's own
+	// dialog asking one of them is withdrawn once the child's clears.
+	questions []dialog.Question
 }
 
 func later(a, b time.Time) time.Time {
@@ -76,8 +79,9 @@ func later(a, b time.Time) time.Time {
 // up on one that stands.
 func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, now time.Time) error {
 	if newStatus != status.Waiting {
+		relay := p.childDialogs[sess.ID]
 		delete(p.childDialogs, sess.ID)
-		return nil
+		return p.childDialogCleared(sess, relay, now)
 	}
 	if pane == "" {
 		return nil
@@ -92,7 +96,12 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 	}
 	relay := p.childDialogs[sess.ID]
 	if relay == nil || relay.key != key {
-		relay = &childDialogRelay{key: key}
+		// A child that went straight from one question to the next has
+		// cleared the first, so the parent's copy of it is withdrawn too.
+		if err := p.childDialogCleared(sess, relay, now); err != nil {
+			return err
+		}
+		relay = &childDialogRelay{key: key, questions: childDialogQuestions(sess, pane, p.pendingAskFile(sess))}
 		p.childDialogs[sess.ID] = relay
 		return p.sendChildDialog(sess, parent, relay, body, urgent, now)
 	}
@@ -399,6 +408,8 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 		} else {
 			out.WriteString(" It submits the dialog once every question has an answer.")
 		}
+		out.WriteString(" Your user may answer it at the child's pane or on the board first: if the child " +
+			"moves on, Gate Inbox dismisses your matching question and tells you, so never ask it twice.")
 	}
 	if len(multi) > 0 {
 		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select: give its answers entry ticks, the labels of every "+

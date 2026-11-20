@@ -131,7 +131,9 @@ func ToolName(req Request) string {
 // plugin:<plugin>:<server>; either way it then spells the server and the tool
 // with each character outside [A-Za-z0-9_-] as an underscore, so a plugin
 // server's tools are mcp__plugin_<plugin>_<server>__<tool>. The board's own
-// plugin server keeps the name its grants and rules use, mcp__gate-inbox__.
+// plugin server keeps the name its grants and rules use, mcp__gate-inbox__,
+// and a server the board took from the operator's Claude Code config
+// (piext.ClaudeMCPPlugin) keeps the name it has there.
 func claudeMCPName(server, tool string) string {
 	if server == "" || tool == "" {
 		return ""
@@ -139,7 +141,9 @@ func claudeMCPName(server, tool string) string {
 	if server == piext.OmpServer {
 		return "mcp__gate-inbox__" + tool
 	}
-	if strings.Contains(server, ":") {
+	if name, ok := piext.ClaudeMCPServer(server); ok {
+		server = name
+	} else if strings.Contains(server, ":") {
 		server = "plugin:" + server
 	}
 	return "mcp__" + claudeMCPPart(server) + "__" + claudeMCPPart(tool)

@@ -26,6 +26,12 @@ var source []byte
 // of the session's own.
 const MCPConfigEnv = "GATE_INBOX_MCP_CONFIG"
 
+// ClaudeMCPEnv names, in a pi launch's environment, the mcpServers file
+// (ClaudeMCPConfig) of the operator's own Claude Code MCP servers that the
+// extension registers beside the board's. Only the path rides the
+// environment; the file is in the key directory.
+const ClaudeMCPEnv = "GATE_INBOX_CLAUDE_MCP_CONFIG"
+
 // PluginDirEnv names, in a pi launch's environment, the board's Claude Code
 // plugin directory (package claudeplugin). The extension offers its
 // skills/ to pi and turns each commands/*.md into a pi command, so a pi

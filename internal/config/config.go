@@ -224,7 +224,12 @@ type Tool struct {
 	// the board's pi extension wraps it in; "" and "on" keep it. Any other
 	// value keeps it too and makes every command ask. Only read for a tool
 	// whose status_source is pi's (see internal/piext).
-	Sandbox        string `toml:"sandbox"`
+	Sandbox string `toml:"sandbox"`
+	// MCPServers picks the MCP servers a pi-hooks tool's sessions get beside
+	// the board's own: "" or "claude" gives them the servers a Claude Code
+	// session in the same directory would connect to (package claudemcp),
+	// "off" gives them none.
+	MCPServers     string `toml:"mcp_servers"`
 	DefaultStatus  string `toml:"default_status"`
 	ActivityCutoff string `toml:"activity_cutoff"`
 	// InputLine is the marker a tool draws at the start of the row its

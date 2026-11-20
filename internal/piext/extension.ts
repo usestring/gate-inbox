@@ -148,22 +148,64 @@ type McpServerConfig = Parameters<ExtensionAPI["registerMcpServer"]>[1];
 const mcpConfigFile = process.env.GATE_INBOX_MCP_CONFIG ?? "";
 
 // boardServerConfig turns the launch's mcpServers entry into what
-// pi.registerMcpServer takes. The shapes match but for the timeout, which
-// Claude Code reads in milliseconds and pi in seconds. Every tool is
-// declared to the model directly, as Claude Code declares them.
+// pi.registerMcpServer takes.
 function boardServerConfig(): McpServerConfig {
   const parsed = JSON.parse(readFileSync(mcpConfigFile, "utf8")) as {
     mcpServers?: Record<string, ClaudeServerEntry>;
   };
   const entry = parsed.mcpServers?.[mcpServer];
   if (!entry) throw new Error(`${mcpConfigFile} has no ${mcpServer} server`);
-  const shared = { exposure: "direct", description: "Gate Inbox board: sessions, status, permissions" } as const;
+  return piServerConfig(mcpServer, entry, "Gate Inbox board: sessions, status, permissions");
+}
+
+// piServerConfig turns a Claude Code mcpServers entry into what
+// pi.registerMcpServer takes. The shapes match but for the timeout, which
+// Claude Code reads in milliseconds and pi in seconds. Every tool is
+// declared to the model directly, as Claude Code declares them, so each call
+// reaches the board's gate by name.
+function piServerConfig(name: string, entry: ClaudeServerEntry, description: string): McpServerConfig {
+  const shared = { exposure: "direct", description } as const;
   if (entry.url) {
     const timeout = entry.timeout ? Math.ceil(entry.timeout / 1000) : undefined;
     return { ...shared, url: entry.url, headers: entry.headers, timeout };
   }
-  if (!entry.command) throw new Error(`${mcpConfigFile}: the ${mcpServer} server has neither url nor command`);
-  return { ...shared, command: entry.command, args: entry.args, env: entry.env };
+  if (!entry.command) throw new Error(`the ${name} server has neither url nor command`);
+  return { ...shared, command: entry.command, args: entry.args, env: entry.env, cwd: entry.cwd };
+}
+
+// claudeMCPFile holds the MCP servers a Claude Code session in this
+// session's directory would connect to (Go: piext.ClaudeMCPEnv), less the
+// board's own. It sits in the board's key directory, since an entry can
+// carry a credential; this process reads it, and the model's tools cannot.
+const claudeMCPFile = process.env.GATE_INBOX_CLAUDE_MCP_CONFIG ?? "";
+
+// claudeMCPPrefixes maps the prefix pi gives a registered Claude Code
+// server's tools, mcp__<server>__ with every character outside
+// [A-Za-z0-9_] an underscore, back to the server's own name, so the gate
+// decides its calls under the names Claude Code's rules use
+// (mcp__string-web-access__web_access_fetch, not mcp__string_web_access__...).
+const claudeMCPPrefixes = new Map<string, string>();
+
+// registerClaudeServers registers every server in claudeMCPFile and returns
+// what could not be registered, one line each.
+function registerClaudeServers(pi: ExtensionAPI): string[] {
+  let servers: Record<string, ClaudeServerEntry> = {};
+  try {
+    servers = (JSON.parse(readFileSync(claudeMCPFile, "utf8")) as { mcpServers?: Record<string, ClaudeServerEntry> })
+      .mcpServers ?? {};
+  } catch (err) {
+    return [`${claudeMCPFile}: ${err instanceof Error ? err.message : String(err)}`];
+  }
+  const failed: string[] = [];
+  for (const [name, entry] of Object.entries(servers)) {
+    try {
+      pi.registerMcpServer(name, piServerConfig(name, entry, `${name} (from your Claude Code MCP servers)`));
+      claudeMCPPrefixes.set(`mcp__${name.replace(/[^A-Za-z0-9_]/g, "_")}__`, name);
+    } catch (err) {
+      failed.push(`${name}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return failed;
 }
 
 // ClaudeServerEntry is the part of a Claude Code mcpServers entry the
@@ -175,6 +217,7 @@ type ClaudeServerEntry = {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  cwd?: string;
 };
 
 // overridingConfigs names the pi config files that define a server under
@@ -208,6 +251,7 @@ function boardTools(pi: ExtensionAPI) {
       registerError = err instanceof Error ? err.message : String(err);
     }
   }
+  const claudeErrors = claudeMCPFile && onPi ? registerClaudeServers(pi) : [];
 
   // Fetched once a session: the text is the board's, fixed for the build.
   let steering = "";
@@ -218,6 +262,9 @@ function boardTools(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     if (registerError) {
       ctx.ui.notify(`Gate Inbox: the board's MCP tools are not registered: ${registerError}`, "error");
+    }
+    if (claudeErrors.length > 0) {
+      ctx.ui.notify(`Gate Inbox: some of your Claude Code MCP servers are not registered: ${claudeErrors.join("; ")}`, "warning");
     }
     const overrides = onPi ? overridingConfigs(ctx.cwd) : [];
     if (overrides.length > 0) {
@@ -443,6 +490,20 @@ function boardSkills(pi: ExtensionAPI) {
 // so their bash is omp's own.
 const ompWithheld = new Set(["ask", "eval", "task"]);
 
+// ompActiveTools makes omp's active tools the active ones plus every MCP
+// tool registered so far, less ompWithheld, and leaves them alone when that
+// is what they already are.
+async function ompActiveTools(pi: ExtensionAPI) {
+  const active = pi.getActiveTools();
+  const mcp = pi
+    .getAllTools()
+    .map((t) => t.name)
+    .filter((name) => name.startsWith("mcp__"));
+  const want = [...new Set([...active, ...mcp])].filter((name) => !ompWithheld.has(name));
+  if (want.length === active.length && want.every((name) => active.includes(name))) return;
+  await pi.setActiveTools(want);
+}
+
 export default function gateInbox(pi: ExtensionAPI) {
   if (!bin || !statusFile) return;
   onPi = typeof (pi as { registerMcpServer?: unknown }).registerMcpServer === "function";
@@ -453,8 +514,15 @@ export default function gateInbox(pi: ExtensionAPI) {
   sandboxedBash(pi);
 
   pi.on("session_start", async (event, ctx) => {
-    if (!onPi) await pi.setActiveTools(pi.getActiveTools().filter((name) => !ompWithheld.has(name)));
+    if (!onPi) await ompActiveTools(pi);
     await report("session_start", { reason: event.reason, cwd: ctx.cwd, session_id: ctx.sessionManager.getSessionId() });
+  });
+  // Again before every run, for the MCP servers that connected since: once
+  // an extension has set omp's active tools, omp stops turning on the tools
+  // of a server that connects later, which left a slower server's tools (an
+  // http one's, or the board's own) out of the session.
+  pi.on("before_agent_start", async () => {
+    if (!onPi) await ompActiveTools(pi);
   });
   pi.on("agent_start", async () => {
     await report("agent_start");
@@ -529,7 +597,7 @@ function registerToolGate(pi: ExtensionAPI) {
       // omp's name for an MCP tool joins server and tool with one
       // underscore, which the gate cannot split back; its registration
       // names both, and the gate decides the call under Claude Code's name.
-      ...mcpOrigin(tool),
+      ...mcpOrigin(tool, event.toolName),
       ...userMessages(ctx.sessionManager.getBranch()),
     });
     if (ctx.signal?.aborted) return { block: true, reason: "cancelled" };
@@ -541,12 +609,22 @@ function registerToolGate(pi: ExtensionAPI) {
   });
 }
 
-// mcpOrigin is the server and tool an omp MCP tool's registration names, as
-// the gate reads them, or nothing for any other tool.
-function mcpOrigin(tool: unknown): { mcp_server?: string; mcp_tool?: string } {
+// mcpOrigin is the server and tool an MCP tool's registration names, as the
+// gate reads them: omp's for every MCP tool, the extension's own for a pi
+// session's Claude Code servers; nothing for any other tool.
+function mcpOrigin(tool: unknown, name: string): { mcp_server?: string; mcp_tool?: string } {
   const t = tool as { mcpServerName?: unknown; mcpToolName?: unknown } | undefined;
-  if (typeof t?.mcpServerName !== "string" || typeof t?.mcpToolName !== "string") return {};
-  return { mcp_server: t.mcpServerName, mcp_tool: t.mcpToolName };
+  if (typeof t?.mcpServerName === "string" && typeof t?.mcpToolName === "string") {
+    return { mcp_server: t.mcpServerName, mcp_tool: t.mcpToolName };
+  }
+  // pi's name for a Claude Code server's tool lost the server's spelling;
+  // the registration above kept it. The longest prefix wins, so server a's
+  // prefix never claims a tool of server a__b.
+  let match = "";
+  for (const prefix of claudeMCPPrefixes.keys()) {
+    if (name.startsWith(prefix) && prefix.length > match.length) match = prefix;
+  }
+  return match ? { mcp_server: claudeMCPPrefixes.get(match), mcp_tool: name.slice(match.length) } : {};
 }
 
 // userMessages is the session's first user message and its latest three,

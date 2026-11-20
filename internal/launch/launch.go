@@ -21,6 +21,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/classifier"
+	"github.com/usestring/gate-inbox/internal/claudemcp"
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -830,8 +831,12 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		if command, env, err = withPiExtension(manager, command, env, id, profile, sharedConfig, skip, write, omp); err != nil {
 			return "", nil, err
 		}
-		if id != "" && piAutoModeWanted(tool) {
-			command = withAutoModeToken(id, command)
+		claudeMCP := id != "" && piClaudeMCPWanted(tool)
+		if claudeMCP {
+			command, env = withClaudeMCP(manager.ConfigDir(), command, env, id, omp)
+		}
+		if autoMode := id != "" && piAutoModeWanted(tool); autoMode || claudeMCP {
+			command = withPrelude(id, autoMode, claudeMCP, command)
 		}
 		return command, env, nil
 	}
@@ -845,9 +850,6 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		}
 		if tool.Shell {
 			command = "exec " + command
-		}
-		if pi && id != "" && piAutoModeWanted(tool) {
-			command = withAutoModeToken(id, command)
 		}
 		return command, env, nil
 	}
@@ -968,22 +970,77 @@ func piAutoModeWanted(tool config.Tool) bool {
 	return !strings.EqualFold(strings.TrimSpace(tool.AutoMode), "off")
 }
 
-// AutoModeTokenVerb is the gate-inbox verb a pi pane with auto mode on runs
-// first: it writes the session's token (WriteAutoModeConfig), then execs the
-// pi command.
+// piClaudeMCPWanted reports whether a pi tool's sessions get the operator's
+// Claude Code MCP servers (config.Tool.MCPServers).
+func piClaudeMCPWanted(tool config.Tool) bool {
+	return !strings.EqualFold(strings.TrimSpace(tool.MCPServers), "off")
+}
+
+// withClaudeMCP gives a pi or omp launch the MCP servers a Claude Code
+// session in its directory would connect to. The pane's prelude reads them
+// (WriteClaudeMCP), since only the pane starts in the session's directory;
+// the launch names where they will be. Pi's extension registers them from
+// that file (piext.ClaudeMCPEnv); omp loads the directory as a plugin.
+func withClaudeMCP(configDir, command string, env map[string]string, id string, omp bool) (string, map[string]string) {
+	keyDir := parentseal.KeyDir(configDir)
+	env[piext.ClaudeMCPEnv] = piext.ClaudeMCPConfig(keyDir, id)
+	if omp {
+		command += " " + piext.OmpPluginArgv(tmux.ShellQuote(piext.ClaudeMCPDir(keyDir, id)))
+	}
+	return command, env
+}
+
+// WriteClaudeMCP writes session id's servers from the operator's Claude Code
+// config for a session in dir, less the board's own, which the launch
+// supplies with the session's token. A config it cannot read leaves the
+// session with the board's server only, so a failure here is not a failed
+// launch.
+func WriteClaudeMCP(configDir, id, home, dir string) {
+	if !extension.ValidSessionID(id) {
+		return
+	}
+	servers, err := claudemcp.Read(home, dir, []string{mcpreg.ServerName}, os.LookupEnv)
+	if err != nil {
+		logging.Warn("pi: could not read the Claude Code MCP servers", logging.Err(err))
+	}
+	if err := piext.WriteClaudeMCP(parentseal.KeyDir(configDir), id, servers); err != nil {
+		logging.Warn("pi: could not write the session's Claude Code MCP servers", logging.Err(err))
+	}
+}
+
+// PreludeVerb is the gate-inbox verb a pi pane runs first: it writes the
+// session's auto-mode token (WriteAutoModeConfig) and its Claude Code MCP
+// servers (WriteClaudeMCP), as its flags ask, then execs the pi command.
+const PreludeVerb = "pi-prelude"
+
+// AutoModeTokenVerb is the prelude's older name, which writes the auto-mode
+// token only; a pane composed before the prelude still runs it.
 const AutoModeTokenVerb = "pi-auto-mode-token"
 
-// withAutoModeToken has a pi pane write its own auto-mode token before pi
-// starts. The process composing the launch may be unable to: a session that
-// a confined session (a pi parent's own MCP server) creates is composed
-// inside that confinement, where the key dir is hidden. The pane is the tmux
-// server's child, never the composer's, so it can still see the key dir;
-// and the file must exist before pi's own confinement starts, which binds
-// only the files already there. A confinement wrapper goes inside this, not
-// around it.
-func withAutoModeToken(id, command string) string {
-	return tmux.ShellQuote(Executable()) + " " + AutoModeTokenVerb + " " + tmux.ShellQuote(id) +
-		" -- /bin/sh -c " + tmux.ShellQuote(command)
+// Prelude flags.
+const (
+	PreludeAutoMode  = "--auto-mode"
+	PreludeClaudeMCP = "--claude-mcp"
+)
+
+// withPrelude has a pi pane write its own files before pi starts. The
+// process composing the launch may be unable to: a session that a confined
+// session (a pi parent's own MCP server) creates is composed inside that
+// confinement, where the key dir is hidden. The pane is the tmux server's
+// child, never the composer's, so it can still see the key dir; and the file
+// must exist before pi's own confinement starts, which binds only the files
+// already there. The pane also starts in the session's directory, which the
+// Claude Code MCP servers are read for. A confinement wrapper goes inside
+// this, not around it.
+func withPrelude(id string, autoMode, claudeMCP bool, command string) string {
+	verb := tmux.ShellQuote(Executable()) + " " + PreludeVerb + " " + tmux.ShellQuote(id)
+	if autoMode {
+		verb += " " + PreludeAutoMode
+	}
+	if claudeMCP {
+		verb += " " + PreludeClaudeMCP
+	}
+	return verb + " -- /bin/sh -c " + tmux.ShellQuote(command)
 }
 
 // WriteAutoModeConfig gives a pi session the token its hook proves itself

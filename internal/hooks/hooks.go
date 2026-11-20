@@ -211,7 +211,8 @@ func stopFailureCommand() string {
 // repository that moved, and a session ending outside a git tree is
 // normal, not an error.
 func sessionEndCommand() string {
-	return statusFileVar + `[ -z "$f" ] || rm -f "$f" "$f` + AttestPendingSuffix + `" "$f` + SandboxStaleSuffix + `"; ` +
+	return statusFileVar + `[ -z "$f" ] || rm -f "$f" "$f` + AttestPendingSuffix + `" "$f` + SandboxStaleSuffix +
+		`" "$f` + ChildSegmentStampSuffix + `" "$f` + ChildNudgeSuffix + `"; ` +
 		`git rev-parse --git-dir >/dev/null 2>&1 && { git worktree prune >/dev/null 2>&1; ` +
 		`git submodule --quiet foreach --recursive 'git worktree prune >/dev/null 2>&1 || true' >/dev/null 2>&1; }; ` +
 		`exit 0`
@@ -738,7 +739,43 @@ func (m *Manager) RemoveExitIfUnchanged(id string, at time.Time) error {
 }
 
 func (m *Manager) Remove(id string) error {
-	return removeIfExists(m.StatusFile(id))
+	status := m.StatusFile(id)
+	for _, suffix := range statusSiblings {
+		if err := removeIfExists(status + suffix); err != nil {
+			return err
+		}
+	}
+	return removeIfExists(status)
+}
+
+// StatusSiblingLifetime is how long a marker outlives its status log before
+// SweepStatusSiblings takes it. Nothing reads one without the log, and a
+// day keeps clear of a log being rewritten.
+const StatusSiblingLifetime = 24 * time.Hour
+
+// SweepStatusSiblings drops the markers of sessions whose status log is
+// gone, which a session that ended before its SessionEnd removed them, or
+// was never given the chance, leaves behind.
+func (m *Manager) SweepStatusSiblings(now time.Time) error {
+	for _, suffix := range statusSiblings {
+		paths, err := filepath.Glob(filepath.Join(m.dir, "*"+suffix))
+		if err != nil {
+			return err
+		}
+		for _, path := range paths {
+			if _, err := os.Stat(strings.TrimSuffix(path, suffix)); err == nil || !errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			info, err := os.Stat(path)
+			if err != nil || now.Sub(info.ModTime()) < StatusSiblingLifetime {
+				continue
+			}
+			if err := removeIfExists(path); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // PendingAskFile is where the ask-pending hook keeps the AskUserQuestion

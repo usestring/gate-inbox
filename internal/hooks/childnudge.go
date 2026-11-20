@@ -12,6 +12,17 @@ func ChildDialogsCommand() string {
 // time is the last refresh ThrottledChildDialogsCommand let through.
 const ChildSegmentStampSuffix = ".child-seg"
 
+// ChildNudgeSuffix names the file beside a session's status log listing the
+// child dialogs it has been shown (sessioncmd.ChildNudgeHook).
+const ChildNudgeSuffix = ".child-nudged"
+
+// statusSiblings are the per-session markers that only mean something while
+// the session's status log does: a throttle stamp and a ledger of what the
+// session was told. They go with the log, at SessionEnd and when the board
+// drops a dead session's log. Before they did, one machine held 656 stamps
+// for 84 status logs.
+var statusSiblings = []string{ChildSegmentStampSuffix, ChildNudgeSuffix}
+
 // ThrottledChildDialogsCommand is ChildDialogsCommand at most once a minute,
 // for an event as frequent as PostToolUse: the shell checks the stamp's age
 // before starting the binary, so the calls it skips cost a find and nothing

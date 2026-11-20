@@ -517,6 +517,9 @@ func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config
 	if err := manager.SweepNameResults(time.Now()); err != nil {
 		return "", nil, err
 	}
+	if err := manager.SweepStatusSiblings(time.Now()); err != nil {
+		logging.Warn("could not sweep stale hook markers", logging.Err(err))
+	}
 	// A session kept out of the key directory is shown only the files there
 	// that exist when it starts, so the public key its hook checks seals with
 	// has to exist first. A launch from inside such a session cannot mint it,

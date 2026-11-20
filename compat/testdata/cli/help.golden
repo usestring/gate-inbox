@@ -38,8 +38,8 @@ Agent sessions
       move another session onto a named account, or back to its CLI's own login with no --account, when its account is spent or nearly so; restarts it, so use it on a session at rest, never your own
   gate-inbox archive <session-id> [--restore] [--json]
       file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days
-  gate-inbox mute <session-id> [--for <duration> | --until <time> | --off] [--json]
-      keep a session out of triage until it is unmuted: the row stays on the list and reads muted, and --off puts it back; --for <duration> or --until <time> makes it a snooze, which lifts on its own then, or sooner if the session stops on a dialog or errors
+  gate-inbox mute <session-id> [--off] [--json]
+      keep a session out of triage until it is unmuted: the row stays on the list and reads muted, and --off puts it back
   gate-inbox cleanup-children [--status <state>] [--all] [--dry-run] [--json]
       archive the sessions you spawned that are done, each with whatever it spawned: finished, idle and dead by default, --status to choose, --all for every one; a finished child you have read is archived on its own after a grace period anyway
   gate-inbox park [--dry-run] [--json]

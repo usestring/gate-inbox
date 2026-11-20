@@ -65,7 +65,7 @@
 # dismiss             = ["alt+."]  # skip
 # priority            = ["ctrl+p"]  # cycle priority: high → medium → low → none (tiers set in Settings)
 # mute                = ["ctrl+m"]  # mute / unmute: keep it out of triage until unmuted
-# snooze              = ["alt+z"]  # snooze: mute it for 1h → 4h → 1d → off, or until it asks or errors
+# snooze              = ["ctrl+alt+z"]  # snooze: mute it for 1h → 4h → 1d → off, or until it asks or errors
 # unmute_all          = ["alt+m"]  # unmute every muted session listed
 # quick_prompt        = ["ctrl+z"]  # hotkey menu
 # rename_from_agent   = ["ctrl+alt+r"]  # rename it after its conversation
@@ -111,7 +111,7 @@
 # archive             = ["ctrl+x"]  # kill it, asking first
 # priority            = ["ctrl+p"]  # cycle priority: high → medium → low → none (tiers set in Settings)
 # mute                = ["ctrl+m"]  # mute / unmute: keep it out of triage until unmuted
-# snooze              = ["alt+z"]  # snooze: mute it for 1h → 4h → 1d → off, or until it asks or errors
+# snooze              = ["ctrl+alt+z"]  # snooze: mute it for 1h → 4h → 1d → off, or until it asks or errors
 # unmute_all          = ["alt+m"]  # unmute every muted session listed
 # restore_all         = ["alt+d"]  # restore every dead session listed
 # help                = ["ctrl+h"]  # this key map

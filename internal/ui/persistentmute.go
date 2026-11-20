@@ -57,7 +57,7 @@ func nextSnooze(sess store.Session, now time.Time) time.Duration {
 // walk: an hour, four, a day, then unmuted.
 func (m *Model) cycleSnoozeSelected() (tea.Model, tea.Cmd) {
 	sess, ok := m.selected()
-	if !ok || sess.Archived {
+	if !ok || sess.Archived || !m.snoozeOn {
 		return m, nil
 	}
 	now := time.Now()

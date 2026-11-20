@@ -1,6 +1,8 @@
 package sessioncmd
 
 import (
+	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +73,9 @@ func TestSnoozeStoresTheEndAndRefusesOneInThePast(t *testing.T) {
 		t.Fatalf("create target: %v", err)
 	}
 	until := time.Now().Add(4 * time.Hour)
+	if err := h.store.SetSetting(store.SnoozeSetting, "on"); err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := h.sessions.Snooze(h.caller.ID, target.ID, until)
 	if err != nil {
@@ -95,6 +100,42 @@ func TestSnoozeStoresTheEndAndRefusesOneInThePast(t *testing.T) {
 	}
 	if stored, err := h.store.Get(target.ID); err != nil || stored.Muted {
 		t.Fatalf("the refused snooze muted the row: %+v err=%v", stored, err)
+	}
+}
+
+// Timed snooze ships off: the command layer reports it off, and a snooze
+// asked for anyway is refused without touching the row.
+func TestSnoozeIsRefusedWhileTheExperimentIsOff(t *testing.T) {
+	h := newSessionHarness(t)
+	target := store.Session{ID: "beef9abc", Name: "target", Tool: "echoer", Cwd: t.TempDir(), Status: status.Working}
+	if err := h.store.CreateSession(target); err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+	if h.sessions.SnoozeEnabled() {
+		t.Fatal("SnoozeEnabled is true in a fresh home")
+	}
+	if _, err := h.sessions.Snooze(h.caller.ID, target.ID, time.Now().Add(time.Hour)); !errors.Is(err, store.ErrSnoozeOff) {
+		t.Fatalf("snooze while off: err = %v, want ErrSnoozeOff", err)
+	}
+	if stored, err := h.store.Get(target.ID); err != nil || stored.Muted || !stored.MutedUntil.IsZero() {
+		t.Fatalf("the refused snooze reached the row: %+v err=%v", stored, err)
+	}
+	if err := h.store.SetSetting(store.SnoozeSetting, "on"); err != nil {
+		t.Fatal(err)
+	}
+	if !h.sessions.SnoozeEnabled() {
+		t.Fatal("SnoozeEnabled is false with the experiment on")
+	}
+}
+
+// A home with no board yet reads as off, and asking creates no state file.
+func TestSnoozeEnabledCreatesNothingInAnEmptyHome(t *testing.T) {
+	dir := t.TempDir()
+	if NewSessions(dir, CLIVocabulary()).SnoozeEnabled() {
+		t.Fatal("SnoozeEnabled is true with no state database")
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Fatalf("asking left %v in the home (err %v)", entries, err)
 	}
 }
 

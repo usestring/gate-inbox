@@ -216,6 +216,7 @@ func (m *Model) openSettings() {
 		reviewQueue:          m.reviewQueue,
 		ciFeedback:           storedExperiment(m.store, store.CIFeedbackSetting),
 		arrowsStay:           m.arrowsStay,
+		snoozeOn:             m.snoozeOn,
 		backdropSync:         storedBackdrop(m.store) == backdropSync,
 	}
 	m.settings.search.Prompt = ""
@@ -581,6 +582,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.idleSwitch = m.settings.idleSwitch
 	m.focusOnEnter = m.settings.enterFocuses
 	m.arrowsStay = storedArrowsStay(m.store)
+	m.snoozeOn = m.store.SnoozeEnabled()
 	m.focusView = storedFocusView(m.store)
 	m.comfortableRows = m.settings.comfortableRows
 	m.layout = normalizeLayout(m.settings.layout)

@@ -46,17 +46,21 @@ func (s *Sessions) Mute(sessionID, targetID string, muted bool) (mutedSession Se
 // permission dialog or errors, since either needs the operator in a way it
 // did not when they set it aside. A finished turn does not lift it: sitting
 // out the turns in between is what a snooze is for. It replaces whatever
-// mute or snooze the session already has.
+// mute or snooze the session already has. It is the Timed snooze
+// experiment, and refuses while that is off.
 func (s *Sessions) Snooze(sessionID, targetID string, until time.Time) (snoozed Session, err error) {
 	defer start("sessioncmd.snooze", sessionAttr(targetID)).done(&err)
-	if !until.After(time.Now()) {
-		return Session{}, fmt.Errorf("a snooze has to end in the future, and %s has passed", until.Format(time.RFC3339))
-	}
 	runtime, err := s.open()
 	if err != nil {
 		return Session{}, err
 	}
 	defer runtime.store.Close()
+	if !runtime.store.SnoozeEnabled() {
+		return Session{}, store.ErrSnoozeOff
+	}
+	if !until.After(time.Now()) {
+		return Session{}, fmt.Errorf("a snooze has to end in the future, and %s has passed", until.Format(time.RFC3339))
+	}
 	if _, err := runtime.caller(sessionID); err != nil {
 		return Session{}, err
 	}
@@ -69,6 +73,19 @@ func (s *Sessions) Snooze(sessionID, targetID string, until time.Time) (snoozed 
 	}
 	target.Muted, target.MutedUntil = true, until
 	return runtime.currentInfo(target, target.ID == sessionID), nil
+}
+
+// SnoozeEnabled reports whether the Timed snooze experiment is on, which is
+// what decides whether the mute command and tool offer a snooze at all. It
+// reads the state database without opening it for writing, so asking from a
+// home with no board yet creates nothing, and that home reads as off.
+func (s *Sessions) SnoozeEnabled() bool {
+	st, err := store.OpenReadOnly(s.statePath())
+	if err != nil {
+		return false
+	}
+	defer st.Close()
+	return st.SnoozeEnabled()
 }
 
 // snoozeEnd is a row's snooze end as the tools report it, empty for a row

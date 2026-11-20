@@ -193,15 +193,11 @@ usage: gate-inbox archive <session-id> [--restore] [--json]
 $ gate-inbox mute -h
 exit 0
 --- stdout
-usage: gate-inbox mute <session-id> [--for <duration> | --until <time> | --off] [--json]
-  -for string
-    	snooze: mute for this long, such as 90m, 4h or 2d, then put it back in triage
+usage: gate-inbox mute <session-id> [--off] [--json]
   -json
     	print the raw result as JSON instead of a sentence
   -off
     	unmute the session, putting it back in triage
-  -until string
-    	snooze: mute until this time, written 15:04, 2006-01-02, 2006-01-02 15:04 or RFC3339
 
 $ gate-inbox cleanup-children -h
 exit 0

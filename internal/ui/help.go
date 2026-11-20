@@ -272,7 +272,7 @@ func (m *Model) helpCatalog() []helpSection {
 	if section, ok := m.extensionHelpSection(); ok {
 		catalog = append(catalog, section)
 	}
-	catalog = append(catalog, helpSections()...)
+	catalog = append(catalog, m.withoutHiddenExperiments(helpSections())...)
 	catalog = append(catalog, m.extensionHelpSections()...)
 	return append(catalog, m.snippetHelpSection(), m.launchSnippetHelpSection())
 }

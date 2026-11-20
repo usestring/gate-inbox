@@ -148,6 +148,15 @@ type archiveSessionArgs struct {
 type muteSessionArgs struct {
 	SessionID string `json:"session_id" jsonschema:"session id returned by list_sessions"`
 	Muted     *bool  `json:"muted,omitempty" jsonschema:"true keeps the session out of the user's triage queue until it is unmuted, false puts it back; defaults to true"`
+}
+
+// snoozeSessionArgs is mute_session's input while the Timed snooze
+// experiment is on: muteSessionArgs plus the two ways of giving a snooze an
+// end. Off, the tool is registered over muteSessionArgs, so its schema
+// offers no snooze at all.
+type snoozeSessionArgs struct {
+	SessionID string `json:"session_id" jsonschema:"session id returned by list_sessions"`
+	Muted     *bool  `json:"muted,omitempty" jsonschema:"true keeps the session out of the user's triage queue until it is unmuted, false puts it back; defaults to true"`
 	For       string `json:"for,omitempty" jsonschema:"snooze: mute for this long, such as 90m, 4h or 2d, then put the session back in the queue; it comes back sooner if it stops on a dialog or errors. Give this or until, not both, and neither with muted false"`
 	Until     string `json:"until,omitempty" jsonschema:"snooze: mute until this time, written 15:04 (the next time the clock reads it), 2006-01-02, 2006-01-02 15:04 or RFC3339; local time unless it carries a zone"`
 }
@@ -322,6 +331,7 @@ type sessionCommands interface {
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
 	Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error)
 	Snooze(sessionID, targetID string, until time.Time) (sessioncmd.Session, error)
+	SnoozeEnabled() bool
 	Tasks(sessionID string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error)
 	CreateTask(sessionID string, spec sessioncmd.TaskSpec) (sessioncmd.Task, error)
 	AssignTask(sessionID, taskID, assignee string) (sessioncmd.Task, error)
@@ -956,37 +966,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		return mcptool.Text(sessioncmd.FormatArchiveState(updated)), updated, nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name: "mute_session",
-		Description: "Keep a session out of the user's triage queue until it is unmuted, or put it back with muted false. " +
-			"A muted session is not hidden from the list: its row stays, reading muted, but the user's triage queue never hands it over and the attention walk skips it. " +
-			"Pass for or until to snooze instead: a mute with an end, after which the session is back in the queue on its own. A snooze also ends early when the session stops on a question or permission dialog or errors, and not when it merely finishes a turn; its row reads when it comes back. " +
-			"Use it for a session the user has said is not theirs to act on right now -- a long background job, work parked on an external wait -- rather than for one that is merely finished, which will leave the queue on its own. " +
-			"The flag is the user's own; do not mute a session they are waiting on.",
-		Annotations: mcptool.Annotations(false, false, false),
-	}, func(ctx context.Context, req *mcp.CallToolRequest, args muteSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		muted := true
-		if args.Muted != nil {
-			muted = *args.Muted
-		}
-		end, err := sessioncmd.ParseSnoozeEnd(args.For, args.Until, time.Now())
-		if err != nil {
-			return nil, sessioncmd.Session{}, err
-		}
-		var updated sessioncmd.Session
-		switch {
-		case end.IsZero():
-			updated, err = sessions.Mute(callerOf(ctx), args.SessionID, muted)
-		case !muted:
-			return nil, sessioncmd.Session{}, errors.New("muted false unmutes, so it takes no for or until")
-		default:
-			updated, err = sessions.Snooze(callerOf(ctx), args.SessionID, end)
-		}
-		if err != nil {
-			return nil, sessioncmd.Session{}, err
-		}
-		return mcptool.Text(sessioncmd.FormatMuteState(updated)), updated, nil
-	})
+	addMuteSession(server, sessions)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "cleanup_children",
@@ -1294,4 +1274,64 @@ func Run(ctx context.Context, configDir, sessionID, version string, extensions [
 		return nil
 	}
 	return err
+}
+
+// muteSessionAbout is mute_session's description without the snooze, which
+// muteSessionSnoozeAbout adds while the Timed snooze experiment is on.
+const muteSessionAbout = "Keep a session out of the user's triage queue until it is unmuted, or put it back with muted false. " +
+	"A muted session is not hidden from the list: its row stays, reading muted, but the user's triage queue never hands it over and the attention walk skips it. "
+
+const muteSessionSnoozeAbout = "Pass for or until to snooze instead: a mute with an end, after which the session is back in the queue on its own. A snooze also ends early when the session stops on a question or permission dialog or errors, and not when it merely finishes a turn; its row reads when it comes back. "
+
+const muteSessionUse = "Use it for a session the user has said is not theirs to act on right now -- a long background job, work parked on an external wait -- rather than for one that is merely finished, which will leave the queue on its own. " +
+	"The flag is the user's own; do not mute a session they are waiting on."
+
+// addMuteSession registers mute_session. The snooze half is the Timed
+// snooze experiment, read once as the server starts like the rest of its
+// tool list: with it off the schema and description carry no for or until,
+// and a session picks a change up on its next MCP start. Snooze itself
+// refuses while the experiment is off, which covers a server started before
+// it was turned off.
+func addMuteSession(server *mcp.Server, sessions sessionCommands) {
+	if !sessions.SnoozeEnabled() {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "mute_session",
+			Description: muteSessionAbout + muteSessionUse,
+			Annotations: mcptool.Annotations(false, false, false),
+		}, func(ctx context.Context, req *mcp.CallToolRequest, args muteSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
+			return muteOrSnooze(ctx, sessions, args.SessionID, args.Muted, "", "")
+		})
+		return
+	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "mute_session",
+		Description: muteSessionAbout + muteSessionSnoozeAbout + muteSessionUse,
+		Annotations: mcptool.Annotations(false, false, false),
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args snoozeSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
+		return muteOrSnooze(ctx, sessions, args.SessionID, args.Muted, args.For, args.Until)
+	})
+}
+
+func muteOrSnooze(ctx context.Context, sessions sessionCommands, sessionID string, mutedArg *bool, length, until string) (*mcp.CallToolResult, sessioncmd.Session, error) {
+	muted := true
+	if mutedArg != nil {
+		muted = *mutedArg
+	}
+	end, err := sessioncmd.ParseSnoozeEnd(length, until, time.Now())
+	if err != nil {
+		return nil, sessioncmd.Session{}, err
+	}
+	var updated sessioncmd.Session
+	switch {
+	case end.IsZero():
+		updated, err = sessions.Mute(callerOf(ctx), sessionID, muted)
+	case !muted:
+		return nil, sessioncmd.Session{}, errors.New("muted false unmutes, so it takes no for or until")
+	default:
+		updated, err = sessions.Snooze(callerOf(ctx), sessionID, end)
+	}
+	if err != nil {
+		return nil, sessioncmd.Session{}, err
+	}
+	return mcptool.Text(sessioncmd.FormatMuteState(updated)), updated, nil
 }

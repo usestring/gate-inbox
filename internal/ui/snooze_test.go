@@ -5,14 +5,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
+// enableSnooze turns the Timed snooze experiment on, in the store and on
+// the board, as the Experimental card's toggle leaves them.
+func enableSnooze(t *testing.T, m *Model) {
+	t.Helper()
+	if err := m.store.SetSetting(store.SnoozeSetting, "on"); err != nil {
+		t.Fatal(err)
+	}
+	m.snoozeOn = true
+}
+
 // snooze writes a snooze the way the command does: straight to the store,
-// for the next pass to find.
+// for the next pass to find. The store takes one only with the experiment
+// on, so it turns it on first.
 func snooze(t *testing.T, m *Model, sess store.Session, until time.Time) {
 	t.Helper()
+	enableSnooze(t, m)
 	if err := m.store.SetSnoozed(sess.ID, until); err != nil {
 		t.Fatalf("snooze %s: %v", sess.Name, err)
 	}
@@ -99,12 +113,13 @@ func TestASnoozeEndsEarlyOnAQuestionOrAnErrorButNotAFinishedTurn(t *testing.T) {
 func TestTheSnoozeKeyWalksItsLengthsAndTheRowSaysWhenItIsBack(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "busy": status.Working})
+	enableSnooze(t, m)
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
 	for _, want := range []time.Duration{time.Hour, 4 * time.Hour, 24 * time.Hour} {
 		pressed := time.Now()
-		updated, _ := m.handleKey(key("alt+z"))
+		updated, _ := m.handleKey(key("ctrl+alt+z"))
 		m = updated.(*Model)
 		ask := sessionNamed(t, m, "ask")
 		if left := ask.MutedUntil.Sub(pressed); !ask.Muted || left < want || left > want+time.Minute {
@@ -122,7 +137,7 @@ func TestTheSnoozeKeyWalksItsLengthsAndTheRowSaysWhenItIsBack(t *testing.T) {
 		}
 	}
 
-	updated, _ := m.handleKey(key("alt+z"))
+	updated, _ := m.handleKey(key("ctrl+alt+z"))
 	m = updated.(*Model)
 	if ask := storedSession(t, m, "ask"); ask.Muted || !ask.MutedUntil.IsZero() {
 		t.Fatalf("the fourth press left muted %v until %v, want it unmuted", ask.Muted, ask.MutedUntil)
@@ -162,6 +177,110 @@ func TestSnoozeLabelIsAsShortAsTheDistanceAllows(t *testing.T) {
 	} {
 		if got := snoozeLabel(until, now); got != want {
 			t.Errorf("snoozeLabel(%v) = %q, want %q", until, got, want)
+		}
+	}
+}
+
+// Timed snooze ships off. Off, the board offers it nowhere -- the chord does
+// nothing, and the key map, the quick actions and the legend leave it out --
+// and turning it on from the Experimental card brings all of it back.
+func TestSnoozeIsOfferedNowhereUntilTheExperimentIsOn(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "busy": status.Working})
+	m.rebuildRows()
+	m.selectSessionRow(t, "ask")
+	if m.snoozeOn {
+		t.Fatal("timed snooze is on in a fresh board")
+	}
+
+	offered := func() (help, palette, legend, bound bool) {
+		for _, section := range m.resolvedHelp() {
+			for _, row := range section.rows {
+				if row.action == keymap.Snooze || strings.Contains(row.text, "snooze") {
+					help = true
+				}
+			}
+		}
+		for _, entry := range m.quickActionEntries() {
+			if entry.action == keymap.Snooze {
+				palette = true
+			}
+		}
+		row, _ := m.cursorRow()
+		legend = m.applies(keymap.ContextList, keymap.Snooze, row)
+		_, bound = m.action(keymap.ContextList, key("ctrl+alt+z"))
+		return
+	}
+	if help, palette, legend, bound := offered(); help || palette || legend || bound {
+		t.Fatalf("snooze offered while off: key map %v, quick actions %v, legend %v, chord %v", help, palette, legend, bound)
+	}
+	if _, bound := m.action(keymap.ContextFocus, key("ctrl+alt+z")); bound {
+		t.Fatal("a focused session's ctrl+alt+z is still taken by snooze while it is off")
+	}
+	updated, _ := m.handleKey(key("ctrl+alt+z"))
+	m = updated.(*Model)
+	if ask := storedSession(t, m, "ask"); ask.Muted || !ask.MutedUntil.IsZero() {
+		t.Fatalf("ctrl+alt+z snoozed with the experiment off: muted %v until %v", ask.Muted, ask.MutedUntil)
+	}
+	m.cycleSnoozeSelected()
+	if ask := storedSession(t, m, "ask"); ask.Muted {
+		t.Fatal("the snooze cycle ran with the experiment off")
+	}
+
+	// On, through the Experimental card the way the operator turns it on.
+	m.openSettings()
+	m.settings.field = settingsFieldExperimental
+	m.handleSettingsKey(key("enter"))
+	for m.settings.experimentalCursor < len(experiments) && experiments[m.settings.experimentalCursor].setting != store.SnoozeSetting {
+		m.handleSettingsKey(key("down"))
+	}
+	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "> Timed snooze  ◂ off ▸") {
+		t.Fatalf("the Experimental card has no Timed snooze row, off:\n%s", card)
+	}
+	m.handleSettingsKey(key("enter"))
+	m.handleSettingsKey(key("esc"))
+	m.handleSettingsKey(key("esc"))
+	if !m.snoozeOn || !m.store.SnoozeEnabled() {
+		t.Fatalf("the card left the board %v and the store %v", m.snoozeOn, m.store.SnoozeEnabled())
+	}
+	m.selectSessionRow(t, "ask")
+	if help, palette, legend, bound := offered(); !help || !palette || !legend || !bound {
+		t.Fatalf("snooze not offered once on: key map %v, quick actions %v, legend %v, chord %v", help, palette, legend, bound)
+	}
+	updated, _ = m.handleKey(key("ctrl+alt+z"))
+	m = updated.(*Model)
+	if ask := storedSession(t, m, "ask"); !ask.Muted || ask.MutedUntil.IsZero() {
+		t.Fatalf("ctrl+alt+z with the experiment on = muted %v until %v, want a snooze", ask.Muted, ask.MutedUntil)
+	}
+}
+
+// Turning the experiment off strands no session: a snooze set while it was
+// on still lifts on time, and still ends early on a question.
+func TestASnoozeSetWhileOnStillLiftsOnceTheExperimentIsOff(t *testing.T) {
+	m := buildModel(t)
+	due := liveHookedSession(t, m, "due")
+	asks := liveHookedSession(t, m, "asks")
+	writeHookStatus(t, m, asks.ID, status.Working)
+	m.applyCmd(t, m.refreshCmd())
+	requireStatus(t, m, "asks", status.Working)
+	// The store takes an end already gone, as a board that was down when
+	// it came would find it.
+	snooze(t, m, due, time.Now().Add(-time.Minute))
+	snooze(t, m, asks, time.Now().Add(time.Hour))
+
+	if err := m.store.SetSetting(store.SnoozeSetting, "off"); err != nil {
+		t.Fatal(err)
+	}
+	m.snoozeOn = false
+	if label := m.displayStatusLabel(storedSession(t, m, "asks")); !strings.HasPrefix(label, mutedStatusLabel+" until ") {
+		t.Fatalf("a snoozed row reads %q with the experiment off, want it to say when it is back", label)
+	}
+	writeHookStatus(t, m, asks.ID, status.Waiting)
+	m.applyCmd(t, m.refreshCmd())
+
+	for _, name := range []string{"due", "asks"} {
+		if got := storedSession(t, m, name); got.Muted || !got.MutedUntil.IsZero() {
+			t.Errorf("%s = muted %v until %v after the experiment went off, want it lifted", name, got.Muted, got.MutedUntil)
 		}
 	}
 }

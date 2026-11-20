@@ -42,6 +42,8 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.arrowsStay }},
 	{nextStepSetting, "Next step", "On a finished session, suggest the next instruction from its pull request's checks and reviews.\nShown in the hotkey menu; ctrl+y inserts it unsent. Asks no model and fetches nothing.",
 		func(s *settingsState) *bool { return &s.nextStep }},
+	{store.SnoozeSetting, "Timed snooze", "Snooze a session: a mute that lifts on its own after 1h, 4h or a day, or sooner if it asks or errors.\nAdds the snooze key and mute --for/--until. Off, a snooze already set still lifts on time.",
+		func(s *settingsState) *bool { return &s.snoozeOn }},
 }
 
 func storedExperiment(st *store.Store, setting string) bool {

@@ -1472,10 +1472,14 @@ func (s *Store) SetMuted(id string, muted bool) error {
 
 // SetSnoozed mutes a session until until, replacing any mute or snooze it
 // already has. Nothing here lifts it: the board's poll does, through
-// DerivedState.EndSnooze.
+// DerivedState.EndSnooze. It refuses while the Timed snooze experiment is
+// off, so no caller that missed the switch can set one.
 func (s *Store) SetSnoozed(id string, until time.Time) error {
 	if until.IsZero() {
 		return errors.New("a snooze needs a time to end at")
+	}
+	if !s.SnoozeEnabled() {
+		return ErrSnoozeOff
 	}
 	res, err := s.db.Exec(
 		`UPDATE sessions SET muted = 1, muted_until = ? WHERE id = ?`, encodeTime(until), id)

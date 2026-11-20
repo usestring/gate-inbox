@@ -23,6 +23,7 @@ import (
 // exercise argument parsing and output without a tmux socket or a store.
 type fakeSessions struct {
 	snoozedUntil time.Time
+	snoozeOn     bool
 	callerID     string
 	targetID     string
 	message      string
@@ -220,6 +221,8 @@ func (f *fakeSessions) Snooze(sessionID, targetID string, until time.Time) (sess
 	updated.Muted, updated.MutedUntil = true, until.Format(time.RFC3339)
 	return updated, f.failWith
 }
+
+func (f *fakeSessions) SnoozeEnabled() bool { return f.snoozeOn }
 
 func (f *fakeSessions) Groups(sessionID string) ([]sessioncmd.Group, error) {
 	f.callerID = sessionID
@@ -625,7 +628,7 @@ func TestAFrontReportsWhatTheLayerDecided(t *testing.T) {
 // --for and --until make the mute a snooze, which goes to its own call with
 // the end worked out; a mute that both ends and does not is refused.
 func TestMuteForAndUntilSnooze(t *testing.T) {
-	fake := &fakeSessions{}
+	fake := &fakeSessions{snoozeOn: true}
 	out := &bytes.Buffer{}
 	asked := time.Now()
 	if err := runMute(out, fake, []string{"beef1234", "--for", "4h"}, "cafe0001"); err != nil {
@@ -638,7 +641,7 @@ func TestMuteForAndUntilSnooze(t *testing.T) {
 		t.Fatalf("mute --for output = %q, want it to say when the session is back", out.String())
 	}
 
-	fake = &fakeSessions{}
+	fake = &fakeSessions{snoozeOn: true}
 	if err := runMute(&bytes.Buffer{}, fake, []string{"beef1234", "--until", "2999-01-02 03:04"}, "cafe0001"); err != nil {
 		t.Fatalf("mute --until: %v", err)
 	}
@@ -654,7 +657,7 @@ func TestMuteForAndUntilSnooze(t *testing.T) {
 		"--until 2001-01-01":     "has passed",
 		"--until teatime":        "not a time",
 	} {
-		fake = &fakeSessions{}
+		fake = &fakeSessions{snoozeOn: true}
 		err := runMute(&bytes.Buffer{}, fake, append([]string{"beef1234"}, strings.Fields(args)...), "cafe0001")
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("mute %s: err = %v, want %q", args, err, want)
@@ -662,6 +665,43 @@ func TestMuteForAndUntilSnooze(t *testing.T) {
 		if fake.targetID != "" {
 			t.Errorf("mute %s reached the session", args)
 		}
+	}
+}
+
+// Timed snooze ships off. Off, mute neither offers --for and --until in its
+// usage nor accepts them, and nothing is snoozed; a plain mute still works.
+func TestMuteOffersNoSnoozeWhileTheExperimentIsOff(t *testing.T) {
+	for _, args := range [][]string{{"beef1234", "--for", "4h"}, {"beef1234", "--until", "23:00"}} {
+		fake := &fakeSessions{}
+		err := runMute(&bytes.Buffer{}, fake, args, "cafe0001")
+		if err == nil || !strings.HasSuffix(err.Error(), usageMute) {
+			t.Errorf("mute %v while off: err = %v, want the usage without the snooze flags", args[1:], err)
+		}
+		if fake.targetID != "" || !fake.snoozedUntil.IsZero() {
+			t.Errorf("mute %v while off reached the session", args[1:])
+		}
+	}
+	out := &bytes.Buffer{}
+	if err := runMute(out, &fakeSessions{}, []string{"-h"}, "cafe0001"); err != ErrUsageShown {
+		t.Fatalf("mute -h: err = %v", err)
+	}
+	if strings.Contains(out.String(), "--for") || strings.Contains(out.String(), "--until") || strings.Contains(out.String(), "snooze") {
+		t.Fatalf("mute -h offers a snooze while the experiment is off:\n%s", out.String())
+	}
+	fake := &fakeSessions{}
+	if err := runMute(&bytes.Buffer{}, fake, []string{"beef1234"}, "cafe0001"); err != nil || !fake.muted || !fake.snoozedUntil.IsZero() {
+		t.Fatalf("plain mute while off: err = %v muted = %v snoozed until %v", err, fake.muted, fake.snoozedUntil)
+	}
+	if help := Help(); strings.Contains(help, usageMuteSnooze) || strings.Contains(help, "snooze") {
+		t.Fatal("the top-level help offers a snooze")
+	}
+
+	out = &bytes.Buffer{}
+	if err := runMute(out, &fakeSessions{snoozeOn: true}, []string{"-h"}, "cafe0001"); err != ErrUsageShown {
+		t.Fatalf("mute -h: err = %v", err)
+	}
+	if !strings.Contains(out.String(), "--for") || !strings.Contains(out.String(), "--until") {
+		t.Fatalf("mute -h with the experiment on does not offer the snooze flags:\n%s", out.String())
 	}
 }
 

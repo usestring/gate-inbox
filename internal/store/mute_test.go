@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -58,6 +59,7 @@ func TestSetMutedRefusesAGoneSession(t *testing.T) {
 // it leaves no end behind to lift the row later.
 func TestSetSnoozedRoundTripsAndAPlainMuteReplacesIt(t *testing.T) {
 	st := newTestStore(t)
+	enableSnooze(t, st)
 	if err := st.CreateSession(sample("a", "g1")); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -105,6 +107,7 @@ func TestASnoozeSurvivesARestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+	enableSnooze(t, st)
 	if err := st.CreateSession(sample("a", "g1")); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -132,6 +135,7 @@ func TestASnoozeSurvivesARestart(t *testing.T) {
 // end must not lift it.
 func TestEndSnoozeLiftsOnlyTheSnoozeThePassRead(t *testing.T) {
 	st := newTestStore(t)
+	enableSnooze(t, st)
 	for _, id := range []string{"due", "reset", "plain"} {
 		if err := st.CreateSession(sample(id, "g1")); err != nil {
 			t.Fatalf("create: %v", err)
@@ -161,5 +165,46 @@ func TestEndSnoozeLiftsOnlyTheSnoozeThePassRead(t *testing.T) {
 	}
 	if got, err := st.Get("plain"); err != nil || !got.Muted {
 		t.Fatalf("plain = muted %v (err %v), want a mute with no end left alone", got.Muted, err)
+	}
+}
+
+func enableSnooze(t *testing.T, st *Store) {
+	t.Helper()
+	if err := st.SetSetting(SnoozeSetting, "on"); err != nil {
+		t.Fatalf("turn on timed snooze: %v", err)
+	}
+}
+
+// Timed snooze ships off: with the experiment off no snooze is stored, and
+// one stored while it was on still lifts when the board's pass ends it, so
+// turning the switch off leaves no session muted for good.
+func TestSnoozeIsRefusedWhileOffAndAStoredOneStillLifts(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.CreateSession(sample("a", "g1")); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if st.SnoozeEnabled() {
+		t.Fatal("timed snooze is on in a fresh store")
+	}
+	until := time.Now().Add(time.Hour)
+	if err := st.SetSnoozed("a", until); !errors.Is(err, ErrSnoozeOff) {
+		t.Fatalf("snooze while off = %v, want ErrSnoozeOff", err)
+	}
+	if got, err := st.Get("a"); err != nil || got.Muted || !got.MutedUntil.IsZero() {
+		t.Fatalf("after a refused snooze = muted %v until %v (err %v), want neither", got.Muted, got.MutedUntil, err)
+	}
+
+	enableSnooze(t, st)
+	if err := st.SetSnoozed("a", until); err != nil {
+		t.Fatalf("snooze while on: %v", err)
+	}
+	if err := st.SetSetting(SnoozeSetting, "off"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ApplyDerivedStates(time.Now(), []DerivedState{{ID: "a", EndSnooze: until}}); err != nil {
+		t.Fatalf("ApplyDerivedStates: %v", err)
+	}
+	if got, err := st.Get("a"); err != nil || got.Muted || !got.MutedUntil.IsZero() {
+		t.Fatalf("a snooze ended after the switch went off = muted %v until %v (err %v), want it lifted", got.Muted, got.MutedUntil, err)
 	}
 }

@@ -86,11 +86,9 @@ type poller struct {
 	locator        *search.Locator
 	historyFormats map[string]string
 
-	mu                 sync.Mutex
-	includeArchived    bool
-	selectedID         string
-	jevFinishFocusedID string
-	jevFinishAttended  map[string]string
+	mu              sync.Mutex
+	includeArchived bool
+	selectedID      string
 	// searchTargets is the last pass's rows as history-index targets, read
 	// by the refresher on its own cadence.
 	searchTargets []search.Target
@@ -1613,18 +1611,12 @@ func (p *poller) maybeSendPendingInputWhenReady(sess store.Session, capture tmux
 		return false, nil
 	}
 	if !sess.PendingInputClaimed && isJevFinishProbe(sess.PendingInputs[0]) {
-		current, err := p.jevFinishProbeCurrent(sess, capture, derived)
-		if err != nil {
+		claimed, err := p.store.ClaimPendingInput(sess.ID, sess.PendingInputs[0])
+		if err != nil || !claimed {
 			return false, err
 		}
-		if !current {
-			claimed, err := p.store.ClaimPendingInput(sess.ID, sess.PendingInputs[0])
-			if err != nil || !claimed {
-				return false, err
-			}
-			_, err = p.store.ConsumeClaimedPendingInput(sess.ID, sess.PendingInputs[0])
-			return false, err
-		}
+		_, err = p.store.ConsumeClaimedPendingInput(sess.ID, sess.PendingInputs[0])
+		return false, err
 	}
 	if !sess.PendingInputClaimed && strings.HasPrefix(sess.PendingInputs[0], adoptedRenamePrefix) {
 		if sess.NameSource != store.SourceDerived {
@@ -1708,11 +1700,7 @@ func (p *poller) maybeSendPendingInput(sess store.Session, pane string, agentAli
 		p.releaseSend(key)
 		return false, nil
 	}
-	text := input
-	if isJevFinishProbe(input) {
-		text = jevFinishProbe
-	}
-	p.runSend(sess, key, text, func(err error) error {
+	p.runSend(sess, key, input, func(err error) error {
 		// Opencode collapses a multi-line bracketed paste to "[Pasted ~N
 		// lines]" and the first Enter can land inside the paste burst
 		// rather than submitting it, leaving the prompt held in the

@@ -532,7 +532,7 @@ func (m *Model) composerFor(target composerID) *composer {
 // composerOpen reports whether that prompt box is still on screen, which
 // is what says an image still has somewhere to land.
 func (m *Model) composerOpen(target composerID) bool {
-	return target == composerForm && m.mode == modeForm
+	return target == composerForm && (m.mode == modeForm || m.mode == modeCleared)
 }
 
 // composerKey handles the keys a prompt box with chips owns: pasting an

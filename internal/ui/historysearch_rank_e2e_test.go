@@ -23,7 +23,7 @@ import (
 // pass, the real refresher, one typed query, and the rail must come back
 // in relevance order with the right badges:
 //
-//	named       the query is in what the row prints — no badge
+//	named       the query is in the row's title — no badge
 //	screen      the query is on the pane — ≡pane
 //	typed-now   typed in the newest turn, weight 1 at no distance
 //	chatty      three tool outputs in the newest turns, 3 × 0.3, decayed

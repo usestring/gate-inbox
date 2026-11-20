@@ -27,7 +27,10 @@ func TestDefaultToolFallsBackWhenSettingStale(t *testing.T) {
 
 func TestSettingsTogglesQuickClose(t *testing.T) {
 	m := buildModel(t)
-	m.openSettings()
+	m.handleKey(key("ctrl+s"))
+	if m.mode != modeSettings {
+		t.Fatal("ctrl+s did not open settings from the list")
+	}
 	if m.settings.quickCloseSend {
 		t.Fatal("settings should open on stay-open by default")
 	}
@@ -300,7 +303,12 @@ func TestSettingsPreserveFocusedViewChoice(t *testing.T) {
 	if err := m.store.SetSetting(focusViewSetting, focusViewConversation); err != nil {
 		t.Fatal(err)
 	}
-	m.openSettings()
+	createSession(t, m, "focused", t.TempDir(), "")
+	m.enterFocusOn(t, "focused")
+	m.handleKey(key("ctrl+s"))
+	if m.mode != modeSettings {
+		t.Fatal("ctrl+s did not open settings from a focused session")
+	}
 	m.settings.field = settingsFieldExperimental
 	m.handleSettingsKey(key("enter"))
 	if strings.Contains(ansi.Strip(m.viewSettings()), "Compressed focus view") {

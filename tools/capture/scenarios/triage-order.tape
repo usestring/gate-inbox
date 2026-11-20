@@ -1,40 +1,19 @@
-# "triage order" and "walk keep-alives" are rows in Settings, under
-# smart triage. The order cycles questions first, priority first, oldest
-# first, questions only; keep-alives are in the drain by default.
-#
-#   tools/capture/capture.sh --scenario tools/capture/scenarios/triage-order.tape
+# All three triage orders respect priority. Settings search keeps the fixture
+# independent of how many other settings are above the order picker.
 
-Sleep 3s
-Type "s"
 Sleep 2s
-Down 21
-Sleep 1500ms
-Screenshot {{SHOTS}}/01-triage-order-default.png
-Sleep 1s
-Right
-Sleep 1500ms
-Screenshot {{SHOTS}}/02-triage-order-priority-first.png
-Sleep 1s
-Right
-Sleep 1500ms
-Screenshot {{SHOTS}}/03-triage-order-oldest-first.png
-Sleep 1s
-Right
-Sleep 1500ms
-Screenshot {{SHOTS}}/04-triage-order-questions-only.png
-Sleep 1s
-Down
-Right
-Sleep 1500ms
-Screenshot {{SHOTS}}/05-keep-alives-in-triage-off.png
-Sleep 1s
 Escape
-Sleep 1500ms
-Type "s"
-Sleep 2s
-Down 21
-Sleep 1500ms
-Screenshot {{SHOTS}}/06-saved.png
+Ctrl+S
 Sleep 1s
-Escape
+Type "/"
+Type "triage order"
+Sleep 1s
+Screenshot {{SHOTS}}/01-priority-then-questions.png
+Enter
+Right
+Sleep 1s
+Screenshot {{SHOTS}}/02-priority-then-oldest.png
+Right
+Sleep 1s
+Screenshot {{SHOTS}}/03-priority-questions-only.png
 Sleep 1s

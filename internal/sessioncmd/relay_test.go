@@ -14,6 +14,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -419,6 +420,18 @@ func TestSessionStartHookTellsOnlyAChild(t *testing.T) {
 	got := SessionStartHook(configDir, child.ID)
 	if !strings.Contains(got, `"additionalContext"`) || !strings.Contains(got, `header \"Approval\"`) {
 		t.Fatalf("child's SessionStart hook printed %q, want the approval note", got)
+	}
+	// The report note rides the same hook, once, after the approval note.
+	var printed struct {
+		Output struct {
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(got), &printed); err != nil {
+		t.Fatal(err)
+	}
+	if printed.Output.Context != ChildApprovalNote+" "+mcpreg.ChildReportNote {
+		t.Fatalf("child's SessionStart context is %q, want the approval note then the report note", printed.Output.Context)
 	}
 	if got := SessionStartHook(configDir, root.ID); got != "" {
 		t.Fatalf("a root session was told %q, want nothing", got)

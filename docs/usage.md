@@ -172,12 +172,18 @@ Each ask is stored once. Fetching it again refreshes its title, size and checks 
 
 `enter` on the Reviews row opens its page: one entry per pull request, with its repo and number, title, author, what asked and when, lines added and removed, files, checks, and whether it is a draft or already has a review session.
 
+Each entry also shows a **difficulty**: trivial, easy, medium or hard. It is guessed from the change's size. Up to 20 changed lines in at most 2 files is trivial, up to 150 lines in 6 files is easy, up to 600 lines in 20 files is medium, and anything bigger is hard. Failing checks push it up one tier. Press `d` to set the tier yourself once you have seen the diff. A tier set by hand is marked with `*`, applies to every ask on that pull request, and outlasts later fetches.
+
+Difficulty never changes the order by itself: the queue still goes by priority. When you want to choose by difficulty instead, press `D` to set the hardest tier the queue hands over, for example "up to easy" when you have ten minutes. The tab bar names the filter while it is set, as `max easy`; on a narrow rail the count gives way to it. Reviews past it stay on the tab below the rest, and triage passes them by. The filter is kept across restarts. Press `D` until it reads any difficulty to turn it off.
+
 | Key | Action |
 |-----|--------|
 | `enter` | Open the pull request |
 | `s` | Open or start a review session, or refresh a stale briefing |
 | `o` | Open the pull request on GitHub |
 | `x` | Dismiss it; a new ask on it queues it again |
+| `d` | Set its difficulty by hand: each press steps trivial, easy, medium, hard, then back to the guess |
+| `D` | Hand over only reviews up to a difficulty: each press steps any, up to trivial, easy, medium, then any again |
 | `P` | Fetch new reviews |
 | `esc` / `q` | Back to the list |
 

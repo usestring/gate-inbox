@@ -108,6 +108,10 @@ const (
 	ReviewStart   Action = "review_start"
 	ReviewView    Action = "review_view"
 	ReviewAuthor  Action = "review_author"
+	// ReviewDifficulty cycles the selected pull request's difficulty tier;
+	// ReviewDifficultyFilter cycles the hardest tier the queue hands over.
+	ReviewDifficulty       Action = "review_difficulty"
+	ReviewDifficultyFilter Action = "review_difficulty_filter"
 	// The tabs of a pull request's page, as GitHub names them.
 	ReviewConversation Action = "review_conversation"
 	ReviewFiles        Action = "review_files"
@@ -388,6 +392,8 @@ var Catalog = []Binding{
 	{ContextReviews, ReviewStart, []string{"s"}, "start the review", false},
 	{ContextReviews, ReviewOpen, []string{"o"}, "open on GitHub", false},
 	{ContextReviews, ReviewDismiss, []string{"x"}, "dismiss", false},
+	{ContextReviews, ReviewDifficulty, []string{"d"}, "set the difficulty", false},
+	{ContextReviews, ReviewDifficultyFilter, []string{"D", "shift+d"}, "hand over only reviews up to a difficulty", false},
 	{ContextReviews, Refresh, []string{"P", "shift+p"}, "fetch new reviews", false},
 
 	// ---- a pull request's page ----

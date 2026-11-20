@@ -31,14 +31,16 @@ const reviewsTriedKey = "\x00reviews"
 // it back.
 func (m *Model) reviewsWaiting() bool {
 	for _, r := range m.reviews {
-		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
+		if m.reviewQueued(r) {
 			return true
 		}
 	}
 	return false
 }
 
-// markReviewsSeen is the operator leaving the tab a drain handed over.
+// markReviewsSeen is the operator leaving the tab a drain handed over. It
+// covers asks past the difficulty filter too: the watermark is one time, so
+// skipping them would leave an older one marked seen and a newer one queued.
 func (m *Model) markReviewsSeen() {
 	for _, r := range m.reviews {
 		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
@@ -53,7 +55,7 @@ func (m *Model) reviewsTriageKey() triageKey {
 	key := triageKey{band: triageBandRest, priority: priority.Unset.Rank(), tier: triageRank(triageReview)}
 	oldest := m.triageOrder == triageOrderOldest
 	for _, r := range m.reviews {
-		if r.State != store.ReviewPending || !r.CreatedAt.After(m.reviewsSeen) {
+		if !m.reviewQueued(r) {
 			continue
 		}
 		rank := m.reviewPriority(r).Rank()
@@ -116,7 +118,7 @@ func (m *Model) reviewsTriageAt(rows []treeRow, from int) int {
 func (m *Model) handOverReviews() (bool, tea.Cmd) {
 	next := -1
 	for i, r := range m.reviews {
-		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
+		if m.reviewQueued(r) {
 			if next < 0 || m.reviewPriority(r).Rank() < m.reviewPriority(m.reviews[next]).Rank() {
 				next = i
 			}

@@ -159,6 +159,8 @@ review_author = ["f"]  # ask the originating session
 review_start = ["s"]  # start the review
 review_open = ["o"]  # open on GitHub
 review_dismiss = ["x"]  # dismiss
+review_difficulty = ["d"]  # set the difficulty
+review_difficulty_filter = ["D", "shift+d"]  # hand over only reviews up to a difficulty
 refresh = ["P", "shift+p"]  # fetch new reviews
 
 [review_page]

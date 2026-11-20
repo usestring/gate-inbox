@@ -234,6 +234,9 @@ type Model struct {
 	// the last triage sort lifted it. See reviewtriage.go.
 	reviewsSeen   time.Time
 	triageLineage map[string]triageKey
+	// reviewCeiling is the hardest review difficulty the queue hands over,
+	// empty for every tier. See reviewdifficulty.go.
+	reviewCeiling string
 
 	// extensionNotes are the build's extensions the operator's config
 	// switched off, and the config sections nothing owns, each with its
@@ -1502,6 +1505,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		smartTriage:      storedSmartTriage(st),
 		triageOrder:      storedTriageOrder(st),
 		triageContent:    triageContent,
+		reviewCeiling:    storedReviewCeiling(st),
 		reviewsTab:       reviewQueue && triageContent == triageContentReviews,
 		triageKeepAlives: storedTriageKeepAlives(st),
 		idleSwitch:       storedIdleSwitch(st),

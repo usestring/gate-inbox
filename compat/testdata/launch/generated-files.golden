@@ -16,7 +16,7 @@
 }
 === hooks/gate-inbox-claude-delegation-<stamp>.md
 Gate Inbox manages this session. Before handing work to another agent (Agent, Task or Workflow tool), load the gate-inbox:delegate-with-gate-inbox skill: real work goes to create_session sessions on the user's board.
-End every turn by calling the gate-inbox report_status tool with done, waiting, blocked or working.
+When a turn ends with your work done, waiting on your user, or blocked, call the gate-inbox report_status tool with state done, waiting or blocked. Skip it while a shell, task or session you started is still running; use working only when you will resume later on your own, such as from a scheduled wake-up.
 
 === hooks/gate-inbox-mcp-claude-<stamp>.json
 {

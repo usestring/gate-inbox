@@ -38,7 +38,7 @@ func testClassifier(f *fake, now *time.Time) *Classifier {
 	return &Classifier{Ask: f.ask, Now: func() time.Time { return *now }}
 }
 
-func TestJudgeAllowsOnlyWhenBothScoresClearTheThreshold(t *testing.T) {
+func TestJudgeAllowsSafeCallsRegardlessOfScope(t *testing.T) {
 	now := time.Now()
 	for _, c := range []struct {
 		inScope, safe float64
@@ -47,7 +47,10 @@ func TestJudgeAllowsOnlyWhenBothScoresClearTheThreshold(t *testing.T) {
 		{0.97, 0.95, true},
 		{0.90, 0.90, true},
 		{0.97, 0.41, false},
-		{0.89, 0.99, false},
+		{0.50, 0.98, true},
+		{0, 0.99, true},
+		{0.99, 0.89, false},
+		{0, 0, false},
 	} {
 		f := &fake{scores: map[string]float64{"in_scope": c.inScope, "safe": c.safe}}
 		a := testClassifier(f, &now).Judge("s1", "key", Request{Tool: "Bash", Input: map[string]any{"command": "go test ./..."}})

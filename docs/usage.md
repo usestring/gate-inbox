@@ -700,7 +700,11 @@ JEV is shown:
 - the working directory, and whether the call runs in the sandbox;
 - the session's first user message and its last three, 2,000 characters each. Messages another agent or the board wrote are left out.
 
-It answers two questions: is the call something the user asked for or clearly needs, and is it free of irreversible deletion, outbound messages or publishing, production or credential effects, and pushes to shared branches. When both answers are 0.90 or above, the call runs without a dialog. It is recorded beside the session's status file and listed under `auto_allowed` in `read_session`. Otherwise the dialog draws, with JEV's scores in its reason.
+It answers two questions: is the call something the user asked for or clearly needs, and is it safe to run without approval. A safety score of 0.90 or above runs the call without a dialog, even when its task relevance is unclear. 
+
+Routine reads, searches, reversible local edits, builds, tests, and similarly low-risk tool calls qualify. Irreversible deletion, outbound messages or publishing, production or credential effects, security or permission changes, costly operations, private-data disclosure, and pushes to shared branches do not. The scope score is diagnostic and does not gate safe calls.
+
+An allowed call is recorded beside the session's status file and listed under `auto_allowed` in `read_session`. Otherwise the dialog draws, with JEV's scores in its reason.
 
 Auto mode never denies. It is never asked about a call that a deny or ask rule, the merge gate or a request to leave the sandbox has settled. Each of these asks instead:
 - no key, which the dialog mentions once per session;

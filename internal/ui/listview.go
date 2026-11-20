@@ -137,9 +137,12 @@ func (m *Model) viewOnePaneFrame(bodyHeight int, footer string) string {
 	m.pane.columnX = m.width + 1
 	m.railHit = newRailHitMap(rows, 1, paneWidth)
 	if m.ringed() || m.mode == modeCleared {
+		// Set before the content is laid out: the pane box it records for
+		// hit testing starts here, and the off-screen column above would
+		// put every click outside it.
+		m.pane.columnX = 1
 		rows = m.contentLines(paneWidth, bodyHeight)
 		tone = backdropHex()
-		m.pane.columnX = 1
 		m.railHit = railHitMap{}
 	}
 

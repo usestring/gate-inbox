@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -26,24 +27,26 @@ func TestJevFinishVerdictDecides(t *testing.T) {
 		v    jevFinishVerdict
 		want jevFinishAction
 	}{
-		{"missing chrome, not done", jevFinishVerdict{finished: 0.05, missingChrome: 0.95}, jevFinishRelaunchChrome},
-		{"band edges are inclusive", jevFinishVerdict{finished: 0.20, missingChrome: 0.80}, jevFinishRelaunchChrome},
-		{"missing chrome but done", jevFinishVerdict{finished: 0.90, missingChrome: 0.90}, jevFinishNone},
-		{"missing chrome unsure on done", jevFinishVerdict{finished: 0.50, missingChrome: 0.95}, jevFinishNone},
-		{"done", jevFinishVerdict{finished: 0.96, missingChrome: 0.02}, jevFinishDone},
-		{"unsure", jevFinishVerdict{finished: 0.60, missingChrome: 0.40}, jevFinishNone},
-		{"probably done asks the agent", jevFinishVerdict{finished: 0.60, missingChrome: 0.05}, jevFinishProbeAgent},
-		{"probe edge is inclusive", jevFinishVerdict{finished: 0.50, missingChrome: 0.20}, jevFinishProbeAgent},
-		{"below the probe", jevFinishVerdict{finished: 0.45, missingChrome: 0.05}, jevFinishNone},
+		{"missing chrome, not done", jevFinishVerdict{SameGoal: 0.95, Finished: 0.05, MissingChrome: 0.95}, jevFinishRelaunchChrome},
+		{"band edges are inclusive", jevFinishVerdict{SameGoal: 0.95, Finished: 0.20, MissingChrome: 0.80}, jevFinishRelaunchChrome},
+		{"missing chrome but done", jevFinishVerdict{SameGoal: 0.95, Finished: 0.90, MissingChrome: 0.90}, jevFinishNone},
+		{"missing chrome unsure on done", jevFinishVerdict{SameGoal: 0.95, Finished: 0.50, MissingChrome: 0.95}, jevFinishNone},
+		{"unrelated task complete", jevFinishVerdict{SameGoal: 0.1, Finished: 0.99, MissingChrome: 0.01}, jevFinishNone},
+		{"aligned but unfinished", jevFinishVerdict{SameGoal: 0.98, Finished: 0.05, MissingChrome: 0.01}, jevFinishIncomplete},
+		{"done", jevFinishVerdict{SameGoal: 0.95, Finished: 0.96, MissingChrome: 0.02}, jevFinishDone},
+		{"unsure", jevFinishVerdict{SameGoal: 0.95, Finished: 0.60, MissingChrome: 0.40}, jevFinishNone},
+		{"probably done", jevFinishVerdict{SameGoal: 0.95, Finished: 0.60, MissingChrome: 0.05}, jevFinishNone},
+		{"uncertain", jevFinishVerdict{SameGoal: 0.95, Finished: 0.50, MissingChrome: 0.20}, jevFinishNone},
+		{"below the probe", jevFinishVerdict{SameGoal: 0.95, Finished: 0.45, MissingChrome: 0.05}, jevFinishNone},
 	}
 	for _, tc := range cases {
-		if got := tc.v.decide(); got != tc.want {
+		if got := tc.v.decide(nil, jevFinishBandHigh); got != tc.want {
 			t.Errorf("%s: decide() = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }
 
-func TestAskJevFinishSendsBothQuestionsInOneCall(t *testing.T) {
+func TestAskJevFinishSendsOpeningAndEndStateInOneCall(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -58,26 +61,26 @@ func TestAskJevFinishSendsBothQuestionsInOneCall(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
-		if body.Model != jevModel || body.Questions["finished"]["type"] != "noul" || body.Questions["missing_chrome"]["type"] != "noul" {
+		if body.Model != jevModel || body.State["initial_request"] != "Verify the fix in Chrome" || body.Questions["same_goal"]["type"] != "noul" || body.Questions["finished"]["type"] != "noul" || body.Questions["missing_chrome"]["type"] != "noul" {
 			t.Errorf("request = %+v", body)
 		}
-		_, _ = w.Write([]byte(`{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.1},"missing_chrome":{"type":"noul","noul":0.9}}}`))
+		_, _ = w.Write([]byte(`{"model":"` + jevModel + `","answers":{"same_goal":{"type":"noul","noul":0.95},"finished":{"type":"noul","noul":0.1},"missing_chrome":{"type":"noul","noul":0.9}}}`))
 	}))
 	defer server.Close()
 
-	v, ok := askJevFinish(context.Background(), server.Client(), server.URL, "key", []suggestMessage{{Role: "assistant", Text: "Chrome tools are not available"}})
-	if !ok || calls != 1 || v.finished != 0.1 || v.missingChrome != 0.9 {
+	v, ok := askJevFinish(context.Background(), classifier.JEV, server.Client(), server.URL, "key", jevFinishInput{InitialRequest: "Verify the fix in Chrome", Messages: []suggestMessage{{Role: "assistant", Text: "Chrome tools are not available"}}})
+	if !ok || calls != 1 || v.Finished != 0.1 || v.MissingChrome != 0.9 {
 		t.Fatalf("verdict = %+v ok = %v calls = %d", v, ok, calls)
 	}
 }
 
 func TestAskJevFinishRejectsAPartialAnswer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.1}}}`))
+		_, _ = w.Write([]byte(`{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.99},"missing_chrome":{"type":"noul","noul":0.01}}}`))
 	}))
 	defer server.Close()
-	if _, ok := askJevFinish(context.Background(), server.Client(), server.URL, "key", []suggestMessage{{Role: "user", Text: "x"}}); ok {
-		t.Fatal("an answer missing missing_chrome must not be read as a verdict")
+	if _, ok := askJevFinish(context.Background(), classifier.JEV, server.Client(), server.URL, "key", jevFinishInput{InitialRequest: "Verify the fix in Chrome"}); ok {
+		t.Fatal("an answer missing same_goal must not be read as a verdict")
 	}
 }
 
@@ -86,7 +89,7 @@ func TestJevFinishTurnsKeepsTheLatestTurns(t *testing.T) {
 	for i := range 10 {
 		messages = append(messages, search.Message{Role: "user", Text: strings.Repeat("u", i+1)}, search.Message{Role: "tool", Text: "noise"})
 	}
-	turns := jevFinishTurns(messages)
+	turns := jevFinishTurns(messages, jevFinishMessages, jevFinishMessageChars)
 	if len(turns) != jevFinishMessages || turns[len(turns)-1].Text != strings.Repeat("u", 10) || turns[0].Text != strings.Repeat("u", 11-jevFinishMessages) {
 		t.Fatalf("turns = %+v", turns)
 	}
@@ -125,7 +128,7 @@ func TestJevMissingChromeRelaunchesWithChromeAndContinue(t *testing.T) {
 	m.jevFinishCheck = true
 
 	msg := jevFinishResultMsg{id: sess.ID, identity: jevFinishIdentity(m.sessions[0]), ok: true,
-		verdict: jevFinishVerdict{finished: 0.05, missingChrome: 0.97}}
+		verdict: jevFinishVerdict{SameGoal: 0.95, Finished: 0.05, MissingChrome: 0.97}}
 	m.applyJevFinish(msg)
 	if !m.errBar.worked() || !strings.Contains(m.errBar.text, "--chrome") {
 		t.Fatalf("status bar = %q", m.errBar.text)
@@ -160,7 +163,7 @@ func TestJevFinishIgnoresAStaleVerdict(t *testing.T) {
 	m.jevFinishCheck = true
 	m.sessions[0].Status = status.Working
 	m.applyJevFinish(jevFinishResultMsg{id: m.sessions[0].ID, identity: "old", ok: true,
-		verdict: jevFinishVerdict{finished: 0.05, missingChrome: 0.97}})
+		verdict: jevFinishVerdict{SameGoal: 0.95, Finished: 0.05, MissingChrome: 0.97}})
 	if m.errBar.text != "" {
 		t.Fatalf("a verdict about an earlier finish acted: %q", m.errBar.text)
 	}
@@ -199,7 +202,7 @@ func TestJevFinishLeavesOperatorInputAlone(t *testing.T) {
 			m.jevFinishCheck = true
 			m.jevFinish.busy = true
 			msg := jevFinishResultMsg{id: sess.ID, identity: jevFinishIdentity(m.sessions[0]), ok: true,
-				verdict: jevFinishVerdict{finished: 0.05, missingChrome: 0.97}}
+				verdict: jevFinishVerdict{SameGoal: 0.95, Finished: 0.05, MissingChrome: 0.97}}
 			m.triage = true
 			m.focusSession(sess.ID)
 			m.focusSelected()
@@ -245,14 +248,15 @@ func TestJevFinishUsesAnIndependentLocator(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"type":"assistant","message":{"role":"assistant","content":"Chrome is unavailable"}}`+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"type":"user","message":{"role":"user","content":"Verify the fix in Chrome"}}
+{"type":"assistant","message":{"role":"assistant","content":"Chrome is unavailable"}}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	previous := jevHTTPClient
 	t.Cleanup(func() { jevHTTPClient = previous })
 	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
-			`{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.1},"missing_chrome":{"type":"noul","noul":0.9}}}`))}, nil
+			`{"model":"` + jevModel + `","answers":{"same_goal":{"type":"noul","noul":0.95},"finished":{"type":"noul","noul":0.1},"missing_chrome":{"type":"noul","noul":0.9}}}`))}, nil
 	})}
 	m := &Model{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}},
 		sessions: []store.Session{sess}, jevFinishCheck: true, conversation: &conversationView{locator: locator},
@@ -286,7 +290,9 @@ func TestJevFinishAsksOnceForTheSameTurns(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"type":"assistant","message":{"role":"assistant","content":"Shipped."}}`+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"type":"user","message":{"role":"user","content":"Publish the release"}}
+{"type":"assistant","message":{"role":"assistant","content":"Shipped."}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__gate-inbox__report_status","input":{"state":"done","note":"Shipped."}}]}}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -295,7 +301,7 @@ func TestJevFinishAsksOnceForTheSameTurns(t *testing.T) {
 	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
 		calls++
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
-			`{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.4},"missing_chrome":{"type":"noul","noul":0.1}}}`))}, nil
+			`{"model":"` + jevModel + `","answers":{"same_goal":{"type":"noul","noul":0.95},"finished":{"type":"noul","noul":0.4},"missing_chrome":{"type":"noul","noul":0.1}}}`))}, nil
 	})}
 	m := &Model{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}},
 		sessions: []store.Session{sess}, jevFinishCheck: true,
@@ -317,175 +323,114 @@ func TestJevFinishAsksOnceForTheSameTurns(t *testing.T) {
 	}
 }
 
-func TestJevFinishProbeReplyReadsTheAgentsAnswer(t *testing.T) {
-	asked := func(reply string) []search.Message {
-		return []search.Message{
-			{Role: "user", Text: "fix the bug"},
-			{Role: "assistant", Text: "fixed"},
-			{Role: "user", Text: jevFinishProbe},
-			{Role: "tool", Text: "noise"},
-			{Role: "assistant", Text: reply},
+func TestJevFinishEvidenceKeepsOpeningOutsideTail(t *testing.T) {
+	opening := "Count the records and verify the result"
+	messages := []search.Message{
+		{Role: "user", Text: "Switch tasks and publish the agenda"},
+		{Role: "assistant", Text: "I will publish the agenda"},
+		{Role: "assistant", Text: "I prepared the release"},
+		{Role: "assistant", Text: "Uploaded the agenda"},
+		{Role: "assistant", Text: "Verified the published agenda"},
+		{Role: "user", Text: jevFinishProbe},
+		{Role: "assistant", Text: "DONE"},
+	}
+	evidence := jevFinishEvidence(opening, messages, jevFinishMessages, jevFinishMessageChars)
+	if evidence.InitialRequest != opening || len(evidence.Messages) != 4 ||
+		evidence.Messages[0].Text != "Switch tasks and publish the agenda" || evidence.Messages[3].Text != "Verified the published agenda" {
+		t.Fatalf("evidence = %+v", evidence)
+	}
+	for _, unusable := range []string{"", "continue", "[Image]", strings.Repeat("a", jevFinishOpeningChars+1)} {
+		if state := jevFinishEvidence(unusable, messages, jevFinishMessages, jevFinishMessageChars); state.InitialRequest != "" {
+			t.Fatal("checked a missing or truncated initial request")
 		}
 	}
-	cases := []struct {
-		name string
-		msgs []search.Message
-		want jevFinishProbeAnswer
-	}{
-		{"done", asked("DONE"), jevProbeDone},
-		{"bold done", asked("**Done.**"), jevProbeDone},
-		{"not done", asked("NOT DONE: the tests still fail"), jevProbeNotDone},
-		{"anything else is not done", asked("I still need the API key"), jevProbeNotDone},
-		{"not yet answered", asked("")[:3], jevProbeNone},
-		{"never asked", []search.Message{{Role: "user", Text: "go"}, {Role: "assistant", Text: "DONE"}}, jevProbeNone},
-		{"asked earlier, user moved on", append(asked("NOT DONE"), search.Message{Role: "user", Text: "keep going"}, search.Message{Role: "assistant", Text: "DONE"}), jevProbeNone},
-	}
-	for _, tc := range cases {
-		if got := jevFinishProbeReply(tc.msgs); got != tc.want {
-			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
-		}
+	unanswered := append(messages, search.Message{Role: "user", Text: "Now verify it on a second account"})
+	if state := jevFinishEvidence(opening, unanswered, jevFinishMessages, jevFinishMessageChars); len(state.Messages) != 0 {
+		t.Fatal("checked an end state with a newer unanswered request")
 	}
 }
 
-func TestJevFinishProbesAnUnsureFinishOnce(t *testing.T) {
+func TestJevFinishCollectsOnlyPositiveCandidates(t *testing.T) {
 	m := buildModel(t)
-	createSession(t, m, "unsure", t.TempDir(), "")
+	createSession(t, m, "review", t.TempDir(), "")
 	m.jevFinishCheck = true
+	m.cfg.FinishCheck.CollectOnly = true
 	m.sessions[0].Status = status.Finished
 	m.sessions[0].LastStatusAt = time.Now()
 	sess := m.sessions[0]
-
+	input := jevFinishInput{InitialRequest: "Review the release",
+		Messages: []suggestMessage{{Role: "assistant", Text: "Reviewed. The checks passed."}}}
 	msg := jevFinishResultMsg{id: sess.ID, identity: jevFinishIdentity(sess), ok: true,
-		verdict: jevFinishVerdict{finished: 0.65, missingChrome: 0.05}}
+		digest: jevFinishDigest(input), input: input}
+	path := filepath.Join(m.configDir(), jevFinishPositivesFile)
+	for _, verdict := range []jevFinishVerdict{
+		{0.05, 0.99, 0.01}, {0.98, 0.1, 0.01}, {0.9, 0.65, 0.01}, {0.95, 0.05, 0.95},
+	} {
+		msg.verdict = verdict
+		m.applyJevFinish(msg)
+	}
+	msg.verdict = jevFinishVerdict{0.94, 0.97, 0.02}
+	msg.input.StatusReport = &search.StatusReport{State: "waiting", Note: "Approval is needed"}
 	m.applyJevFinish(msg)
-	stored, err := m.store.Get(sess.ID)
+	msg.input.StatusReport = nil
+	stale := msg
+	stale.identity = "old"
+	m.applyJevFinish(stale)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("a non-positive or stale verdict created a dataset: %v", err)
+	}
+	m.applyJevFinish(msg)
+	f, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(stored.PendingInputs) != 1 || stored.PendingInputs[0] != queuedJevFinishProbe(sess) {
-		t.Fatalf("pending inputs = %q", stored.PendingInputs)
+	defer f.Close()
+	var got jevFinishPositive
+	dec := json.NewDecoder(f)
+	if err := dec.Decode(&got); err != nil {
+		t.Fatal(err)
 	}
-	if m.errBar.done != "" {
-		t.Fatalf("an unsure verdict reported done: %q", m.errBar.done)
+	if got.SessionID != sess.ID || got.Input.InitialRequest != input.InitialRequest || got.EvidenceID != msg.digest ||
+		got.Scores != msg.verdict || got.Classifier != "JEV" || len(got.Input.Messages) != 1 {
+		t.Fatalf("recorded %+v", got)
 	}
-
-	m.applyJevFinish(jevFinishResultMsg{id: sess.ID, identity: msg.identity, ok: true, probe: jevProbeNotDone})
-	if m.errBar.done != "" {
-		t.Fatalf("NOT DONE reported done: %q", m.errBar.done)
+	if err := dec.Decode(&got); err != io.EOF {
+		t.Fatalf("unexpected extra record: %v", err)
 	}
-	m.applyJevFinish(jevFinishResultMsg{id: sess.ID, identity: msg.identity, ok: true, probe: jevProbeDone})
-	if !strings.Contains(m.errBar.done, "says it is done") {
-		t.Fatalf("DONE was not reported: %q", m.errBar.done)
+	info, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if stored, _ := m.store.Get(sess.ID); len(stored.PendingInputs) != 1 {
-		t.Fatalf("an answer queued another probe: %q", stored.PendingInputs)
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("dataset permissions = %o", info.Mode().Perm())
+	}
+	if m.errBar.done != "" || m.errBar.text != "" || m.jevFinish.chromeRelaunched[sess.ID] || len(sessionPendingInputs(t, m, sess.ID)) != 0 {
+		t.Fatal("collection mode acted on a finish")
 	}
 }
 
-func TestJevFinishProbeDiscardsObsoleteQueuedInput(t *testing.T) {
-	for _, name := range []string{"working with type ahead", "new finish", "store moved on", "archived", "focused", "attended", "operator input", "pane input", "new task", "legacy probe"} {
-		t.Run(name, func(t *testing.T) {
-			st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer st.Close()
-			sess := store.Session{ID: "probe", Name: "probe", Tool: "claude-typeahead", Status: status.Finished, LastStatusAt: time.Now().Add(-time.Minute)}
-			if err := st.CreateSession(sess); err != nil {
-				t.Fatal(err)
-			}
-			input := queuedJevFinishProbe(sess)
-			if name == "legacy probe" {
-				input = jevFinishProbe
-			}
-			if err := st.QueuePendingInput(sess.ID, input); err != nil {
-				t.Fatal(err)
-			}
-			if err := st.QueuePendingInput(sess.ID, "the user's next task"); err != nil {
-				t.Fatal(err)
-			}
-			sess, err = st.Get(sess.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			engine, err := status.NewEngine(config.Config{Tools: map[string]config.Tool{"claude-typeahead": {TypeAhead: true}}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			p := &poller{store: st, engine: engine, operatorInputAt: map[string]time.Time{}}
-			capture := tmux.Capture{State: tmux.CaptureState{Read: true}}
-			derived := status.Finished
-			switch name {
-			case "working with type ahead":
-				derived = status.Working
-			case "new finish", "store moved on":
-				if err := st.UpdateStatus(sess.ID, status.Working); err != nil {
-					t.Fatal(err)
-				}
-				if name == "new finish" {
-					if err := st.UpdateStatus(sess.ID, status.Finished); err != nil {
-						t.Fatal(err)
-					}
-				}
-			case "archived":
-				if err := st.SetArchived(sess.ID, true); err != nil {
-					t.Fatal(err)
-				}
-			case "focused":
-				m := &Model{poller: p, mode: modeFocus, focusedID: sess.ID}
-				m.syncPollInput()
-			case "attended":
-				m := &Model{poller: p, jevFinishCheck: true, focusedID: sess.ID, sessions: []store.Session{sess}}
-				m.noteJevFinishActivity()
-			case "operator input":
-				p.noteOperatorInputAt(sess.ID, sess.LastStatusAt.Add(time.Second))
-			case "pane input":
-				capture.State.InputAt = sess.LastStatusAt.Add(time.Second)
-			case "new task":
-				if err := st.SetOperatorAt(sess.ID, sess.LastStatusAt.Add(time.Second)); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if sent, err := p.maybeSendPendingInputWhenReady(sess, capture, derived, true); err != nil || sent {
-				t.Fatalf("obsolete probe sent = %v, %v", sent, err)
-			}
-			stored, err := st.Get(sess.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(stored.PendingInputs) != 1 || stored.PendingInputs[0] != "the user's next task" || stored.PendingInputClaimed {
-				t.Fatalf("queue after discarding probe: %#v, claimed=%v", stored.PendingInputs, stored.PendingInputClaimed)
-			}
-			if stored.Status == status.Working && name != "store moved on" {
-				t.Fatal("discarding the probe started a turn")
-			}
-		})
-	}
-}
-
-func TestJevFinishProbeDeliversOnlyItsPrompt(t *testing.T) {
-	m := buildModel(t)
-	sess := store.Session{ID: "probe", Name: "probe", Tool: "claude-typeahead", Cwd: t.TempDir(), Status: status.Finished, LastStatusAt: time.Now().Add(-time.Minute)}
-	sess.PendingInputs = []string{queuedJevFinishProbe(sess)}
-	if err := m.store.CreateSession(sess); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.tmux.Create(sess.ID, sess.Cwd, "cat", nil, 120, 30); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { m.tmux.Kill(sess.ID) })
-	capture := tmux.Capture{Text: "❯ ", State: tmux.CaptureState{Read: true, CursorX: 2}}
-	if sent, err := m.poller.maybeSendPendingInputWhenReady(sess, capture, status.Finished, true); err != nil || !sent {
-		t.Fatalf("current probe sent = %v, %v", sent, err)
-	}
-	if !m.poller.awaitSends(10 * time.Second) {
-		t.Fatal("probe did not finish sending")
-	}
-	pane := settledPane(t, m, sess.ID, "Gate Inbox finish check")
-	if strings.Contains(pane, jevFinishProbePrefix) {
-		t.Fatal("finish identity leaked into the prompt")
-	}
-	if inputs := sessionPendingInputs(t, m, sess.ID); len(inputs) != 0 {
-		t.Fatalf("delivered probe remained queued: %q", inputs)
+func TestJevFinishDiscardsOldQueuedProbes(t *testing.T) {
+	for _, input := range []string{jevFinishProbePrefix + time.Now().UTC().Format(time.RFC3339Nano), jevFinishProbe} {
+		st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		sess := store.Session{ID: "probe", Tool: "claude", Status: status.Finished,
+			PendingInputs: []string{input, "the user's next task"}}
+		if err := st.CreateSession(sess); err != nil {
+			t.Fatal(err)
+		}
+		p := &poller{store: st}
+		if sent, err := p.maybeSendPendingInputWhenReady(sess, tmux.Capture{}, status.Finished, true); err != nil || sent {
+			t.Fatalf("obsolete probe sent = %v, %v", sent, err)
+		}
+		stored, err := st.Get(sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(stored.PendingInputs) != 1 || stored.PendingInputs[0] != "the user's next task" || stored.PendingInputClaimed {
+			t.Fatalf("queue after discarding probe: %#v, claimed=%v", stored.PendingInputs, stored.PendingInputClaimed)
+		}
 	}
 }

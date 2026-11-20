@@ -41,6 +41,6 @@ tier="$(awk '
   }
 ' "$file")"
 case "$tier" in
-  urgent|high|medium|low) "$bin" priority "$tier" >/dev/null 2>&1 ;;
+  urgent|high|medium|low|lower|lowest) "$bin" priority "$tier" >/dev/null 2>&1 ;;
 esac
 exit 0

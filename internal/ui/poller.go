@@ -86,11 +86,9 @@ type poller struct {
 	locator        *search.Locator
 	historyFormats map[string]string
 
-	mu                 sync.Mutex
-	includeArchived    bool
-	selectedID         string
-	jevFinishFocusedID string
-	jevFinishAttended  map[string]string
+	mu              sync.Mutex
+	includeArchived bool
+	selectedID      string
 	// searchTargets is the last pass's rows as history-index targets, read
 	// by the refresher on its own cadence.
 	searchTargets []search.Target
@@ -237,6 +235,11 @@ type BoardObserver interface {
 	// sizing each session's sizing tier as the pass held it.
 	Pass(at time.Time, sessions []store.Session, groupTiers map[string]priority.Tier, sizing map[string]store.Sizing)
 	Operator(input extension.OperatorInput)
+	// View is the operator moving about the board, on the update loop.
+	View(event extension.ViewEvent)
+	// PaneInput is a key or paste that reached a session's pane, on the
+	// update loop.
+	PaneInput(input extension.PaneInput)
 }
 
 // StatusPins is the statuses board extensions hold the sessions they
@@ -773,6 +776,15 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	// A CLI or MCP process can relaunch an adopted row as managed while
+	// this board still has its old pane registered.
+	for _, sess := range sessions {
+		if sess.TmuxPaneID == "" {
+			if _, adopted := p.tmux.AdoptedTarget(sess.ID); adopted {
+				p.tmux.Release(sess.ID)
+			}
+		}
+	}
 	p.setHistoryTargets(p.historyTargets(sessions))
 	phases.list = lap(&mark)
 
@@ -804,6 +816,11 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	delivered, err := p.store.LastDelivered()
+	if err != nil {
+		return errMsg{err}
+	}
+	choreRests := choreRestsOf(sessions, delivered)
 	limitContinuations := 0
 	limitRecoveries, err := p.store.LimitRecoveries()
 	if err != nil {
@@ -872,6 +889,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	var agents agentStats
 	paneHashes := make(map[string]uint64, len(sessions))
 	searchText := make(map[string]string, len(sessions))
+	workingActivity := make(map[string]string, len(sessions))
 	childPane := make(map[string]string)
 	// answerableWait marks each child holding a wait its parent could take
 	// off it, which is what lets triage leave that row to the parent. Built
@@ -881,6 +899,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	answerableWait := make(map[string]bool)
 	askQuestions := make(map[string][]convo.AskQuestion)
 	askReads := make(map[string]*askRead)
+	authFailures := make(map[string]string)
 	// paneModes is each live session's permission mode, rebuilt every pass
 	// so a session that has gone takes its mode with it. See notePaneMode.
 	paneModes := make(map[string]string, len(p.paneModes))
@@ -961,6 +980,16 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 			// The pane pid is the shell; the agent runs as its child. A
 			// tree of one process means the agent is gone. A failed ps
 			// sample proves nothing, so it counts as alive.
+			//
+			// An exit record is the last agent's word on how it ended, and
+			// it outlives that agent: an operator who quits and starts the
+			// CLI again from the pane's shell leaves it behind, and nothing
+			// removes it. A tree still holding a process under the shell is
+			// an agent running now, so the record is an earlier one's and
+			// says nothing about this one. A failed sample leaves it believed.
+			if exited && stat.OK && stat.Procs > 1 {
+				exited = false
+			}
 			agentAlive := !exited && (!stat.OK || stat.Procs > 1)
 			if hooklessTree(sess, p.statusSources[sess.Tool], agentAlive, stat) {
 				p.hookless[sess.ID] = true
@@ -1006,6 +1035,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 					askReads[sess.ID] = read
 				}
 				searchText[sess.ID] = strings.ToLower(clean)
+				if region, ok := p.engine.ActivityRegion(sess.Tool, clean); ok {
+					workingActivity[sess.ID] = activityExcerpt(region)
+				}
 				p.notePaneMode(paneModes, sess, clean)
 				// A child's pane is kept off the same capture, for the same
 				// reason: relaying its question to its parent has to read the
@@ -1029,7 +1061,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 						return errMsg{err}
 					}
 					phases.inbox += lap(&step)
-					derived, err := p.deriveCleanPaneStatus(sess, clean, agentAlive, paneHashes)
+					derived, err := p.deriveCleanPaneStatus(sess, clean, agentAlive, paneHashes, &sample.authFailure)
 					if err != nil {
 						return errMsg{err}
 					}
@@ -1097,7 +1129,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 						newStatus = pinned
 					}
 					// Any real transition re-arms the finished alert.
-					if sess.Acked && newStatus != status.Idle && newStatus != status.Finished {
+					// A background rest is the turn the operator already saw end,
+					// with a shell still running behind it.
+					if sess.Acked && newStatus != status.Idle && newStatus != status.Finished && newStatus != status.Background {
 						step = time.Now()
 						unacked := false
 						rowState = append(rowState, store.DerivedState{ID: sess.ID, Acked: &unacked})
@@ -1111,6 +1145,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 				p.noteScreen(sess, newStatus, clean, now)
 			}
 			samples[sess.ID] = sample
+			if !exited && newStatus == status.Errored && sample.authFailure != "" {
+				authFailures[sess.ID] = sample.authFailure
+			}
 			if exited {
 				newStatus = status.Errored
 			}
@@ -1121,9 +1158,13 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 			} else if dialog.HasReader(sess.Tool) {
 				_, answerableWait[sess.ID] = dialog.ReadQuestions(sess.Tool, childPane[sess.ID], nil)
 			}
-			if answerableWait[sess.ID] &&
-				asksForApproval(sess.Tool, childPane[sess.ID], asks.PendingQuestions(childAskTarget(sess))) {
-				answerableWait[sess.ID] = false
+			if answerableWait[sess.ID] {
+				// A pi child's call is only in the file its ask-pending hook saved.
+				target := childAskTarget(sess)
+				target.PendingAskFile = p.pendingAskFile(sess)
+				if asksForApproval(sess.Tool, childPane[sess.ID], asks.PendingQuestions(target)) {
+					answerableWait[sess.ID] = false
+				}
 			}
 		}
 		if newStatus != sess.Status {
@@ -1253,6 +1294,10 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	hibernated, err := p.store.Hibernated()
+	if err != nil {
+		return errMsg{err}
+	}
 	if p.offline() {
 		recoveries, err := p.store.LimitRecoveries()
 		if err != nil {
@@ -1275,12 +1320,16 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		previewAt:        previewAt,
 		agents:           agents,
 		queuedMessages:   queued,
+		hibernated:       hibernated,
 		granted:          granted,
 		compactWindows:   p.compactViews,
 		archivedChildren: archivedKids,
 		searchText:       searchText,
+		workingActivity:  workingActivity,
 		answerableWait:   answerableWait,
+		choreRests:       choreRests,
 		askQuestions:     askQuestions,
+		authFailures:     authFailures,
 		hookless:         p.hooklessRows(),
 		stale:            p.staleRows(),
 		hogBadges:        p.hogWatch.badgeRows(),
@@ -1460,12 +1509,8 @@ func (p *poller) startCaptureIfIdle(sessions []store.Session, panes map[string]i
 }
 
 // captureAgentSessionIDs binds each not-yet-captured id-minting session to
-// the conversation its CLI wrote, returning how many it bound. Sessions are
-// processed in launch order so the earliest one claims
-// the earliest unclaimed conversation in its directory; a later session
-// started in the same directory then skips that one via claimed and captures
-// its own. Launch times carry nanosecond precision, so sessions launched a
-// moment apart in the same directory still order deterministically.
+// the conversation its CLI wrote, returning how many it bound. Codex requires
+// prompt or pane evidence; tools using time-based capture run in launch order.
 func (p *poller) captureAgentSessionIDs(sessions []store.Session, panes map[string]int) (int, error) {
 	claimed := make(map[string]bool, len(sessions))
 	for _, sess := range sessions {
@@ -1566,18 +1611,12 @@ func (p *poller) maybeSendPendingInputWhenReady(sess store.Session, capture tmux
 		return false, nil
 	}
 	if !sess.PendingInputClaimed && isJevFinishProbe(sess.PendingInputs[0]) {
-		current, err := p.jevFinishProbeCurrent(sess, capture, derived)
-		if err != nil {
+		claimed, err := p.store.ClaimPendingInput(sess.ID, sess.PendingInputs[0])
+		if err != nil || !claimed {
 			return false, err
 		}
-		if !current {
-			claimed, err := p.store.ClaimPendingInput(sess.ID, sess.PendingInputs[0])
-			if err != nil || !claimed {
-				return false, err
-			}
-			_, err = p.store.ConsumeClaimedPendingInput(sess.ID, sess.PendingInputs[0])
-			return false, err
-		}
+		_, err = p.store.ConsumeClaimedPendingInput(sess.ID, sess.PendingInputs[0])
+		return false, err
 	}
 	if !sess.PendingInputClaimed && strings.HasPrefix(sess.PendingInputs[0], adoptedRenamePrefix) {
 		if sess.NameSource != store.SourceDerived {
@@ -1604,7 +1643,7 @@ func (p *poller) maybeSendPendingInputWhenReady(sess store.Session, capture tmux
 	if !sess.PendingInputClaimed && agentAlive {
 		// The paste ends in Enter, so a line someone has part way written
 		// at the newly idle prompt would be submitted with it.
-		if p.engine.DeliveryHold(sess.Tool, ansi.Strip(capture.Text)) != "" || p.operatorTyping(sess, capture.State) {
+		if p.hookDialog(sess) || p.engine.DeliveryHold(sess.Tool, ansi.Strip(capture.Text)) != "" || p.operatorTyping(sess, capture.State) {
 			return false, nil
 		}
 		typing, err := p.composerCarriesDraft(sess, capture)
@@ -1661,11 +1700,7 @@ func (p *poller) maybeSendPendingInput(sess store.Session, pane string, agentAli
 		p.releaseSend(key)
 		return false, nil
 	}
-	text := input
-	if isJevFinishProbe(input) {
-		text = jevFinishProbe
-	}
-	p.runSend(sess, key, text, func(err error) error {
+	p.runSend(sess, key, input, func(err error) error {
 		// Opencode collapses a multi-line bracketed paste to "[Pasted ~N
 		// lines]" and the first Enter can land inside the paste burst
 		// rather than submitting it, leaving the prompt held in the
@@ -1775,6 +1810,11 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	// turn whose first request fails. Held before the interrupt, too, so a
 	// working agent is not stopped for a message that is not going in.
 	if p.offline() {
+		return false, nil
+	}
+	// Held before the interrupt too: its Escape cancels a dialog just as the
+	// message's Enter would answer one.
+	if p.hookDialog(sess) {
 		return false, nil
 	}
 	if msg.Interrupt && derived == status.Working && msg.ClaimedAt.IsZero() {
@@ -2097,6 +2137,16 @@ func (p *poller) interruptForMessage(sess store.Session, msg store.InboxMessage,
 	return true, nil
 }
 
+// hookDialog reports whether sess's own status hooks say a dialog is on its
+// screen, which holds every key the board would send it on its own: a
+// message, its interrupt, a launch prompt, a limit retry. The pane rules
+// cannot see a dialog drawn with a legend they do not know, and a paste's
+// Enter answers it. Only pi reports its dialogs this way; see
+// hooks.PromptOpen.
+func (p *poller) hookDialog(sess store.Session) bool {
+	return p != nil && p.hooks != nil && p.statusSources[sess.Tool] == hooks.StatusSourcePi && p.hooks.PromptOpen(sess.ID)
+}
+
 // safeToInterrupt reports whether the pane is plainly a turn at work: its
 // input line drawn and no rule seeing a dialog. Anything less holds, since a
 // dialog that has replaced the input line trips TypingHold's not-ready branch
@@ -2316,9 +2366,9 @@ func (p *poller) seal(sess store.Session, msg store.InboxMessage, text string) s
 	if p.hooks == nil {
 		return text
 	}
-	key, err := parentseal.Key(p.hooks.ConfigDir(), sess.ID)
+	key, err := parentseal.SigningKey(p.hooks.ConfigDir())
 	if err != nil {
-		logging.Warn("could not mint a session's sealing key", "session", sess.ID, logging.Err(err))
+		logging.Warn("could not read or mint the seal key", "session", sess.ID, logging.Err(err))
 		return text
 	}
 	return parentseal.Seal(key, msg.ID, sess.ID, msg.SenderID, text)
@@ -2698,10 +2748,12 @@ func activityFingerprint(region string) uint64 {
 // own viewport above the live bottom: that one holds for as long as the
 // viewport stays there, and records no baseline meanwhile.
 func (p *poller) derivePaneStatus(sess store.Session, pane string, agentAlive bool, paneHashes map[string]uint64) (string, error) {
-	return p.deriveCleanPaneStatus(sess, ansi.Strip(pane), agentAlive, paneHashes)
+	var authFailure string
+	return p.deriveCleanPaneStatus(sess, ansi.Strip(pane), agentAlive, paneHashes, &authFailure)
 }
 
-func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAlive bool, paneHashes map[string]uint64) (string, error) {
+func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAlive bool, paneHashes map[string]uint64, authFailure *string) (string, error) {
+	*authFailure = ""
 	// A displaced viewport is showing history, not now.
 	displaced := p.engine.ViewportDisplaced(sess.Tool, text)
 	region, hasRegion := p.engine.ActivityRegion(sess.Tool, text)
@@ -2716,7 +2768,7 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 	// exactly like a turn that ended -- so the extension that knows writes
 	// the file, and this reads it.
 	pinned := sessionhooks.Role(sess.Role).PinnedStatus
-	if p.statusSources[sess.Tool] == hooks.StatusSourceClaude || pinned {
+	if hooks.FileStatus(p.statusSources[sess.Tool]) || pinned {
 		if !agentAlive {
 			// The agent died without its SessionEnd cleanup hook
 			// (crash, SIGKILL); a stale file must not mask the pane.
@@ -2740,9 +2792,17 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 			// The file itself stays. It is not this board's to delete while
 			// the session is alive, and a relaunch that restores the flag
 			// picks it straight back up.
-			if hookStatus, ok := p.hooks.Read(sess.ID); ok {
+			if ev, ok := p.hooks.ReadEvent(sess.ID); ok {
+				hookStatus := ev.State
 				if p.missedTurn(sess, hookStatus) {
 					return status.Working, nil
+				}
+				// A turn summary can remain visible below a failed reply.
+				// The hook knows how that turn ended.
+				if hookStatus == status.Errored &&
+					(ev.Name == hooks.ClaudeSignInRequired || ev.Name == hooks.ClaudeAuthenticationFailed) {
+					*authFailure = ev.Name
+					return status.Errored, nil
 				}
 				derived := p.applyHookStatus(sess, text, hookStatus, displaced)
 				if hookStatus == status.Finished && (derived == status.Finished || derived == status.Idle) && p.backgroundPending(sess) {

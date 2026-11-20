@@ -21,6 +21,13 @@ drives the scenario's keystrokes and writes
 
 which is the layout `skills/ship-ui-feature/scripts/post-to-pr.ts` uploads.
 
+Captures under the same local account run one at a time across worktrees and
+output directories. If another capture is active, the command prints a waiting
+message and waits up to two minutes for the slot. Builds and recording share
+a three-minute budget from when the capture acquires the slot. If VHS runs
+past that deadline, the timeout stops VHS and its encoder before another
+capture can start.
+
 Each run also writes `<out>/media/<run>/capture.json`, through `manifest.sh`:
 the scratch tmux directory, board home and `HOME` the run used, and the sha256
 of every file it wrote. `post-to-pr.ts` publishes nothing without it, refuses a
@@ -115,7 +122,14 @@ Sleep 1s
   binary aimed at its private server, both for a scenario that has to leave the
   board and come back: `q` quits to the shell, `{{TMUX}} kill-server` takes the
   panes with it the way a reboot does, and `{{LAUNCH}}` starts the board again
-  on the same scratch home.
+  on the same scratch home. `{{HOME}}` is that scratch home, for a scenario
+  that seeds a row no keystroke can make.
+- The run tape names no absolute path, so it passes the uploader's public
+  evidence scan. `{{LAUNCH}}` is a launcher on vhs's `PATH`, and `{{TMUX}}`
+  and `{{HOME}}` read `$GIB_CAP_TMUX` and `$GIB_CAP_HOME`, so use them only
+  where a shell expands them: not inside single quotes. Scenario comments are
+  left out of the run tape. `runtape_test.go` fails any scenario whose tape
+  would name one.
 - Spell an alt chord the way the keymap spells it — `Alt+,`, `Alt+\`, `Alt+f`.
   vhs sends its own `Alt+x` as a bare `x`, so the driver rewrites the line into
   the `Escape` + `Type` pair that puts the escape byte on the wire. Only a
@@ -213,7 +227,9 @@ that actually happen.
 ## Requirements
 
 `vhs`, `ttyd`, `ffmpeg`, `tmux`, and a Chromium (vhs screenshots the terminal
-through a headless one). Missing tooling exits 2 and changes nothing.
+through a headless one). The capture queue uses `lockf` on macOS and
+`flock` on Linux. Runtime deadlines use GNU coreutils (`brew install coreutils`
+on macOS). Missing tooling exits 2 and changes nothing.
 
 ```bash
 sudo apt-get install -y ttyd ffmpeg

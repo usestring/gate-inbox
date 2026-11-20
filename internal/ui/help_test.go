@@ -14,9 +14,9 @@ import (
 	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
-func runeKey(s string) tea.KeyPressMsg {
-	return tea.KeyPressMsg{Code: []rune(s)[0], Text: s}
-}
+// runeKey is key under the name the help tests have always used: a bare
+// rune types its text, and a chord name builds the chord.
+func runeKey(s string) tea.KeyPressMsg { return key(s) }
 
 func namedKey(code rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: code} }
 
@@ -121,6 +121,22 @@ func TestHelpSearchNarrowsToMatchingRows(t *testing.T) {
 	}
 }
 
+func TestLegendSearchFindsAnInstalledExtensionBadge(t *testing.T) {
+	m := helpModel()
+	m.help.legend = true
+	m.InstallExtensions([]ExtensionUI{
+		{Owner: "demo", BadgeLabel: "quota remaining", BadgeDetail: "Weekly quota left at reset."},
+		{Owner: "empty", BadgeLabel: "incomplete badge"},
+	}, nil)
+	m.help.query = "quota remaining"
+	if legend := ansi.Strip(m.viewHelp()); !strings.Contains(legend, "Weekly quota left at reset.") {
+		t.Fatalf("extension badge description missing from legend:\n%s", legend)
+	}
+	if hits := matchHelp(m.resolvedLegend(), "incomplete badge"); len(hits) != 0 {
+		t.Fatalf("incomplete badge matched %d sections", len(hits))
+	}
+}
+
 func TestHelpSearchIsCaseInsensitive(t *testing.T) {
 	lower := helpRowCount(matchHelp(helpSectionsOf(), "revive"))
 	upper := helpRowCount(matchHelp(helpSectionsOf(), "REVIVE"))
@@ -155,8 +171,9 @@ func TestHelpSearchOnASectionTitleKeepsItsRows(t *testing.T) {
 }
 
 // The built-in review screen is gone, so no key in the map may still offer
-// it and nothing may still bind ctrl+r. The review queue is GitHub's pull
-// request reviews, not that screen, so its own sections are let through.
+// it, and ctrl+r -- its old key -- may stand only for revive, which took it
+// over. The review queue is GitHub's pull request reviews, not that screen,
+// so its own sections are let through.
 func TestHelpNeverAdvertisesReview(t *testing.T) {
 	review := regexp.MustCompile(`(?i)\breview`)
 	queue := "advanced: the review queue"
@@ -173,11 +190,11 @@ func TestHelpNeverAdvertisesReview(t *testing.T) {
 			t.Errorf("key map still carries a %q section", section.title)
 		}
 		for _, row := range section.rows {
-			if row.action == keymap.IngestReviews || row.action == keymap.ReviewsTab {
+			if row.action == keymap.IngestReviews || row.action == keymap.ReviewsTab || row.action == keymap.TriageContent {
 				exempt = append(exempt, row.text)
 				continue
 			}
-			if strings.EqualFold(row.key, "ctrl+r") || review.MatchString(row.text) {
+			if (strings.EqualFold(row.key, "ctrl+r") && row.action != keymap.Revive) || review.MatchString(row.text) {
 				t.Errorf("key map still advertises review: %q / %q", row.key, row.text)
 			}
 		}

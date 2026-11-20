@@ -100,6 +100,9 @@ type fakeSessionCommands struct {
 	claimedTaskID  string
 	claimOpts      sessioncmd.ClaimOptions
 	settledTaskID  string
+	finishNote     string
+	deleteForce    bool
+	pruneOpts      sessioncmd.TaskPruneOptions
 	reservedPaths  []string
 	reservedMode   string
 	reservedTTL    time.Duration
@@ -306,9 +309,13 @@ func (f *fakeSessionCommands) ClaimTask(_ string, taskID string, opts sessioncmd
 	return sessioncmd.Task{ID: "t1", Title: "fix retries", State: "in_progress", Mine: true}, f.err
 }
 
-func (f *fakeSessionCommands) FinishTask(_ string, taskID string) (sessioncmd.Task, error) {
-	f.settledTaskID = taskID
-	return sessioncmd.Task{ID: taskID, Title: "fix retries", State: "done"}, f.err
+func (f *fakeSessionCommands) FinishTask(_ string, taskID, note string) (sessioncmd.TaskFinish, error) {
+	f.settledTaskID, f.finishNote = taskID, note
+	return sessioncmd.TaskFinish{
+		Task:      sessioncmd.Task{ID: taskID, Title: "fix retries", State: "done", Note: note},
+		Unblocked: []sessioncmd.Task{{ID: "t2", Title: "ship retries", State: "pending"}},
+		Notified:  "lead0001",
+	}, f.err
 }
 
 func (f *fakeSessionCommands) ReleaseTask(_ string, taskID string) (sessioncmd.Task, error) {
@@ -316,9 +323,20 @@ func (f *fakeSessionCommands) ReleaseTask(_ string, taskID string) (sessioncmd.T
 	return sessioncmd.Task{ID: taskID, Title: "fix retries", State: "pending"}, f.err
 }
 
-func (f *fakeSessionCommands) DeleteTask(_ string, taskID string) error {
-	f.settledTaskID = taskID
-	return f.err
+func (f *fakeSessionCommands) DeleteTask(_ string, taskID string, force bool) (sessioncmd.TaskDeletion, error) {
+	f.settledTaskID, f.deleteForce = taskID, force
+	return sessioncmd.TaskDeletion{
+		Task:      sessioncmd.Task{ID: taskID, Title: "fix retries", State: "pending"},
+		Unblocked: []sessioncmd.Task{{ID: "t9", Title: "ship retries", State: "pending"}},
+	}, f.err
+}
+
+func (f *fakeSessionCommands) PruneTasks(_ string, opts sessioncmd.TaskPruneOptions) (sessioncmd.TaskPrune, error) {
+	f.pruneOpts = opts
+	return sessioncmd.TaskPrune{
+		DryRun: !opts.Delete, OlderThanDays: 14, Count: 1,
+		Tasks: []sessioncmd.Task{{ID: "old1", Title: "stale plan", State: "pending"}},
+	}, f.err
 }
 
 func (f *fakeSessionCommands) Reserve(_ string, patterns []string, mode, note string, ttl time.Duration) (sessioncmd.ReserveResult, error) {
@@ -834,7 +852,7 @@ func TestSessionDescriptionsTeachWhenAndHowToChainTools(t *testing.T) {
 	}
 	for tool, wants := range map[string][]string{
 		"list_sessions":    {"Call first", "create_session"},
-		"create_session":   {"instead of your CLI's built-in subagent tool", "quick read-only lookup", "only when your user explicitly asked for a new session", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
+		"create_session":   {"instead of your CLI's built-in subagent tool", "quick read-only lookup", "without asking for separate permission to open a session", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
 		"read_session":     {"after create_session", "current screen"},
 		"send_session":     {"self-contained instruction", "read_session", "at rest", "another agent rather than from the user"},
 		"message_status":   {"delivered", "queued"},
@@ -1293,6 +1311,37 @@ func TestTaskToolsForwardArgumentsAndRenderTheList(t *testing.T) {
 		if fake.settledTaskID != "t3" {
 			t.Fatalf("%s id = %q", action, fake.settledTaskID)
 		}
+	}
+
+	text, isError = callText(t, session, "task", map[string]any{"action": "finish", "task_id": "t4", "note": "merged #12; docs left"})
+	if isError || fake.finishNote != "merged #12; docs left" {
+		t.Fatalf("finish with a note forwarded %q, isError=%v", fake.finishNote, isError)
+	}
+	for _, want := range []string{"finished fix retries (t4) [done]", "note: merged #12; docs left", "now claimable: ship retries (t2)", "told its creator lead0001"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("finish text missing %q: %s", want, text)
+		}
+	}
+	text, isError = callText(t, session, "task", map[string]any{"action": "delete", "task_id": "t5", "force": true})
+	if isError || !fake.deleteForce || !strings.Contains(text, "deleted fix retries (t5)") || !strings.Contains(text, "now claimable: ship retries (t9)") {
+		t.Fatalf("forced delete = %q, isError=%v, force forwarded %t", text, isError, fake.deleteForce)
+	}
+	// An omitted dry_run is the dry run; only an explicit false deletes.
+	for _, testCase := range []struct {
+		args   map[string]any
+		delete bool
+	}{
+		{map[string]any{"action": "prune"}, false},
+		{map[string]any{"action": "prune", "dry_run": true}, false},
+		{map[string]any{"action": "prune", "dry_run": false, "older_than_days": 30}, true},
+	} {
+		text, isError := callText(t, session, "task", testCase.args)
+		if isError || fake.pruneOpts.Delete != testCase.delete || !strings.Contains(text, "stale plan (old1)") {
+			t.Fatalf("prune %v = %q, isError=%v, forwarded %+v", testCase.args, text, isError, fake.pruneOpts)
+		}
+	}
+	if fake.pruneOpts.OlderThanDays != 30 {
+		t.Fatalf("older_than_days forwarded as %d", fake.pruneOpts.OlderThanDays)
 	}
 
 	if text, isError := callText(t, session, "task", map[string]any{"action": "bogus"}); !isError ||

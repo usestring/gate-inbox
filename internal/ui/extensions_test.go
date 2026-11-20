@@ -39,7 +39,7 @@ func TestAnExtensionKeyRunsWithTheSelectedRow(t *testing.T) {
 	m.InstallExtensions([]ExtensionUI{{Owner: "items", Keys: []ExtensionKey{
 		{Action: "open_item", Keys: []string{"c"}, Label: "open the item",
 			Run: func(p Press) error { got = append(got, p); return nil }},
-		{Action: "grab_quit", Keys: []string{"q"}, Label: "wants quit's key",
+		{Action: "grab_quit", Keys: []string{"ctrl+alt+q"}, Label: "wants quit's key",
 			Run: func(Press) error { t.Error("an extension took quit's key"); return nil }},
 	}}}, NewExtensionBridge([]string{"items"}))
 
@@ -51,8 +51,8 @@ func TestAnExtensionKeyRunsWithTheSelectedRow(t *testing.T) {
 	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("presses = %+v, want %+v", got, want)
 	}
-	if action, _ := m.km().Action(keymap.ContextList, "q"); action != keymap.Quit {
-		t.Fatalf("q answers %q", action)
+	if action, _ := m.km().Action(keymap.ContextList, "ctrl+alt+q"); action != keymap.Quit {
+		t.Fatalf("ctrl+alt+q answers %q", action)
 	}
 	if !strings.Contains(strings.Join(m.keyProblems, "\n"), "grab_quit") {
 		t.Fatalf("the collision was not reported: %v", m.keyProblems)

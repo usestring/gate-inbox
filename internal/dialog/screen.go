@@ -77,6 +77,22 @@ type ScreenChoice struct {
 	Cursor bool
 }
 
+// IsChoiceLine reports whether Lines[i] was part of a choice. Readers that
+// don't record choice rows still fall back to matching the label.
+func (s Screen) IsChoiceLine(i int) bool {
+	if s.choiceLines != nil {
+		return s.choiceLines[i]
+	}
+	text := strings.TrimSpace(s.Lines[i])
+	for _, choice := range s.Choices {
+		label := strings.TrimSpace(choice.Label)
+		if label != "" && strings.Contains(text, label) {
+			return true
+		}
+	}
+	return false
+}
+
 // Cursor is the 0-based choice the marker is on, or -1.
 func (s Screen) Cursor() int {
 	for i, choice := range s.Choices {

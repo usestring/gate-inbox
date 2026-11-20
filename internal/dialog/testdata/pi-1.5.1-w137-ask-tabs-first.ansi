@@ -1,0 +1,45 @@
+[38;5;172m[Extensions][39m
+[38;5;102m  gate-inbox-pi-extension-9dc29fb969a1.ts[39m
+
+
+ [38;5;172mWarning: tmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and restart tmux.[39m
+
+[48;5;17m
+ [38;5;253mThis session is already named. You can rename it later with "$GATE_INBOX_BIN" rename "<name>" only if the user asks. Do not rename it
+[39m [38;5;253mnow. Then do the task:[39m
+
+ [38;5;253mUse the AskUserQuestion tool exactly once, with two questions in one call. Question 1: "Which rollout path should I take?", header
+[39m [38;5;253m"Rollout", multiSelect false, options "Hold for staged UI" (description "Wait for the UI"), "Only region 4021" (description "One
+[39m [38;5;253mregion"). Question 2: "Should I notify the channel when it lands?", header "Notify", multiSelect false, options "Yes, post in the
+[39m [38;5;253mchannel" (description "Post") and "No" (description "Quiet"). After you get the answers, end with exactly one line: REPORT: <answer 1>
+[39m [38;5;253m| <answer 2>[39m
+
+
+[49m [3m[38;5;103mThe user wants me to:[0m
+ [38;5;140m1. [3m[38;5;103mUse AskUserQuestion tool exactly once with two questions[0m
+ [38;5;140m2. [3m[38;5;103mQuestion 1: "Which rollout path should I take?" with header "Rollout", multiSelect false, with two options[0m
+ [38;5;140m3. [3m[38;5;103mQuestion 2: "Should I notify the channel when it lands?" with header "Notify", multiSelect false, with two options[0m
+ [38;5;140m4. [3m[38;5;103mAfter getting answers, report them in format: REPORT: <answer 1> | <answer 2>[0m
+
+ [3m[38;5;103mLet me structure this properly for the AskUserQuestion tool.[0m
+
+[48;5;235m
+ [1m[38;5;253mAskUserQuestion[0m[48;5;235m [38;5;109mquestions=[{"question":"Which rollout path should I take?","header":"Rollout","multiSelect":false...[39m
+
+
+[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  [38;5;16m[48;5;153m ☐ Rollout [39m[49m ☐ Notify  ✔ Submit   →
+
+Which rollout path should I take?
+
+❯ 1. Hold for staged UI
+     Wait for the UI
+  2. Only region 4021
+     One region
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+[38;5;102m/tmp/sample-9000/scratchxxxxxx/w[39m
+[38;5;102m↑10 ↓385 R13k W678 CH94.9% $0.004 6.9%/200k (auto)                                                              claude-haiku-4-5 • medium

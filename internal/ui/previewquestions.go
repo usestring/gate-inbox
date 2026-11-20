@@ -12,6 +12,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -63,7 +64,12 @@ func (p *poller) pendingAsk(sess store.Session, clean string, next map[string]*a
 const toolAskReread = 2 * time.Second
 
 func (p *poller) pendingToolAsk(sess store.Session, clean string, next map[string]*askRead) []convo.AskQuestion {
-	if sess.AgentSessionID == "" || !dialog.HasReader(sess.Tool) {
+	// A pi session's call is only in the file its ask-pending hook saved, and
+	// it may have no agent session id to find a transcript by. That holds
+	// whichever ask source reads it, pi's own or Claude's.
+	target := childAskTarget(sess)
+	target.PendingAskFile = p.pendingAskFile(sess)
+	if (sess.AgentSessionID == "" && target.PendingAskFile == "") || !dialog.HasReader(sess.Tool) {
 		return nil
 	}
 	reading, ok := dialog.ReadQuestions(sess.Tool, clean, nil)
@@ -78,7 +84,7 @@ func (p *poller) pendingToolAsk(sess store.Session, clean string, next map[strin
 	next[sess.ID] = read
 	if read.questions == nil || !coversScreen(read.questions, reading.Questions) || time.Since(read.at) > toolAskReread {
 		read.at = time.Now()
-		read.questions = asks.PendingQuestions(asks.Target{Tool: sess.Tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd})
+		read.questions = asks.PendingQuestions(target)
 	}
 	return read.questions
 }
@@ -125,32 +131,57 @@ const (
 	cardHeadersOnly
 )
 
-// previewQuestions is the card for the selected session, or nil when it is
-// not standing on a several-question dialog whose call the transcript holds.
-// Without the call only the tab on the screen can be read in full, so the
-// preview stays as it was.
+// previewQuestions draws the selected session's dialog card. A live Claude
+// permission prompt is read from the pane; Claude's question card still
+// needs a several-question call from the transcript.
 func (m *Model) previewQuestions(width, height int) []string {
 	sess, ok := m.selected()
 	if !ok {
 		return nil
 	}
 	asked := m.askQuestions[sess.ID]
-	least := 2
-	if sess.Tool != "claude" {
-		least = 1
-	}
-	if len(asked) < least {
-		if sess.Tool != "claude" {
-			return m.previewScreen(width, height)
+	switch {
+	case sess.Tool == "claude":
+		if m.mode != modeFocus && !sess.Archived && sess.Status != status.Dead {
+			if card := m.previewScreen(sess, width, height); len(card) != 0 {
+				return card
+			}
 		}
+		if len(asked) < 2 {
+			return nil
+		}
+	case len(asked) == 0:
+		return m.previewScreen(sess, width, height)
+	}
+	return m.cachedQuestionCard(sess, asked, width, height)
+}
+
+func (m *Model) previewSingleClaudeQuestion(width, height int) []string {
+	sess, ok := m.selected()
+	if !ok || sess.Tool != "claude" || sess.Archived || sess.Status == status.Dead ||
+		m.mode == modeFocus || m.preview == "" {
 		return nil
 	}
+	return m.cachedQuestionCard(sess, nil, width, height)
+}
+
+func (m *Model) cachedQuestionCard(sess store.Session, asked []convo.AskQuestion, width, height int) []string {
+	var first *convo.AskQuestion
+	if len(asked) > 0 {
+		first = &asked[0]
+	}
 	c := &m.questionCard
-	if c.sessID == sess.ID && c.pane == m.preview && c.asked == &asked[0] && c.count == len(asked) &&
+	if c.sessID == sess.ID && c.pane == m.preview && c.asked == first && c.count == len(asked) &&
 		c.width == width && c.height == height && c.theme == renderGen {
 		return c.lines
 	}
-	*c = questionCard{sessID: sess.ID, pane: m.preview, asked: &asked[0], count: len(asked), width: width, height: height, theme: renderGen}
+	*c = questionCard{sessID: sess.ID, pane: m.preview, asked: first, count: len(asked), width: width, height: height, theme: renderGen}
+	if len(asked) == 0 {
+		if q, ok := dialog.ReadSingleClaudeQuestion(m.preview); ok {
+			c.lines = questionCardLines([]dialog.Question{q}, false, width, cardFull)
+		}
+		return c.lines
+	}
 	reading, ok := dialog.ReadQuestions(sess.Tool, m.preview, asked)
 	if !ok || len(reading.Questions) != len(asked) {
 		return nil
@@ -306,9 +337,8 @@ func packItems(items []string, width int) []string {
 	return lines
 }
 
-func (m *Model) previewScreen(width, height int) []string {
-	sess, ok := m.selected()
-	if !ok {
+func (m *Model) previewScreen(sess store.Session, width, height int) []string {
+	if height < 2 || m.preview == "" {
 		return nil
 	}
 	c := &m.screenCard
@@ -317,7 +347,7 @@ func (m *Model) previewScreen(width, height int) []string {
 	}
 	*c = screenCard{sessID: sess.ID, pane: m.preview, width: width, height: height, theme: renderGen}
 	screen, ok := dialog.ReadScreenFor(sess.Tool, m.preview)
-	if !ok {
+	if !ok || (sess.Tool == "claude" && (screen.Kind != dialog.ScreenPermission || len(screen.Choices) == 0)) {
 		return nil
 	}
 	c.lines = screenCardLines(screen, width)
@@ -351,8 +381,8 @@ func screenCardLines(screen dialog.Screen, width int) []string {
 		}
 	}
 	marked := len(screen.Choices) > 0
-	for _, line := range screen.Lines {
-		if marked && screenChoiceLine(screen, line) {
+	for i, line := range screen.Lines {
+		if marked && screen.IsChoiceLine(i) {
 			continue
 		}
 		if strings.TrimSpace(line) == "" {
@@ -382,15 +412,4 @@ func screenCardLines(screen dialog.Screen, width int) []string {
 		lines = append(lines, border.Render("│")+" "+padRight(line, inner)+" "+border.Render("│"))
 	}
 	return append(lines, border.Render("╰"+strings.Repeat("─", max(0, width-2))+"╯"))
-}
-
-func screenChoiceLine(screen dialog.Screen, line string) bool {
-	text := strings.TrimSpace(line)
-	for _, choice := range screen.Choices {
-		label := strings.TrimSpace(choice.Label)
-		if label != "" && strings.Contains(text, label) {
-			return true
-		}
-	}
-	return false
 }

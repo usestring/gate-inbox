@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -59,7 +60,7 @@ func TestTriageRailOrdersByUrgencyThenOldest(t *testing.T) {
 		t.Fatalf("a folded group should hide new-block in normal mode:\n%s", got)
 	}
 
-	updated, cmd := m.handleKey(key("i"))
+	updated, cmd := m.handleKey(key("ctrl+i"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -68,7 +69,7 @@ func TestTriageRailOrdersByUrgencyThenOldest(t *testing.T) {
 		t.Fatal("i did not turn triage on")
 	}
 
-	want := []string{"old-block", "new-block", "reviewme", "napping", "grinder", "booting", "gone", "crashed"}
+	want := []string{"old-block", "new-block", "reviewme", "napping", "crashed", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -121,9 +122,9 @@ func TestTriageReorderKeyRefusesAndSaysWhy(t *testing.T) {
 	before := sessionNames(m)
 
 	m.selectSessionRow(t, "crashed")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'J', Text: "J"})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModShift})
 	m = updated.(*Model)
-	if !strings.Contains(m.errBar.text, "press i to leave triage") {
+	if !strings.Contains(m.errBar.text, "press "+m.cap(keymap.ContextList, keymap.Triage)+" to leave triage") {
 		t.Fatalf("reorder in triage said %q", m.errBar.text)
 	}
 	if got := sessionNames(m); !slices.Equal(got, before) {
@@ -233,22 +234,20 @@ func TestTriageStartupEntersTheHeadOfTheQueue(t *testing.T) {
 	}
 }
 
-// The entry is armed by the persisted mode alone: a board built over a store
-// that left triage on asks for it, and any other board does not.
 func TestTriageStartupEntryFollowsTheStoredMode(t *testing.T) {
 	m := buildModel(t)
 	if m.triageStartupEnter {
-		t.Fatal("a fresh board armed the startup entry")
+		t.Fatal("a board with triage disabled armed the startup entry")
 	}
-	if err := m.store.SetSetting(triageSetting, "on"); err != nil {
-		t.Fatalf("SetSetting: %v", err)
-	}
-	restored := New(m.cfg, m.store, m.tmux, m.engine, m.hooks, "dev")
-	if !restored.triage {
-		t.Fatal("the restored board did not pick up triage")
-	}
-	if !restored.triageStartupEnter {
-		t.Fatal("a board restored in triage did not arm the startup entry")
+	for _, setting := range []string{"", "on", "off"} {
+		if err := m.store.SetSetting(triageSetting, setting); err != nil {
+			t.Fatalf("SetSetting: %v", err)
+		}
+		restored := New(m.cfg, m.store, m.tmux, m.engine, m.hooks, "dev")
+		want := setting != "off"
+		if restored.triage != want || restored.triageStartupEnter != want {
+			t.Fatalf("stored mode %q: triage=%v, startup entry=%v; want %v", setting, restored.triage, restored.triageStartupEnter, want)
+		}
 	}
 }
 
@@ -263,14 +262,11 @@ func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 	})
 	m.triage = true
 	m.rebuildRows()
-	if got, want := sessionNames(m), []string{"ask", "done", "busy", "broke"}; !slices.Equal(got, want) {
+	if got, want := sessionNames(m), []string{"ask", "done", "broke", "busy"}; !slices.Equal(got, want) {
 		t.Fatalf("queue = %v want %v", got, want)
 	}
 
-	// Starting from the middle proves the queue wraps to waiting sessions
-	// before handing over errors. It never comes round a second time -- each
-	// hop mutes the session it leaves, so the walk ends when the queue is drained rather
-	// than cycling over work already done. See mute.go.
+	// Starting from the middle still offers the unanswered question first.
 	m.enterFocusOn(t, "done")
 	for _, want := range []string{"ask", "broke"} {
 		updated, _ := m.handleFocusKey(ctrlQ())
@@ -284,8 +280,8 @@ func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 	}
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("the queue came round again to %q", focusedName(t, m))
+	if m.mode != modeFocus || focusedName(t, m) != "done" {
+		t.Fatalf("the skipped finish did not return: mode %v", m.mode)
 	}
 }
 
@@ -343,8 +339,8 @@ func TestTriageAutoAdvanceStopsWhenTheQueueDrains(t *testing.T) {
 
 	updated, _ = m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("a drained queue left the user in mode %v on %q", m.mode, focusedName(t, m))
+	if m.mode != modeCleared || m.form.focus != fieldPrompt || !m.form.prompt.input.Focused() {
+		t.Fatalf("a drained queue left mode %v, want the focused inbox-cleared pane", m.mode)
 	}
 }
 
@@ -377,8 +373,8 @@ func TestTriageDrainCarriesOnIntoIdleSessions(t *testing.T) {
 	}
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("the idle pass came round again to %q", focusedName(t, m))
+	if m.mode != modeFocus || focusedName(t, m) != "ask" {
+		t.Fatalf("the skipped question did not return after the idle pass: mode %v", m.mode)
 	}
 }
 
@@ -479,7 +475,7 @@ func TestNormalModeOrderAndCtrlQUnchanged(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
 	if m.triage {
-		t.Fatal("triage should be off by default")
+		t.Fatal("triage should respect the stored opt-out")
 	}
 	// The store's own order: root first, then each group's sessions in the
 	// order they were made, untouched by status.
@@ -561,9 +557,9 @@ func TestTriageWalkKeepsGoingPastSessionsWithSubmissionsInFlight(t *testing.T) {
 
 // An answer seen landing is still not news the board has polled: the row
 // reads the state it was answered in until a poll listed after the landing
-// is applied. The walk keeps going past it until then, so an answer sent from
-// the list to one row that lands while the operator works another is not
-// handed straight back to them.
+// reports the turn the answer started. The walk keeps going past it until
+// then, so an answer sent from the list to one row that lands while the
+// operator works another is not handed straight back to them.
 func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{
@@ -582,7 +578,8 @@ func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 		return m.rows[i].sess.Name
 	}
 	doneID := sessionID(t, m, "done")
-	m.landings = map[string]*pendingLanding{doneID: {gen: 1, probe: &landingProbe{}}}
+	done, _ := m.sessionByID(doneID)
+	m.landings = map[string]*pendingLanding{doneID: {gen: 1, probe: &landingProbe{}, sess: done}}
 	m.applyLandingCheck(landingCheckMsg{id: doneID, gen: 1, verdict: landingSeen})
 	if _, pending := m.landings[doneID]; pending {
 		t.Fatal("landing still pending after it was seen")
@@ -591,7 +588,7 @@ func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 		t.Fatalf("walk past a landed, unpolled row = %q, want calm", got)
 	}
 
-	landedAt := m.settling[doneID]
+	landedAt := m.settling[doneID].at
 	m.settleLandings(landedAt.Add(time.Millisecond), map[string]bool{doneID: true})
 	if got := next(sessionID(t, m, "ask")); got != "calm" {
 		t.Fatalf("walk after a poll that could not capture the landed row = %q, want calm", got)
@@ -604,10 +601,61 @@ func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 		t.Fatalf("walk after an older pass delivered late = %q, want calm", got)
 	}
 
+	// A pass past the landing that still reads the finish just answered has
+	// not seen the agent take it: the hooks report the new turn a beat
+	// later, and handing the row over now puts the operator in a session
+	// that is already at work.
 	m.settleLandings(landedAt.Add(2*time.Millisecond), nil)
-	if got := next(sessionID(t, m, "ask")); got != "done" {
-		t.Fatalf("walk after a poll past the landing = %q, want done", got)
+	if got := next(sessionID(t, m, "ask")); got != "calm" {
+		t.Fatalf("walk after a poll still reading the answered finish = %q, want calm", got)
 	}
+
+	// The turn the answer started has finished: that finish is news.
+	setSessionState(t, m, doneID, status.Finished, landedAt.Add(time.Second))
+	m.settleLandings(landedAt.Add(2*time.Second), nil)
+	if got := next(sessionID(t, m, "ask")); got != "done" {
+		t.Fatalf("walk after a poll past the new finish = %q, want done", got)
+	}
+}
+
+// A landed answer the board never sees start a turn does not hide the row
+// for the rest of the drain: past settleHold, whatever the board reads is
+// the session's own.
+func TestTriageLandedAnswerSettlesAfterTheHold(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"ask":  status.Waiting,
+		"done": status.Finished,
+	})
+	m.triage = true
+	m.rebuildRows()
+	doneID := sessionID(t, m, "done")
+	done, _ := m.sessionByID(doneID)
+	m.noteSettling(done, time.Now())
+	landedAt := m.settling[doneID].at
+
+	m.settleLandings(landedAt.Add(settleHold-time.Millisecond), nil)
+	if _, held := m.settling[doneID]; !held {
+		t.Fatal("the mark lapsed inside the hold with the answered finish still showing")
+	}
+	m.settleLandings(landedAt.Add(settleHold), nil)
+	if _, held := m.settling[doneID]; held {
+		t.Fatal("the mark outlived the hold")
+	}
+}
+
+// setSessionState puts the board's row for id in st since at, as a poll
+// reading it would.
+func setSessionState(t *testing.T, m *Model, id, st string, at time.Time) {
+	t.Helper()
+	for i := range m.sessions {
+		if m.sessions[i].ID == id {
+			m.sessions[i].Status, m.sessions[i].LastStatusAt = st, at
+			m.rebuildRows()
+			return
+		}
+	}
+	t.Fatalf("session %s is not on the board", id)
 }
 
 // Sessions tied on status and priority queue by the deadlines extensions
@@ -679,7 +727,8 @@ func TestTriageDrainHandsOverIdleBeforeErrored(t *testing.T) {
 		}
 	}
 	updated, _ := m.handleFocusKey(ctrlQ())
-	if got := updated.(*Model).mode; got != modeList {
-		t.Fatalf("drained queue left the operator in mode %v", got)
+	m = updated.(*Model)
+	if m.mode != modeFocus || focusedName(t, m) != "ask" {
+		t.Fatalf("the skipped question did not return after the errored session: mode %v", m.mode)
 	}
 }

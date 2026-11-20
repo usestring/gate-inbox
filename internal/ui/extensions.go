@@ -31,9 +31,11 @@ import (
 type ExtensionUI struct {
 	// Owner is the extension's id. It titles the extension's section of the
 	// key map and prefixes anything its keys report.
-	Owner   string
-	Keys    []ExtensionKey
-	Filters []ExtensionFilter
+	Owner       string
+	Keys        []ExtensionKey
+	Filters     []ExtensionFilter
+	BadgeLabel  string
+	BadgeDetail string
 	// OpenHeader, when set, makes the owner's headers rows of their own:
 	// see headrows.go. It is called off the event loop with the session the
 	// header is over.
@@ -383,7 +385,8 @@ func (m *Model) InstallExtensions(uis []ExtensionUI, bridge *ExtensionBridge) {
 	m.extUIs = nil
 	m.extFilters = nil
 	for _, ui := range uis {
-		kept := ExtensionUI{Owner: ui.Owner, OpenHeader: ui.OpenHeader, HeaderPane: ui.HeaderPane, FoldHeaders: ui.FoldHeaders}
+		kept := ui
+		kept.Keys, kept.Filters = nil, nil
 		keys := append([]ExtensionKey(nil), ui.Keys...)
 		for _, filter := range ui.Filters {
 			listed := m.newListFilter(ui.Owner, filter)

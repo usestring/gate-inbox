@@ -5,6 +5,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -25,18 +26,22 @@ type experiment struct {
 }
 
 var experiments = []experiment{
-	{jevAutoSuggestSetting, "JEV Auto Suggest", "Suggest the next reply in an existing session; rank New Session prompts.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends bounded text to TypeSafe.",
+	{jevAutoSuggestSetting, "Auto Suggest", "Suggest the next reply in an existing session; rank New Session prompts.\nUses the selected provider in Settings → Classifier; sends bounded text to that service.",
 		func(s *settingsState) *bool { return &s.jevAutoSuggest }},
-	{promptSuggestionsSetting, "Prompt suggestions", "Reuse recurring prompts in New Session.\nReads local history; sends matches to TypeSafe only with JEV on.",
+	{promptSuggestionsSetting, "Prompt suggestions", "Reuse recurring prompts in New Session.\nReads local history; sends matches to the selected classifier only with Auto Suggest on.",
 		func(s *settingsState) *bool { return &s.promptSuggest }},
-	{jevFinishCheckSetting, "JEV finish check", "On finish, say when a Claude session is done, asking the agent when JEV is unsure,\nand relaunch one that stopped without Chrome with --chrome. Needs a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends its last turns to TypeSafe.",
+	{jevFinishCheckSetting, "Finish check", "Checks whether a Claude session fulfilled its original request.\nSends the opening request and recent turns to the selected classifier.\nCollect-only saves candidates. See [finish_check] in config.toml.",
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},
-	{jevCopySetting, "JEV copy", "On a key, copy the command, link or value the agent left for you in its last message.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends that message to TypeSafe.",
+	{jevCopySetting, "Smart copy", "On a key, copy the command, link or value the agent left for you in its last message.\nUses the selected classifier; sends that message to that service.",
 		func(s *settingsState) *bool { return &s.jevCopyOn }},
 	{reviewQueueSetting, "Review queue", "Fetch the pull requests you were asked to review on GitHub onto a Reviews tab (]).\nRuns on the ingest key only; [integrations.reviews] sets what counts as an ask.",
 		func(s *settingsState) *bool { return &s.reviewQueue }},
+	{store.CIFeedbackSetting, "PR CI feedback", "Return failed CI checks to the live agent that opened the pull request.\nAllows up to two repair prompts until CI passes; requires the GitHub integration.",
+		func(s *settingsState) *bool { return &s.ciFeedback }},
 	{arrowsStaySetting, "Arrows stay in sessions", "Send Left and Right to the focused session at the prompt's edges too.\nOff, Left at the prompt's head and Right at its end go back to the list.",
 		func(s *settingsState) *bool { return &s.arrowsStay }},
+	{nextStepSetting, "Next step", "On a finished session, suggest the next instruction from its pull request's checks and reviews.\nShown in the hotkey menu; ctrl+y inserts it unsent. Asks no model and fetches nothing.",
+		func(s *settingsState) *bool { return &s.nextStep }},
 }
 
 func storedExperiment(st *store.Store, setting string) bool {
@@ -61,6 +66,11 @@ func (m *Model) persistExperiments() {
 			value = "on"
 		}
 		if err := m.store.SetSetting(feature.setting, value); err != nil {
+			m.errBar.text = err.Error()
+		}
+	}
+	if !storedExperiment(m.store, store.CIFeedbackSetting) {
+		if err := m.store.CancelCIFeedback(time.Now()); err != nil {
 			m.errBar.text = err.Error()
 		}
 	}

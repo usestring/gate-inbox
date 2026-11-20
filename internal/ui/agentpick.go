@@ -81,6 +81,7 @@ func normalizeNewSessionAgent(chosen string) string {
 // last used falls through to the default, and the default falls through to
 // the first CLI still enabled.
 func (m *Model) startNewSession() (tea.Model, tea.Cmd) {
+	m.leaveReviewsTab(false)
 	switch m.newSessionAgent {
 	case newSessionAgentLast:
 		return m.spawnInstant(m.lastTool())
@@ -691,7 +692,7 @@ func (m *Model) killFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool)
 	if ctx == keymap.ContextList && msg.Mod&(tea.ModCtrl|tea.ModAlt) == 0 {
 		return nil, nil, false
 	}
-	if m.mode == modeForm || m.mode == modeGroupForm || m.mode == modeRename ||
+	if m.mode == modeForm || m.mode == modeCleared || m.mode == modeGroupForm || m.mode == modeRename ||
 		m.mode == modeAgentPick || m.mode == modeFork || m.mode == modeMigrate || m.mode == modeConfirmDelete ||
 		(m.mode == modeSettings && m.settings.jevPasting) ||
 		(m.mode == modeNameSweep && m.nameSweep.sending) ||

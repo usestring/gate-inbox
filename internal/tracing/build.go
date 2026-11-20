@@ -58,7 +58,6 @@ var resource = sync.OnceValue(func() []Attr {
 	info, ok := debug.ReadBuildInfo()
 	// An error here is a machine that will not say its own name, which is
 	// not worth failing a trace over; the key is simply left out.
-	host, _ := os.Hostname()
 	return identity(buildIdentity{
 		Revision: Revision,
 		Release:  Release,
@@ -68,7 +67,6 @@ var resource = sync.OnceValue(func() []Attr {
 		// subcommand -- pays one hash of the binary here instead, once,
 		// on the exporter's goroutine rather than the recording path.
 		Fingerprint: managerbuild.Fingerprint(),
-		Host:        host,
 		Instance:    instanceID(),
 	}, info, ok)
 })
@@ -80,7 +78,6 @@ type buildIdentity struct {
 	Revision    string
 	Release     string
 	Fingerprint string
-	Host        string
 	Instance    string
 }
 
@@ -134,7 +131,6 @@ func identity(build buildIdentity, info *debug.BuildInfo, ok bool) []Attr {
 	if modified, err := strconv.ParseBool(settings["vcs.modified"]); err == nil {
 		attrs = append(attrs, Attr{Key: "vcs.modified", Value: modified})
 	}
-	add("host.name", build.Host)
 	add("os.type", runtime.GOOS)
 	add("host.arch", runtime.GOARCH)
 	add("process.runtime.version", runtime.Version())

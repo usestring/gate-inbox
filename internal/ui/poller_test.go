@@ -45,6 +45,49 @@ func newTestPollerWithSession(t *testing.T) (*poller, store.Session) {
 	return p, got
 }
 
+func TestPollFollowsAnExternallyPromotedAdoptedPane(t *testing.T) {
+	m, dbPath := buildModelWithStorePath(t)
+	const id = "borrowed"
+	socket, pane := adoptForeignPane(t, m, id, id, status.Idle)
+	m.applyCmd(t, nil)
+
+	externalStore, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer externalStore.Close()
+	sess, err := externalStore.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := tmuxOnSocket(socket, "kill-pane", "-t", pane).CombinedOutput(); err != nil {
+		t.Fatalf("end old pane: %v: %s", err, out)
+	}
+	if err := externalStore.PromoteAdopted(id, sess.Cwd, ""); err != nil {
+		t.Fatal(err)
+	}
+	relauncher := newTestDriver(t, m.tmux.SocketName())
+	if err := relauncher.Create(id, sess.Cwd, "cat", nil, 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { relauncher.Kill(id) })
+
+	m.applyCmd(t, nil)
+	if _, err := m.tmux.CapturePane(id); err != nil {
+		t.Fatalf("capture relaunched pane: %v", err)
+	}
+	current, err := m.store.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.killSession(current); err != nil {
+		t.Fatalf("kill relaunched pane: %v", err)
+	}
+	if relauncher.Exists(id) {
+		t.Fatal("relaunched pane survived the board's kill")
+	}
+}
+
 // A detached session must boot at the preview panel's width×height so its
 // pane preview fills 1:1, and follow later terminal resizes, rather than
 // staying at tmux's 80×24 default until attach.
@@ -813,6 +856,7 @@ func writeCodexRollout(t *testing.T, path, sessionID, cwd string, modTime time.T
 		t.Fatal(err)
 	}
 	line := `{"timestamp":"` + modTime.Format(time.RFC3339Nano) + `","type":"session_meta","payload":{"session_id":"` + sessionID + `","cwd":"` + cwd + `"}}` + "\n"
+	line += fmt.Sprintf(`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":%q}]}}`+"\n", "conversation "+sessionID)
 	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -845,12 +889,9 @@ func TestCaptureAgentSessionIDsDoesNotGuessForAnAdoptedPane(t *testing.T) {
 	}
 }
 
-// Two codex sessions share a directory, A launched a fraction of a second
-// before B, both within the same wall-clock second. The poller receives
-// them in store order (B first), not launch order. Sub-second launch times
-// must survive the store round-trip so capture binds each to its own
-// conversation instead of swapping them.
-func TestCaptureAgentSessionIDsAssignsInLaunchOrder(t *testing.T) {
+// Conversations and launches can arrive in different orders in the same cwd.
+// Each pane must bind from its own evidence rather than taking the next id.
+func TestCaptureAgentSessionIDsUsesEvidenceAcrossSharedDirectory(t *testing.T) {
 	st, err := store.Open(filepath.Join(tmuxtest.ScratchDir(t), "state.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -865,13 +906,13 @@ func TestCaptureAgentSessionIDsAssignsInLaunchOrder(t *testing.T) {
 	base := time.Now().Truncate(time.Second).Add(-time.Minute)
 	aLaunch := base.Add(100 * time.Millisecond)
 	bLaunch := base.Add(600 * time.Millisecond)
-	writeCodexRollout(t, filepath.Join(codexHome, "sessions", "rollout-A.jsonl"), "A-id", cwd, aLaunch)
-	writeCodexRollout(t, filepath.Join(codexHome, "sessions", "rollout-B.jsonl"), "B-id", cwd, bLaunch)
+	writeCodexRollout(t, filepath.Join(codexHome, "sessions", "rollout-A.jsonl"), "A-id", cwd, bLaunch)
+	writeCodexRollout(t, filepath.Join(codexHome, "sessions", "rollout-B.jsonl"), "B-id", cwd, aLaunch)
 
-	if err := st.CreateSession(store.Session{ID: "sess-A", Name: "a", Tool: "codex", Cwd: cwd, Group: "g", Status: "idle", CreatedAt: aLaunch}); err != nil {
+	if err := st.CreateSession(store.Session{ID: "sess-A", Name: "a", Tool: "codex", Cwd: cwd, Group: "g", Status: "idle", CreatedAt: aLaunch, LaunchPrompt: "conversation A-id"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateSession(store.Session{ID: "sess-B", Name: "b", Tool: "codex", Cwd: cwd, Group: "g", Status: "idle", CreatedAt: bLaunch}); err != nil {
+	if err := st.CreateSession(store.Session{ID: "sess-B", Name: "b", Tool: "codex", Cwd: cwd, Group: "g", Status: "idle", CreatedAt: bLaunch, LaunchPrompt: "conversation B-id"}); err != nil {
 		t.Fatal(err)
 	}
 	sessA, err := st.Get("sess-A")
@@ -942,6 +983,7 @@ func TestCaptureAgentSessionIDsSkipsARetiredConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sess.LaunchPrompt = "conversation new-id"
 
 	p := &poller{store: st, sessionStores: map[string]string{"codex": "codex"}}
 	if _, err := p.captureAgentSessionIDs([]store.Session{sess}, map[string]int{"sess": 42}); err != nil {
@@ -982,6 +1024,7 @@ func TestCaptureAgentSessionIDsDropsAnAnswerARestartOutran(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	snapshot.LaunchPrompt = "conversation old-id"
 	if err := st.RestartAgent("sess", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}

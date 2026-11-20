@@ -1,6 +1,7 @@
 package relayask
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +83,64 @@ func TestAPermissionPromptFallsBackToTheDescriptionItDraws(t *testing.T) {
 	}
 	if len(q.Options) != 3 || !strings.Contains(q.Options[1].Preview, "touch perm-probe.txt") {
 		t.Errorf("options %+v", q.Options)
+	}
+}
+
+// The pi gate's prompt for a call outside the sandbox says so in its reason
+// line, and the relayed question keeps it.
+func TestAnOutsideTheSandboxPromptSaysSoWhenRelayed(t *testing.T) {
+	pane := strings.Join([]string{
+		"$ touch ../h/out.txt",
+		"────────────────────────────────────────────────────────────",
+		" Bash command",
+		"",
+		" │ touch ../h/out.txt",
+		"",
+		" Gate Inbox asks because Bash command, outside the sandbox (requested by the model)",
+		" Do you want to proceed?",
+		" ❯ 1. Yes",
+		"   2. No, and tell pi what to do differently",
+		"",
+		" Enter to confirm · Esc to cancel",
+	}, "\n")
+	screen, ok := dialog.ReadScreen(pane)
+	if !ok || screen.Command() != "touch ../h/out.txt" {
+		t.Fatalf("read %v, command %q", ok, screen.Command())
+	}
+	q := ForScreen(screen, Screen{Child: "pichild"}).Questions[0]
+	if !strings.HasPrefix(q.Question, "pichild wants to run a Bash command outside the sandbox") {
+		t.Errorf("question %s", q.Question)
+	}
+}
+
+// When the sandbox cannot start, the extension asks through the gate's own
+// dialog, rendered here by its renderPermission: the board reads it as a
+// guarded, numbered prompt and relays it as a decision about running outside
+// the sandbox, even where the pane wraps the phrase.
+func TestASandboxUnavailablePromptIsNumberedAndRelayable(t *testing.T) {
+	for _, width := range []int{50, 100} {
+		raw, err := os.ReadFile(filepath.Join("..", "dialog", "testdata", fmt.Sprintf("pi-ext-w%d-permission-sandbox-unavailable.txt", width)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d, ok := dialog.Inspect(string(raw)); !ok || d.Kind != dialog.KindApproval || !d.Guarded() {
+			t.Errorf("w%d: Inspect = %+v, %v", width, d, ok)
+		}
+		screen, ok := dialog.ReadScreenFor("pi", string(raw))
+		if !ok || screen.Kind != dialog.ScreenPermission || screen.Command() != "touch out.txt" {
+			t.Fatalf("w%d: read %v %v, command %q", width, ok, screen.Kind, screen.Command())
+		}
+		in := ForScreen(screen, Screen{Child: "pichild"})
+		if in == nil {
+			t.Fatalf("w%d: not relayable", width)
+		}
+		q := in.Questions[0]
+		if !strings.HasPrefix(q.Question, "pichild wants to run a Bash command outside the sandbox") {
+			t.Errorf("w%d: question %s", width, q.Question)
+		}
+		if len(q.Options) != 2 || q.Options[0].Label != "Yes" || q.Options[1].Label != "No, and tell pi what to do differently" {
+			t.Errorf("w%d: options %+v", width, q.Options)
+		}
 	}
 }
 

@@ -90,10 +90,18 @@ func TestHelpWrapsRatherThanTruncating(t *testing.T) {
 func TestSettingsValueSurvivesANarrowCard(t *testing.T) {
 	m := layoutModel(40, 40)
 	m.mode = modeSettings
-	frame := ansi.Strip(m.frame())
-	for _, value := range []string{"classic", "compact", "stay open"} {
-		if !strings.Contains(frame, value) {
-			t.Errorf("settings lost the value %q:\n%s", value, frame)
+	for _, tc := range []struct {
+		field int
+		value string
+	}{
+		{settingsFieldTheme, "classic"},
+		{settingsFieldDensity, "compact"},
+		{settingsFieldQuickClose, "stay open"},
+	} {
+		m.settings.field = tc.field
+		frame := ansi.Strip(m.frame())
+		if !strings.Contains(frame, tc.value) {
+			t.Errorf("settings lost the value %q:\n%s", tc.value, frame)
 		}
 	}
 }

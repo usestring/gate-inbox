@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -54,6 +57,20 @@ func TestReviewQueuesByItsNewestAskAmongSessions(t *testing.T) {
 	m.rebuildRows()
 	if got, want := reviewDrain(m), []string{"asking", "reviews", "done"}; !slices.Equal(got, want) {
 		t.Fatalf("a thirty-second-old ask: drain = %v, want %v", got, want)
+	}
+}
+
+func TestOldestTriageHonorsPriorityAcrossReviewsAndSessions(t *testing.T) {
+	m := smartFleet(t, smartSess("asking", status.Waiting, 30*time.Minute))
+	m.reviewQueue = true
+	m.smartTriage = false
+	m.triageOrder = triageOrderOldest
+	ask := reviewAsk(1, time.Minute)
+	ask.OriginSession = &store.Session{Priority: priority.High}
+	m.reviews = []store.ReviewRequest{ask}
+	m.rebuildRows()
+	if got, want := reviewDrain(m), []string{"reviews", "asking"}; !slices.Equal(got, want) {
+		t.Fatalf("drain = %v, want %v", got, want)
 	}
 }
 
@@ -129,5 +146,37 @@ func TestTheReviewQueueStaysOffUntilItsExperimentIsOn(t *testing.T) {
 	}
 	if cmd := m.ingestReviews(); cmd != nil || m.reviewsFetching {
 		t.Fatal("the ingest key fetched reviews with the experiment off")
+	}
+}
+
+func TestTriageStartupKeepsTheSelectedTab(t *testing.T) {
+	for _, manual := range []bool{false, true} {
+		name := "sessions by default"
+		if manual {
+			name = "reviews chosen before first poll"
+		}
+		t.Run(name, func(t *testing.T) {
+			m := buildModel(t)
+			m.triage, m.triageStartupEnter, m.reviewQueue = true, true, true
+			m.finishReviews(reviewsMsg{open: []store.ReviewRequest{reviewAsk(1, time.Hour)}})
+			if manual {
+				m.Update(tea.KeyPressMsg{Code: ']', Mod: tea.ModCtrl})
+			}
+
+			m.Update(refreshMsg{listedAt: m.now()})
+			if m.onReviewsTab() != manual {
+				t.Fatalf("startup Reviews tab = %v, manual choice = %v", m.onReviewsTab(), manual)
+			}
+			if m.triageStartupEnter {
+				t.Fatal("startup entry remained armed after the first poll")
+			}
+			if m.mode == modeForm {
+				m.handleKey(key("esc"))
+			}
+			m.Update(tea.KeyPressMsg{Code: ']', Mod: tea.ModCtrl})
+			if m.onReviewsTab() == manual {
+				t.Fatal("Ctrl+] did not toggle the tab after startup")
+			}
+		})
 	}
 }

@@ -7,9 +7,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 func ctrlN() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl} }
+
+// formKey is new_session_form's default, the key a box hands to the list.
+func formKey() tea.KeyPressMsg { return key("ctrl+alt+n") }
 
 func TestCtrlNOpensTheFormFromABoxOverTheList(t *testing.T) {
 	for name, open := range map[string]func(*Model){
@@ -20,9 +24,9 @@ func TestCtrlNOpensTheFormFromABoxOverTheList(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := buildModel(t)
 			open(m)
-			m.handleKey(ctrlN())
+			m.handleKey(formKey())
 			if m.mode != modeForm {
-				t.Fatalf("ctrl+n from %s left mode %v, want the new-session form (error %q)", name, m.mode, m.errBar.text)
+				t.Fatalf("ctrl+alt+n from %s left mode %v, want the new-session form (error %q)", name, m.mode, m.errBar.text)
 			}
 		})
 	}
@@ -41,9 +45,9 @@ func TestCtrlNIsBoundWhileTheKeyMapWaitsForAKey(t *testing.T) {
 	m := buildModel(t)
 	m.openHelp()
 	m.help.capturing = true
-	m.handleKey(ctrlN())
+	m.handleKey(formKey())
 	if m.mode != modeHelp {
-		t.Fatalf("ctrl+n during a rebind left mode %v, want the key map still waiting", m.mode)
+		t.Fatalf("ctrl+alt+n during a rebind left mode %v, want the key map still waiting", m.mode)
 	}
 }
 
@@ -51,11 +55,10 @@ func TestQuickNewSessionMoreOptionsKeepsTheSelection(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		key    tea.KeyPressMsg
-		label  string
 		pinned bool
 	}{
-		{name: "default", key: ctrlN(), label: "ctrl+n"},
-		{name: "rebound with pinned group", key: tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl}, label: "ctrl+o", pinned: true},
+		{name: "default", key: formKey()},
+		{name: "rebound with pinned group", key: key("ctrl+alt+y"), pinned: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := buildModel(t)
@@ -64,7 +67,7 @@ func TestQuickNewSessionMoreOptionsKeepsTheSelection(t *testing.T) {
 			groupAt(t, m, "other", filepath.Join(t.TempDir(), "other"))
 			m.selectGroupRow(t, "project")
 			if tc.pinned {
-				writeKeys(t, m, "[list]\nnew_session_form = [\"ctrl+o\"]\n")
+				writeKeys(t, m, "[list]\nnew_session_form = [\"ctrl+alt+y\"]\n")
 				if len(m.keyProblems) != 0 {
 					t.Fatalf("rebinding more options: %v", m.keyProblems)
 				}
@@ -76,7 +79,7 @@ func TestQuickNewSessionMoreOptionsKeepsTheSelection(t *testing.T) {
 				m.selectGroupRow(t, "other")
 			}
 			view := ansi.Strip(m.viewAgentPick())
-			for _, hint := range []string{"↵ start", tc.label + " more options"} {
+			for _, hint := range []string{"↵ start", m.fullCap(keymap.ContextList, keymap.NewSessionForm) + " more options"} {
 				if !strings.Contains(view, hint) {
 					t.Fatalf("quick picker is missing %q:\n%s", hint, view)
 				}

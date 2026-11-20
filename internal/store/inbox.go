@@ -149,6 +149,31 @@ var DefaultInboxLimits = InboxLimits{
 // what it queues.
 const PollerHeartbeatKey = "poller_heartbeat"
 
+// ConfirmLaunchesKey is the board setting for the launch Approval a
+// top-level agent puts to its user before it launches on a voiced turn.
+// "off" lets agents launch nested sessions without asking; anything else,
+// unset included, keeps the question.
+const ConfirmLaunchesKey = "confirm_launches"
+
+// ConfirmLaunches reports whether a top-level agent must confirm its
+// launches. An unreadable store confirms, so a failure never drops the gate.
+func (s *Store) ConfirmLaunches() bool {
+	chosen, err := s.Setting(ConfirmLaunchesKey)
+	return err != nil || chosen != "off"
+}
+
+// PiAutoModeKey is the board setting for pi's auto mode (package piauto):
+// "off" asks on every call the rules leave undecided; anything else, unset
+// included, lets the JEV classifier allow one.
+const PiAutoModeKey = "pi_auto_mode"
+
+// PiAutoMode reports whether pi's auto mode is on. An unreadable store reads
+// off, so a failure asks rather than allows.
+func (s *Store) PiAutoMode() bool {
+	chosen, err := s.Setting(PiAutoModeKey)
+	return err == nil && chosen != "off"
+}
+
 const (
 	// PollerHeartbeatPeriod is how often the manager restamps that row.
 	PollerHeartbeatPeriod = 10 * time.Second

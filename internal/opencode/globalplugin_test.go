@@ -141,12 +141,18 @@ const mod = await import(plugin);
 await mod.default.setup({ tool: reg("tool"), shell: reg("shell"), session: reg("session") });
 for (const step of steps) {
   if (step.op === "rm") { rmSync(step.path, { force: true }); console.log("{}"); continue; }
-  if (step.op === "write") { writeFileSync(step.path, step.content); console.log("{}"); continue; }
+  if (step.op === "write") { writeFileSync(step.path, step.content.replaceAll("__PID__", String(process.pid))); console.log("{}"); continue; }
   if (step.op === "shell") {
     await hooks["tool.execute.before"]({ tool: "shell", sessionID: step.session, input: { command: step.command } });
     const shell = { command: step.command, env: step.env };
     await hooks["shell.create.before"](shell);
     console.log(JSON.stringify({ env: shell.env }));
+    continue;
+  }
+  if (step.op === "tool") {
+    const call = { tool: step.tool, sessionID: step.session, input: step.input };
+    await hooks["tool.execute.before"](call);
+    console.log(JSON.stringify({ input: call.input ?? null }));
     continue;
   }
   if (step.op === "context") {
@@ -164,10 +170,13 @@ type harnessStep struct {
 	Session string            `json:"session,omitempty"`
 	Command string            `json:"command,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	Tool    string            `json:"tool,omitempty"`
+	Input   map[string]any    `json:"input,omitempty"`
 }
 
 type harnessResult struct {
 	Env    map[string]string `json:"env"`
+	Input  map[string]any    `json:"input"`
 	System []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
@@ -303,5 +312,55 @@ func TestGlobalPluginBehaviour(t *testing.T) {
 	}
 	if len(results[7].System) != 0 || results[8].Env["GATE_INBOX_SESSION_ID"] != "" {
 		t.Errorf("dead board still speaks: %v %v", results[7].System, results[8].Env)
+	}
+}
+
+// On the board's shared server a shell never gets the server's password,
+// and one whose session's environment did not name its row gets it from the
+// launch's binding. Anywhere else the plugin leaves a launched shell, and a
+// tool call's input, as they were.
+func TestGlobalPluginGivesSharedServerShellsTheirRow(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed")
+	}
+	p := Plugin{Home: t.TempDir(), Bin: "/bin/sh", Tools: []string{"opencode"}, Steering: "S"}
+	if err := os.MkdirAll(BindingsDir(p.Home), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(BindingsDir(p.Home), "ses_a"), []byte("rowA tokA\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if _, err := RegisterPlugin(dir, p); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(p.Home, serverStateName)
+	results := runHarness(t, node, PluginPath(dir, p.Home), []harnessStep{
+		// Not the board's server: nothing changes.
+		{Op: "shell", Session: "ses_a", Command: "a", Env: map[string]string{"GATE_INBOX_SESSION_ID": "rowA", "OPENCODE_SERVER_PASSWORD": "secret"}},
+		{Op: "write", Path: state, Content: `{"pid":__PID__}`},
+		// The server's own environment: the row comes from the binding.
+		{Op: "shell", Session: "ses_a", Command: "b", Env: map[string]string{"OPENCODE_SERVER_PASSWORD": "secret", "KEEP": "1"}},
+		// The environment the launch set on the session.
+		{Op: "shell", Session: "ses_a", Command: "c", Env: map[string]string{"GATE_INBOX_SESSION_ID": "rowA", "TMUX_PANE": "%3", "OPENCODE_SERVER_PASSWORD": "secret"}},
+		// A session the board never launched.
+		{Op: "shell", Session: "ses_other", Command: "d", Env: map[string]string{"OPENCODE_SERVER_PASSWORD": "secret"}},
+		{Op: "tool", Tool: "gate-inbox_rename", Session: "ses_a", Input: map[string]any{"name": "x"}},
+	})
+	if env := results[0].Env; env["OPENCODE_SERVER_PASSWORD"] != "secret" {
+		t.Fatalf("another server's shell touched: %v", env)
+	}
+	if env := results[2].Env; env["OPENCODE_SERVER_PASSWORD"] != "" || env["GATE_INBOX_SESSION_ID"] != "rowA" || env["GATE_INBOX_HOME"] != p.Home || env["KEEP"] != "1" {
+		t.Fatalf("shell on the server's environment = %v", env)
+	}
+	if env := results[3].Env; env["OPENCODE_SERVER_PASSWORD"] != "" || env["GATE_INBOX_SESSION_ID"] != "rowA" || env["TMUX_PANE"] != "%3" {
+		t.Fatalf("shell on the session's environment = %v", env)
+	}
+	if env := results[4].Env; env["OPENCODE_SERVER_PASSWORD"] != "" || env["GATE_INBOX_SESSION_ID"] != "" {
+		t.Fatalf("unbound session's shell = %v", env)
+	}
+	if got := results[5].Input; len(got) != 1 || got["name"] != "x" {
+		t.Fatalf("tool input changed: %v", got)
 	}
 }

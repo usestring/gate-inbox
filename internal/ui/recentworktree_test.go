@@ -52,7 +52,7 @@ func TestNewSessionOffersTheLastCheckoutWithoutChangingTheDefault(t *testing.T) 
 	m.selectGroupRow(t, "project")
 
 	pressKey(t, m, instantKey())
-	pressKey(t, m, ctrlN())
+	pressKey(t, m, formKey())
 	m.width, m.height = 52, 24
 	view := ansi.Strip(m.viewForm())
 	for _, want := range []string{"recent", "ticket ·", "ticket checkout", "F4 use recent"} {

@@ -114,9 +114,14 @@ TOML
   # vhs sends every key on its own, so an escape-prefixed key (alt+up,
   # alt+\) reaches the board as esc followed by text. Each action a tape
   # needs gets a ctrl chord beside its default; the footers still name the
-  # default.
+  # default. ctrl+i is the same byte as tab without the kitty keyboard
+  # protocol, which vhs's terminal does not speak, so triage gets ctrl+v.
   cat >"$h/.config/gate-inbox/keys.toml" <<'TOML'
+[list]
+triage = ["ctrl+i", "ctrl+v"]
+
 [focus]
+triage = ["ctrl+i", "ctrl+v"]
 toggle_rail = ["alt+\\", "ctrl+b"]
 preview_page_up = ["alt+pgup", "ctrl+u"]
 preview_bottom = ["alt+end", "ctrl+e"]

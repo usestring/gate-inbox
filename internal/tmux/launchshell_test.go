@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -225,6 +226,51 @@ func TestLaunchDropsToALoginInteractiveShell(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("last call to the shell = %q, want %q: a bare login, interactive shell", last, "-l -i")
+}
+
+// The poller reads the pane pid as the shell and anything under it as the
+// agent. Once the agent exits, the shell it drops to has to be the pane pid
+// itself, with nothing under it. dash forks the command tmux hands its sh -c
+// rather than exec'ing it, so without an explicit exec a wrapper sh stays as
+// the pane pid with the shell as its child, and an exited agent reads as alive
+// on Debian and Ubuntu.
+func TestTheDropShellIsThePanePID(t *testing.T) {
+	driver := requireTmux(t)
+	dir := t.TempDir()
+	t.Setenv("SHELL", writeFakeShell(t, "fakepid", loginShellBody(filepath.Join(dir, "calls"), "pid")))
+
+	id := "panepid" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "")
+	marker := filepath.Join(dir, "ran")
+	if err := driver.Create(id, "/tmp", "echo ran > "+marker, nil, 0, 0); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { driver.Kill(id) })
+	waitForFile(t, driver, id, marker)
+	pid, err := driver.PanePID(id)
+	if err != nil {
+		t.Fatalf("PanePID: %v", err)
+	}
+
+	var children []string
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		out, err := exec.Command("ps", "-A", "-o", "ppid=,args=").Output()
+		if err != nil {
+			t.Fatalf("ps: %v", err)
+		}
+		children = children[:0]
+		for line := range strings.Lines(string(out)) {
+			ppid, args, _ := strings.Cut(strings.TrimSpace(line), " ")
+			if ppid == strconv.Itoa(pid) {
+				children = append(children, strings.TrimSpace(args))
+			}
+		}
+		if len(children) == 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("pane pid %d still has children after the command exited: %q", pid, children)
 }
 
 // An agent that gets stopped -- the terminal taken from under it, or a stray

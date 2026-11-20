@@ -21,6 +21,22 @@ type Message struct {
 // ReadFirstPrompts shares the conversation filter so injected instructions
 // and Codex's duplicate event records cannot become the opening prompt.
 func ReadFirstPrompts(target Target, count int) ([]string, error) {
+	return readFirstPrompts(target, count, func(text string) bool { return !band.Has(text) })
+}
+
+// ReadFirstWorkPrompt reads the original assignment from the start of the
+// conversation. A recent tail can begin with a follow-up or a different task.
+func ReadFirstWorkPrompt(target Target) (string, error) {
+	prompts, err := readFirstPrompts(target, 1, func(text string) bool {
+		return ClassifyTurn(text) == TurnWork
+	})
+	if len(prompts) == 0 {
+		return "", err
+	}
+	return prompts[0], err
+}
+
+func readFirstPrompts(target Target, count int, accept func(string) bool) ([]string, error) {
 	f, err := os.Open(target.Path)
 	if err != nil {
 		return nil, err
@@ -31,7 +47,7 @@ func ReadFirstPrompts(target Target, count int) ([]string, error) {
 	scanner.Buffer(make([]byte, 64<<10), limit)
 	var prompts []string
 	for len(prompts) < count && scanner.Scan() {
-		if message, ok := parseMessage(scanner.Bytes(), target.Tool); ok && message.Role == "user" && !band.Has(message.Text) {
+		if message, ok := parseMessage(scanner.Bytes(), target.Tool); ok && message.Role == "user" && accept(message.Text) {
 			prompts = append(prompts, message.Text)
 		}
 	}
@@ -95,6 +111,9 @@ type messageEnvelope struct {
 	Text      string          `json:"text"`
 	Synthetic bool            `json:"synthetic"`
 	Ignored   bool            `json:"ignored"`
+	Error     *struct {
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
 func parseMessage(line []byte, tool string) (Message, bool) {
@@ -116,10 +135,19 @@ func parseMessage(line []byte, tool string) (Message, bool) {
 		}
 		envelope = row.Message
 	case ToolCodex:
+		if row.Type == "event_msg" && row.Payload.Type == "task_complete" && row.Payload.Error != nil {
+			text := strings.TrimSpace(row.Payload.Error.Message)
+			return Message{Role: "error", Text: text}, text != ""
+		}
 		if row.Type != "response_item" || row.Payload.Type != "message" {
 			return Message{}, false
 		}
 		envelope = row.Payload
+	case ToolPi:
+		if row.Type != "message" {
+			return Message{}, false
+		}
+		envelope = row.Message
 	default:
 		return Message{}, false
 	}

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 
 	"github.com/usestring/gate-inbox/extension"
@@ -74,16 +75,18 @@ func Resolve(toolName, explicit string) (string, error) {
 // asked to run on, for the tool whose generated config is the only place it
 // can be named; every other style leaves it to the command line.
 func Apply(style, exe, hooksDir, command string, env map[string]string, model string) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, "", false, true)
+	return apply(style, exe, hooksDir, command, env, model, "", "", false, true)
 }
 
 // ApplyProfile is Apply registering a server that serves only profile's
 // tools; "" is every tool, as Apply. skip turns the session's permission
 // prompts off through the config the style generates, which only the opencode
 // style has; any other style refuses it rather than launch with the prompts
-// the operator turned off.
-func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, model, profile string, skip bool) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, profile, skip, true)
+// the operator turned off. sharedConfig, when set, is the config a launch
+// wrote pointing a claude session at the shared server (mcpshared) instead
+// of a server of its own.
+func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedConfig string, skip bool) (string, error) {
+	return apply(style, exe, hooksDir, command, env, model, profile, sharedConfig, skip, true)
 }
 
 // Preview is Apply without the side effects: the same command and the same
@@ -95,15 +98,15 @@ func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, m
 // avoid doing -- and it fails on a machine where those paths are not writable,
 // which is exactly when somebody is reading a dry run.
 func Preview(style, exe, hooksDir, command string, env map[string]string, model string) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, "", false, false)
+	return apply(style, exe, hooksDir, command, env, model, "", "", false, false)
 }
 
 // PreviewProfile is Preview for ApplyProfile.
-func PreviewProfile(style, exe, hooksDir, command string, env map[string]string, model, profile string, skip bool) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, profile, skip, false)
+func PreviewProfile(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedConfig string, skip bool) (string, error) {
+	return apply(style, exe, hooksDir, command, env, model, profile, sharedConfig, skip, false)
 }
 
-func apply(style, exe, hooksDir, command string, env map[string]string, model, profile string, skip, write bool) (string, error) {
+func apply(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedConfig string, skip, write bool) (string, error) {
 	config := func(name string, content []byte) (string, error) {
 		if !write {
 			return filepath.Join(hooksDir, hooks.GeneratedName(name, content)), nil
@@ -118,9 +121,12 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model, p
 		// The server stays out of the Gate Inbox plugin: a plugin's server
 		// tools are named mcp__plugin_gate-inbox_<server>__*, which no rule
 		// naming mcp__gate-inbox__* matches.
-		path, err := config(generatedPrefix+"mcp-claude.json", claudeConfig(exe, profile))
-		if err != nil {
-			return "", err
+		path := sharedConfig
+		if path == "" {
+			var err error
+			if path, err = config(generatedPrefix+"mcp-claude.json", claudeConfig(exe, profile)); err != nil {
+				return "", err
+			}
 		}
 		steering, err := config(claudeSteeringFile, []byte(claudeSteering))
 		if err != nil {
@@ -143,41 +149,69 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model, p
 		}
 		return command, nil
 	case "opencode":
-		plugin := ""
-		if skip {
-			var err error
-			if plugin, err = skipPermissionsPlugin(hooksDir, write); err != nil {
-				return "", err
-			}
-		}
-		name, content := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, "", profile, "")
-		if model != "" || skip {
-			// v2's TUI has no model flag; the config's model key is where a
-			// chosen model goes, and its plugins list is where the session's
-			// skip permissions go, so a session on either gets a config of
-			// its own.
-			name, content = generatedPrefix+"mcp-opencode-"+env[hooks.EnvSessionID]+".json", opencodeConfig(exe, model, profile, plugin)
-		}
-		path, err := config(name, content)
-		if err != nil {
-			return "", err
-		}
-		env["OPENCODE_CONFIG"] = path
-		// v2 runs every session against one background service per user,
-		// started by whichever opencode ran first and living on from there.
-		// That service reads its own environment, not the client's: the
-		// config this launch points at is ignored, and the MCP server it
-		// spawns resolves {env:GATE_INBOX_SESSION_ID} to the id of the
-		// session that happened to start it, so every session's rename lands
-		// on that one row. A private server per session is what makes the
-		// generated config, and this session's identity, reach the agent.
-		command += " --standalone"
-		return command, nil
+		return opencodeCommand(exe, hooksDir, command, env, model, profile, skip, write, config)
 	case StyleNone:
 		return command, nil
 	default:
 		return applyDriver(style, exe, hooksDir, command, env, model, write)
 	}
+}
+
+// opencodeCommand is apply for the opencode style; config writes (or, in a
+// preview, only names) a generated file.
+func opencodeCommand(exe, hooksDir, command string, env map[string]string, model, profile string, skip, write bool, config func(name string, content []byte) (string, error)) (string, error) {
+	plugin := ""
+	if skip {
+		var err error
+		if plugin, err = skipPermissionsPlugin(hooksDir, write); err != nil {
+			return "", err
+		}
+	}
+	shared, sharedContent := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, "", profile, "")
+	name, content := shared, sharedContent
+	if model != "" || skip {
+		// v2's TUI has no model flag; the config's model key is where a
+		// chosen model goes, and its plugins list is where the session's
+		// skip permissions go, so a session on either gets a config of
+		// its own.
+		name, content = generatedPrefix+"mcp-opencode-"+env[hooks.EnvSessionID]+".json", opencodeConfig(exe, model, profile, plugin)
+	}
+	path, err := config(name, content)
+	if err != nil {
+		return "", err
+	}
+	env["OPENCODE_CONFIG"] = path
+	// v2 runs every session against one background service per user,
+	// started by whichever opencode ran first and living on from there.
+	// That service reads its own environment, not the client's: the
+	// config this launch points at is ignored, and the MCP server it
+	// spawns resolves {env:GATE_INBOX_SESSION_ID} to the id of the
+	// session that happened to start it, so every session's rename lands
+	// on that one row. A private server per session is what makes the
+	// generated config, and this session's identity, reach the agent.
+	//
+	// A private server costs a session about 300 MB, so the pane runs
+	// the opencode-attach verb first, which attaches it to the board's
+	// one shared server instead when [opencode] server allows, and falls
+	// back to --standalone itself otherwise. The shared server serves
+	// every tool, so a session restricted to a profile keeps a private
+	// one: no --server-config is what tells the verb so.
+	opencodeMemoryEnv(env)
+	attach := tmux.ShellQuote(exe) + " " + OpencodeAttachVerb
+	if model != "" {
+		attach += " --model " + tmux.ShellQuote(model)
+	}
+	if skip {
+		attach += " --auto"
+	}
+	if profile == "" {
+		sharedPath, err := config(shared, sharedContent)
+		if err != nil {
+			return "", err
+		}
+		attach += " --server-config " + tmux.ShellQuote(sharedPath)
+	}
+	return attach + " -- " + command, nil
 }
 
 // applyDriver hands the launch to the extension driver answering style. A
@@ -321,6 +355,31 @@ This session is managed by Gate Inbox, which lists it under a short name. After 
 // writeConfig writes content under a name stamped with it (see
 // hooks.GeneratedName), so a launcher running another build never rewrites
 // the file this build's sessions read.
+// OpencodeAttachVerb is the gate-inbox verb a launched opencode pane runs
+// to reach its server; see the opencode style in apply.
+const OpencodeAttachVerb = "opencode-attach"
+
 func writeConfig(dir, name string, content []byte) (string, error) {
 	return hooks.WriteGenerated(dir, name, content)
+}
+
+// opencodeMemoryEnv turns off opencode's native fuzzy file finder
+// (OPENCODE_DISABLE_FFF) in each launched session's private server. The
+// finder indexes the whole working tree in memory and keeps a dozen threads
+// on it; without it opencode uses the plain filesystem search it already
+// uses for a directory outside version control. By PSS that is about 39 MB
+// less per session in a small repository and more in a large one, where the
+// first glob and grep calls also got faster (9.1 s to 1.8 s, 7.5 s to 2.0 s
+// on a 19.6k-file tree).
+//
+// A value the operator set themselves is left alone.
+func opencodeMemoryEnv(env map[string]string) {
+	const key = "OPENCODE_DISABLE_FFF"
+	if _, set := os.LookupEnv(key); set {
+		return
+	}
+	if _, set := env[key]; set {
+		return
+	}
+	env[key] = "1"
 }

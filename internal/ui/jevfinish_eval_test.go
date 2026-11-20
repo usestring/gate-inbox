@@ -2,8 +2,6 @@ package ui
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -17,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usestring/gate-inbox/internal/jev"
+	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -34,10 +32,12 @@ import (
 //
 // JEV_EVAL_CONFIG names the gate-inbox config directory (for the key and for
 // which sessions were archived); JEV_EVAL_TURNS, JEV_EVAL_CHARS and
-// JEV_EVAL_QUESTIONS (comma-separated: current, previous) narrow the grid.
+// JEV_EVAL_QUESTIONS (comma-separated: current, tail-only, previous) narrow the grid.
+// JEV_EVAL_REVIEWED_ONLY=1 runs only the reviewed closure cases, without
+// loading any local transcripts.
 //
-// A case is the transcript as it stood the moment the user replied, labelled
-// by what the user did next:
+// The historical cases use the transcript as it stood when the user replied,
+// labelled by what the user did next:
 //
 //   - done, the agent had finished: the user's last word on a session they
 //     archived, or the nuke prompt on a session that then ended.
@@ -53,9 +53,93 @@ import (
 const jevEvalPreviousQuestion = "Has the agent delivered what the user asked for in this session, with no work left open, " +
 	"nothing pending on the user, and no blocker stopping it?"
 
+// These reviewed closures are paraphrased with synthetic details so the cases
+// retain what was known at the time without taking private transcripts with them.
+func jevEvalReviewedClosures() []jevEvalCase {
+	return []jevEvalCase{
+		{
+			Class: "reviewed-open", Source: "new-assignment-after-handoff",
+			msgs: []search.Message{
+				{Role: "user", Text: "Review the proposed import change and send a pass or hold."},
+				{Role: "assistant", Text: "HOLD. I reproduced missing records after a retry and sent the verdict to the parent."},
+				{Role: "user", Text: "Assignment from your parent: resume the ten backlog alerts. Reproduce the two parser failures, prepare a fix if verified, report all ten dispositions, and finish the assigned task."},
+			},
+		},
+		{
+			Class: "reviewed-done", Source: "investigation-handed-off-before-scheduled-check",
+			msgs: []search.Message{
+				{Role: "user", Text: "Investigate the four inventory alerts, check alternate sources, and give me the exact row dispositions and the fastest way to resolve them."},
+				{Role: "assistant", Text: "Investigation complete. The source reassigned the inventory and no alternate source supplied the old assignments. Each of the four alerts remains open. The parent received the dispositions and should repeat the source comparison after the scheduled run before clearing any warnings. I released the investigation claim."},
+			},
+		},
+		{
+			Class: "reviewed-open", Source: "sleep-during-conflict-repair-wrap-up",
+			msgs: []search.Message{
+				{Role: "user", Text: "Resolve this pull request's merge conflicts, verify the final head, record the result, and finish the board task."},
+				{Role: "assistant", Text: "Both checks passed on the new head. I'm writing the session log and finishing the board task."},
+				{Role: "assistant", Text: "API Error: Your computer went to sleep mid-response. The response above may be incomplete."},
+			},
+		},
+		{
+			Class: "reviewed-done", Source: "shared-test-merge-completed",
+			msgs: []search.Message{
+				{Role: "user", Text: "Merge the pull request that moves the audited tests to the shared process after verification."},
+				{Role: "assistant", Text: "I verified that all required checks passed on the signed head, squash-merged the pull request, and confirmed the branch was deleted."},
+			},
+		},
+		{
+			Class: "reviewed-open", Source: "finished-a-different-task",
+			Opening: "Audit the sign-in retry flow, reproduce any issue, and record whether the release can ship.",
+			msgs: []search.Message{
+				{Role: "user", Text: "Switch to the billing dashboard. Publish the new export button."},
+				{Role: "assistant", Text: "The billing export button is implemented and the tests pass."},
+				{Role: "assistant", Text: "The release checks pass."},
+				{Role: "assistant", Text: "I’ll roll out the new build."},
+				{Role: "assistant", Text: "Released the billing dashboard and verified the export button in production. The work is complete."},
+			},
+			report: &search.StatusReport{State: "done", Note: "The billing dashboard export shipped."},
+		},
+		{
+			Class: "reviewed-open", Source: "same-task-required-step-missing",
+			Opening: "Fix the export retry, merge the pull request, and verify the export on staging after the merge.",
+			msgs: []search.Message{
+				{Role: "assistant", Text: "The export retry is fixed and the local tests pass."},
+				{Role: "user", Text: "How did the PR do?"},
+				{Role: "assistant", Text: "The PR is ready and passing CI."},
+				{Role: "assistant", Text: "All work on the retry patch is complete. The PR still awaits merge and staging verification."},
+			},
+			report: &search.StatusReport{State: "done", Note: "The patch is ready for review."},
+		},
+		{
+			Class: "reviewed-done", Source: "same-task-opening-outside-window",
+			Opening: "Fix the export retry, merge the pull request, and verify the export on staging after the merge.",
+			msgs: []search.Message{
+				{Role: "assistant", Text: "The export retry is fixed and the local tests pass."},
+				{Role: "user", Text: "How did the PR do?"},
+				{Role: "assistant", Text: "CI passed and I squash-merged the export retry fix."},
+				{Role: "assistant", Text: "The merged revision is on staging. I tested the export twice with an injected timeout, and the retry produced exactly one file both times."},
+			},
+		},
+		{
+			Class: "reviewed-open", Source: "unsupported-completion-claim",
+			Opening: "Run the inventory reconciliation for four stores and record the final disposition for each store.",
+			msgs: []search.Message{
+				{Role: "assistant", Text: "I have the inputs for the inventory reconciliation."},
+				{Role: "assistant", Text: "Done. Everything is complete."},
+			},
+			report: &search.StatusReport{State: "done"},
+		},
+	}
+}
+
+const jevEvalTailOnlyQuestion = "Is this session at its end state: the agent has finished the task it was given and reported the result, " +
+	"so the user could close the session now? Count it as finished even if the agent offers optional follow-ups or a PR awaits " +
+	"review; count it as not finished if the agent stopped mid-task, hit an error or blocker it did not resolve, or asked a " +
+	"question it needs answered to continue."
+
 var jevEvalQuestions = map[string]string{
-	"current":  jevFinishedQuestion,
-	"previous": jevEvalPreviousQuestion,
+	"tail-only": jevEvalTailOnlyQuestion,
+	"previous":  jevEvalPreviousQuestion,
 }
 
 var (
@@ -63,14 +147,16 @@ var (
 	jevEvalCorrection = regexp.MustCompile(`^(no[,. !]|nope|wrong|that's not|thats not|you didn't|you did not|you haven't|still |it still|this still|doesn't work|does not work|not working|didn't work)`)
 	jevEvalThresholds = []float64{0.5, 0.6, 0.7, 0.8}
 	jevEvalCaps       = map[string]int{"archived": 40, "nuke-ended": 60, "nuke-continued": 60, "correction": 30, "continue": 30, "followup": 60}
-	jevEvalLabel      = map[string]string{"archived": "done", "nuke-ended": "done", "nuke-continued": "open", "correction": "open", "continue": "open", "followup": "followup"}
+	jevEvalLabel      = map[string]string{"archived": "done", "nuke-ended": "done", "nuke-continued": "open", "correction": "open", "continue": "open", "followup": "followup", "reviewed-open": "open", "reviewed-done": "done"}
 )
 
 type jevEvalCase struct {
-	ID     int    `json:"id"`
-	Class  string `json:"class"`
-	Source string `json:"source"`
-	Next   string `json:"next,omitempty"`
+	ID      int    `json:"id"`
+	Class   string `json:"class"`
+	Source  string `json:"source"`
+	Opening string `json:"-"`
+	report  *search.StatusReport
+	Next    string `json:"next,omitempty"`
 	// Last opens the agent message the case ends on, so a harness can find
 	// the same cut in the raw transcript.
 	Last string           `json:"last,omitempty"`
@@ -89,13 +175,15 @@ func (v jevEvalVariant) String() string {
 
 type jevEvalScore struct {
 	jevEvalVariant
-	Case          int     `json:"case"`
-	Class         string  `json:"class"`
-	Source        string  `json:"source"`
-	Finished      float64 `json:"finished"`
-	MissingChrome float64 `json:"missing_chrome"`
-	OK            bool    `json:"ok"`
-	Millis        int64   `json:"ms"`
+	Case          int                  `json:"case"`
+	Class         string               `json:"class"`
+	Source        string               `json:"source"`
+	Finished      float64              `json:"finished"`
+	SameGoal      float64              `json:"same_goal,omitempty"`
+	StatusReport  *search.StatusReport `json:"-"`
+	MissingChrome float64              `json:"missing_chrome"`
+	OK            bool                 `json:"ok"`
+	Millis        int64                `json:"ms"`
 }
 
 func jevEvalClassify(text string) string {
@@ -116,31 +204,13 @@ func jevEvalClassify(text string) string {
 	return ""
 }
 
-func jevEvalTurns(messages []search.Message, turns, chars int) []suggestMessage {
-	var out []suggestMessage
-	for i := len(messages) - 1; i >= 0 && len(out) < turns; i-- {
-		m := messages[i]
-		if m.Role != "user" && m.Role != "assistant" {
-			continue
-		}
-		if text := boundedText(m.Text, chars); text != "" {
-			out = append([]suggestMessage{{Role: m.Role, Text: text}}, out...)
-		}
-	}
-	return out
-}
-
 // jevEvalCases walks every transcript once. Cases whose latest turns match
 // another's are dropped, since resumed and forked sessions repeat them.
 func jevEvalCases(files []string, archived map[string]bool) map[string][]jevEvalCase {
 	byClass := map[string][]jevEvalCase{}
 	seen := map[string]bool{}
-	add := func(class, source, next string, msgs []search.Message) {
-		sum := sha256.New()
-		for _, m := range jevEvalTurns(msgs, jevFinishMessages, jevFinishMessageChars) {
-			sum.Write([]byte(m.Role + "\x00" + m.Text + "\x00"))
-		}
-		digest := hex.EncodeToString(sum.Sum(nil))
+	add := func(class, source, next, opening string, msgs []search.Message) {
+		digest := jevFinishDigest(jevFinishInput{InitialRequest: opening, Messages: jevFinishTurns(msgs, jevFinishMessages, jevFinishMessageChars)})
 		if seen[digest] {
 			return
 		}
@@ -151,10 +221,15 @@ func jevEvalCases(files []string, archived map[string]bool) map[string][]jevEval
 				last = boundedText(msgs[i].Text, 120)
 			}
 		}
-		byClass[class] = append(byClass[class], jevEvalCase{Class: class, Source: source, Next: boundedText(next, 120), Last: last, msgs: msgs})
+		byClass[class] = append(byClass[class], jevEvalCase{Class: class, Source: source, Next: boundedText(next, 120), Last: last, Opening: opening, msgs: msgs})
 	}
 	for _, path := range files {
-		msgs, err := search.ReadMessages(search.Target{Tool: search.ToolClaude, Path: path}, "")
+		target := search.Target{Tool: search.ToolClaude, Path: path}
+		opening, err := search.ReadFirstWorkPrompt(target)
+		if err != nil || opening == "" {
+			continue
+		}
+		msgs, err := search.ReadMessages(target, "")
 		if err != nil || len(msgs) < 2 {
 			continue
 		}
@@ -173,7 +248,7 @@ func jevEvalCases(files []string, archived map[string]bool) map[string][]jevEval
 					}
 				}
 				if class != "" {
-					add(class, source, m.Text, msgs[:i])
+					add(class, source, m.Text, opening, msgs[:i])
 				}
 			}
 			if m.Role == "user" || m.Role == "assistant" {
@@ -181,7 +256,7 @@ func jevEvalCases(files []string, archived map[string]bool) map[string][]jevEval
 			}
 		}
 		if archived[source] && prev == "assistant" {
-			add("archived", source, "", msgs)
+			add("archived", source, "", opening, msgs)
 		}
 	}
 	return byClass
@@ -230,42 +305,50 @@ func TestJevFinishEval(t *testing.T) {
 		t.Skip("set JEV_FINISH_EVAL to an output directory to run against live JEV")
 	}
 	configDir := os.Getenv("JEV_EVAL_CONFIG")
-	key := jev.Key(configDir)
+	key := classifier.JEV.Key(configDir)
 	if key == "" {
 		t.Skip("no TypeSafe key")
 	}
 	if err := os.MkdirAll(outDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	home, _ := os.UserHomeDir()
-	files, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", "*.jsonl"))
-	byClass := jevEvalCases(files, jevEvalArchived(t, configDir))
+	cases := jevEvalReviewedClosures()
+	if os.Getenv("JEV_EVAL_REVIEWED_ONLY") != "1" {
+		home, _ := os.UserHomeDir()
+		files, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", "*.jsonl"))
+		byClass := jevEvalCases(files, jevEvalArchived(t, configDir))
 
-	rng := rand.New(rand.NewSource(1))
-	var cases []jevEvalCase
-	classes := make([]string, 0, len(byClass))
-	for class := range byClass {
-		classes = append(classes, class)
-	}
-	sort.Strings(classes)
-	for _, class := range classes {
-		list := byClass[class]
-		t.Logf("pool %-15s %d", class, len(list))
-		rng.Shuffle(len(list), func(i, j int) { list[i], list[j] = list[j], list[i] })
-		cases = append(cases, list[:min(len(list), jevEvalCaps[class])]...)
+		rng := rand.New(rand.NewSource(1))
+		classes := make([]string, 0, len(byClass))
+		for class := range byClass {
+			classes = append(classes, class)
+		}
+		sort.Strings(classes)
+		for _, class := range classes {
+			list := byClass[class]
+			t.Logf("pool %-15s %d", class, len(list))
+			rng.Shuffle(len(list), func(i, j int) { list[i], list[j] = list[j], list[i] })
+			cases = append(cases, list[:min(len(list), jevEvalCaps[class])]...)
+		}
 	}
 	// The ID lets scores from different variants be joined per case, to read
 	// a cheap first call followed by a larger confirming one.
 	for i := range cases {
 		cases[i].ID = i
+		if cases[i].Opening == "" && len(cases[i].msgs) > 0 && cases[i].msgs[0].Role == "user" {
+			cases[i].Opening = cases[i].msgs[0].Text
+		}
 	}
 
-	questions := []string{"current", "previous"}
+	questions := []string{"current", "tail-only"}
 	if raw := os.Getenv("JEV_EVAL_QUESTIONS"); raw != "" {
 		questions = strings.Split(raw, ",")
 	}
 	var variants []jevEvalVariant
 	for _, q := range questions {
+		if _, known := jevEvalQuestions[q]; q != "current" && !known {
+			t.Fatalf("unknown eval question %q", q)
+		}
 		for _, turns := range jevEvalInts("JEV_EVAL_TURNS", []int{2, 4, 6, 8}) {
 			for _, chars := range jevEvalInts("JEV_EVAL_CHARS", []int{800, 1500, 3000}) {
 				variants = append(variants, jevEvalVariant{Question: q, Turns: turns, Chars: chars})
@@ -286,17 +369,30 @@ func TestJevFinishEval(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := range jobs {
-				state := jevEvalTurns(j.c.msgs, j.v.Turns, j.v.Chars)
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				start := time.Now()
-				answers, ok := askJevNoul(ctx, jevHTTPClient, jevEndpoint, key, map[string]any{"messages": state}, map[string]string{
-					"finished":       jevEvalQuestions[j.v.Question],
-					"missing_chrome": jevMissingChromeQuestion,
-				})
+				var verdict jevFinishVerdict
+				ok := true
+				if j.v.Question == "current" {
+					input := jevFinishEvidence(j.c.Opening, j.c.msgs, j.v.Turns, j.v.Chars)
+					input.StatusReport = j.c.report
+					if input.InitialRequest != "" && len(input.Messages) > 0 {
+						verdict, ok = askJevFinish(ctx, classifier.JEV, jevHTTPClient, jevEndpoint, key, input)
+					}
+				} else {
+					state := jevFinishTurns(j.c.msgs, j.v.Turns, j.v.Chars)
+					var answers map[string]float64
+					answers, ok = askJevNoul(ctx, classifier.JEV, jevHTTPClient, jevEndpoint, key, map[string]any{"messages": state}, map[string]string{
+						"finished":       jevEvalQuestions[j.v.Question],
+						"missing_chrome": jevMissingChromeQuestion,
+					})
+					verdict = jevFinishVerdict{Finished: answers["finished"], MissingChrome: answers["missing_chrome"]}
+				}
 				cancel()
 				mu.Lock()
 				scores = append(scores, jevEvalScore{jevEvalVariant: j.v, Case: j.c.ID, Class: j.c.Class, Source: j.c.Source,
-					Finished: answers["finished"], MissingChrome: answers["missing_chrome"], OK: ok, Millis: time.Since(start).Milliseconds()})
+					SameGoal: verdict.SameGoal, Finished: verdict.Finished, MissingChrome: verdict.MissingChrome,
+					StatusReport: j.c.report, OK: ok, Millis: time.Since(start).Milliseconds()})
 				mu.Unlock()
 			}
 		}()
@@ -364,7 +460,15 @@ func jevEvalReport(variants []jevEvalVariant, scores []jevEvalScore) string {
 				}
 				label := jevEvalLabel[s.Class]
 				n[label]++
-				if s.Finished >= threshold && s.MissingChrome <= jevFinishBandLow {
+				verdict := jevFinishVerdict{SameGoal: s.SameGoal, Finished: s.Finished, MissingChrome: s.MissingChrome}
+				if v.Question != "current" {
+					verdict.SameGoal = 1
+				}
+				var report *search.StatusReport
+				if v.Question == "current" {
+					report = s.StatusReport
+				}
+				if verdict.decide(report, threshold) == jevFinishDone {
 					flagged[label]++
 				}
 			}

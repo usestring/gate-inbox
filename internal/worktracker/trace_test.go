@@ -9,6 +9,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 	"github.com/usestring/gate-inbox/internal/tracetest"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 // The forks are the whole cost of discovery, so each one has to arrive named
@@ -33,8 +34,9 @@ func TestEveryGitForkIsItsOwnSpan(t *testing.T) {
 	var subcommands []string
 	for _, fork := range forks {
 		subcommands = append(subcommands, fork.Attr("git.subcommand").(string))
-		if fork.Attr("dir") != dir {
-			t.Errorf("fork ran in %v, want the session's directory %s", fork.Attr("dir"), dir)
+		// A directory is a path, which names a person and a repository.
+		if fork.Attr("dir") != nil {
+			t.Errorf("fork span carries its directory %v", fork.Attr("dir"))
 		}
 	}
 	// The whole inventory one directory costs, in order, and all of it on the
@@ -64,11 +66,12 @@ func TestDiscoveryReportsTheSessionWithoutItsText(t *testing.T) {
 	recorded := spans()
 
 	span := tracetest.One(t, recorded, "worktracker.discover")
-	if span.Attr("session") != "sess1" {
-		t.Errorf("session = %v, want sess1", span.Attr("session"))
+	// The session goes as its keyed id, and the directory not at all.
+	if span.Attr("session") != tracing.KeyedID("session", "sess1") {
+		t.Errorf("session = %v, want sess1's keyed id", span.Attr("session"))
 	}
-	if span.Attr("dir") != "/repo" {
-		t.Errorf("dir = %v, want /repo", span.Attr("dir"))
+	if span.Attr("dir") != nil {
+		t.Errorf("dir = %v, want none", span.Attr("dir"))
 	}
 	if span.Attr("refs") != int64(1) {
 		t.Errorf("refs = %v, want the one reference discovery found", span.Attr("refs"))

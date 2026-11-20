@@ -43,13 +43,13 @@ func TestProgramPIDFindsTheAgentBelowTheShell(t *testing.T) {
 	}
 	procs := NewProcTable()
 	root := int32(shell.Process.Pid)
-	if got, ok := procs.ProgramPID(root, "/usr/local/bin/someagent --resume"); !ok || got != want {
+	if got, ok := procs.ProgramPID(root, "/usr/local/bin/someagent --resume", ""); !ok || got != want {
 		t.Fatalf("ProgramPID = %d, %v; want the agent, %d", got, ok, want)
 	}
-	if got, ok := procs.ProgramPID(root, "otheragent"); ok {
+	if got, ok := procs.ProgramPID(root, "otheragent", ""); ok {
 		t.Fatalf("ProgramPID found otheragent at %d", got)
 	}
-	if got, ok := procs.ProgramPID(root, ""); ok {
+	if got, ok := procs.ProgramPID(root, "", ""); ok {
 		t.Fatalf("ProgramPID found an empty command at %d", got)
 	}
 }

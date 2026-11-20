@@ -66,6 +66,8 @@ func (m *Model) handleScreenKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeForm:
 		return m.handleFormKey(msg)
+	case modeCleared:
+		return m.handleClearedKey(msg)
 	case modeConfirmDelete:
 		return m.handleConfirmKey(msg)
 	case modeLaunchHint:
@@ -237,6 +239,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, m.toggleShowAllWork()
 	case keymap.IngestReviews:
 		return m, m.ingestReviews()
+	case keymap.TriageContent:
+		return m, m.cycleTriageContent()
 	case keymap.ReviewsTab:
 		return m, m.toggleReviewsTab()
 	case keymap.PreviousPane:
@@ -351,10 +355,16 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.toggleMuteSelected()
 	case keymap.UnmuteAll:
 		return m.unmuteAllListed()
+	case keymap.OpenLastURL:
+		return m.openSelectedLastURL()
 	case keymap.CopyJev:
 		return m.copySelectedWithJev()
+	case keymap.RunJev:
+		return m.runSelectedWithJev()
 	case keymap.ReviveAll:
 		return m.reviveAllDead()
+	case keymap.WakeAll:
+		return m.wakeAllHibernated()
 	case keymap.SwitchAccount:
 		return m, m.openAccountSwitch()
 	case keymap.Restart:
@@ -502,6 +512,7 @@ var artifactRowActions = map[keymap.Action]bool{
 	// queue is no row's.
 	keymap.IngestReviews: true,
 	keymap.ReviewsTab:    true,
+	keymap.TriageContent: true,
 }
 
 // stepCursor is one move of the selection: the next row that is not an
@@ -561,7 +572,10 @@ func (m *Model) jumpCursor(delta int) tea.Cmd {
 	if len(m.rows) == 0 {
 		return nil
 	}
-	return m.settleCursor(m.edgeCursor(delta))
+	from := m.cursor
+	cmd := m.settleCursor(m.edgeCursor(delta))
+	m.reportCursor(from)
+	return cmd
 }
 
 // moveCursor shifts the selection and schedules a debounced preview
@@ -571,7 +585,10 @@ func (m *Model) moveCursor(delta int) tea.Cmd {
 	if len(m.rows) == 0 {
 		return nil
 	}
-	return m.settleCursor(m.stepCursor(m.cursor, delta))
+	from := m.cursor
+	cmd := m.settleCursor(m.stepCursor(m.cursor, delta))
+	m.reportCursor(from)
+	return cmd
 }
 
 // settleCursor puts the selection on a row and schedules the preview that
@@ -606,7 +623,7 @@ func (m *Model) reorderSelected(delta int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.triage {
-		m.errBar.text = "triage orders by status — press " + m.cap(keymap.ContextList, keymap.Triage) + " to leave triage before reordering"
+		m.errBar.text = "triage uses the queue order — press " + m.cap(keymap.ContextList, keymap.Triage) + " to leave triage before reordering"
 		return m, nil
 	}
 	if refusal := m.listSortRefusal(); refusal != "" {
@@ -943,6 +960,10 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.scheduleHistorySearch()
 	case "ctrl+u":
 		m.search = ""
+		m.rebuildRows()
+		return m, m.scheduleHistorySearch()
+	case "tab":
+		m.searchTitleOnly = !m.searchTitleOnly
 		m.rebuildRows()
 		return m, m.scheduleHistorySearch()
 	default:

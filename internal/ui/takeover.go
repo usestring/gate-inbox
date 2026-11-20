@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/usestring/gate-inbox/internal/adopt"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -39,7 +40,10 @@ type takeoverState struct {
 	tried map[string]bool
 }
 
-var errTakeoverWaiting = errors.New("adopted pane is still attached to a tmux client")
+var (
+	errTakeoverWaiting = errors.New("adopted pane is still attached to a tmux client")
+	errTakeoverMidTurn = errors.New("adopted pane's conversation is partway through a turn")
+)
 
 func (m *Model) paneUnattended(id string) bool {
 	attached, err := m.tmux.PaneState(id, "#{session_attached}")
@@ -163,7 +167,7 @@ func (m *Model) takeoverPass() takeoverResult {
 	}
 	for _, sess := range due {
 		if err := m.takeOver(sess, procs, claude); err != nil {
-			if errors.Is(err, errTakeoverWaiting) {
+			if errors.Is(err, errTakeoverWaiting) || errors.Is(err, errTakeoverMidTurn) {
 				continue
 			}
 			delete(m.takeover.pending, sess.ID)
@@ -241,6 +245,10 @@ func (m *Model) takeOver(sess store.Session, procs *adopt.ProcTable, claude []co
 				}
 			}
 		}
+	} else if config.IsPiTool(m.cfg.Tools, sess.Tool) {
+		if id, convCwd, ok := convo.PiConversationInPane(convo.PiSessionsDir(), sess.Cwd); ok {
+			convID, cwd = id, convCwd
+		}
 	}
 	// A tool that resumes by id needs the id: relaunching on its continue
 	// command would resume the directory's most recent conversation, which
@@ -251,6 +259,17 @@ func (m *Model) takeOver(sess store.Session, procs *adopt.ProcTable, claude []co
 	}
 	if !isDir(cwd) {
 		return fmt.Errorf("working directory no longer exists: %s", cwd)
+	}
+	// Idle can be wrong at the moment that matters most. The scan files a new
+	// row as idle before any poll has read its screen, so a session launched
+	// with its prompt on the command line is taken over while its first
+	// request is in flight. The resumed conversation then ends on an
+	// unanswered prompt, and Claude Code waits for someone to type "continue".
+	// The transcript says whether a turn is still running, so wait for it.
+	if sess.Tool == "claude" && convID != "" {
+		if path := convo.TranscriptFor(convo.ClaudeHome(), convID, cwd); path == "" || convo.ClaudeTurnOpen(path) {
+			return errTakeoverMidTurn
+		}
 	}
 	if err := m.endSession(sess, func(id string) error {
 		if !m.paneUnattended(id) {

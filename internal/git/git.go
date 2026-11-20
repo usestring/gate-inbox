@@ -49,8 +49,7 @@ func (d *Driver) run(dir string, args ...string) (output string, err error) {
 		}
 		defer func() {
 			tracing.Record("git.run", started, time.Now(), err,
-				tracing.Attr{Key: "git.subcommand", Value: subcommand},
-				tracing.Attr{Key: "dir", Value: dir})
+				tracing.Attr{Key: "git.subcommand", Value: subcommand})
 		}()
 	}
 	cmd := exec.Command(d.bin, append([]string{"-c", "core.quotepath=false"}, args...)...)

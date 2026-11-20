@@ -92,6 +92,9 @@ type form struct {
 	// extra is the fields the extensions add, drawn after the form's own and
 	// focused as fieldCount+i.
 	extra []extraField
+	// account is the subscription a launch is pinned to; empty leaves it to
+	// the operator's account routing. Only the inbox-cleared pane sets it.
+	account string
 }
 
 // extraField is one field an extension added to the form, and the option
@@ -437,6 +440,7 @@ func (m *Model) openFormFor(group, tool string) tea.Cmd {
 		m.errBar.text = m.noCLIText()
 		return nil
 	}
+	m.leaveReviewsTab(false)
 
 	// Not an example name: a name is the field nobody has to fill in, and one
 	// that reads like a suggestion is how "my-session" ended up on rows.
@@ -876,7 +880,7 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 	var id string
 	spawn := func() error {
 		var err error
-		id, err = m.spawnSessionWith(toolName, m.formModel(), name, dir, group, prompt, autoNamed, store.SourceUser, values, perms)
+		id, err = m.spawnSessionWith(toolName, m.formModel(), name, dir, group, prompt, autoNamed, store.SourceUser, values, perms, m.form.account)
 		if err == nil {
 			m.rememberRecentWorktree(dir)
 		}
@@ -1010,7 +1014,7 @@ func (m *Model) spawnSession(toolName, name, dir, group, prompt string, autoName
 func (m *Model) formModel() string { return strings.TrimSpace(m.form.model.Value()) }
 
 func (m *Model) spawnSessionAs(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string) (string, error) {
-	return m.spawnSessionWith(toolName, model, name, dir, group, prompt, autoNamed, nameSource, nil, skipPermissions{})
+	return m.spawnSessionWith(toolName, model, name, dir, group, prompt, autoNamed, nameSource, nil, skipPermissions{}, "")
 }
 
 // skipPermissions is the new-session card's two permission toggles: for the
@@ -1019,10 +1023,10 @@ type skipPermissions struct{ self, children bool }
 
 // spawnSessionWith is spawnSessionAs carrying the values of the extensions'
 // form fields, which only the new-session form has.
-func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string, form map[string]string, perms skipPermissions) (string, error) {
+func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string, form map[string]string, perms skipPermissions, named string) (string, error) {
 	tool := m.cfg.Tools[toolName]
 	id := newID()
-	account, err := accounts.Select(m.store, tool, "", accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchSpawn})
+	account, err := accounts.Select(m.store, tool, named, accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchSpawn})
 	if err != nil {
 		return "", err
 	}

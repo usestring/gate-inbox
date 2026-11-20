@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -247,28 +248,43 @@ func encode(spans []Span) ([]byte, error) {
 	for _, span := range spans {
 		status := map[string]any{"code": 1}
 		if span.Err != nil {
-			status = map[string]any{"code": 2, "message": span.Err.Error()}
+			status = map[string]any{"code": 2, "message": scrubMessage(span.Err.Error())}
 		}
-		out = append(out, map[string]any{
+		encoded := map[string]any{
 			"traceId":           span.traceID,
 			"spanId":            span.spanID,
 			"parentSpanId":      span.parentID,
-			"name":              span.Name,
+			"name":              HidePaths(span.Name),
 			"kind":              1, // INTERNAL
 			"startTimeUnixNano": strconv.FormatInt(span.Start.UnixNano(), 10),
 			"endTimeUnixNano":   strconv.FormatInt(span.End.UnixNano(), 10),
-			"attributes":        encodeAttrs(span.Attrs),
+			"attributes":        encodeAttrs(privatize(span.Attrs)),
 			"status":            status,
-		})
+		}
+		if len(span.links) > 0 {
+			links := make([]any, 0, len(span.links))
+			for _, l := range span.links {
+				// A link is two ids and nothing else; one that is not hex
+				// could be carrying anything, and is left off.
+				if !hexID.MatchString(l.TraceID) || !hexID.MatchString(l.SpanID) {
+					continue
+				}
+				links = append(links, map[string]any{"traceId": l.TraceID, "spanId": l.SpanID})
+			}
+			encoded["links"] = links
+		}
+		out = append(out, encoded)
 	}
 	return json.Marshal(map[string]any{"resourceSpans": []any{map[string]any{
-		"resource": map[string]any{"attributes": encodeAttrs(resource())},
+		"resource": map[string]any{"attributes": encodeAttrs(privatize(resource()))},
 		"scopeSpans": []any{map[string]any{
 			"scope": map[string]any{"name": ServiceName},
 			"spans": out,
 		}},
 	}}})
 }
+
+var hexID = regexp.MustCompile(`^[0-9a-f]{16,32}$`)
 
 func encodeAttrs(attrs []Attr) []any {
 	out := make([]any, 0, len(attrs))

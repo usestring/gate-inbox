@@ -52,6 +52,8 @@ func (m mode) String() string {
 		return "restart-with"
 	case modeHeadPane:
 		return "head-pane"
+	case modeCleared:
+		return "cleared"
 	}
 	return fmt.Sprintf("mode(%d)", int(m))
 }
@@ -105,7 +107,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyLogged {
 		snap = m.snapshotDispatch(key)
 	}
+	if isKey {
+		m.reportKey(key)
+	}
 	model, cmd := m.update(msg)
+	m.reportView()
 	// The new-session box opens from many paths; whichever opened it, the
 	// chooser is asked once about the CLIs it lists.
 	if m.mode == modeAgentPick && before != modeAgentPick {

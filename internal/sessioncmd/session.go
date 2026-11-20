@@ -25,6 +25,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/launchpace"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/migrate"
+	"github.com/usestring/gate-inbox/internal/piauto"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -295,8 +296,25 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 	return r.sessionInfoIn(sess, dir, running, self)
 }
 
+// shownStatus is sess's status as the tools report it: a row hibernate
+// stopped is dead in the store, because its process is gone, but it is
+// resting until its next message, and a caller told it was dead would
+// revive it by hand or give up on it.
+func (r *runtime) shownStatus(sess store.Session) string {
+	if sess.Status != status.Dead || sess.Archived {
+		return sess.Status
+	}
+	hibernated, err := r.store.Hibernated()
+	if err != nil {
+		logging.Info("could not read the hibernated set", "session", sess.ID, logging.Err(err))
+		return sess.Status
+	}
+	return store.Shown(sess, hibernated)
+}
+
 // sessionInfoIn is sessionInfo with the directory already read.
 func (r *runtime) sessionInfoIn(sess store.Session, dir string, running, self bool) Session {
+	sess.Status = r.shownStatus(sess)
 	return Session{
 		ID:                      sess.ID,
 		Name:                    sess.Name,
@@ -486,6 +504,13 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 	if stored, err = r.delegated(stored); err != nil {
 		return SessionList{}, err
 	}
+	// Before the filter, so a caller can ask for hibernating rows by name
+	// and a dead filter leaves them out.
+	hibernated, err := r.store.Hibernated()
+	if err != nil {
+		return SessionList{}, err
+	}
+	stored = store.ApplyHibernated(stored, hibernated)
 	scan, err := r.driver.ScanPanesWithPaths()
 	if err != nil {
 		return SessionList{}, err
@@ -945,6 +970,9 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err != nil {
 		return Session{}, err
 	}
+	if flag := trustFlagFor(tool, caller.Cwd, dir); flag != "" && launchDir == dir {
+		base += " " + flag
+	}
 	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, base, id, plan.Model, plan.Account, sess.SkipPermissions, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
@@ -1171,6 +1199,10 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 		}
 	}
 	from := sender{callerID: caller.ID, id: caller.ID, name: caller.Name}
+	// Refuse retired recipients before a send can wake or restore them.
+	if _, err := runtime.addressee(from, targetID, interrupt); err != nil {
+		return SendResult{}, err
+	}
 	// A helper an extension launched to speak for the operator -- one
 	// holding a question for them, say -- writing to the session it was
 	// filed under. What it sends is the operator's answer, not its own
@@ -1341,6 +1373,9 @@ func (r *runtime) addressee(from sender, targetID string, interrupt bool) (store
 	target, err := r.agent(targetID)
 	if err != nil {
 		return store.Session{}, err
+	}
+	if target.ReplacedBy != "" {
+		return store.Session{}, fmt.Errorf("session %s was replaced by %s; send to its successor", target.ID, target.ReplacedBy)
 	}
 	if from.callerID != "" && target.ID == from.callerID {
 		return store.Session{}, errors.New("a session cannot message itself")
@@ -1546,7 +1581,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 	pane = strings.TrimRight(ansi.Strip(pane), "\r\n")
 	noteSpawnerRead(runtime, sessionID, target)
 
-	cursor, delta, note, readable := s.readDelta(target, since)
+	cursor, delta, note, readable := s.readDelta(target, since, runtime.cfg.Tools)
 	screen = SessionScreen{
 		Session: runtime.sessionInfo(target, running, target.ID == sessionID),
 		Cursor:  cursor,
@@ -1559,6 +1594,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 		}
 		screen.Digest.RelayAsk = s.relayAskOn(target, raw)
 	}
+	screen.Digest.AutoAllowed = piauto.Recent(hooks.NewManager(s.configDir).StatusFile(target.ID), autoAllowedShown)
 	if since != "" && readable {
 		screen.Mode, screen.Output, screen.Degraded = "delta", renderDelta(delta), note
 		return screen, nil

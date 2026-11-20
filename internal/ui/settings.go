@@ -6,9 +6,14 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -167,39 +172,55 @@ func (m *Model) openSettings() {
 		routing = accounts.Own
 	}
 	m.settings = settingsState{
-		toolNames:        names,
-		toolIndex:        index,
-		accountRouting:   routing,
-		chooserAvailable: chooser,
-		themeIndex:       themeIndex(current.Name),
-		quickCloseSend:   m.quickCloseAfterSend(),
-		enterFocuses:     m.enterFocuses(),
-		comfortableRows:  m.comfortableRows,
-		layout:           normalizeLayout(m.layout),
-		sidebar:          normalizeSidebar(m.sidebar),
-		palette:          normalizePalette(m.palette),
-		glyphs:           normalizeGlyphs(m.glyphs),
-		archiveConfirm:   normalizeArchiveConfirm(m.archiveConfirm),
-		deleteConfirm:    normalizeConfirmAsk(m.deleteConfirm),
-		restartConfirm:   normalizeConfirmAsk(m.restartConfirm),
-		listSort:         normalizeListSort(m.listSort),
-		listConsistency:  normalizeListConsistency(m.listConsistency),
-		chrome:           normalizeChrome(m.chrome),
-		leaveMode:        normalizeLeaveMode(m.leaveMode),
-		newSessionAgent:  normalizeNewSessionAgent(m.newSessionAgent),
-		autoProceed:      m.autoProceed,
-		smartTriage:      m.smartTriage,
-		reopenSessions:   m.reopenSessionsMode(),
-		outsidePanes:     m.outsidePanesMode(),
-		claudeSetup:      m.claudeSetupSwitch(),
-		jevAutoSuggest:   m.jevAutoSuggest,
-		jevFinishCheck:   m.jevFinishCheck,
-		jevCopyOn:        m.jevCopyOn,
-		promptSuggest:    m.promptSuggest,
-		reviewQueue:      m.reviewQueue,
-		arrowsStay:       m.arrowsStay,
-		backdropSync:     storedBackdrop(m.store) == backdropSync,
+		search:               textinput.New(),
+		hibernateSensitivity: m.hibernateSensitivity(),
+		toolNames:            names,
+		toolIndex:            index,
+		accountRouting:       routing,
+		chooserAvailable:     chooser,
+		themeIndex:           themeIndex(current.Name),
+		quickCloseSend:       m.quickCloseAfterSend(),
+		enterFocuses:         m.enterFocuses(),
+		comfortableRows:      m.comfortableRows,
+		layout:               normalizeLayout(m.layout),
+		sidebar:              normalizeSidebar(m.sidebar),
+		palette:              normalizePalette(m.palette),
+		glyphs:               normalizeGlyphs(m.glyphs),
+		rowDetail:            normalizeRowDetail(m.rowDetail),
+		textScroll:           m.textScroll,
+		priorityScale:        normalizePriorityScale(m.priorityScale),
+		archiveConfirm:       normalizeArchiveConfirm(m.archiveConfirm),
+		deleteConfirm:        normalizeConfirmAsk(m.deleteConfirm),
+		restartConfirm:       normalizeConfirmAsk(m.restartConfirm),
+		listSort:             normalizeListSort(m.listSort),
+		listConsistency:      normalizeListConsistency(m.listConsistency),
+		chrome:               normalizeChrome(m.chrome),
+		leaveMode:            normalizeLeaveMode(m.leaveMode),
+		newSessionAgent:      normalizeNewSessionAgent(m.newSessionAgent),
+		autoProceed:          m.autoProceed,
+		smartTriage:          m.smartTriage,
+		triageOrder:          normalizeTriageOrder(m.triageOrder),
+		triageContent:        normalizeTriageContent(m.triageContent),
+		triageKeepAlives:     m.triageKeepAlives,
+		idleSwitch:           m.idleSwitch,
+		confirmLaunches:      m.store.ConfirmLaunches(),
+		piAutoMode:           m.store.PiAutoMode(),
+		reopenSessions:       m.reopenSessionsMode(),
+		outsidePanes:         m.outsidePanesMode(),
+		claudeSetup:          m.claudeSetupSwitch(),
+		jevAutoSuggest:       m.jevAutoSuggest,
+		jevFinishCheck:       m.jevFinishCheck,
+		jevCopyOn:            m.jevCopyOn,
+		promptSuggest:        m.promptSuggest,
+		nextStep:             m.nextStepOn,
+		reviewQueue:          m.reviewQueue,
+		ciFeedback:           storedExperiment(m.store, store.CIFeedbackSetting),
+		arrowsStay:           m.arrowsStay,
+		backdropSync:         storedBackdrop(m.store) == backdropSync,
 	}
+	m.settings.search.Prompt = ""
+	m.settings.search.Placeholder = "Filter settings"
+	m.settings.search.CharLimit = 100
 	m.mode = modeSettings
 }
 
@@ -214,16 +235,50 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.settings.jevPanel {
 		return m.handleJevSettingsKey(msg)
 	}
+	if m.settings.searching {
+		switch msg.String() {
+		case "esc":
+			m.settings.search.SetValue("")
+			m.settings.search.Blur()
+			m.settings.searching = false
+		case "enter", "down", "up":
+			m.settings.search.Blur()
+			m.settings.searching = false
+		default:
+			var cmd tea.Cmd
+			m.settings.search, cmd = m.settings.search.Update(msg)
+			m.selectMatchingSetting()
+			return m, cmd
+		}
+		m.selectMatchingSetting()
+		return m, nil
+	}
 	switch msg.String() {
+	case "/", "ctrl+f":
+		m.settings.searching = true
+		return m, m.settings.search.Focus()
 	case "up", "k":
-		m.settings.field = (m.settings.field + settingsFieldCount - 1) % settingsFieldCount
+		m.moveSetting(-1)
 	case "down", "j":
-		m.settings.field = (m.settings.field + 1) % settingsFieldCount
+		m.moveSetting(1)
 	case "left", "h":
-		return m, m.cycleSetting(-1)
+		if len(m.matchingSettings()) == 0 {
+			return m, nil
+		}
+		cmd := m.cycleSetting(-1)
+		m.selectMatchingSetting()
+		return m, cmd
 	case "right", "l":
-		return m, m.cycleSetting(1)
+		if len(m.matchingSettings()) == 0 {
+			return m, nil
+		}
+		cmd := m.cycleSetting(1)
+		m.selectMatchingSetting()
+		return m, cmd
 	case "enter":
+		if len(m.matchingSettings()) == 0 {
+			return m, nil
+		}
 		switch m.settings.field {
 		case settingsFieldJev:
 			m.settings.jevPanel = true
@@ -256,9 +311,73 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.saveAndCloseSettings()
 	case "esc":
+		if m.settings.search.Value() != "" {
+			m.settings.search.SetValue("")
+			return m, nil
+		}
 		return m.saveAndCloseSettings()
 	}
 	return m, nil
+}
+
+func settingsSection(field int) string {
+	switch {
+	case field < settingsFieldTool:
+		return "Sessions"
+	case field < settingsFieldTheme:
+		return "Launch & tools"
+	case field < settingsFieldAutoProceed:
+		return "Board appearance"
+	case field < settingsFieldChrome:
+		return "Triage"
+	case field < settingsFieldJev:
+		return "Keyboard & snippets"
+	case field < settingsFieldGuide:
+		return "Advanced"
+	default:
+		return "About"
+	}
+}
+
+func (m *Model) matchingSettings() []int {
+	terms := strings.Fields(strings.ToLower(m.settings.search.Value()))
+	fields := make([]int, 0, settingsFieldCount)
+	if len(terms) == 0 {
+		for field := range settingsFieldCount {
+			fields = append(fields, field)
+		}
+		return fields
+	}
+	for field, row := range m.settingsRows(true) {
+		text := strings.ToLower(settingsSection(field) + " " + ansi.Strip(row))
+		if field == settingsFieldHibernate {
+			text += " memory sensitivity active sessions age"
+		}
+		if slices.ContainsFunc(terms, func(term string) bool { return !strings.Contains(text, term) }) {
+			continue
+		}
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+func (m *Model) selectMatchingSetting() {
+	fields := m.matchingSettings()
+	if len(fields) > 0 && !slices.Contains(fields, m.settings.field) {
+		m.settings.field = fields[0]
+	}
+}
+
+func (m *Model) moveSetting(step int) {
+	fields := m.matchingSettings()
+	if len(fields) == 0 {
+		return
+	}
+	index := slices.Index(fields, m.settings.field)
+	if index < 0 {
+		index = 0
+	}
+	m.settings.field = fields[(index+step+len(fields))%len(fields)]
 }
 
 func (m *Model) saveAndCloseSettings() (tea.Model, tea.Cmd) {
@@ -273,10 +392,17 @@ func (m *Model) saveAndCloseSettings() (tea.Model, tea.Cmd) {
 	}
 	m.rebuildRows()
 	m.mode = modeList
-	return m, cmd
+	return m, tea.Batch(cmd, m.startActivityTick())
 }
 
 func (m *Model) persistSettings() tea.Cmd {
+	if m.settings.hibernateSensitivity != m.hibernateSensitivity() {
+		if err := m.store.SetSetting(hibernateSensitivitySetting, m.settings.hibernateSensitivity); err != nil {
+			m.errBar.text = err.Error()
+		} else {
+			m.hibernateSweptAt = time.Time{}
+		}
+	}
 	startPromptSnips := !m.promptSuggest && m.settings.promptSuggest
 	if m.settings.accountRouting != "" {
 		if err := m.store.SetSetting(store.AccountRoutingSetting, m.settings.accountRouting); err != nil {
@@ -331,6 +457,15 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(glyphsSetting, normalizeGlyphs(m.settings.glyphs)); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(rowDetailSetting, normalizeRowDetail(m.settings.rowDetail)); err != nil {
+		m.errBar.text = err.Error()
+	}
+	if err := m.store.SetSetting(workingActivitySetting, m.settings.textScroll); err != nil {
+		m.errBar.text = err.Error()
+	}
+	if err := m.store.SetSetting(priorityScaleSetting, normalizePriorityScale(m.settings.priorityScale)); err != nil {
+		m.errBar.text = err.Error()
+	}
 	if err := m.store.SetSetting(archiveConfirmSetting, normalizeArchiveConfirm(m.settings.archiveConfirm)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -369,6 +504,40 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(smartTriageSetting, smartTriage); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(triageOrderSetting, normalizeTriageOrder(m.settings.triageOrder)); err != nil {
+		m.errBar.text = err.Error()
+	}
+	if err := m.store.SetSetting(triageContentSetting, normalizeTriageContent(m.settings.triageContent)); err != nil {
+		m.errBar.text = err.Error()
+	}
+	triageKeepAlives := "off"
+	if m.settings.triageKeepAlives {
+		triageKeepAlives = "on"
+	}
+	if err := m.store.SetSetting(triageKeepAlivesSetting, triageKeepAlives); err != nil {
+		m.errBar.text = err.Error()
+	}
+	idleSwitch := "off"
+	if m.settings.idleSwitch {
+		idleSwitch = "on"
+	}
+	if err := m.store.SetSetting(idleSwitchSetting, idleSwitch); err != nil {
+		m.errBar.text = err.Error()
+	}
+	confirmLaunches := "off"
+	if m.settings.confirmLaunches {
+		confirmLaunches = "on"
+	}
+	if err := m.store.SetSetting(store.ConfirmLaunchesKey, confirmLaunches); err != nil {
+		m.errBar.text = err.Error()
+	}
+	piAutoMode := "off"
+	if m.settings.piAutoMode {
+		piAutoMode = "on"
+	}
+	if err := m.store.SetSetting(store.PiAutoModeKey, piAutoMode); err != nil {
+		m.errBar.text = err.Error()
+	}
 	if err := m.store.SetSetting(reopenSessionsSetting, normalizeReopenSessions(m.settings.reopenSessions)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -396,12 +565,20 @@ func (m *Model) persistSettings() tea.Cmd {
 	if !m.promptSuggest {
 		m.promptSnips = nil
 	}
+	m.nextStepOn = m.settings.nextStep
+	if !m.nextStepOn {
+		m.nextStep = nextStepState{}
+	}
 	m.jevAutoSuggest = m.settings.jevAutoSuggest
 	if !m.promptSuggest || !m.jevAutoSuggest {
 		m.promptJev = promptJevState{seq: m.promptJev.seq + 1}
 	}
 	m.autoProceed = m.settings.autoProceed
 	m.smartTriage = m.settings.smartTriage
+	m.triageOrder = normalizeTriageOrder(m.settings.triageOrder)
+	m.applyTriageContent(m.settings.triageContent)
+	m.triageKeepAlives = m.settings.triageKeepAlives
+	m.idleSwitch = m.settings.idleSwitch
 	m.focusOnEnter = m.settings.enterFocuses
 	m.arrowsStay = storedArrowsStay(m.store)
 	m.focusView = storedFocusView(m.store)
@@ -411,6 +588,9 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.palette = normalizePalette(m.settings.palette)
 	m.glyphs = normalizeGlyphs(m.settings.glyphs)
 	applyGlyphSet(m.glyphs)
+	m.rowDetail = normalizeRowDetail(m.settings.rowDetail)
+	m.textScroll = m.settings.textScroll
+	m.priorityScale = normalizePriorityScale(m.settings.priorityScale)
 	m.archiveConfirm = normalizeArchiveConfirm(m.settings.archiveConfirm)
 	m.deleteConfirm = normalizeConfirmAsk(m.settings.deleteConfirm)
 	m.restartConfirm = normalizeConfirmAsk(m.settings.restartConfirm)
@@ -527,6 +707,10 @@ func (m *Model) toggleCLIHidden(name string) {
 // command rather than blocking the update path.
 func (m *Model) cycleSetting(step int) tea.Cmd {
 	switch m.settings.field {
+	case settingsFieldHibernate:
+		modes := []string{"low", "balanced", "high", "off"}
+		index := slices.Index(modes, sessioncmd.NormalizeHibernateSensitivity(m.settings.hibernateSensitivity))
+		m.settings.hibernateSensitivity = modes[(index+step+len(modes))%len(modes)]
 	case settingsFieldTool:
 		count := len(m.settings.toolNames)
 		if count == 0 {
@@ -605,6 +789,12 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		// the marks will be before the choice is saved.
 		m.settings.glyphs = glyphsModes[(index+step+len(glyphsModes))%len(glyphsModes)]
 		applyGlyphSet(m.settings.glyphs)
+	case settingsFieldRowDetail:
+		m.settings.rowDetail = cycleMode(rowDetailModes, normalizeRowDetail(m.settings.rowDetail), step)
+	case settingsFieldWorkingActivity:
+		m.settings.textScroll = cycleMode(textScrollModes, m.settings.textScroll, step)
+	case settingsFieldPriorityScale:
+		m.settings.priorityScale = cycleMode(priorityScaleModes, normalizePriorityScale(m.settings.priorityScale), step)
 	case settingsFieldArchiveConfirm:
 		index := 0
 		for i, mode := range archiveConfirmModes {
@@ -664,6 +854,16 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.autoProceed = !m.settings.autoProceed
 	case settingsFieldSmartTriage:
 		m.settings.smartTriage = !m.settings.smartTriage
+	case settingsFieldTriageOrder:
+		m.settings.triageOrder = cycleMode(triageOrders, normalizeTriageOrder(m.settings.triageOrder), step)
+	case settingsFieldTriageContent:
+		m.settings.triageContent = cycleMode(triageContents, normalizeTriageContent(m.settings.triageContent), step)
+	case settingsFieldTriageKeepAlives:
+		m.settings.triageKeepAlives = !m.settings.triageKeepAlives
+	case settingsFieldIdleSwitch:
+		m.settings.idleSwitch = !m.settings.idleSwitch
+	case settingsFieldConfirmLaunches:
+		m.settings.confirmLaunches = !m.settings.confirmLaunches
 	case settingsFieldReopenSessions:
 		m.settings.reopenSessions = cycleMode(reopenSessionsModes, normalizeReopenSessions(m.settings.reopenSessions), step)
 	case settingsFieldOutsidePanes:

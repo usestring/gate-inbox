@@ -171,21 +171,99 @@ func TestThePreviewCardReadsTheDialogOffThePane(t *testing.T) {
 	}
 }
 
-// A dialog asking one question, and one whose call the transcript does not
-// hold, draw the preview they drew before: nothing is added to it.
-func TestThePreviewIsUnchangedWithoutASeveralQuestionCall(t *testing.T) {
+func TestClaudeSingleQuestionPreviewUsesTheLivePane(t *testing.T) {
+	m := questionPreview(t, "claude-2.1.284-w50-prose-single.ansi", nil)
+	pane := m.preview
+	preview := func() string { return strippedRows(m.conversationRows(50, 20)) }
+	text := preview()
+	for _, want := range []string{"1 question", "Which rollout path should I take?", "1. Hold for staged UI", "2. Only region #4021", "3. Do both"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("preview does not show %q:\n%s", want, text)
+		}
+	}
+	for _, unwanted := range []string{"until the rework ships", "Type something", "Chat about this"} {
+		if strings.Contains(text, unwanted) {
+			t.Errorf("preview includes %q from outside the question's choices:\n%s", unwanted, text)
+		}
+	}
+
+	sess, _ := m.selected()
+	_, _ = m.Update(previewMsg{sessID: sess.ID, preview: pane + "\n❯ "})
+	if text := preview(); strings.Contains(text, "Which rollout path should I take?") {
+		t.Errorf("preview still shows a question after Claude returned to its input line:\n%s", text)
+	}
+}
+
+// A several-question dialog still needs the call behind it to draw its card.
+func TestThePreviewIsUnchangedWithoutAMatchingSeveralQuestionCall(t *testing.T) {
 	baseline := strippedRows(questionPreview(t, "claude-2.1.283-tabs-w50-second.ansi", nil).conversationRows(50, 40))
 	if strings.Contains(baseline, "questions ·") {
 		t.Fatalf("a preview with no call read drew a card:\n%s", baseline)
-	}
-	single := questionPreview(t, "claude-2.1.284-w50-prose-single.ansi", pendingFixture(t, "claude-ask-two-questions.jsonl"))
-	if got := strippedRows(single.conversationRows(50, 40)); got != baseline {
-		t.Errorf("a single-question dialog changed the preview:\n%s\nwant\n%s", got, baseline)
 	}
 	short := questionPreview(t, "claude-2.1.283-tabs-w50-second.ansi", pendingFixture(t, "claude-ask-two-questions.jsonl"))
 	if got := strippedRows(short.conversationRows(50, 40)); got != baseline {
 		t.Errorf("a call that does not match the tab row drew a card:\n%s", got)
 	}
+}
+
+func TestClaudePermissionPreviewShowsTheCommandAndChoices(t *testing.T) {
+	m := questionPreview(t, "claude-2.1.286-w50-permission-bash.ansi", nil)
+	// A word in the command can contain the text of a choice.
+	m.preview = strings.ReplaceAll(m.preview, "perm-probe.txt", "Notes-demo.txt")
+	const width = 40
+	rows := m.conversationRows(width, 20)
+	text := strippedRows(rows)
+	for _, want := range []string{"permission prompt", "touch Notes-demo.txt", "▸ 1. Yes", "3. No"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("preview does not show %q:\n%s", want, text)
+		}
+	}
+	for _, row := range rows {
+		if textfmt.Width(row) > width {
+			t.Errorf("preview row exceeds %d columns: %q", width, row)
+		}
+	}
+	if short := strippedRows(m.conversationRows(width, 5)); !strings.Contains(short, "touch Notes-demo.txt") {
+		t.Errorf("short preview lost the command:\n%s", short)
+	}
+}
+
+func TestClaudePermissionPreviewClearsWithTheLivePane(t *testing.T) {
+	m := questionPreview(t, "claude-2.1.286-w50-permission-bash.ansi", nil)
+	sess, _ := m.selected()
+	prompt := m.preview
+	hasPermission := func() bool {
+		return strings.Contains(strippedRows(m.conversationRows(50, 20)), "permission prompt")
+	}
+	if !hasPermission() {
+		t.Fatal("the original pane has no permission card")
+	}
+	_, _ = m.Update(previewMsg{sessID: sess.ID, preview: "❯ "})
+	if hasPermission() {
+		t.Error("the permission card outlasted the prompt")
+	}
+
+	_, _ = m.Update(previewMsg{sessID: sess.ID, preview: prompt})
+	if !hasPermission() {
+		t.Fatal("the new prompt did not bring back the permission card")
+	}
+	m.rows[m.cursor].sess.Status = status.Dead
+	if hasPermission() {
+		t.Error("a stopped session still shows the permission card")
+	}
+	m.rows[m.cursor].sess.Status = sess.Status
+
+	for i, row := range m.rows {
+		if row.isSession() && row.sess.ID != sess.ID {
+			_ = m.settleCursor(i)
+			_, _ = m.Update(previewMsg{sessID: sess.ID, preview: prompt})
+			if hasPermission() {
+				t.Error("the previous session's permission card followed the cursor")
+			}
+			return
+		}
+	}
+	t.Fatal("no other session to select")
 }
 
 // The card sits under the newest message, inside the frame's preview column,

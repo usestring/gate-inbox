@@ -399,6 +399,8 @@ CREATE TABLE IF NOT EXISTS settings (
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS file_reservations_holder ON file_reservations (session_id, pattern)`,
 		`CREATE INDEX IF NOT EXISTS file_reservations_live ON file_reservations (expires_at)`,
+		`ALTER TABLE file_reservations ADD COLUMN resolved_path TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE file_reservations ADD COLUMN match_glob TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN tmux_socket TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN tmux_pane_id TEXT NOT NULL DEFAULT ''`,
 		// Existing rows default to the one source automatic naming may never
@@ -630,6 +632,10 @@ CREATE TABLE IF NOT EXISTS settings (
 		// The one session allowed to claim a task, empty for anyone. See
 		// tasks.go.
 		`ALTER TABLE tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''`,
+		// What the finisher said came of a task: the outcome, a PR link,
+		// what is left. Rows finished before it, and every unfinished row,
+		// read ''. See FinishTask.
+		`ALTER TABLE tasks ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {
@@ -1368,7 +1374,8 @@ func (s *Store) applyDerivedStates(at time.Time, states []DerivedState) error {
 }
 
 // AcknowledgeFinished atomically marks a session idle and acked if its stored
-// status is still finished. A newer status makes the operation a no-op.
+// status is still finished, and acked alone if it is background. Any other
+// status makes the operation a no-op.
 //
 // last_status_at stays where the finish put it, here and in
 // applyDerivedStates: acknowledging a rest does not start a new one. Moving
@@ -1379,6 +1386,13 @@ func (s *Store) AcknowledgeFinished(id string) error {
 		`UPDATE sessions SET status = ?, acked = 1 WHERE id = ? AND status = ?`,
 		status.Idle, id, status.Finished)
 	if err != nil {
+		return err
+	}
+	// A turn that ended with a shell still running is a finish too, and
+	// seeing it acknowledges it. It keeps its status: the shell is still
+	// going, and the turn it wakes into clears the ack.
+	if _, err := s.db.Exec(
+		`UPDATE sessions SET acked = 1 WHERE id = ? AND status = ?`, id, status.Background); err != nil {
 		return err
 	}
 	return s.requireRowOrNoop(res, id)
@@ -1435,15 +1449,18 @@ func (s *Store) SetAgentSessionID(id, agentSessionID string) error {
 
 // BindAgentSessionID records a captured conversation id, but only while the
 // session is still the launch the capture ran for: unbound, and launched at
-// the moment the capturing pass read. It reports whether the write landed.
+// the moment the capturing pass read, with no other unarchived row claiming
+// that conversation. It reports whether the write landed.
 // Capture reads a tool's store from a snapshot and can take minutes, long
 // enough for a restart to clear the id and move the launch on underneath it,
 // and that stale answer names the conversation the restart just dropped.
 func (s *Store) BindAgentSessionID(id, agentSessionID string, launchedAt time.Time) (bool, error) {
 	res, err := s.db.Exec(
 		`UPDATE sessions SET agent_session_id = ?
-		 WHERE id = ? AND agent_session_id = '' AND agent_launched_at = ?`,
-		agentSessionID, id, encodeTime(launchedAt))
+		 WHERE id = ? AND agent_session_id = '' AND agent_launched_at = ?
+		 AND NOT EXISTS (SELECT 1 FROM sessions other WHERE other.id != ?
+		     AND other.archived = 0 AND other.agent_session_id = ?)`,
+		agentSessionID, id, encodeTime(launchedAt), id, agentSessionID)
 	if err != nil {
 		return false, err
 	}

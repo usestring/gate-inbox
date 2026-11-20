@@ -125,6 +125,36 @@ find_chrome() {
 }
 chrome="$(find_chrome)" || missing "no working Chromium found — install one, or run 'bunx playwright install chromium'"
 
+case "$(uname -s)" in
+  Darwin) capture_lock=(lockf -s -t); capture_timeout=gtimeout ;;
+  *) capture_lock=(flock -w); capture_timeout=timeout ;;
+esac
+command -v "${capture_lock[0]}" >/dev/null || missing "${capture_lock[0]} is not on PATH"
+command -v "$capture_timeout" >/dev/null || missing "$capture_timeout is not on PATH — install GNU coreutils"
+
+# Worktrees and output directories share one slot because their encoders use the same RAM.
+capture_wait=120
+lock_dir="/tmp/gate-inbox-capture-$(id -u)"
+mkdir -m 700 "$lock_dir" 2>/dev/null ||
+  [[ -d "$lock_dir" && -O "$lock_dir" && ! -L "$lock_dir" ]] ||
+  die "could not prepare the capture lock directory"
+exec 9>>"$lock_dir/capture.lock" || die "could not open the capture lock"
+if ! "${capture_lock[@]}" 0 9; then
+  printf 'capture: waiting for another Gate Inbox capture to finish\n' >&2
+  "${capture_lock[@]}" "$capture_wait" 9 || die "could not acquire the capture lock within ${capture_wait}s"
+fi
+
+capture_limit=180
+capture_deadline=$((SECONDS + capture_limit))
+run_with_capture_deadline() {
+  local remaining=$((capture_deadline - SECONDS)) status=0
+  ((remaining > 0)) || die "capture exceeded its ${capture_limit}s runtime limit"
+  # VHS starts the encoder as a child. Stop the group before releasing its slot.
+  "$capture_timeout" --signal=KILL "${remaining}s" "$@" || status=$?
+  [[ $status -ne 137 ]] || die "capture exceeded its ${capture_limit}s runtime limit"
+  return "$status"
+}
+
 run_id="$(date -u +%Y%m%d-%H%M%S)"
 if [[ -z "$out" ]]; then
   branch="$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo capture)"
@@ -239,7 +269,7 @@ binary="$work/bin/gate-inbox"
 # also the only board whose spans can name a commit without being asked to.
 # A tree with no git available still builds; the stamp is simply empty.
 revision="$(cd "$root" && git rev-parse HEAD 2>/dev/null || true)"
-(cd "$root" && GOWORK=off go build \
+(cd "$root" && GOWORK=off run_with_capture_deadline go build \
   -ldflags "-X github.com/usestring/gate-inbox/internal/tracing.Revision=$revision" \
   -o "$binary" .) || die "build failed"
 
@@ -296,9 +326,10 @@ for i in "${!foreign[@]}"; do
 		cp "$here/demo/${foreign[$i]}.jsonl" "$claude_dir/projects/$project_dir/${foreign[$i]}.jsonl"
 	fi
   name="operator-$((i + 1))"
+  # The scratch server outlives this client and must not inherit the capture lock.
   env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$sock" tmux -L default new-session -d \
     -s "$name" -c "$project" -x "${cols:-120}" -y "${rows:-40}" \
-    "$here/demo-agent.sh ${foreign[$i]}" || die "foreign pane ${foreign[$i]} failed"
+    "$here/demo-agent.sh ${foreign[$i]}" 9>&- || die "foreign pane ${foreign[$i]} failed"
   pid="$(TMUX_TMPDIR="$sock" tmux -L default list-panes -t "$name" -F '#{pane_pid}')"
   printf '{"pid":%s,"sessionId":"%s","cwd":"%s","startedAt":%s,"kind":"cli"}\n' \
     "$pid" "${foreign[$i]}" "$project" "$(($(date +%s) * 1000))" >"$claude_dir/sessions/$pid.json"
@@ -308,16 +339,16 @@ done
 # with the palette this capture should record in. Only that row is touched —
 # never a session.
 themeseed="$work/bin/themeseed"
-(cd "$root" && GOWORK=off go build -o "$themeseed" ./tools/capture/themeseed) || die "themeseed build failed"
+(cd "$root" && GOWORK=off run_with_capture_deadline go build -o "$themeseed" ./tools/capture/themeseed) || die "themeseed build failed"
 if [[ "$theme" == "current" ]]; then
-  seeded="$("$themeseed" --from "${GATE_INBOX_HOME:-}" --to "$home")"
+  seeded="$(run_with_capture_deadline "$themeseed" --from "${GATE_INBOX_HOME:-}" --to "$home")"
 else
   seeded="$theme"
-  "$themeseed" --to "$home" --set "$theme" >/dev/null
+  run_with_capture_deadline "$themeseed" --to "$home" --set "$theme" >/dev/null
 fi
 printf 'capture: theme %s\n' "${seeded:-default}"
 if [[ $reviews -eq 1 ]]; then
-  "$themeseed" --to "$home" --reviews >/dev/null || die "review seeding failed"
+  run_with_capture_deadline "$themeseed" --to "$home" --reviews >/dev/null || die "review seeding failed"
   printf 'capture: seeded the review queue\n'
 fi
 
@@ -330,7 +361,7 @@ vhs_theme_json=""
 if [[ "$seeded" == "oled" ]]; then
   vhs_theme_json='{ "name": "oled", "background": "#000000", "foreground": "#e6e6e6", "selection": "#303030", "cursor": "#e6e6e6", "black": "#000000", "red": "#ff5f5f", "green": "#5fd75f", "yellow": "#d7d75f", "blue": "#5f87ff", "magenta": "#d787d7", "cyan": "#5fd7d7", "white": "#e6e6e6", "brightBlack": "#5f5f5f", "brightRed": "#ff8787", "brightGreen": "#87ff87", "brightYellow": "#ffff87", "brightBlue": "#87afff", "brightMagenta": "#ffafff", "brightCyan": "#87ffff", "brightWhite": "#ffffff" }'
 elif [[ -n "$seeded" ]]; then
-  vhs_theme="$(vhs themes 2>/dev/null | grep -ixF "$seeded" | head -1 || true)"
+  vhs_theme="$(run_with_capture_deadline vhs themes 2>/dev/null | grep -ixF "$seeded" | head -1 || true)"
 fi
 if [[ -n "$terminal_bg" ]]; then
   [[ "$terminal_bg" =~ ^#[0-9a-fA-F]{6}$ ]] || die "--terminal-bg wants #rrggbb, got $terminal_bg"
@@ -363,7 +394,7 @@ probe_cells() { # $1 width, $2 height -> "<cols> <rows>"
     printf 'Set Width %s\nSet Height %s\nSet FontSize %s\n' "$w" "$h" "$font_size"
     printf 'Type "echo ${COLUMNS} ${LINES} > work/probe.txt"\nEnter\nSleep 1500ms\n'
   } >"$tape"
-  (cd "$out" && PATH="$work/bin:$PATH" vhs "$tape" >/dev/null 2>&1)
+  (cd "$out" && PATH="$work/bin:$PATH" run_with_capture_deadline vhs "$tape" >/dev/null 2>&1)
   cat "$work/probe.txt" 2>/dev/null
 }
 if [[ -z "$width" || -z "$height" ]]; then
@@ -384,76 +415,36 @@ if [[ -z "$width" || -z "$height" ]]; then
 fi
 printf 'capture: %sx%s cells at font size %s = %sx%s px\n' "$cols" "$rows" "$font_size" "$width" "$height"
 
-# Every credential and home the board could read is withheld or scratch.
-launch="clear && cd $project && env -u TMUX -u TMUX_PANE -u GATE_INBOX_SESSION_ID"
-launch="$launch -u LINEAR_API_KEY -u GITHUB_TOKEN -u GH_TOKEN -u OPENCODE_DB HOME=$fake_home"
-launch="$launch XDG_CONFIG_HOME=$fake_home/.config XDG_DATA_HOME=$fake_home/.local/share"
-launch="$launch XDG_STATE_HOME=$fake_home/.local/state XDG_CACHE_HOME=$fake_home/.cache"
-launch="$launch GATE_INBOX_HOME=$home CLAUDE_CONFIG_DIR=$claude_dir CODEX_HOME=$codex_dir"
-launch="$launch TMUX_TMPDIR=$sock $binary"
+# Every credential and home the board could read is withheld or scratch, and
+# the device label is a fixed name rather than whatever SSH_CONNECTION says,
+# since Settings prints it. The launcher lives in the scratch tmux directory,
+# outside the run output, so the absolute paths it holds never sit beside the
+# recording the uploader scans; the tape only names it. See runtape.sh.
+launcher_dir="$sock/bin"
+mkdir -p "$launcher_dir"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'exec 9>&-\n'
+  printf 'cd %q || exit 1\n' "$project"
+  printf 'exec env -u TMUX -u TMUX_PANE -u GATE_INBOX_SESSION_ID'
+  printf ' -u LINEAR_API_KEY -u GITHUB_TOKEN -u GH_TOKEN -u OPENCODE_DB'
+  printf ' -u TYPESAFE_API_KEY -u WORKERS_API_KEY -u WORKERS_AI_URL'
+  printf ' -u SSH_CONNECTION -u SSH_CLIENT -u SSH_TTY GATE_INBOX_DEVICE=capture'
+  printf ' HOME=%q XDG_CONFIG_HOME=%q XDG_DATA_HOME=%q' "$fake_home" "$fake_home/.config" "$fake_home/.local/share"
+  printf ' XDG_STATE_HOME=%q XDG_CACHE_HOME=%q' "$fake_home/.local/state" "$fake_home/.cache"
+  printf ' GATE_INBOX_HOME=%q CLAUDE_CONFIG_DIR=%q CODEX_HOME=%q' "$home" "$claude_dir" "$codex_dir"
+  printf ' TMUX_TMPDIR=%q %q "$@"\n' "$sock" "$binary"
+} >"$launcher_dir/gib-cap-launch"
+chmod +x "$launcher_dir/gib-cap-launch"
 
 tape="$work/run-$run_id.tape"
-{
-  printf 'Output %s/board.gif\n' "$rel_media"
-  printf 'Output %s/video.webm\n' "$rel_video"
-  # The screen as text, for the pre-upload scan; it is never uploaded.
-  printf 'Output %s/board.txt\n' "$rel_media"
-  printf 'Set Width %s\nSet Height %s\nSet FontSize %s\n' "$width" "$height" "$font_size"
-  printf 'Set TypingSpeed 15ms\n'
-  if [[ -n "$vhs_theme" ]]; then printf 'Set Theme "%s"\n' "$vhs_theme"; fi
-  if [[ -n "$vhs_theme_json" ]]; then printf 'Set Theme %s\n' "$vhs_theme_json"; fi
-  printf 'Hide\n'
-  printf 'Type "%s"\nEnter\nSleep 8s\n' "$launch"
-  # Wait for the board before pressing anything: until its TUI has negotiated
-  # the terminal's keyboard protocol, an Enter arrives as ctrl+j and the
-  # welcome screen drops it — which used to feed the seeding keys to a screen
-  # that was still up. First run opens on the welcome screen; Enter dismisses it.
-  printf 'Enter\nSleep 3s\n'
-  # Seed a board worth looking at. "n" is the one-question spawn — type the
-  # CLI, Enter creates — which is the only seeding path that survives being
-  # driven blind: the ctrl+n form has seven rows, and an Enter that lands on
-  # the wrong one advances instead of creating. Creating focuses the new
-  # session, so ctrl+q returns to the list.
-  [[ $no_seed -eq 1 ]] && tools=()
-  for tool in "${tools[@]}"; do
-    printf 'Type "n"\nSleep 1500ms\n'
-    printf 'Type "%s"\nSleep 800ms\n' "$tool"
-    printf 'Enter\nSleep 6s\n'
-    printf 'Ctrl+q\nSleep 2s\n'
-  done
-  printf 'Show\nSleep 1s\n'
-  # A scenario writes its stills to {{SHOTS}}; only this driver knows the run
-  # id. {{LAUNCH}} and {{TMUX}} are for the scenarios that have to leave the
-  # board and come back -- a restart, or the panes going away under it -- which
-  # no keystroke inside the board can produce. {{HOME}} is the scratch config
-  # directory, for a scenario that seeds a row no keystroke can make. Ampersands
-  # in the launch line are escaped because sed reads a bare & as the whole match.
-  sed -e "s|{{SHOTS}}|$rel_media|g" \
-    -e "s|{{HOME}}|$home|g" \
-    -e "s|{{LAUNCH}}|${launch//&/\\&}|g" \
-    -e "s|{{TMUX}}|tmux -S $sock/tmux-$(id -u)/default|g" \
-    "$scenario" | awk '
-    # vhs sends Alt+x as a bare x: the escape byte a terminal puts in front of
-    # an alt chord never reaches the pty, so every alt binding this board has
-    # reads as its unmodified key, and Alt+, and Alt+\ do not parse at all.
-    # Escape with a Type straight after it is that prefix, byte for byte, so a
-    # scenario can spell an alt chord the way the keymap spells it.
-    {
-      line = $0
-      sub(/[[:space:]]+$/, "", line)
-      if (match(line, /^[[:space:]]*Alt\+[^[:space:]]$/) && substr(line, length(line)) != "\047") {
-        indent = substr(line, 1, index(line, "Alt") - 1)
-        printf "%sEscape\n%sType \047%s\047\n", indent, indent, substr(line, length(line))
-        next
-      }
-      print
-    }'
-  # A Screenshot needs frames after it to be written, and every run owes
-  # post-to-pr.ts at least one still.
-  printf '\nScreenshot %s/zz-final.png\nSleep 800ms\n' "$rel_media"
-} >"$tape"
+[[ $no_seed -eq 1 ]] && tools=()
+CAP_WIDTH="$width" CAP_HEIGHT="$height" CAP_FONT_SIZE="$font_size" \
+  CAP_VHS_THEME="$vhs_theme" CAP_VHS_THEME_JSON="$vhs_theme_json" \
+  "$here/runtape.sh" "$scenario" "$rel_media" "$rel_video" ${tools[@]+"${tools[@]}"} >"$tape"
 
-(cd "$out" && PATH="$work/bin:$PATH" vhs "$tape")
+(cd "$out" && PATH="$launcher_dir:$work/bin:$PATH" GIB_CAP_HOME="$home" \
+  GIB_CAP_TMUX="$sock/tmux-$(id -u)/default" run_with_capture_deadline vhs "$tape")
 
 printf '%s' "$run_id" >"$out/media/.latest-run"
 tmux -S "$sock/tmux-$(id -u)/default" kill-server >/dev/null 2>&1 || true
@@ -467,7 +458,7 @@ rm -rf "$sock"
 # that do not exist and post-to-pr.ts is the first thing to find out.
 for artefact in "$media/board.gif" "$video_dir/video.webm" "$media/zz-final.png"; do
   [[ -s "$artefact" ]] && continue
-  die "$(vhs --version 2>/dev/null || echo vhs) exited 0 without writing $artefact.
+  die "$(run_with_capture_deadline vhs --version 2>/dev/null || echo vhs) exited 0 without writing $artefact.
   0.12.0 records nothing at all; 0.11.0 is the last release that writes its own output:
   go install github.com/charmbracelet/vhs@v0.11.0"
 done

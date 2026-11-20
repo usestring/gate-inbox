@@ -14,10 +14,12 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/cifeedback"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/nativefeedback"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -33,10 +35,9 @@ const workTickInterval = 30 * time.Second
 
 type workTickMsg struct{}
 
-// workLoadedMsg carries no payload. The tracker is the state and it is
-// concurrency-safe, so the message exists to draw the next frame, not to
-// hand results back through the event loop.
-type workLoadedMsg struct{}
+// The tracker is concurrency-safe; only review persistence failures need
+// to travel back to the event loop with the redraw.
+type workLoadedMsg struct{ reviewsErr error }
 
 // newWorkTracker is the tracker the board runs: real git, gh and Linear as
 // far as the config switches them on, the operator's settle window, and the
@@ -47,10 +48,39 @@ func newWorkTracker(cfg config.Config, st *store.Store) *worktracker.Tracker {
 		Linear:       cfg.Integrations.Linear.On(),
 		LinearAPIKey: os.Getenv("LINEAR_API_KEY"),
 	})
+	if github, ok := gh.(*forge.GitHub); ok {
+		github.PRFeedback = cfg.Work.PRFeedback
+	}
 	tracker := worktracker.New(worktracker.NewGit(), gh, linear)
 	tracker.SettleAfter = cfg.Work.SettleAfter.Duration
 	if st != nil {
 		tracker.WithSeen(st)
+		var agentTools []string
+		for name, tool := range cfg.Tools {
+			if !tool.Shell {
+				agentTools = append(agentTools, name)
+			}
+		}
+		tracker.OnPRRefresh = func(prs map[string]forge.PR) {
+			if err := cifeedback.Observe(st, prs, agentTools); err != nil {
+				logging.Warn("could not queue CI feedback", logging.Err(err))
+			}
+			if cfg.Work.PRFeedback {
+				if err := nativefeedback.Observe(st, prs, agentTools); err != nil {
+					logging.Warn("could not queue PR feedback", logging.Err(err))
+				}
+			}
+		}
+		if !storedExperiment(st, store.CIFeedbackSetting) {
+			if err := st.CancelCIFeedback(time.Now()); err != nil {
+				logging.Warn("could not retire disabled CI feedback", logging.Err(err))
+			}
+		}
+		if !cfg.Work.PRFeedback {
+			if err := st.CancelPRFeedback(time.Now()); err != nil {
+				logging.Warn("could not retire disabled PR feedback", logging.Err(err))
+			}
+		}
 	}
 	return tracker
 }
@@ -92,6 +122,7 @@ func (m *Model) refreshWork() tea.Cmd {
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].visible && !rows[j].visible })
 	tracker, driver, stor, history := m.work, m.tmux, m.store, m.history
+	reviews := m.reviewQueue
 
 	return func() tea.Msg {
 		var live []string
@@ -115,7 +146,11 @@ func (m *Model) refreshWork() tea.Cmd {
 			sessions = append(sessions, tracked)
 		}
 		tracker.Refresh(sessions)
-		return workLoadedMsg{}
+		var err error
+		if reviews && stor != nil {
+			err = queueSessionReviews(stor, tracker, sessions, time.Now())
+		}
+		return workLoadedMsg{reviewsErr: err}
 	}
 }
 

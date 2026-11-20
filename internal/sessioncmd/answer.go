@@ -100,7 +100,10 @@ func (s *Sessions) answerOne(sessionID, targetID, reply string, relay bool) (Ans
 		if err != nil {
 			return AnsweredQuestion{}, err
 		}
-		return driver.answer(runtime, s, target, raw, []QuestionAnswer{{Answer: reply}}, true, guard, "parent", caller.ID)
+		answered, err := driver.answer(runtime, s, target, raw, []QuestionAnswer{{Answer: reply}}, true, guard, "parent", caller.ID)
+		if !errors.Is(err, errAskShaped) {
+			return answered, err
+		}
 	}
 	return runtime.answer(target, reply, "parent", caller.ID, guard)
 }
@@ -192,6 +195,7 @@ func answerGuarded(pane dialogPane, raw string, held dialog.Dialog, reply string
 			return AnsweredQuestion{}, err
 		}
 	}
+	pane = guard.watch(pane)
 	answered, err := answerHeld(pane, raw, held, reply)
 	err = guard.settle(pane, &answered, err, func() (AnsweredQuestion, error) { return rekeyHeld(pane, reply) })
 	guard.finish(err)

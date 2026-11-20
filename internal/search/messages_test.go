@@ -98,3 +98,51 @@ func TestOpenCodeMessagesOmitToolsAndCombineTextParts(t *testing.T) {
 		t.Fatalf("got %#v", got)
 	}
 }
+
+func TestCodexFailedCompletionsRemainInConversation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "conversation.jsonl")
+	data := `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Continue the work."}]}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","channel":"commentary","content":[{"type":"output_text","text":"Checking the remaining work."}]}}
+{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":null,"error":{"message":"{\"detail\":\"Bad Request\"}","codex_error_info":"other"}}}
+{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":null,"error":null}}
+{"type":"event_msg","payload":{"type":"task_complete","error":{"message":"  "}}}
+{"type":"event_msg","payload":{"type":"other","error":{"message":"Ignore this event."}}}
+{"type":"event_msg","payload":{"type":"task_complete","error":{"codex_error_info":"other"}}}
+`
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	messages, err := ReadMessages(Target{Tool: ToolCodex, Path: path}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Message{{Role: "user", Text: "Continue the work."}, {Role: "assistant", Text: "Checking the remaining work."}, {Role: "error", Text: `{"detail":"Bad Request"}`}}
+	if !reflect.DeepEqual(messages, want) {
+		t.Fatalf("messages = %#v, want %#v", messages, want)
+	}
+	prompts, err := ReadFirstPrompts(Target{Tool: ToolCodex, Path: path}, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(prompts, []string{"Continue the work."}) {
+		t.Fatalf("prompts = %#v", prompts)
+	}
+}
+
+func TestReadFirstWorkPromptStartsWithTheFirstAssignment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "conversation.jsonl")
+	transcript := `{"type":"user","isMeta":true,"message":{"role":"user","content":"Injected instructions"}}
+{"type":"user","message":{"role":"user","content":"[gate-inbox] This request is from Gate Inbox itself. Name this session."}}
+{"type":"assistant","message":{"role":"assistant","content":"Named."}}
+{"type":"user","message":{"role":"user","content":"[gate-inbox] From agent: Verify the parser and run the integration tests."}}
+{"type":"assistant","message":{"role":"assistant","content":"The parser is fixed."}}
+{"type":"user","message":{"role":"user","content":"Now publish the release notes."}}
+`
+	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadFirstWorkPrompt(Target{Tool: ToolClaude, Path: path})
+	if err != nil || got != "[gate-inbox] From agent: Verify the parser and run the integration tests." {
+		t.Fatalf("opening = %q, err = %v", got, err)
+	}
+}

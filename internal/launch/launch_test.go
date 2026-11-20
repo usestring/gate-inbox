@@ -14,6 +14,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/keyconfine"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -23,7 +24,12 @@ import (
 // process inherited are cleared -- several driver paths act on what they find
 // there, and the pane they would find is the operator's own -- TMUX_TMPDIR is
 // private, and control clients earlier runs left on dead servers are swept.
+//
+// Launches run unconfined here, so the plans stay about what each test checks
+// and do not depend on the host having bwrap; confine_test.go puts the
+// confinement back for the tests about it.
 func TestMain(m *testing.M) {
+	keyconfine.UseForTests(keyconfine.Unconfined, nil)
 	os.Exit(tmuxtest.Run(m.Run))
 }
 
@@ -567,8 +573,9 @@ func TestOpencodeV2ModelRidesTheGeneratedConfig(t *testing.T) {
 }
 
 // The model Assemble left off a v2 opencode command line reaches the session
-// through Environment, which writes it into the config the launch points at
-// and runs the session on a private server so that config is read at all.
+// through Environment, which writes it into the config the launch points at,
+// for the private server the session falls back to, and hands it to attach
+// for a session on the shared server.
 func TestEnvironmentWritesOpencodeV2ModelIntoItsConfig(t *testing.T) {
 	// Environment refuses a CLI that is not installed, so only an installed
 	// v2 exercises the path.
@@ -581,8 +588,11 @@ func TestEnvironmentWritesOpencodeV2ModelIntoItsConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
-	if command != "opencode --standalone" {
-		t.Fatalf("command = %q, want a private server and no model flag", command)
+	// The pane runs attach, which names the model on the session it opens
+	// on the shared server, or falls back to a private server that reads it
+	// from the config.
+	if want := " opencode-attach --model 'anthropic/claude-sonnet-5' --server-config "; !strings.Contains(command, want) || !strings.HasSuffix(command, " -- opencode") || strings.Contains(command, "--standalone") {
+		t.Fatalf("command = %q, want attach with %q and the bare opencode command", command, want)
 	}
 	content, err := os.ReadFile(env["OPENCODE_CONFIG"])
 	if err != nil {
@@ -1146,6 +1156,9 @@ func TestAssembleCarriesTheDirectiveOverAPastedImagePath(t *testing.T) {
 // of being refused by Claude Code's two-minute countdown; a plain tool is
 // left alone, and an operator's own setting stands.
 func TestEnvironmentKeepsAClaudePermissionPromptStanding(t *testing.T) {
+	// A run from inside a managed claude inherits the variable; start unset.
+	t.Setenv(KeepPromptsEnv, "")
+	os.Unsetenv(KeepPromptsEnv)
 	manager := hooks.NewManager(t.TempDir())
 	hooked := config.Tool{Command: "cat", StatusSource: hooks.StatusSourceClaude, MCP: "claude"}
 	_, env, err := Environment(manager, "hooked", hooked, hooked.Command, "abcd1234", "", "", false, nil)

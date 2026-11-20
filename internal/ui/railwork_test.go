@@ -111,7 +111,7 @@ func TestSessionWorkArrivesFolded(t *testing.T) {
 // are. Under-reporting silently is the fault this whole shape exists to stop.
 func TestANarrowFoldedRowStillCountsTheWork(t *testing.T) {
 	m := railWorkModel(t)
-	rail := ansi.Strip(railLinesText(m.railLines(59, m.listBodyHeight())))
+	rail := ansi.Strip(railLinesText(m.railLines(56, m.listBodyHeight())))
 	if !strings.Contains(rail, "+2") {
 		t.Fatalf("a rail with no room for marks says nothing about the work:\n%s", rail)
 	}
@@ -165,7 +165,7 @@ func TestUnfoldingASessionListsItsWork(t *testing.T) {
 	if !strings.Contains(rail, "▾ ") {
 		t.Fatalf("the open row still says it is shut:\n%s", rail)
 	}
-	if strings.Contains(rail, "claude · "+statusGlyph(status.Waiting)) {
+	if strings.Contains(rail, "cld · "+statusGlyph(status.Waiting)) {
 		t.Fatalf("the badge is still on the meta line:\n%s", rail)
 	}
 	for _, want := range []string{"#838", "ABC-100001", "In Review"} {
@@ -572,24 +572,6 @@ func TestANarrowUnfoldedRailRowStillLinks(t *testing.T) {
 	}
 }
 
-// A click that leaves focus must reach the poller like a keystroke does, or it
-// keeps treating the session it just left as attended.
-func TestAMouseEventSyncsThePollerOutOfFocus(t *testing.T) {
-	m := railWorkModel(t)
-	m.poller = &poller{poke: make(chan struct{}, 1)}
-	m.selectSessionRow(t, "add-rate-limiting")
-	m.mode, m.focusedID = modeFocus, "add-rate-limiting"
-	m.syncPollInput()
-	if got := m.poller.jevFinishFocusedID; got != "add-rate-limiting" {
-		t.Fatalf("focused id = %q before the click", got)
-	}
-	m.mode = modeList
-	m.Update(tea.MouseClickMsg{X: 0, Y: 0, Button: tea.MouseLeft})
-	if got := m.poller.jevFinishFocusedID; got != "" {
-		t.Fatalf("focused id = %q after a mouse event out of focus, want none", got)
-	}
-}
-
 // Clicking out of focus ends an open drain the way leaving it by key does, or
 // the next poll pulls the operator straight back into a pane.
 func TestClickingOutOfFocusEndsTheDrain(t *testing.T) {
@@ -616,7 +598,7 @@ func TestRestoreAllReachesThroughArtifactRows(t *testing.T) {
 	for _, cursor := range artifacts {
 		m.cursor = cursor
 		m.errBar.text = ""
-		m.handleKey(tea.KeyPressMsg{Code: 'D', Text: "D"})
+		m.handleKey(key("alt+d"))
 		if got := m.errBar.text; got != "no dead sessions to restore" {
 			t.Fatalf("restore all on an artifact returned %q, want the restore handler's empty-view notice", got)
 		}

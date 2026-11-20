@@ -152,8 +152,8 @@ func TestTriageWalksPastADeafSession(t *testing.T) {
 			t.Fatalf("the drain handed over the deaf session: walk = %v", seen)
 		}
 	}
-	if len(seen) != 1 || seen[0] != "third" {
-		t.Fatalf("ctrl+q walk = %v, want third alone", seen)
+	if len(seen) != 3 || seen[0] != "third" || seen[1] != "first" || seen[2] != "third" {
+		t.Fatalf("ctrl+q walk = %v, want the two responsive sessions in turn", seen)
 	}
 }
 

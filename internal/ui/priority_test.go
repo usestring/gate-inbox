@@ -24,12 +24,12 @@ func sessionID(t *testing.T, m *Model, name string) string {
 	return ""
 }
 
-// A raised session goes ahead of every lower tier, whatever its state: an
-// urgent finished session and an urgent idle one both go before an untiered
-// question. The rail has to read in the order the drain walks.
+// The strict order respects priority even when a lower-tier session has a
+// question. The rail shows the same order the drain walks.
 func TestPriorityLiftsAheadOfLowerTiers(t *testing.T) {
 	m := buildModel(t)
-	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
+	m.smartTriage = false     // the strict order; smart triage has triagesmart_test.go
+	m.priorityScale = "+3/-3" // the full scale, so urgent paints as itself
 	seedTriageFleet(t, m)
 	if err := m.store.SetPriority(sessionID(t, m, "reviewme"), priority.Urgent); err != nil {
 		t.Fatal(err)
@@ -38,9 +38,9 @@ func TestPriorityLiftsAheadOfLowerTiers(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 
-	want := []string{"reviewme", "napping", "old-block", "new-block", "grinder", "booting", "gone", "crashed"}
+	want := []string{"reviewme", "napping", "old-block", "new-block", "crashed", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -62,9 +62,9 @@ func TestGroupPriorityCoversTheSubtree(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 
-	want := []string{"new-block", "old-block", "reviewme", "napping", "grinder", "booting", "gone", "crashed"}
+	want := []string{"new-block", "old-block", "reviewme", "napping", "crashed", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -114,9 +114,9 @@ func TestPriorityKeyCyclesTheSession(t *testing.T) {
 	seedTriageFleet(t, m)
 	id := sessionID(t, m, "napping")
 
-	for _, want := range []priority.Tier{priority.Urgent, priority.High, priority.Medium, priority.Low, priority.Unset} {
+	for _, want := range []priority.Tier{priority.High, priority.Medium, priority.Low, priority.Unset} {
 		m.selectSessionRow(t, "napping")
-		pressKey(t, m, key("p"))
+		pressKey(t, m, key("ctrl+p"))
 		got, err := m.store.Get(id)
 		if err != nil {
 			t.Fatal(err)
@@ -137,8 +137,7 @@ func TestPriorityKeyCyclesTheSession(t *testing.T) {
 	}
 }
 
-// The tiers order the queue before the states do, so it reads urgent, high,
-// then the ones nobody has tiered, then low, each tier by state inside it.
+// Ready sessions come first; priority orders each band before state does.
 func TestTiersOrderTheQueue(t *testing.T) {
 	m := buildModel(t)
 	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
@@ -159,13 +158,39 @@ func TestTiersOrderTheQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 
-	// The tier outranks the band: a high working session sits above an
-	// untiered idle one, and a low question below every untiered row.
-	want := []string{"new-block", "reviewme", "grinder", "napping", "booting", "gone", "old-block", "crashed"}
+	// A high working session waits below an untiered idle one, a low
+	// question and a failed turn, while still leading the other sessions
+	// that cannot take input: working is the bottom of the queue.
+	want := []string{"new-block", "reviewme", "napping", "old-block", "crashed", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
+	}
+}
+
+func TestPriorityWorkingWaitsBehindReadySessions(t *testing.T) {
+	for _, smart := range []bool{false, true} {
+		t.Run(fmt.Sprintf("smart=%t", smart), func(t *testing.T) {
+			ask := smartSess("ask", status.Waiting, time.Second)
+			ask.Priority = priority.Low
+			done := smartSess("done", status.Finished, time.Second)
+			busy := smartSess("busy", status.Working, time.Second)
+			busy.Priority = priority.Urgent
+			starting := smartSess("starting", status.Starting, time.Second)
+			starting.Priority = priority.High
+			m := smartFleet(t, busy, starting, ask, done)
+			m.smartTriage = smart
+			m.rebuildRows()
+
+			assertRail(t, m, "done", "ask", "busy", "starting")
+			if got, want := drainOrder(m), []string{"done", "ask"}; !slices.Equal(got, want) {
+				t.Fatalf("handovers = %v, want %v", got, want)
+			}
+			m.sessions[0].Status = status.Waiting
+			m.rebuildRows()
+			assertRail(t, m, "busy", "done", "ask", "starting")
+		})
 	}
 }
 
@@ -175,35 +200,32 @@ func TestPriorityKeyTogglesTheGroupAndRefusesRoot(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
 	m.selectGroupRow(t, "alpha")
-	pressKey(t, m, key("p"))
+	pressKey(t, m, key("ctrl+p"))
 	groups, err := m.store.Groups()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, g := range groups {
-		if g.Name == "alpha" && g.Priority != priority.Urgent {
-			t.Fatalf("p on the group row stored %q, want urgent", g.Priority)
+		if g.Name == "alpha" && g.Priority != priority.High {
+			t.Fatalf("p on the group row stored %q, want high", g.Priority)
 		}
 	}
 	rail := triageRail(m)
-	if !strings.Contains(rail, "alpha "+priority.Urgent.Glyph()) {
+	if !strings.Contains(rail, "alpha "+priority.High.Glyph()) {
 		t.Fatalf("group row wears no glyph:\n%s", rail)
 	}
-	if !strings.Contains(rail, "old-block "+priority.Urgent.Glyph()) {
+	if !strings.Contains(rail, "old-block "+priority.High.Glyph()) {
 		t.Fatalf("session under a tiered group wears no glyph:\n%s", rail)
 	}
 
 	m.selectGroupRow(t, rootGroup)
-	pressKey(t, m, key("p"))
+	pressKey(t, m, key("ctrl+p"))
 	if m.errBar.text == "" {
 		t.Fatal("p on root said nothing")
 	}
 }
 
-// A tier ranks a session ahead of every lower tier, past a more pressing
-// state: turning triage on hands over the urgent finished session before an
-// untiered question, and the rail agrees.
-func TestARaisedTierJumpsAMorePressingState(t *testing.T) {
+func TestTriageHandsOverRaisedTierBeforeUntieredQuestion(t *testing.T) {
 	m := buildModel(t)
 	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	liveTriageFleet(t, m, map[string]string{
@@ -219,7 +241,7 @@ func TestARaisedTierJumpsAMorePressingState(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 
 	if got, want := sessionNames(m), []string{"done", "rest", "ask", "broke"}; !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
@@ -251,13 +273,51 @@ func TestNegativePrioritiesSortBelowDefault(t *testing.T) {
 		}
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 	names := sessionNames(m)
 	if slices.Index(names, "old-block") >= slices.Index(names, "new-block") {
 		t.Fatalf("negative priority sorts before default: %v", names)
 	}
 	if rail := triageRail(m); !strings.Contains(rail, "new-block ▼") {
 		t.Fatalf("negative marker missing: %s", rail)
+	}
+}
+
+func TestNegativePrioritySurvivesAWaitingChild(t *testing.T) {
+	for _, smart := range []bool{false, true} {
+		for _, inherited := range []bool{false, true} {
+			for _, childPriority := range []priority.Tier{priority.Unset, priority.Urgent} {
+				t.Run(fmt.Sprintf("smart=%v/inherited=%v/child=%s", smart, inherited, childPriority.Label()), func(t *testing.T) {
+					parent := smartSess("parent", status.Finished, time.Minute)
+					parent.Group = "deferred"
+					child := smartSess("child", status.Waiting, time.Minute)
+					child.ParentID, child.Priority = parent.ID, childPriority
+					m := smartFleet(t, parent, child,
+						smartSess("question", status.Waiting, time.Hour),
+						smartSess("done", status.Finished, time.Hour),
+						smartSess("idle", status.Idle, time.Hour),
+					)
+					m.smartTriage = smart
+					if inherited {
+						m.priorityGroups = map[string]priority.Tier{"deferred": priority.Low}
+					} else {
+						m.sessions[0].Priority = priority.Low
+					}
+					m.rebuildRows()
+					assertRail(t, m, "question", "done", "idle", "parent", "child")
+					if got, want := drainOrder(m), []string{"question", "done", "idle", "parent"}; !slices.Equal(got, want) {
+						t.Fatalf("drain = %v, want %v", got, want)
+					}
+
+					m.sessions[0].Status = status.Working
+					m.rebuildRows()
+					assertRail(t, m, "question", "done", "idle", "parent", "child")
+					if got, want := drainOrder(m), []string{"question", "done", "idle"}; !slices.Equal(got, want) {
+						t.Fatalf("drain entered a working parent: %v", got)
+					}
+				})
+			}
+		}
 	}
 }
 
@@ -270,7 +330,7 @@ func TestMediumPriorityJumpsTheTriageRing(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadStoredRows(t, m)
-	pressKey(t, m, key("i"))
+	pressKey(t, m, key("ctrl+i"))
 	row, ok := m.nextTriageInput(sessionID(t, m, "reviewme"), nil)
 	if !ok || m.rows[row].sess.ID != id {
 		t.Fatal("positive priority did not jump the default sessions")
@@ -293,16 +353,16 @@ func TestCtrlPCyclesPriorityOnBothScreens(t *testing.T) {
 	if m.mode == modeQuickActions {
 		t.Fatal("ctrl+p on the list opened quick actions")
 	}
-	if got, _ := m.store.Get(restID); got.Priority != priority.Urgent {
-		t.Fatalf("ctrl+p on the list stored %q, want urgent", got.Priority)
+	if got, _ := m.store.Get(restID); got.Priority != priority.High {
+		t.Fatalf("ctrl+p on the list stored %q, want high", got.Priority)
 	}
 
 	m.enterFocusOn(t, "ask")
 	if _, _ = m.handleFocusKey(ctrlP()); m.mode != modeFocus {
 		t.Fatalf("ctrl+p left focus for mode %v", m.mode)
 	}
-	if got, _ := m.store.Get(askID); got.Priority != priority.Urgent {
-		t.Fatalf("ctrl+p in focus stored %q, want urgent", got.Priority)
+	if got, _ := m.store.Get(askID); got.Priority != priority.High {
+		t.Fatalf("ctrl+p in focus stored %q, want high", got.Priority)
 	}
 
 	m.leaveFocus()
@@ -324,11 +384,11 @@ func TestAPriorityChangeFlashesTheRow(t *testing.T) {
 	updated, _ := m.handleKey(ctrlP())
 	*m = *updated.(*Model)
 
-	flashed := "napping " + priority.Urgent.Glyph() + " URGENT"
+	flashed := "napping " + priority.High.Glyph() + " HIGH"
 	if rail := triageRail(m); !strings.Contains(rail, flashed) {
 		t.Fatalf("the changed row does not spell its tier:\n%s", rail)
 	}
-	if !m.errBar.worked() || m.errBar.text != "priority urgent: napping" {
+	if !m.errBar.worked() || m.errBar.text != "priority high: napping" {
 		t.Fatalf("status bar = %q, want the change named", m.errBar.text)
 	}
 
@@ -338,12 +398,14 @@ func TestAPriorityChangeFlashesTheRow(t *testing.T) {
 		t.Fatal("a stale timer ended the newer flash")
 	}
 	m.endPriorityFlash(priorityFlashEndMsg{seq: seq})
-	if rail := triageRail(m); strings.Contains(rail, "URGENT") || !strings.Contains(rail, "napping "+priority.Urgent.Glyph()) {
+	if rail := triageRail(m); strings.Contains(rail, "HIGH") || !strings.Contains(rail, "napping "+priority.High.Glyph()) {
 		t.Fatalf("after the flash the row should wear only its glyph:\n%s", rail)
 	}
 }
 
-func TestPriorityHandsOverBackgroundTurns(t *testing.T) {
+// A background turn can be handed over because its answer is ready, even
+// while a shell runs behind it. A new turn takes it out of the drain.
+func TestTriageRespectsPriorityForBackgroundTurns(t *testing.T) {
 	for _, smart := range []bool{false, true} {
 		for _, tier := range []priority.Tier{priority.Urgent, priority.High, priority.Medium, priority.Unset, priority.Low} {
 			t.Run(fmt.Sprintf("smart=%v/tier=%s", smart, tier.Label()), func(t *testing.T) {
@@ -353,15 +415,11 @@ func TestPriorityHandsOverBackgroundTurns(t *testing.T) {
 				m.smartTriage = smart
 				m.rebuildRows()
 				want := []string{"ask", "monitor"}
-				if tier.Rank() < priority.Unset.Rank() {
+				if tier == priority.Urgent || tier == priority.High || tier == priority.Medium {
 					want = []string{"monitor", "ask"}
 				}
 				if got := drainOrder(m); !slices.Equal(got, want) {
 					t.Fatalf("drain = %v, want %v", got, want)
-				}
-				m.mute(monitor)
-				if got := drainOrder(m); !slices.Equal(got, []string{"ask"}) {
-					t.Fatalf("drain after skipping monitor = %v", got)
 				}
 				for i := range m.sessions {
 					if m.sessions[i].ID == monitor.ID {
@@ -377,13 +435,14 @@ func TestPriorityHandsOverBackgroundTurns(t *testing.T) {
 	}
 }
 
-func TestBackgroundTurnsRankBehindIdleInSmartTriage(t *testing.T) {
+// Smart triage ranks an unseen background turn as the finish it is.
+func TestBackgroundTurnsAreFinishesInSmartTriage(t *testing.T) {
 	m := smartFleet(t,
 		smartSess("monitor", status.Background, time.Minute),
 		smartSess("idle", status.Idle, time.Hour),
 		smartSess("done", status.Finished, 2*time.Hour),
 	)
-	if got, want := drainOrder(m), []string{"done", "idle", "monitor"}; !slices.Equal(got, want) {
+	if got, want := drainOrder(m), []string{"monitor", "done", "idle"}; !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want %v", got, want)
 	}
 	monitor := sessionNamed(t, m, "monitor")
@@ -417,6 +476,26 @@ func TestCreditErrorCannotJumpWaitingOrFinishedWork(t *testing.T) {
 			want := []string{"waiting", "finished", "urgent-error", "low-error", "muted"}
 			if !slices.Equal(got, want) {
 				t.Fatalf("queue = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// A background shell has ended its turn and wakes on its own; a working
+// session is mid-turn. Whatever their tiers, the rail puts the background
+// session first.
+func TestBackgroundSortsAboveWorkingWhateverItsTier(t *testing.T) {
+	for _, smart := range []bool{false, true} {
+		t.Run(fmt.Sprintf("smart=%v", smart), func(t *testing.T) {
+			grinder := smartSess("grinder", status.Working, time.Minute)
+			grinder.Priority = priority.Urgent
+			monitor := smartSess("monitor", status.Background, time.Hour)
+			monitor.Priority = priority.Low
+			m := smartFleet(t, grinder, monitor, smartSess("done", status.Finished, 2*time.Hour))
+			m.smartTriage = smart
+			m.rebuildRows()
+			if got, want := sessionNames(m), []string{"done", "monitor", "grinder"}; !slices.Equal(got, want) {
+				t.Fatalf("rail = %v, want %v", got, want)
 			}
 		})
 	}

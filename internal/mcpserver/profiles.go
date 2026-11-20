@@ -173,6 +173,8 @@ var argAliases = map[string]map[string]string{
 	"wait_for_session": {"timeout_seconds": "timeout_s"},
 	// 55 report_status calls in three days were refused for these: the
 	// tool's schema is deferred, so a model calls it from its name alone.
+	// The board reads reports back from the transcript, which keeps the
+	// names sent, so search.statusReportInput accepts the same two.
 	"report_status": {"status": "state", "summary": "note"},
 }
 

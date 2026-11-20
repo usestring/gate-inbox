@@ -23,8 +23,10 @@ which is the layout `skills/ship-ui-feature/scripts/post-to-pr.ts` uploads.
 
 Captures under the same local account run one at a time across worktrees and
 output directories. If another capture is active, the command prints a waiting
-message and starts automatically once the slot is free. The lock covers setup,
-recording, and encoding.
+message and waits up to two minutes for the slot. Builds and recording share
+a three-minute budget from when the capture acquires the slot. If VHS runs
+past that deadline, the timeout stops VHS and its encoder before another
+capture can start.
 
 Each run also writes `<out>/media/<run>/capture.json`, through `manifest.sh`:
 the scratch tmux directory, board home and `HOME` the run used, and the sha256
@@ -226,7 +228,8 @@ that actually happen.
 
 `vhs`, `ttyd`, `ffmpeg`, `tmux`, and a Chromium (vhs screenshots the terminal
 through a headless one). The capture queue uses `lockf` on macOS and
-`flock` on Linux. Missing tooling exits 2 and changes nothing.
+`flock` on Linux. Runtime deadlines use GNU coreutils (`brew install coreutils`
+on macOS). Missing tooling exits 2 and changes nothing.
 
 ```bash
 sudo apt-get install -y ttyd ffmpeg

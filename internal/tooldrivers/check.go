@@ -26,8 +26,7 @@ func Known(style string) bool {
 func CheckTool(name string, tool config.Tool) error {
 	var errs []error
 	for _, field := range []struct{ key, style string }{{"mcp", tool.MCP}, {"session_store", tool.SessionStore}} {
-		if field.style == "" || slices.Contains(Builtin, field.style) ||
-			(field.key == "session_store" && slices.Contains(BuiltinSessionStores, field.style)) {
+		if field.style == "" || slices.Contains(Builtin, field.style) {
 			continue
 		}
 		_, ok, err := Lookup(field.style)

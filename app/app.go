@@ -254,7 +254,7 @@ func defaultsOwnedBy(registry *extension.Registry) error {
 func driversOf(registry *extension.Registry) func() (map[string]extension.ToolDriver, error) {
 	return sync.OnceValues(func() (map[string]extension.ToolDriver, error) {
 		if registry.Configured() {
-			return registry.ToolDrivers("", nil, tooldrivers.Reserved())
+			return registry.ToolDrivers("", nil, tooldrivers.Builtin)
 		}
 		dir, err := config.Dir()
 		if err != nil {
@@ -264,7 +264,7 @@ func driversOf(registry *extension.Registry) func() (map[string]extension.ToolDr
 		if err != nil {
 			return nil, err
 		}
-		return registry.ToolDrivers(dir, cfg.Extensions, tooldrivers.Reserved())
+		return registry.ToolDrivers(dir, cfg.Extensions, tooldrivers.Builtin)
 	})
 }
 

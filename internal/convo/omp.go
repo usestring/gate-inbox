@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 )
 
 // titleSlotType is the type of the line an omp session file opens with: a
@@ -108,30 +107,4 @@ func readTitleSlot(file io.ReaderAt) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(slot.Title), true
-}
-
-// PiSession is one session file a pi-family store keeps for a directory.
-type PiSession struct {
-	Path    string
-	Header  PiHeader
-	ModTime time.Time
-}
-
-// SessionsFor lists the conversations the store keeps for cwd whose files
-// were written at or after since, newest first. It is what capture reads for
-// a CLI that mints its own conversation id (omp has no --session-id).
-func (s PiStore) SessionsFor(cwd string, since time.Time) []PiSession {
-	var out []PiSession
-	for _, path := range s.filesFor(cwd, since, 0) {
-		header, ok := ReadPiHeader(path)
-		if !ok || !sameDir(header.Cwd, cwd) {
-			continue
-		}
-		info, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-		out = append(out, PiSession{Path: path, Header: header, ModTime: info.ModTime()})
-	}
-	return out
 }

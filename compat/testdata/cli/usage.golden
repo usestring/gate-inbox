@@ -1,4 +1,4 @@
-51 commands and verbs
+52 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -481,6 +481,11 @@ $ gate-inbox priority -h
 exit 0
 --- stdout
 usage: gate-inbox priority <urgent|high|medium|low|none|-1..3>
+
+$ gate-inbox pi-rule-counts -h
+exit 0
+--- stdout
+usage: gate-inbox pi-rule-counts
 
 $ gate-inbox sweep -h
 exit 0

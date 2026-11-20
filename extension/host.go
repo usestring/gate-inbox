@@ -121,6 +121,14 @@ type SessionInfo struct {
 	// CreatedAt is when the board first recorded the session. A restart, a
 	// revive or a move to another tool keeps it.
 	CreatedAt time.Time
+	// LaunchedAt is when the agent process now in the pane started: the
+	// last restart, revive or account switch, or CreatedAt for a session
+	// that never relaunched. A CLI reads its account's token at launch, so
+	// whatever its transcript holds from before this time came from an
+	// earlier process, which may have run on another account. It is the
+	// time on the board's record when the session was read: the session a
+	// call returns after relaunching it may still carry the launch before.
+	LaunchedAt time.Time
 	// ArchivedAt is when the session was last archived. It is zero for a
 	// session that is not archived, and for one archived by a board too old
 	// to have recorded when.

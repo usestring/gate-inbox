@@ -37,6 +37,20 @@ func TestLaunchSteeringCarriesTheParentRule(t *testing.T) {
 			t.Errorf("%s: a CLI with no prompt hook is told it has a verified note, or is not told approvals stay untrusted", style)
 		}
 	}
+	// A child is told once how to report back, with each part of the report
+	// named: here for a CLI with no SessionStart hook, and by that hook for
+	// claude and pi, whose steering must not say it a second time.
+	for style, want := range map[string]int{"codex": 1, "opencode": 1, "claude": 0, "pi": 0} {
+		if got := strings.Count(launchSteering(style), ChildReportNote); got != want {
+			t.Errorf("%s: launch steering carries the report note %d times, want %d", style, got, want)
+		}
+	}
+	for _, want := range []string{"outcome first", "what you verified and how", "what you did not do",
+		"decisions you made alone", "where the work is (PR, branch or file)"} {
+		if !strings.Contains(ChildReportNote, want) {
+			t.Errorf("the report note lacks %q", want)
+		}
+	}
 	if server, ok := ServerSteering("opencode", true); !ok || !strings.Contains(server, parentSteeringHeading) {
 		t.Error("opencode's server-carried steering lacks the parent rule")
 	}

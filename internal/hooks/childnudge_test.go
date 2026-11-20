@@ -34,9 +34,8 @@ func TestThrottledChildDialogsCommandRunsOnceAMinute(t *testing.T) {
 	}
 }
 
-// A session's markers go with its status log: when the board drops the log,
-// and, for sessions that ended without either, once the log has been gone a
-// day.
+// A session's markers outlive Remove, which also runs for live sessions,
+// and go once their status log has been gone a day.
 func TestStatusSiblingsGoWithTheStatusLog(t *testing.T) {
 	m := NewManager(t.TempDir())
 	if err := os.MkdirAll(filepath.Dir(m.StatusFile("x")), 0o755); err != nil {
@@ -57,18 +56,14 @@ func TestStatusSiblingsGoWithTheStatusLog(t *testing.T) {
 		return err == nil
 	}
 
-	killed := m.StatusFile("killed")
-	for _, path := range []string{killed, killed + ChildSegmentStampSuffix, killed + ChildNudgeSuffix, killed + AttestPendingSuffix} {
-		touch(path, 0)
-	}
-	if err := m.Remove("killed"); err != nil {
+	pinned := m.StatusFile("pinned")
+	touch(pinned, 0)
+	touch(pinned+ChildNudgeSuffix, 0)
+	if err := m.Remove("pinned"); err != nil {
 		t.Fatal(err)
 	}
-	if exists(killed) || exists(killed+ChildSegmentStampSuffix) || exists(killed+ChildNudgeSuffix) {
-		t.Fatal("Remove left the log or a marker")
-	}
-	if !exists(killed + AttestPendingSuffix) {
-		t.Fatal("Remove took the pending attestation, which is not a marker")
+	if exists(pinned) || !exists(pinned+ChildNudgeSuffix) {
+		t.Fatal("Remove should drop the log and keep what the live session was told")
 	}
 
 	live, orphan, fresh := m.StatusFile("live"), m.StatusFile("orphan"), m.StatusFile("fresh")
@@ -76,11 +71,12 @@ func TestStatusSiblingsGoWithTheStatusLog(t *testing.T) {
 	touch(live+ChildSegmentStampSuffix, 48*time.Hour)
 	touch(orphan+ChildSegmentStampSuffix, 48*time.Hour)
 	touch(orphan+ChildNudgeSuffix, 48*time.Hour)
+	touch(orphan+ParentRuleSuffix, 48*time.Hour)
 	touch(fresh+ChildSegmentStampSuffix, time.Hour)
 	if err := m.SweepStatusSiblings(time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if exists(orphan+ChildSegmentStampSuffix) || exists(orphan+ChildNudgeSuffix) {
+	if exists(orphan+ChildSegmentStampSuffix) || exists(orphan+ChildNudgeSuffix) || exists(orphan+ParentRuleSuffix) {
 		t.Fatal("the sweep kept an orphan's markers")
 	}
 	if !exists(live+ChildSegmentStampSuffix) || !exists(fresh+ChildSegmentStampSuffix) {

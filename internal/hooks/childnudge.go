@@ -17,11 +17,12 @@ const ChildSegmentStampSuffix = ".child-seg"
 const ChildNudgeSuffix = ".child-nudged"
 
 // statusSiblings are the per-session markers that only mean something while
-// the session's status log does: a throttle stamp and a ledger of what the
-// session was told. They go with the log, at SessionEnd and when the board
-// drops a dead session's log. Before they did, one machine held 656 stamps
-// for 84 status logs.
-var statusSiblings = []string{ChildSegmentStampSuffix, ChildNudgeSuffix}
+// the session's status log does: a throttle stamp, a ledger of the child
+// dialogs the session was shown, and the record that it was shown the
+// parent rule. SessionEnd removes them with the log, and SweepStatusSiblings
+// takes those of sessions that ended without it. Before either, one machine
+// held 656 stamps for 84 status logs.
+var statusSiblings = []string{ChildSegmentStampSuffix, ChildNudgeSuffix, ParentRuleSuffix}
 
 // ThrottledChildDialogsCommand is ChildDialogsCommand at most once a minute,
 // for an event as frequent as PostToolUse: the shell checks the stamp's age

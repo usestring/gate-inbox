@@ -41,13 +41,13 @@ type Session struct {
 	Account                 string `json:"account,omitempty" jsonschema:"named subscription the session runs on; empty is the CLI's own login"`
 	SkipPermissions         bool   `json:"skip_permissions,omitempty" jsonschema:"the session runs with its CLI's permission prompts off"`
 	ChildrenSkipPermissions bool   `json:"children_skip_permissions,omitempty" jsonschema:"sessions it spawns run with their permission prompts off unless the spawn says otherwise"`
-	Group                   string `json:"group" jsonschema:"group path holding the session; empty is the root"`
+	Group                   string `json:"group,omitempty" jsonschema:"group path holding the session; empty is the root"`
 	Directory               string `json:"directory" jsonschema:"session's current working directory, or its launch directory when stopped"`
 	Status                  string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, background, finished, idle, errored or dead"`
-	Running                 bool   `json:"running" jsonschema:"whether the session currently has a live tmux pane"`
-	Archived                bool   `json:"archived" jsonschema:"whether the session is archived out of the active list"`
-	Muted                   bool   `json:"muted" jsonschema:"whether the operator has muted this session out of their triage queue until it is unmuted"`
-	Self                    bool   `json:"self" jsonschema:"whether this row is the calling session itself"`
+	Running                 bool   `json:"running,omitempty" jsonschema:"whether the session currently has a live tmux pane"`
+	Archived                bool   `json:"archived,omitempty" jsonschema:"whether the session is archived out of the active list"`
+	Muted                   bool   `json:"muted,omitempty" jsonschema:"whether the operator has muted this session out of their triage queue until it is unmuted"`
+	Self                    bool   `json:"self,omitempty" jsonschema:"whether this row is the calling session itself"`
 	// ParentID is where the board draws this row, and SpawnedBy is who owns
 	// it. Nothing the tools hand back used to carry either, so a fan-out that
 	// landed flat -- every spawn a sibling of the session that asked for it --

@@ -801,15 +801,17 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Every read returns a digest -- the session's status, the question it is holding if any, and the last thing it said -- so check whether a child finished there rather than by reading its prose for a verdict. " +
 			"When it is on a question dialog, digest.questions lists every question in it -- index, header, full text, options with their descriptions, and which are already answered -- including the ones a several-question dialog is not showing, read without touching its pane. " +
 			"With no since, output is the plain text visible in that session's pane, which is the current screen rather than its full history, and a stopped session returns the last screen Gate Inbox captured. " +
+			"A copy of digest.result inside output is replaced by [same text as digest.result]. " +
 			"Pass the cursor a previous read returned as since and output is only what the session has added since then, which is what a repeat read should use: the whole pane again is the same few thousand characters whether the agent worked for a minute or an hour. " +
 			"A session whose transcript cannot be read returns its pane anyway, with degraded saying why.",
 		Annotations: mcptool.Annotations(true, false, false),
-	}, func(ctx context.Context, req *mcp.CallToolRequest, args readSessionArgs) (*mcp.CallToolResult, sessioncmd.SessionScreen, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args readSessionArgs) (*mcp.CallToolResult, sessioncmd.ModelScreen, error) {
 		screen, err := sessions.Read(callerOf(ctx), args.SessionID, args.Since)
 		if err != nil {
-			return nil, sessioncmd.SessionScreen{}, err
+			return nil, sessioncmd.ModelScreen{}, err
 		}
-		return mcptool.Text(sessioncmd.FormatSessionScreen(screen)), screen, nil
+		reply := screen.ForModel()
+		return mcptool.Text(sessioncmd.FormatSessionScreen(reply.Screen())), reply, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{

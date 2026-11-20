@@ -248,7 +248,7 @@ Never add `--apply` yourself. Only when the user asks you to apply the sweep, in
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || rm -f \"$f\" \"$f.attest\" \"$f.sandbox-stale\"; git rev-parse --git-dir \u003e/dev/null 2\u003e\u00261 \u0026\u0026 { git worktree prune \u003e/dev/null 2\u003e\u00261; git submodule --quiet foreach --recursive 'git worktree prune \u003e/dev/null 2\u003e\u00261 || true' \u003e/dev/null 2\u003e\u00261; }; exit 0"
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || rm -f \"$f\" \"$f.attest\" \"$f.sandbox-stale\" \"$f.child-seg\" \"$f.child-nudged\"; git rev-parse --git-dir \u003e/dev/null 2\u003e\u00261 \u0026\u0026 { git worktree prune \u003e/dev/null 2\u003e\u00261; git submodule --quiet foreach --recursive 'git worktree prune \u003e/dev/null 2\u003e\u00261 || true' \u003e/dev/null 2\u003e\u00261; }; exit 0"
           }
         ]
       }

@@ -79,7 +79,7 @@ or the job fails. That keeps a suite that silently skipped from counting as a pa
 
 - One concern per pull request. Say what changed and why, and how you checked it.
 - Add or update tests with the change.
-- A change to what the board draws ships with a recording:
+- A recording is optional for a change to what the board draws:
   [`tools/capture/README.md`](tools/capture/README.md) shows how to make one.
 - Keep upstream's attribution intact. Files that came from the upstream project keep their
   existing notices, and `NOTICE` names it and records the fork. A bug that also exists upstream is worth reporting

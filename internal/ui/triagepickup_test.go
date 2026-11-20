@@ -35,8 +35,8 @@ func TestTriagePicksUpFinishedArrivingAfterDrain(t *testing.T) {
 
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeForm || m.form.focus != fieldPrompt {
-		t.Fatalf("draining the only waiting session left mode %v, want the new-session prompt", m.mode)
+	if m.mode != modeCleared || m.form.focus != fieldPrompt {
+		t.Fatalf("draining the only waiting session left mode %v, want the inbox-cleared pane", m.mode)
 	}
 	m.typeInto(t, "next task")
 	if !m.triageResume {
@@ -46,10 +46,10 @@ func TestTriagePicksUpFinishedArrivingAfterDrain(t *testing.T) {
 	writeHookStatus(t, m, later.ID, status.Finished)
 	m.applyCmd(t, m.refreshCmd())
 	requireStatus(t, m, "later", status.Finished)
-	if m.mode != modeForm || m.form.prompt.input.Value() != "next task" {
-		t.Fatal("a late finish interrupted the new-session draft")
+	if m.mode != modeCleared || m.form.prompt.input.Value() != "next task" {
+		t.Fatal("a late finish interrupted the inbox-cleared pane")
 	}
-	m.handleFormKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m.handleClearedKey(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m.applyCmd(t, m.triagePickupCmd())
 	if m.mode != modeFocus || focusedName(t, m) != "later" {
 		t.Fatalf("the late finish landed in mode %v on %q, want focus on later", m.mode, focusedName(t, m))
@@ -77,10 +77,10 @@ func TestTriagePickupStandsDownAfterLeavingTheDrain(t *testing.T) {
 	m.applyCmd(t, m.toggleTriage())
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if m.mode != modeForm || !m.triageResume {
-		t.Fatalf("draining left mode %v resume %v, want the form with the drain open", m.mode, m.triageResume)
+	if m.mode != modeCleared || !m.triageResume {
+		t.Fatalf("draining left mode %v resume %v, want the inbox-cleared pane with the drain open", m.mode, m.triageResume)
 	}
-	m.handleFormKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m.handleClearedKey(tea.KeyPressMsg{Code: tea.KeyEscape})
 
 	m.enterFocusOn(t, "first")
 	updated, _ = m.handleFocusKey(ctrlBackslash())

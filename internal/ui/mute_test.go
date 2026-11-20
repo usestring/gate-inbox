@@ -313,7 +313,7 @@ func TestSkipKeyStaysOnTheListOutsideTriage(t *testing.T) {
 	}
 }
 
-// Skipping the last gate opens the new-session prompt and says why the
+// Skipping the last gate opens the inbox-cleared pane and says why the
 // triage queue has no further work.
 func TestSkipKeyOnTheListOpensThePromptWhenTheQueueIsDrained(t *testing.T) {
 	m := buildModel(t)
@@ -327,8 +327,8 @@ func TestSkipKeyOnTheListOpensThePromptWhenTheQueueIsDrained(t *testing.T) {
 	if cmd != nil {
 		m.applyCmd(t, cmd)
 	}
-	if m.mode != modeForm || m.form.focus != fieldPrompt {
-		t.Fatalf("skipping the last gate left mode %v, want the new-session prompt", m.mode)
+	if m.mode != modeCleared || m.form.focus != fieldPrompt {
+		t.Fatalf("skipping the last gate left mode %v, want the inbox-cleared pane", m.mode)
 	}
 	if !strings.Contains(m.errBar.text, "waiting on you") {
 		t.Fatalf("a drained queue said %q", m.errBar.text)

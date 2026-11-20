@@ -860,7 +860,7 @@ func isSubagent(sess store.Session) bool {
 // finished turn. A newly idle session can wait for the next explicit pass.
 // With nothing to pick up the drain stays open, so a later arrival is picked up.
 func (m *Model) triagePickupCmd() tea.Cmd {
-	if !m.triageResume || !m.triage || m.mode != modeList || m.onReviewsTab() {
+	if !m.triageResume || !m.triage || !m.clearedYields() || m.onReviewsTab() {
 		return nil
 	}
 	if _, ready := m.reviewsSlot(nil); ready {
@@ -895,7 +895,7 @@ func (m *Model) enterTriageHead() tea.Cmd {
 }
 
 // advanceTriage hands over the next session or the Reviews tab. A nil command
-// means there was none; in triage the new-session prompt takes the keyboard.
+// means there was none; in triage the inbox-cleared pane takes the keyboard.
 //
 // A scoped queue that has run dry widens rather than stopping: the scope is
 // where the drain starts, not a promise that nothing else needs the operator,
@@ -925,10 +925,7 @@ func (m *Model) advanceTriage(leftID string) tea.Cmd {
 		m.triageScope = drained
 		m.rebuildRows()
 	}
-	m.openForm()
-	if m.mode == modeForm {
-		m.formFocus(fieldPrompt - m.form.focus)
-	}
+	m.openCleared()
 	return nil
 }
 

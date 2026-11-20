@@ -136,7 +136,7 @@ func (m *Model) viewOnePaneFrame(bodyHeight int, footer string) string {
 	// No content column, so a click can never land in a pane.
 	m.pane.columnX = m.width + 1
 	m.railHit = newRailHitMap(rows, 1, paneWidth)
-	if m.ringed() {
+	if m.ringed() || m.mode == modeCleared {
 		rows = m.contentLines(paneWidth, bodyHeight)
 		tone = backdropHex()
 		m.pane.columnX = 1
@@ -1682,7 +1682,9 @@ func (m *Model) contentLines(width, height int) []contentLine {
 	// the first drew as a thickened line and cost the mirrored pane a row.
 	rest := height - len(bar)
 	if rest >= 3 {
-		if m.reviewPageOpen() {
+		if m.mode == modeCleared {
+			body = append(body, ours(m.clearedLines(inner, rest))...)
+		} else if m.reviewPageOpen() {
 			body = append(body, ours(m.reviewPageLines(inner, rest))...)
 		} else if m.onReviewsTab() {
 			body = append(body, ours(m.reviewDetailLines(inner))...)

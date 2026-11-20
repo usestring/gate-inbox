@@ -671,7 +671,7 @@ func (m *Model) killFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool)
 	if ctx == keymap.ContextList && msg.Mod&(tea.ModCtrl|tea.ModAlt) == 0 {
 		return nil, nil, false
 	}
-	if m.mode == modeForm || m.mode == modeGroupForm || m.mode == modeRename ||
+	if m.mode == modeForm || m.mode == modeCleared || m.mode == modeGroupForm || m.mode == modeRename ||
 		m.mode == modeAgentPick || m.mode == modeFork || m.mode == modeMigrate || m.mode == modeConfirmDelete ||
 		(m.mode == modeSettings && m.settings.jevPasting) ||
 		(m.mode == modeNameSweep && m.nameSweep.sending) ||

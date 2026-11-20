@@ -125,6 +125,23 @@ find_chrome() {
 }
 chrome="$(find_chrome)" || missing "no working Chromium found — install one, or run 'bunx playwright install chromium'"
 
+case "$(uname -s)" in
+  Darwin) capture_lock=(lockf -s); try_lock=(-t 0) ;;
+  *) capture_lock=(flock); try_lock=(-n) ;;
+esac
+command -v "${capture_lock[0]}" >/dev/null || missing "${capture_lock[0]} is not on PATH"
+
+# Worktrees and output directories share one slot because their encoders use the same RAM.
+lock_dir="/tmp/gate-inbox-capture-$(id -u)"
+mkdir -m 700 "$lock_dir" 2>/dev/null ||
+  [[ -d "$lock_dir" && -O "$lock_dir" && ! -L "$lock_dir" ]] ||
+  die "could not prepare the capture lock directory"
+exec 9>>"$lock_dir/capture.lock" || die "could not open the capture lock"
+if ! "${capture_lock[@]}" "${try_lock[@]}" 9; then
+  printf 'capture: waiting for another Gate Inbox capture to finish\n' >&2
+  "${capture_lock[@]}" 9 || die "could not acquire the capture lock"
+fi
+
 run_id="$(date -u +%Y%m%d-%H%M%S)"
 if [[ -z "$out" ]]; then
   branch="$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo capture)"

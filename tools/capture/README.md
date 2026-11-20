@@ -21,6 +21,11 @@ drives the scenario's keystrokes and writes
 
 which is the layout `skills/ship-ui-feature/scripts/post-to-pr.ts` uploads.
 
+Captures under the same local account run one at a time across worktrees and
+output directories. If another capture is active, the command prints a waiting
+message and starts automatically once the slot is free. The lock covers setup,
+recording, and encoding.
+
 Each run also writes `<out>/media/<run>/capture.json`, through `manifest.sh`:
 the scratch tmux directory, board home and `HOME` the run used, and the sha256
 of every file it wrote. `post-to-pr.ts` publishes nothing without it, refuses a
@@ -220,7 +225,8 @@ that actually happen.
 ## Requirements
 
 `vhs`, `ttyd`, `ffmpeg`, `tmux`, and a Chromium (vhs screenshots the terminal
-through a headless one). Missing tooling exits 2 and changes nothing.
+through a headless one). The capture queue uses `lockf` on macOS and
+`flock` on Linux. Missing tooling exits 2 and changes nothing.
 
 ```bash
 sudo apt-get install -y ttyd ffmpeg

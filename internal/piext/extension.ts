@@ -136,6 +136,9 @@ function endedInError(messages: unknown): boolean {
 // both.
 const mcpServer = "gate-inbox";
 const renameTool = `mcp__${mcpServer.replace(/[^A-Za-z0-9_]/g, "_")}__rename`;
+// omp reaches the server through the plugin the launch gives it (Go:
+// piext.OmpToolPrefix) and spells the tool its own way.
+const ompRenameTool = "mcp__gate_inbox_board_rename";
 
 type McpServerConfig = Parameters<ExtensionAPI["registerMcpServer"]>[1];
 
@@ -236,7 +239,7 @@ function boardTools(pi: ExtensionAPI) {
   // The board's rename names the row; the session's own name follows it,
   // so pi's session list and the board agree.
   pi.on("tool_result", async (event) => {
-    if (event.toolName !== renameTool || event.isError) return;
+    if (event.toolName !== (onPi ? renameTool : ompRenameTool) || event.isError) return;
     const name = typeof event.input?.name === "string" ? event.input.name.trim() : "";
     if (!name || name === mirrored) return;
     mirrored = name;

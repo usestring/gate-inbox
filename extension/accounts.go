@@ -1,6 +1,9 @@
 package extension
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // AccountChooserProvider is an extension that decides which named account a
 // launch runs on when nobody named one. The core itself only ever launches
@@ -122,4 +125,24 @@ func LimitMove(ctx context.Context) context.Context {
 func IsLimitMove(ctx context.Context) bool {
 	on, _ := ctx.Value(limitMoveKey{}).(bool)
 	return on
+}
+
+// AccountLaunchObserver lets an account chooser retain the route actually
+// launched, rather than infer it later from a row whose account can change
+// before its process restarts. It is never called for a dry run. Failure or
+// panic in a notice cannot undo a process that already started.
+type AccountLaunchObserver interface {
+	AccountLaunched(context.Context, AccountLaunch) error
+}
+
+// AccountLaunch describes a process that was successfully launched. At is
+// the time the host observed that success, so records before At cannot be
+// assigned to this process from this notice alone. Account is empty for
+// the CLI own login; AccountEnv is a variable name, never its value.
+type AccountLaunch struct {
+	SessionID  string
+	ToolName   string
+	Account    string
+	AccountEnv string
+	At         time.Time
 }

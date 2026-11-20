@@ -9,6 +9,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
@@ -182,14 +183,38 @@ func ask(chooser extension.AccountChooser, tool config.Tool, req Request, previe
 	return Normalize(chosen), nil
 }
 
-// RecordLaunch traces which account a session was launched on.
-func RecordLaunch(sessionID, toolName, account string) {
+// RecordLaunch preserves the launched route before the row can change.
+func RecordLaunch(sessionID, toolName, account string, accountEnv string) {
+	now := time.Now().UTC()
+	notice := extension.AccountLaunch{SessionID: sessionID, ToolName: toolName, Account: Normalize(account), AccountEnv: accountEnv, At: now}
+	notifyLaunch(notice)
 	if account == "" {
 		return
 	}
-	now := time.Now()
 	tracing.Record("account.launch", now, now, nil,
 		tracing.Attr{Key: "session", Value: sessionID},
 		tracing.Attr{Key: "tool", Value: toolName},
 		tracing.Attr{Key: "account.name", Value: Normalize(account)})
+}
+
+func notifyLaunch(notice extension.AccountLaunch) {
+	defer func() {
+		if recover() != nil {
+			logging.Warn("account launch observer panicked")
+		}
+	}()
+	chooser, err := Chooser()
+	if err != nil {
+		logging.Warn("account launch observer unavailable")
+		return
+	}
+	observer, ok := chooser.(extension.AccountLaunchObserver)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := observer.AccountLaunched(ctx, notice); err != nil {
+		logging.Warn("account launch observer failed")
+	}
 }

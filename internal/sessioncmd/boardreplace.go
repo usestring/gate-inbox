@@ -93,7 +93,7 @@ func (s *Sessions) BoardReplace(targetID, rolePrefix string, opts BoardLaunchOpt
 		}
 		return Session{}, err
 	}
-	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
+	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account, runtime.cfg.Tools[sess.Tool].AccountEnv)
 	sessionhooks.Spawned(prepared.hooks, sess, extension.SpawnByExtension)
 	if stored, err := runtime.store.Get(sess.ID); err == nil {
 		sess.Group, sess.ParentID = stored.Group, stored.ParentID

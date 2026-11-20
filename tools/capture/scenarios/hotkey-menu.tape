@@ -10,7 +10,10 @@ Sleep 800ms
 Enter
 Sleep 6s
 Ctrl+\
-Sleep 2s
+Sleep 1s
+# Fresh boards start in triage. Return to the grouped session list.
+Ctrl+i
+Sleep 1s
 
 Ctrl+S
 Sleep 1500ms

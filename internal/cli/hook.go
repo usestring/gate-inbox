@@ -125,6 +125,12 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 	}
 	switch args[0] {
 	case "session-start":
+		// The ledger lists the child dialogs this conversation was shown in
+		// full. A start, resume, clear or compaction may have dropped them
+		// from context, so each is shown in full once more.
+		if ledger := statusSibling(sessioncmd.ChildNudgeSuffix); ledger != "" {
+			_ = os.Remove(ledger)
+		}
 		if note := sessioncmd.SessionStartHook(configDir, sessionID); note != "" {
 			fmt.Fprintln(out, note)
 		}

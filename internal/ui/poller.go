@@ -2307,10 +2307,10 @@ func inboxEnvelope(msg store.InboxMessage, mcpStyle string, taught bool, ctx mes
 			replyInstruction(msg.SenderID, mcpStyle)
 	}
 	if ctx.FromSpawner {
-		// A launched session already has the whole rule once, from its
-		// SessionStart note or its launch steering, so a parent that writes
-		// thirty times a session does not restate it thirty times.
-		if taught {
+		// A launched session that already holds the whole rule, from its
+		// SessionStart note or its launch steering, is not told it again by
+		// a parent that writes thirty times a session.
+		if taught && ctx.ParentRuleShown {
 			tail += "\n\n" + spawnerLine
 		} else {
 			tail += "\n\n" + spawnerInstruction
@@ -2355,6 +2355,10 @@ func (p *poller) envelope(sess store.Session, msg store.InboxMessage) string {
 	_, fromExtension := store.ExtensionSender(msg.SenderID)
 	if !store.SpeaksAsOperator(msg.SenderID) && !fromExtension && !store.FromSystem(msg.SenderID) {
 		ctx = p.messageContext(sess, msg, time.Now())
+		// Claude Code alone hears the parent rule from a hook rather than
+		// its launch steering, and only if it had a spawner when it started
+		// or compacted; a row placed under a parent later did not.
+		ctx.ParentRuleShown = style != "claude" || p.hooks.ParentRuleShown(sess.ID)
 	}
 	text := inboxEnvelope(msg, style, taught, ctx)
 	if ctx.Sealable {

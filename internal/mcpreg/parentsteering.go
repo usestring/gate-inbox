@@ -42,7 +42,13 @@ func parentSteering(style string) string {
 }
 
 // launchSteering is every standing instruction a launch carries for style's
-// CLI: delegation, then Rule 2.
+// CLI: delegation, then Rule 2, then how a child reports back. Claude Code
+// and pi run the SessionStart hook, which already tells a child the last of
+// these, so only a CLI without that hook carries it here.
 func launchSteering(style string) string {
-	return DelegationSteering(style) + "\n" + parentSteering(style)
+	steering := DelegationSteering(style) + "\n" + parentSteering(style)
+	if style == "claude" || style == "pi" {
+		return steering
+	}
+	return steering + "\n" + childReportHeading + "\n\n" + ChildReportNote + "\n"
 }

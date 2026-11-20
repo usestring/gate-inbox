@@ -20,7 +20,7 @@ type SessionRef struct {
 // keeps SessionScreen whole.
 type ModelScreen struct {
 	Session  SessionRef `json:"session"`
-	Output   string     `json:"output" jsonschema:"the session's output: its visible pane with the CLI's input box and footer removed, or, when since was passed, only the conversation added after that cursor; a copy of digest.result inside it is replaced by a marker"`
+	Output   string     `json:"output" jsonschema:"the session's output: its visible pane without the frame of the CLI's input box, or, when since was passed, only the conversation added after that cursor; a copy of digest.result inside it is replaced by a marker"`
 	Mode     string     `json:"mode" jsonschema:"pane when output is the visible screen, delta when it is only what was added after the since cursor"`
 	Cursor   string     `json:"cursor,omitempty" jsonschema:"pass back as since on the next read to get only what the session added after this point"`
 	Digest   ReadDigest `json:"digest" jsonschema:"the session's status, the question it is holding, and its last result"`
@@ -83,13 +83,15 @@ func elideResult(output, result string) string {
 	return output[:at] + resultMarker + output[at+len(result):]
 }
 
-// stripClaudeChrome cuts the input box Claude Code draws at the foot of its
-// pane -- a rule, the ❯ prompt with whatever is typed in it, a rule, and the
-// mode footer under it -- and the spinner or "done" line just above it. The
-// box is only recognised as a rule directly above a ❯ line in the last
-// dozen lines, so a pane that does not end in one is returned as it was.
-// The digest has already read the pane for status and dialogs, so nothing
-// here is lost to them.
+// stripClaudeChrome drops the frame Claude Code draws at the foot of its
+// pane: the rules around its input box, an empty ❯ prompt, the mode footer
+// under it, and the spinner or "done" line just above it. Anything else
+// there stays: text typed but not sent, and notices such as a usage limit
+// and when the session will carry on, which a parent needs and the digest
+// does not carry. The box is only recognised as a rule directly above a ❯
+// line in the last dozen lines, so a pane that does not end in one is
+// returned as it was. The digest has already read the whole pane for status
+// and dialogs, so nothing here is lost to them.
 func stripClaudeChrome(pane string) string {
 	lines := strings.Split(pane, "\n")
 	cut := -1
@@ -102,11 +104,25 @@ func stripClaudeChrome(pane string) string {
 	if cut < 0 {
 		return pane
 	}
+	foot := lines[cut:]
 	lines = trimBlankTail(lines[:cut])
 	if n := len(lines); n > 0 && strings.HasPrefix(strings.TrimSpace(lines[n-1]), "✻ ") {
 		lines = trimBlankTail(lines[:n-1])
 	}
+	for _, line := range foot {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || trimmed == "❯" || isRule(trimmed) || isModeFooter(trimmed) {
+			continue
+		}
+		lines = append(lines, line)
+	}
 	return strings.Join(lines, "\n")
+}
+
+// isModeFooter is the permission-mode line under Claude Code's input box,
+// such as "⏵⏵ bypass permissions on (shift+tab to cycle)".
+func isModeFooter(line string) bool {
+	return strings.HasPrefix(line, "⏵") || strings.HasPrefix(line, "⏸") || strings.Contains(line, "(shift+tab to cycle)")
 }
 
 // isRule is a line drawn entirely of box rules, as Claude Code draws the

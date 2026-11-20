@@ -2524,7 +2524,7 @@
         "type": "string"
       },
       "output": {
-        "description": "the session's output: its visible pane with the CLI's input box and footer removed, or, when since was passed, only the conversation added after that cursor; a copy of digest.result inside it is replaced by a marker",
+        "description": "the session's output: its visible pane without the frame of the CLI's input box, or, when since was passed, only the conversation added after that cursor; a copy of digest.result inside it is replaced by a marker",
         "type": "string"
       },
       "session": {

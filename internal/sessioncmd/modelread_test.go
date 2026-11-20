@@ -18,9 +18,14 @@ const claudePane = `● Read 3 files
 
 func TestStripClaudeChrome(t *testing.T) {
 	got := stripClaudeChrome(claudePane)
-	want := "● Read 3 files\n\n● The review is done; the blocking item is finding 1."
+	want := "● Read 3 files\n\n● The review is done; the blocking item is finding 1.\n❯ half-typed draft"
 	if got != want {
 		t.Fatalf("stripped = %q, want %q", got, want)
+	}
+	// A notice under the box is the session's news, not its frame.
+	limited := "● Working on it.\n\n────────\n❯ \n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n  ⚠ Usage limit reached · limit resets 2am\n  Continuing automatically at 2am · Esc to cancel"
+	if got := stripClaudeChrome(limited); got != "● Working on it.\n  ⚠ Usage limit reached · limit resets 2am\n  Continuing automatically at 2am · Esc to cancel" {
+		t.Fatalf("stripped = %q; want the usage-limit notice kept", got)
 	}
 	plain := "no input box here\n───\njust a rule"
 	if got := stripClaudeChrome(plain); got != plain {
@@ -44,8 +49,8 @@ func TestForModel(t *testing.T) {
 	if strings.Contains(got.Output, result) || !strings.Contains(got.Output, "● "+resultMarker) {
 		t.Fatalf("result was not replaced by the marker: %q", got.Output)
 	}
-	if strings.Contains(got.Output, "bypass permissions") || strings.Contains(got.Output, "half-typed") {
-		t.Fatalf("chrome kept: %q", got.Output)
+	if strings.Contains(got.Output, "bypass permissions") || strings.Contains(got.Output, "────") || !strings.Contains(got.Output, "half-typed") {
+		t.Fatalf("chrome kept or draft lost: %q", got.Output)
 	}
 	if got.Digest.Result != result || got.Cursor != "c@1" || got.Mode != "pane" {
 		t.Fatalf("digest, cursor or mode changed: %#v", got)

@@ -233,13 +233,14 @@ on macOS). Missing tooling exits 2 and changes nothing.
 
 ```bash
 sudo apt-get install -y ttyd ffmpeg
-go install github.com/charmbracelet/vhs@v0.11.0
+go install github.com/charmbracelet/vhs@latest    # or: brew install vhs
 ```
 
-Pin that version. vhs 0.12.0 — the current release — runs a tape to the end,
+Use vhs 0.12.1 or later (0.11.0 also works). vhs 0.12.0 runs a tape to the end,
 prints `Creating board.gif...` and exits 0 having written no GIF, no WebM and no
-stills. A capture on it fails the artefact check at the end of the run rather
-than reporting a success it did not have.
+stills: it cancels the context its ffmpeg runs under before rendering. 0.12.1
+fixed that. A capture on 0.12.0 fails the artefact check at the end of the run
+rather than reporting a success it did not have.
 
 Run it unsandboxed. Chromium needs to open sockets and write its own profile,
 which the agent sandbox denies — the failure reads as a browser crash, not as a

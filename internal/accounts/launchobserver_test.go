@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/store"
 	"testing"
 	"time"
 )
@@ -35,8 +36,8 @@ func TestSuccessfulLaunchNoticePreservesActualRouteAndOwnLogin(t *testing.T) {
 	o := &launchObserver{}
 	t.Cleanup(UseChooser(func() (extension.AccountChooser, error) { return o, nil }))
 	before := time.Now()
-	RecordLaunch("example", "claude", " pool-a ", "CLAUDE_CODE_OAUTH_TOKEN")
-	RecordLaunch("example", "codex", "", "")
+	RecordLaunch(nil, "example", "claude", " pool-a ", "CLAUDE_CODE_OAUTH_TOKEN")
+	RecordLaunch(nil, "example", "codex", "", "")
 	if len(o.notices) != 2 {
 		t.Fatalf("notices = %d", len(o.notices))
 	}
@@ -52,7 +53,7 @@ func TestSuccessfulLaunchNoticePreservesActualRouteAndOwnLogin(t *testing.T) {
 func TestLaunchNoticeCannotUndoStartedProcess(t *testing.T) {
 	for _, o := range []*launchObserver{{fail: true}, {panics: true}} {
 		restore := UseChooser(func() (extension.AccountChooser, error) { return o, nil })
-		RecordLaunch("example", "claude", "pool-a", "")
+		RecordLaunch(nil, "example", "claude", "pool-a", "")
 		restore()
 		if len(o.notices) != 1 {
 			t.Fatal("notice was not attempted")
@@ -60,5 +61,22 @@ func TestLaunchNoticeCannotUndoStartedProcess(t *testing.T) {
 	}
 	restore := UseChooser(func() (extension.AccountChooser, error) { return nil, errors.New("unavailable") })
 	defer restore()
-	RecordLaunch("example", "claude", "pool-a", "")
+	RecordLaunch(nil, "example", "claude", "pool-a", "")
+}
+
+func TestLaunchNoticeCarriesPersistedProcessEpoch(t *testing.T) {
+	st := testStore(t)
+	if err := st.CreateSession(store.Session{ID: "example", Tool: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	epoch := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	if err := st.SetAgentLaunchedAt("example", epoch); err != nil {
+		t.Fatal(err)
+	}
+	o := &launchObserver{}
+	t.Cleanup(UseChooser(func() (extension.AccountChooser, error) { return o, nil }))
+	RecordLaunch(st, "example", "claude", "pool-a", "")
+	if len(o.notices) != 1 || !o.notices[0].LaunchedAt.Equal(epoch) {
+		t.Fatalf("notice epoch=%+v", o.notices)
+	}
 }

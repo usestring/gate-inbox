@@ -227,7 +227,7 @@ func (s *Sessions) migrate(runtime *runtime, sessionID string, source store.Sess
 		_ = runtime.store.Delete(sess.ID)
 		return Session{}, err
 	}
-	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account, tool.AccountEnv)
+	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account, tool.AccountEnv)
 	_ = runtime.driver.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name))
 	moved := runtime.sessionInfo(sess, true, false)
 	// The new session is running either way, so it is named with the error:

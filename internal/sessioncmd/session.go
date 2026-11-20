@@ -999,7 +999,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		withdraw()
 		return Session{}, err
 	}
-	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account, tool.AccountEnv)
+	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account, tool.AccountEnv)
 	if opts.Keep {
 		if err := runtime.store.SetKeepChild(sess.ID, true); err != nil {
 			return Session{}, err

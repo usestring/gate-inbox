@@ -120,7 +120,7 @@ func (s *Sessions) BoardLaunch(opts BoardLaunchOptions) (created Session, err er
 		}
 		return Session{}, err
 	}
-	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account, tool.AccountEnv)
+	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account, tool.AccountEnv)
 	sessionhooks.Spawned(prepared.hooks, sess, extension.SpawnByExtension)
 	_ = runtime.driver.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name))
 	return runtime.sessionInfo(sess, true, false), nil

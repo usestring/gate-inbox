@@ -443,7 +443,7 @@ func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseComman
 			return err
 		}
 	}
-	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account, tool.AccountEnv)
+	accounts.RecordLaunch(m.store, sess.ID, sess.Tool, sess.Account, tool.AccountEnv)
 	// A leftover ack from the previous life must not swallow the relaunched
 	// agent's first finished alert.
 	return m.store.SetAcked(sess.ID, false)

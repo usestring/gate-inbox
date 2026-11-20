@@ -184,9 +184,14 @@ func ask(chooser extension.AccountChooser, tool config.Tool, req Request, previe
 }
 
 // RecordLaunch preserves the launched route before the row can change.
-func RecordLaunch(sessionID, toolName, account string, accountEnv string) {
+func RecordLaunch(st *store.Store, sessionID, toolName, account string, accountEnv string) {
 	now := time.Now().UTC()
 	notice := extension.AccountLaunch{SessionID: sessionID, ToolName: toolName, Account: Normalize(account), AccountEnv: accountEnv, At: now}
+	if st != nil {
+		if sess, err := st.Get(sessionID); err == nil {
+			notice.LaunchedAt = sess.LaunchTime().UTC()
+		}
+	}
 	notifyLaunch(notice)
 	if account == "" {
 		return

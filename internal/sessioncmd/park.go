@@ -1000,7 +1000,7 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 			return config.Tool{}, err
 		}
 	}
-	accounts.RecordLaunch(target.ID, target.Tool, target.Account, tool.AccountEnv)
+	accounts.RecordLaunch(runtime.store, target.ID, target.Tool, target.Account, tool.AccountEnv)
 	return tool, nil
 }
 

@@ -144,5 +144,8 @@ type AccountLaunch struct {
 	ToolName   string
 	Account    string
 	AccountEnv string
+	// LaunchedAt is the persisted process epoch, matching SessionInfo.LaunchedAt.
+	// A zero value means the launch record could not be read.
+	LaunchedAt time.Time
 	At         time.Time
 }

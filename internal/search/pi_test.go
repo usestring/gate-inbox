@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/convo"
 )
 
 // piFixture is a session pi 1.5.1 wrote on the rig: one bash turn and a
@@ -78,7 +80,7 @@ func TestPiRowIsSearchable(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := NewLocator("", "")
-	l.PiRoot = root
+	l.Pi = convo.PiStore{Tool: convo.PiTool, Root: root}
 	target, ok := l.Target("row1", ToolPi, "/srv/project", id)
 	if !ok || target.Path != path {
 		t.Fatalf("Target = %+v %v", target, ok)
@@ -90,6 +92,37 @@ func TestPiRowIsSearchable(t *testing.T) {
 	}
 	prompts, err := ReadFirstPrompts(target, 3)
 	if err != nil || len(prompts) != 1 || !strings.HasPrefix(prompts[0], "Use the bash tool") {
+		t.Errorf("first prompts = %q %v", prompts, err)
+	}
+}
+
+// omp writes pi's format behind a title line, so an omp row is located in
+// omp's store and indexed with pi's reader.
+func TestOmpTranscriptIsFoundAndIndexed(t *testing.T) {
+	root := t.TempDir()
+	const id = "01a1f6b7-740d-7670-ac1f-7dbd56d81e0e"
+	path := filepath.Join(root, "--srv-omp-project--", "2026-11-20T02-09-40-365Z_"+id+".jsonl")
+	raw, err := os.ReadFile(filepath.Join("..", "convo", "testdata", "omp-19.0.1", "named.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l := NewLocator("", "")
+	l.Omp = convo.PiStore{Tool: convo.OmpTool, Root: root}
+	target, ok := l.Target("row1", ToolOmp, "/srv/omp-project", id)
+	if !ok || target.Path != path {
+		t.Fatalf("Target = %+v %v", target, ok)
+	}
+	if _, ok := l.Target("row2", ToolPi, "/srv/omp-project", id); ok {
+		t.Error("a pi row was located in omp's store")
+	}
+	prompts, err := ReadFirstPrompts(target, 3)
+	if err != nil || len(prompts) != 1 || prompts[0] != "Reply with just the word hi" {
 		t.Errorf("first prompts = %q %v", prompts, err)
 	}
 }

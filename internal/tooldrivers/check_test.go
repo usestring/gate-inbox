@@ -47,3 +47,14 @@ func TestCheckToolLoadsDriversOnlyForAStyleItDoesNotKnow(t *testing.T) {
 		t.Fatalf("err = %v; want the drivers' failure", err)
 	}
 }
+
+// omp's session store is read by the core, but "omp" names no MCP style.
+func TestCheckToolAcceptsOmpAsASessionStoreOnly(t *testing.T) {
+	tooldriverstest.Install(t, &tooldriverstest.Driver{Name: "fake"})
+	if err := tooldrivers.CheckTool("omp", config.Tool{SessionStore: "omp"}); err != nil {
+		t.Errorf("session_store = omp refused: %v", err)
+	}
+	if err := tooldrivers.CheckTool("omp", config.Tool{MCP: "omp"}); err == nil {
+		t.Error("mcp = omp accepted, and nothing would register it")
+	}
+}

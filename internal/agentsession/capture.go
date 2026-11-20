@@ -2,7 +2,7 @@
 
 // Package agentsession reads back the conversation id an agent CLI minted
 // for a session the manager launched, for tools that do not accept a
-// chosen id at launch (codex, opencode). Revive resumes that
+// chosen id at launch (codex, opencode, omp). Revive resumes that
 // exact id instead of the working directory's most recent conversation, which
 // is the wrong one whenever sessions share a directory.
 package agentsession
@@ -66,7 +66,7 @@ const opencodeExportHeadBytes = 64 * 1024
 
 // Capture returns the conversation id a tool wrote for a session launched
 // in cwd at or after launchedAt. sessionStore selects the on-disk format
-// ("codex" or "opencode"). claimed holds ids already
+// ("codex", "opencode" or "omp"). claimed holds ids already
 // bound to other sessions, so two sessions started in one directory do not
 // capture the same conversation. It returns ok=false when no confident match
 // exists yet; the caller retries on the next poll. evidence is used by codex
@@ -77,6 +77,8 @@ func Capture(sessionStore, cwd string, launchedAt time.Time, claimed map[string]
 		return captureCodex(codexRoot(), cwd, launchedAt, claimed, evidence)
 	case "opencode":
 		return captureOpencode(cwd, launchedAt, claimed)
+	case convo.OmpTool:
+		return captureOmp(convo.OmpSessions(), cwd, launchedAt, claimed)
 	case "":
 		return "", false
 	default:
@@ -115,6 +117,8 @@ func Snapshot(sessionStore, cwd string) (map[string]int64, bool) {
 			snapshot[e.ID] = e.Updated * int64(time.Millisecond)
 		}
 		return snapshot, true
+	case convo.OmpTool:
+		return snapshotOmp(convo.OmpSessions(), cwd)
 	default:
 		return nil, false
 	}
@@ -155,6 +159,8 @@ func Recapture(sessionStore, cwd string, snapshot map[string]int64, claimed map[
 				matched = append(matched, e.ID)
 			}
 		}
+	case convo.OmpTool:
+		matched = recaptureOmp(convo.OmpSessions(), cwd, snapshot, claimed)
 	default:
 		return "", false
 	}

@@ -6,6 +6,7 @@ package tooldrivers
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -16,6 +17,15 @@ import (
 // Builtin are the styles the core implements itself. "none" registers no MCP
 // server and captures nothing.
 var Builtin = []string{"claude", "codex", "opencode", "none"}
+
+// BuiltinSessionStores are the session_store styles the core reads beyond
+// Builtin: "omp", whose session files package convo reads. They name no MCP
+// style, so they are not Builtin.
+var BuiltinSessionStores = []string{"omp"}
+
+// Reserved are every style the core implements, which no extension's driver
+// may claim.
+func Reserved() []string { return append(slices.Clone(Builtin), BuiltinSessionStores...) }
 
 // Timeout bounds one call into a driver: each is made while a launch, a poll
 // pass or a fork waits on it.

@@ -29,7 +29,7 @@ func TestAgentBoxKeepsEverySelectionAndFooterVisible(t *testing.T) {
 				if strings.Count(frame, name) < 2 {
 					t.Fatalf("selected CLI is absent from alternatives:\n%s", frame)
 				}
-				if !strings.Contains(frame, "cancel") || !strings.Contains(frame, "╯") {
+				if !strings.Contains(frame, "cancel") || !strings.Contains(frame, "options") || !strings.Contains(frame, "╯") {
 					t.Fatalf("footer or bottom border missing:\n%s", frame)
 				}
 				for _, line := range strings.Split(frame, "\n") {

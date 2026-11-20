@@ -121,6 +121,22 @@ func TestHelpSearchNarrowsToMatchingRows(t *testing.T) {
 	}
 }
 
+func TestLegendSearchFindsAnInstalledExtensionBadge(t *testing.T) {
+	m := helpModel()
+	m.help.legend = true
+	m.InstallExtensions([]ExtensionUI{
+		{Owner: "demo", BadgeLabel: "quota remaining", BadgeDetail: "Weekly quota left at reset."},
+		{Owner: "empty", BadgeLabel: "incomplete badge"},
+	}, nil)
+	m.help.query = "quota remaining"
+	if legend := ansi.Strip(m.viewHelp()); !strings.Contains(legend, "Weekly quota left at reset.") {
+		t.Fatalf("extension badge description missing from legend:\n%s", legend)
+	}
+	if hits := matchHelp(m.resolvedLegend(), "incomplete badge"); len(hits) != 0 {
+		t.Fatalf("incomplete badge matched %d sections", len(hits))
+	}
+}
+
 func TestHelpSearchIsCaseInsensitive(t *testing.T) {
 	lower := helpRowCount(matchHelp(helpSectionsOf(), "revive"))
 	upper := helpRowCount(matchHelp(helpSectionsOf(), "REVIVE"))

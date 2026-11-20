@@ -110,9 +110,9 @@ func decodeCursor(cursor, conversationID string) (offset int64, ok bool) {
 // too large for one read -- and the note travels with it rather than
 // throwing the delta away.
 func (s *Sessions) readDelta(target store.Session, since string, tools map[string]config.Tool) (cursor string, delta convo.Delta, note string, ok bool) {
-	pi := config.IsPiTool(tools, target.Tool)
+	piStore, pi := convo.PiStoreFor(target.Tool, tools[target.Tool].SessionStore)
 	if target.Tool != "claude" && !pi {
-		return "", convo.Delta{}, "only Claude Code and pi sessions keep a transcript this can read; a " + target.Tool + " session returns its pane", false
+		return "", convo.Delta{}, "only Claude Code, pi and omp sessions keep a transcript this can read; a " + target.Tool + " session returns its pane", false
 	}
 	if target.AgentSessionID == "" {
 		return "", convo.Delta{}, "no conversation id has been captured for this session yet, so there is no transcript to read", false
@@ -121,10 +121,10 @@ func (s *Sessions) readDelta(target store.Session, since string, tools map[strin
 	var path string
 	if pi {
 		read = convo.SincePi
-		path = convo.PiTranscriptFor(convo.PiSessionsDir(), target.AgentSessionID, target.Cwd)
+		path = piStore.TranscriptFor(target.AgentSessionID, target.Cwd)
 		if path == "" {
 			// pi writes the file on its first message, not at launch.
-			return "", convo.Delta{}, "no session file on disk for conversation " + target.AgentSessionID + " yet; pi writes it with the first message", false
+			return "", convo.Delta{}, "no session file on disk for conversation " + target.AgentSessionID + " yet; " + piStore.Tool + " writes it with the first message", false
 		}
 	} else {
 		path = convo.TranscriptFor(s.claudeHome, target.AgentSessionID, target.Cwd)

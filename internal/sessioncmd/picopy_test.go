@@ -19,6 +19,7 @@ func TestPiCopiesBesideTheSessionFileDropJSONL(t *testing.T) {
 		{pi, src + ".handover.jsonl", src + ".handover"},
 		{pi, src + ".rewind.jsonl", src + ".rewind"},
 		{pi, "/elsewhere/copy.jsonl", "/elsewhere/copy.jsonl"},
+		{migrate.Transcript{Kind: "omp", Path: src}, src + ".handover.jsonl", src + ".handover"},
 		{migrate.Transcript{Kind: "claude", Path: "/c/x.jsonl"}, "/c/x.jsonl.handover.jsonl", "/c/x.jsonl.handover.jsonl"},
 	} {
 		if got := copyPath(c.transcript, c.dst); got != c.want {

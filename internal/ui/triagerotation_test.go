@@ -14,9 +14,8 @@ import (
 // keepWarmBody is the cache warden's keep-alive as it reaches the inbox.
 const keepWarmBody = "[gate-inbox] Prompt-cache keep-alive, not a task: reply only ok, no tools."
 
-// rotationFleet is the board the regression was reported on: questions that
-// have waited for days, and a handful of warm sessions the operator touched
-// recently, two of them urgent, each carrying the cache warden's deadline.
+// rotationFleet keeps priority equal to exercise whether recent turns and
+// cache deadlines displace older questions within a tier.
 func rotationFleet(t *testing.T, questions int) (*Model, []string, []string) {
 	t.Helper()
 	var fleet []store.Session
@@ -29,11 +28,7 @@ func rotationFleet(t *testing.T, questions int) (*Model, []string, []string) {
 	for i := range 4 {
 		name := fmt.Sprintf("warm-%d", i)
 		warm = append(warm, name)
-		sess := smartSess(name, status.Finished, time.Duration(i+1)*time.Minute)
-		if i < 2 {
-			sess.Priority = priority.Urgent
-		}
-		fleet = append(fleet, sess)
+		fleet = append(fleet, smartSess(name, status.Finished, time.Duration(i+1)*time.Minute))
 	}
 	m := smartFleet(t, fleet...)
 	m.queueDeadlines = map[string]time.Time{}
@@ -106,8 +101,8 @@ func TestTriageReachesEveryQuestionPastWarmSessions(t *testing.T) {
 	}
 }
 
-// The rail agrees with the drain: every question sorts above the warm
-// sessions, urgent or not, deadline or not.
+// Within a priority, cache deadlines cannot lift a warm finish above a
+// question.
 func TestTriageRailPutsQuestionsAboveWarmSessions(t *testing.T) {
 	m, asks, _ := rotationFleet(t, 6)
 	got := sessionNames(m)

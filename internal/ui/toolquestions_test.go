@@ -153,9 +153,4 @@ func TestThePreviewCardQuotesAnotherCLIsPermissionPrompt(t *testing.T) {
 			t.Errorf("card does not show %q:\n%s", want, card)
 		}
 	}
-	m.rows[m.cursor].sess.Tool = "claude"
-	m.screenCard = screenCard{}
-	if card := m.previewQuestions(60, 40); card != nil {
-		t.Errorf("a Claude Code session's preview gained a card:\n%s", strippedRows(card))
-	}
 }

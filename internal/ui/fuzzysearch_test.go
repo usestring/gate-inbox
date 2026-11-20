@@ -40,7 +40,7 @@ func TestFuzzySessionMetadata(t *testing.T) {
 	}
 }
 
-func TestFuzzySearchRanksMetadataBeforePaneAndHistory(t *testing.T) {
+func TestFuzzySearchRanksTitleFirstAndHistoryLast(t *testing.T) {
 	m := &Model{width: 120, height: 30, collapsed: map[string]bool{}}
 	m.sessions = []store.Session{
 		{ID: "history", Name: "archive"},

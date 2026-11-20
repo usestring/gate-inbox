@@ -22,6 +22,7 @@ file     extensions.artifacts.key_command = "printf fake-signing-key"
 file     extensions.artifacts.key_secret = "EXAMPLE_ARTIFACT_KEY"
 file     extensions.artifacts.link_ttl = "24h"
 file     extensions.artifacts.max_bytes = 1024
+file     finish_check.collect_only = true
 default  hibernate_after = "0s"
 default  hibernate_sensitivity = ""
 default  hogs.cooldown = "30m0s"

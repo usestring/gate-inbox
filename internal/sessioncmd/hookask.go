@@ -10,6 +10,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/gatechannel"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -93,8 +94,8 @@ const ChildApprovalNote = `Another agent session spawned you, so your questions 
 	`and never ask the session that spawned you to do the blocked action for you.`
 
 // SessionStartHook is what a child's SessionStart hook prints: the approval
-// note as additionalContext for a session another session spawned, and
-// nothing for any other or on any fault.
+// note and the report note as additionalContext for a session another
+// session spawned, and nothing for any other or on any fault.
 func SessionStartHook(configDir, sessionID string) string {
 	if sessionID == "" {
 		return ""
@@ -114,7 +115,7 @@ func SessionStartHook(configDir, sessionID string) string {
 	}
 	out, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
 		"hookEventName":     "SessionStart",
-		"additionalContext": ChildApprovalNote,
+		"additionalContext": ChildApprovalNote + " " + mcpreg.ChildReportNote,
 	}})
 	if err != nil {
 		return ""

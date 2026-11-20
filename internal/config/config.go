@@ -624,6 +624,11 @@ type Board struct {
 	OfferCLIOnLimit bool `toml:"offer_cli_on_limit"`
 }
 
+// FinishCheck configures collection when the experimental Finish check is enabled.
+type FinishCheck struct {
+	CollectOnly bool `toml:"collect_only"`
+}
+
 // PiOperationRules names operator-trusted commands for routine creates and
 // the exact GitHub repositories where a checked PR command can also push.
 type PiOperationRules struct {
@@ -669,6 +674,7 @@ type Config struct {
 	Naming               Naming       `toml:"naming"`
 	Log                  Log          `toml:"log"`
 	Children             Children     `toml:"children"`
+	FinishCheck          FinishCheck  `toml:"finish_check"`
 	Work                 Work         `toml:"work"`
 	Integrations         Integrations `toml:"integrations"`
 	Hogs                 Hogs         `toml:"hogs"`
@@ -1338,6 +1344,10 @@ const defaultConfig = `poll_interval = "2s"
 # [children]
 # auto_archive_after = "30m"
 
+# Save Finish check candidates locally for review.
+# [finish_check]
+# collect_only = true
+
 # The board's layout. sidebar is the side of the frame the sessions list sits
 # on, "right" or "left"; the session's pane takes the other side. Settings
 # can pick the other side on one machine, and picking this value there again
@@ -1855,9 +1865,3 @@ command = ""
 shell = true
 default_status = "idle"
 `
-
-// IsPiTool reports whether the tool named name runs pi: its block is
-// [tools.pi] or it keeps its conversations in pi's session store.
-func IsPiTool(tools map[string]Tool, name string) bool {
-	return name == "pi" || tools[name].SessionStore == "pi"
-}

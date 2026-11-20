@@ -111,7 +111,7 @@ func Locate(roots Roots, toolName string, tool config.Tool, source store.Session
 // session_store. ok is false when no driver answers the format, or the
 // driver cannot hand a conversation over, so the caller's refusal stands.
 // The transcript's Kind is the format when it is a layout the core's
-// handover filter reads (pi's session JSONL), and empty otherwise, so a
+// handover filter reads (pi's and omp's session JSONL), and empty otherwise, so a
 // driver's unknown layout is handed over as it is.
 func locateByDriver(format string, source store.Session) (Transcript, bool, error) {
 	driver, ok, err := tooldrivers.Lookup(format)

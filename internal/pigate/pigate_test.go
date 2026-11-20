@@ -16,9 +16,11 @@ import (
 func TestToolNameMapsPiToolsToClaudeNames(t *testing.T) {
 	for pi, want := range map[string]string{
 		"bash": "Bash", "read": "Read", "write": "Write", "edit": "Edit",
-		"grep": "Grep", "find": "Glob", "ls": "LS",
+		"grep": "Grep", "find": "Glob", "ls": "LS", "glob": "Glob",
 		"mcp__gate-inbox__report_status": "mcp__gate-inbox__report_status",
-		"my_tool":                        "my_tool",
+		// omp's spelling of the board's tools, through its plugin
+		"mcp__gate_inbox_board_report_status": "mcp__gate-inbox__report_status",
+		"my_tool":                             "my_tool",
 	} {
 		if got := ToolName(pi); got != want {
 			t.Errorf("ToolName(%q) = %q, want %q", pi, got, want)
@@ -157,6 +159,12 @@ func TestDecideReadOnlyFastPath(t *testing.T) {
 		// The hint counts only for an MCP tool.
 		{Request{ToolName: "my_tool", ToolInput: map[string]any{}, Cwd: cwd, ReadOnly: true}, Ask},
 		{Request{ToolName: "codemode", ToolInput: map[string]any{"code": "x"}, Cwd: cwd}, Allow},
+		// omp reaches an MCP tool it mounts behind xd:// by reading its docs
+		// and writing its call, which comes back under the tool's own name.
+		{Request{ToolName: "read", ToolInput: map[string]any{"path": "xd://mcp__x_delete"}, Cwd: cwd}, Allow},
+		{Request{ToolName: "write", ToolInput: map[string]any{"path": "xd://mcp__x_delete", "content": "{}"}, Cwd: cwd}, Allow},
+		// Any other device is omp's own, decided as the write it is.
+		{Request{ToolName: "write", ToolInput: map[string]any{"path": "xd://report_issue", "content": "x"}, Cwd: cwd}, Ask},
 	} {
 		if d := Decide(env, c.req); d.Decision != c.want {
 			t.Errorf("%s %v: %+v, want %s", c.req.ToolName, c.req.ToolInput, d, c.want)

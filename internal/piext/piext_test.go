@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/hooks"
@@ -30,6 +31,19 @@ func TestEnsureWritesTheStampedExtension(t *testing.T) {
 	again, err := Ensure(dir)
 	if err != nil || again != path {
 		t.Fatalf("second Ensure = %s, %v", again, err)
+	}
+}
+
+// omp loads the extension through a module with fewer exports than pi's, and
+// one missing named import fails the whole file there, before any code runs.
+// So values come from the agent module through its namespace only.
+func TestTheExtensionImportsNoValueByNameFromPi(t *testing.T) {
+	named := regexp.MustCompile(`(?s)import\s+(\{[^}]*\}|[A-Za-z_$][\w$]*\s*,\s*\{[^}]*\})\s+from\s+"@earendil-works/pi-coding-agent"`)
+	if m := named.FindString(string(Source())); m != "" {
+		t.Errorf("a value imported by name from pi's module:\n%s", m)
+	}
+	if !strings.Contains(string(Source()), `import * as piAgent from "@earendil-works/pi-coding-agent"`) {
+		t.Error("the extension no longer reads pi's module through its namespace")
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/keyconfine"
@@ -824,7 +825,9 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return "", nil, err
 	}
 	if pi {
-		if command, env, err = withPiExtension(manager, command, env, id, profile, sharedConfig, skip, write); err != nil {
+		store, _ := convo.PiStoreFor(toolName, tool.SessionStore)
+		omp := store.Tool == convo.OmpTool
+		if command, env, err = withPiExtension(manager, command, env, id, profile, sharedConfig, skip, write, omp); err != nil {
 			return "", nil, err
 		}
 		if id != "" && piAutoModeWanted(tool) {
@@ -904,7 +907,10 @@ func terminalShell(command string) string {
 // A skip-permissions launch tells the extension through the environment,
 // since pi has no flag for it; the variable is always set so a launch
 // without skip states that too.
-func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id, profile, sharedConfig string, skip, write bool) (string, map[string]string, error) {
+//
+// omp, pi's fork, runs the same extension; an omp launch also loads a plugin
+// holding the board's server (piext.EnsureOmpPlugin).
+func withPiExtension(manager *hooks.Manager, command string, env map[string]string, id, profile, sharedConfig string, skip, write, omp bool) (string, map[string]string, error) {
 	path := piext.Path(manager.Dir())
 	if write {
 		var err error
@@ -941,7 +947,19 @@ func withPiExtension(manager *hooks.Manager, command string, env map[string]stri
 	if skip {
 		env[envname.SkipPermissions] = "1"
 	}
-	return command + " " + piext.Argv(tmux.ShellQuote(path)), env, nil
+	command += " " + piext.Argv(tmux.ShellQuote(path))
+	if omp {
+		// omp has no registerMcpServer: the board's server, and its skills,
+		// come from a plugin of the session's own.
+		ompPlugin := piext.OmpPluginPath(mcpConfig, id)
+		if write {
+			if ompPlugin, err = piext.EnsureOmpPlugin(mcpConfig, id, filepath.Join(pluginDir, "skills")); err != nil {
+				return "", nil, err
+			}
+		}
+		command += " " + piext.OmpPluginArgv(tmux.ShellQuote(ompPlugin))
+	}
+	return command, env, nil
 }
 
 // piAutoModeWanted reports whether a pi tool's config leaves auto mode on;

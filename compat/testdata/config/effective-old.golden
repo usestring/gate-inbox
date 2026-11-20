@@ -15,6 +15,7 @@ default  claude_code.shared_mcp = <unset>
 default  codex.setup = <unset>
 default  editor = ""
 default  extensions = {}
+default  finish_check.collect_only = false
 default  hibernate_after = "0s"
 default  hibernate_sensitivity = ""
 default  hogs.cooldown = "30m0s"

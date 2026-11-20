@@ -38,7 +38,7 @@ done
 command -v bwrap >/dev/null || missing "bwrap is not on PATH — apt-get install bubblewrap"
 command -v tmux >/dev/null || missing "tmux is not on PATH"
 if [[ $stage_only -eq 0 ]]; then
-  command -v vhs >/dev/null || missing "vhs is not on PATH — go install github.com/charmbracelet/vhs@v0.11.0"
+  command -v vhs >/dev/null || missing "vhs is not on PATH — go install github.com/charmbracelet/vhs@latest (0.12.1+)"
   command -v ttyd >/dev/null || missing "ttyd is not on PATH — apt-get install ttyd"
   command -v ffmpeg >/dev/null || missing "ffmpeg is not on PATH — apt-get install ffmpeg"
 fi
@@ -194,7 +194,7 @@ for tape in "${tapes[@]}"; do
   printf 'record: %s\n' "$name"
   (cd "$out" && PATH="$build:$PATH" nice -n 10 vhs "$run") || { stop_board "$s"; die "vhs failed on $name"; }
   stop_board "$s"
-  [[ -s "$out/$name.gif" ]] || die "vhs exited 0 without writing $out/$name.gif (0.12.0 does this; pin v0.11.0)"
+  [[ -s "$out/$name.gif" ]] || die "vhs exited 0 without writing $out/$name.gif (0.12.0 does this; upgrade to 0.12.1+)"
   if [[ $keep -eq 1 ]]; then printf '  kept %s\n' "$s"; else rm -rf "$s"; fi
   printf '  %s  %s\n' "$(du -h "$out/$name.gif" | cut -f1)" "$out/$name.gif"
 done

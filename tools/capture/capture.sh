@@ -452,15 +452,16 @@ rm -rf "$sock"
 [[ $keep_home -eq 1 ]] || rm -rf "$home"
 
 # vhs can drive a whole tape, print "Creating board.gif...", exit 0 and write
-# none of it -- 0.12.0 does exactly that, and nothing earlier in the run
+# none of it -- 0.12.0 does exactly that (it cancels the context its ffmpeg
+# runs under before rendering; 0.12.1 fixed it), and nothing earlier in the run
 # notices: the cell probe passes because it reads a file the recorded shell
 # wrote, not one vhs encoded. Unchecked, a capture ends by printing three paths
 # that do not exist and post-to-pr.ts is the first thing to find out.
 for artefact in "$media/board.gif" "$video_dir/video.webm" "$media/zz-final.png"; do
   [[ -s "$artefact" ]] && continue
   die "$(run_with_capture_deadline vhs --version 2>/dev/null || echo vhs) exited 0 without writing $artefact.
-  0.12.0 records nothing at all; 0.11.0 is the last release that writes its own output:
-  go install github.com/charmbracelet/vhs@v0.11.0"
+  0.12.0 records nothing at all; upgrade to 0.12.1 or later:
+  brew upgrade vhs  (or: go install github.com/charmbracelet/vhs@latest)"
 done
 
 # Last line of defence in the driver itself: the operator's home path or login

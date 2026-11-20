@@ -156,12 +156,17 @@ fi
 # "working" keeps emitting, because the board derives that state from a region
 # that changed since the previous poll rather than from any one line.
 if [[ "$transcript" == "working" ]]; then
+  # Exit once the pane is gone. Without set -e a write to the closed tty fails
+  # quietly, so this loop used to outlive its capture run by days. $PPID is
+  # fixed at startup, so watch the original parent rather than re-reading it.
+  parent=$PPID
   n=0
-  while true; do
+  while kill -0 "$parent" 2>/dev/null; do
     n=$((n + 1))
-    printf '● Rendering frame %d\n' "$n"
+    printf '● Rendering frame %d\n' "$n" || exit 0
     sleep 2
   done
+  exit 0
 fi
 # The "deaf" transcript is the one that reads its input and never paints:
 # it stands in for an agent whose TUI has wedged, which is the only way to

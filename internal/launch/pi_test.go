@@ -27,7 +27,7 @@ import (
 func TestEnvironmentLoadsThePiExtension(t *testing.T) {
 	home := t.TempDir()
 	manager := hooks.NewManager(home)
-	pi := config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi, AutoMode: "off"}
+	pi := config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi, AutoMode: "off", MCPServers: "off"}
 	path := piext.Path(manager.Dir())
 	want := piext.Argv(tmux.ShellQuote(path))
 
@@ -69,7 +69,7 @@ func TestEnvironmentLoadsThePiExtension(t *testing.T) {
 // run names that plugin without writing it.
 func TestEnvironmentGivesOmpTheBoardsServerThroughAPlugin(t *testing.T) {
 	manager := hooks.NewManager(t.TempDir())
-	omp := config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi, AutoMode: "off"}
+	omp := config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi, AutoMode: "off", MCPServers: "off"}
 	preview, _, err := Compose(manager, "omp", omp, omp.Command, "abcd1234", "", "", false, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +229,7 @@ func TestAPiLaunchWithAutoModeWritesItsTokenFromThePane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	step := tmux.ShellQuote(Executable()) + " " + AutoModeTokenVerb + " " + tmux.ShellQuote("abcd1234") + " -- /bin/sh -c "
+	step := tmux.ShellQuote(Executable()) + " " + PreludeVerb + " " + tmux.ShellQuote("abcd1234") + " " + PreludeAutoMode + " " + PreludeClaudeMCP + " -- /bin/sh -c "
 	inner, ok := strings.CutPrefix(command, step)
 	if !ok || !strings.HasPrefix(inner, "'cat ") || !strings.Contains(inner, " -e ") {
 		t.Fatalf("command = %q, want it to start with %q and run pi after", command, step)
@@ -238,8 +238,48 @@ func TestAPiLaunchWithAutoModeWritesItsTokenFromThePane(t *testing.T) {
 		t.Fatalf("composing the launch wrote the token itself: %v", err)
 	}
 	pi.AutoMode = "off"
-	if command, _, err = Compose(manager, "pi", pi, pi.Command, "abcd1234", "", "", false, nil); err != nil || strings.Contains(command, AutoModeTokenVerb) {
+	if command, _, err = Compose(manager, "pi", pi, pi.Command, "abcd1234", "", "", false, nil); err != nil || strings.Contains(command, PreludeAutoMode) {
 		t.Fatalf("auto mode off: command = %q, %v", command, err)
+	}
+	pi.MCPServers = "off"
+	if command, _, err = Compose(manager, "pi", pi, pi.Command, "abcd1234", "", "", false, nil); err != nil || strings.Contains(command, PreludeVerb) {
+		t.Fatalf("auto mode and Claude MCP servers off: command = %q, %v", command, err)
+	}
+}
+
+// A pi launch names the key-dir file its extension registers the Claude Code
+// MCP servers from; an omp launch also loads that directory as a plugin.
+// mcp_servers = "off" gives neither. Only paths reach the command and the
+// environment.
+func TestAPiLaunchGetsTheClaudeMCPServersFromTheKeyDir(t *testing.T) {
+	manager := hooks.NewManager(t.TempDir())
+	keyDir := parentseal.KeyDir(manager.ConfigDir())
+	for _, c := range []struct {
+		name string
+		tool config.Tool
+		omp  bool
+	}{
+		{"pi", config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi}, false},
+		{"omp", config.Tool{Command: "cat", StatusSource: hooks.StatusSourcePi, SessionStore: "omp"}, true},
+	} {
+		command, env, err := Compose(manager, c.name, c.tool, c.tool.Command, "abcd1234", "", "", false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := env[piext.ClaudeMCPEnv], piext.ClaudeMCPConfig(keyDir, "abcd1234"); got != want {
+			t.Errorf("%s: %s = %q, want %q", c.name, piext.ClaudeMCPEnv, got, want)
+		}
+		if got := strings.Contains(command, "--plugin-dir "+tmux.ShellQuote(piext.ClaudeMCPDir(keyDir, "abcd1234"))) || strings.Contains(command, piext.ClaudeMCPDir(keyDir, "abcd1234")); got != c.omp {
+			t.Errorf("%s: command %q loads the Claude MCP plugin = %v, want %v", c.name, command, got, c.omp)
+		}
+		c.tool.MCPServers = "off"
+		command, env, err = Compose(manager, c.name, c.tool, c.tool.Command, "abcd1234", "", "", false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := env[piext.ClaudeMCPEnv]; ok || strings.Contains(command, "claude-mcp-") {
+			t.Errorf("%s with mcp_servers off: command %q, env %v", c.name, command, env[piext.ClaudeMCPEnv])
+		}
 	}
 }
 

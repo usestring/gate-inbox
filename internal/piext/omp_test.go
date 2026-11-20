@@ -81,3 +81,33 @@ func readJSON(t *testing.T, path string, into any) {
 		t.Fatalf("%s: %v", path, err)
 	}
 }
+
+// The Claude Code servers' plugin is private to the operator, since an
+// entry can carry a credential, and names each server as the gate reads it.
+func TestWriteClaudeMCPIsPrivate(t *testing.T) {
+	keyDir := t.TempDir()
+	servers := map[string]json.RawMessage{"web": json.RawMessage(`{"url":"https://example.test","headers":{"Authorization":"Bearer x"}}`)}
+	if err := WriteClaudeMCP(keyDir, "abcd1234", servers); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]os.FileMode{
+		ClaudeMCPDir(keyDir, "abcd1234"):    0o700,
+		ClaudeMCPConfig(keyDir, "abcd1234"): 0o600,
+	} {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != want {
+			t.Errorf("%s: %v, %v; want %v", path, info.Mode().Perm(), err, want)
+		}
+	}
+	raw, _ := os.ReadFile(ClaudeMCPConfig(keyDir, "abcd1234"))
+	var got struct{ MCPServers map[string]json.RawMessage }
+	if err := json.Unmarshal(raw, &got); err != nil || got.MCPServers["web"] == nil {
+		t.Fatalf("wrote %s", raw)
+	}
+	if name, ok := ClaudeMCPServer(ClaudeMCPPlugin + ":web"); !ok || name != "web" {
+		t.Errorf("ClaudeMCPServer = %q, %v", name, ok)
+	}
+	if _, ok := ClaudeMCPServer(OmpServer); ok {
+		t.Error("the board's own server read as a Claude Code one")
+	}
+}

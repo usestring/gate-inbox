@@ -398,9 +398,11 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	table[mcpreg.OpencodeAttachVerb] = withConfigDir(func(args []string, _, configDir string) error {
 		return runOpencodeAttach(ctx, args, configDir)
 	})
-	table[launch.AutoModeTokenVerb] = withConfigDir(func(args []string, _, configDir string) error {
-		return runPiAutoModeToken(args, configDir)
-	})
+	for _, verb := range []string{launch.PreludeVerb, launch.AutoModeTokenVerb} {
+		table[verb] = withConfigDir(func(args []string, _, configDir string) error {
+			return runPiPrelude(verb, args, configDir)
+		})
+	}
 	table[opencodeServeVerb] = func(args []string) error {
 		return runOpencodeServe(ctx, args)
 	}

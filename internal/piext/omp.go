@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // omp (oh-my-pi), pi's fork, runs the extension but has no registerMcpServer,
@@ -86,7 +87,58 @@ func EnsureOmpPlugin(mcpConfig, id, skills string) (string, error) {
 	return dir, nil
 }
 
+// ClaudeMCPPlugin names the plugin that holds a session's servers taken from
+// the operator's Claude Code config (WriteClaudeMCP). omp names each server
+// <plugin>:<server>.
+const ClaudeMCPPlugin = "gate-inbox-claude-mcp"
+
+// ClaudeMCPServer is the Claude Code name of a server in the ClaudeMCPPlugin
+// plugin, so that its tools are decided under the operator's own
+// mcp__<server>__ rules; ok is false for any other omp server.
+func ClaudeMCPServer(ompServer string) (name string, ok bool) {
+	return strings.CutPrefix(ompServer, ClaudeMCPPlugin+":")
+}
+
+// ClaudeMCPDir is where session id's servers from the Claude Code config
+// live: in the key directory, since their entries can carry credentials
+// (an Authorization header) the session's model must not read, and its
+// sandbox and the gate keep it out of there.
+func ClaudeMCPDir(keyDir, id string) string {
+	return filepath.Join(keyDir, "claude-mcp-"+id)
+}
+
+// ClaudeMCPConfig is the mcpServers file in ClaudeMCPDir, which the pi
+// extension registers servers from (ClaudeMCPEnv).
+func ClaudeMCPConfig(keyDir, id string) string {
+	return filepath.Join(ClaudeMCPDir(keyDir, id), ".mcp.json")
+}
+
+// WriteClaudeMCP writes servers as session id's ClaudeMCPDir: a Claude Code
+// plugin omp loads with --plugin-dir, whose .mcp.json is also the file pi's
+// extension reads. Everything is private to the operator (0700 and 0600).
+// It always writes, an empty server list included, so the directory a launch
+// names exists.
+func WriteClaudeMCP(keyDir, id string, servers map[string]json.RawMessage) error {
+	if servers == nil {
+		servers = map[string]json.RawMessage{}
+	}
+	dir := ClaudeMCPDir(keyDir, id)
+	if err := os.MkdirAll(filepath.Join(dir, ".claude-plugin"), 0o700); err != nil {
+		return err
+	}
+	manifest, _ := json.Marshal(map[string]string{"name": ClaudeMCPPlugin})
+	content, err := json.MarshalIndent(map[string]any{"mcpServers": servers}, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := writeFile(filepath.Join(dir, ".claude-plugin", "plugin.json"), manifest); err != nil {
+		return err
+	}
+	return writeFile(filepath.Join(dir, ".mcp.json"), content)
+}
+
 // writeFile replaces path's content whole, so omp never reads half a file.
+// CreateTemp makes it 0600, which the rename keeps.
 func writeFile(path string, content []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".omp-plugin-*")
 	if err != nil {

@@ -38,6 +38,8 @@ func TestToolNameGivesOmpMCPToolsClaudeNames(t *testing.T) {
 		{"mcp__acme_tools_lookup", "acme:tools", "lookup", "mcp__plugin_acme_tools__lookup"},
 		{"mcp__a_b_c_d_x_y", "a.b:c d", "x.y", "mcp__plugin_a_b_c_d__x_y"},
 		{"mcp__gate_inbox_board_rename", "gate-inbox:board", "rename", "mcp__gate-inbox__rename"},
+		// a server the board took from the Claude Code config keeps its name there
+		{"mcp__gate_inbox_claude_mcp_string_web_access_web_access_fetch", "gate-inbox-claude-mcp:string-web-access", "web_access_fetch", "mcp__string-web-access__web_access_fetch"},
 		// no registration to name them: omp's spelling, but the board's
 		// prefix still maps
 		{"mcp__my_srv_do_it", "", "", "mcp__my_srv_do_it"},

@@ -71,10 +71,14 @@ func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 	account := m.cfg.Tools[sess.Tool].AccountEnv != ""
 	// With the build's chooser routing accounts, the extension that routes
 	// them moves a limited session in the background, whichever session the
-	// board is showing; a card here would only race it. The opt-in to other
-	// CLIs still asks, since nothing moves a session to another CLI unasked.
-	if account && !m.cfg.Board.OfferCLIOnLimit && m.accountsRouted() {
-		return nil
+	// board is showing, so the card leaves the subscription off rather than
+	// race it. Offering other CLIs still asks, since nothing moves a session
+	// to another CLI unasked.
+	if account && m.accountsRouted() {
+		if !m.cfg.Board.OffersCLIOnLimit() {
+			return nil
+		}
+		account = false
 	}
 	targets := m.limitTargets(sess.Tool, account)
 	if len(targets) == 0 {
@@ -99,16 +103,16 @@ func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 const subscriptionTarget = ""
 
 // limitTargets is what the limit card offers, its default first: another
-// subscription of the same CLI when the CLI has accounts, then, only when
-// the operator opted in with [board] offer_cli_on_limit, every other enabled
-// CLI in the operator's order. No CLI is ever promoted ahead of the
-// subscription.
+// subscription of the same CLI when the CLI has accounts, then, unless
+// [board] offer_cli_on_limit = false, every other enabled CLI (Codex,
+// OpenCode and the rest) in the operator's order. No CLI is ever promoted
+// ahead of the subscription.
 func (m *Model) limitTargets(tool string, account bool) []string {
 	var targets []string
 	if account {
 		targets = append(targets, subscriptionTarget)
 	}
-	if m.cfg.Board.OfferCLIOnLimit {
+	if m.cfg.Board.OffersCLIOnLimit() {
 		targets = append(targets, slices.DeleteFunc(m.enabledToolNames(), func(name string) bool { return name == tool })...)
 	}
 	return targets

@@ -40,7 +40,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
    and stays where it is: the board never ends your process unasked. `ctrl+alt+a` on its row (or on the
    toast that names a pane started while the board is up) brings it in: once it is idle, it is
    relaunched on the same conversation as a board session. `ctrl+o` leaves it off the board. What a
-   pane kept as-is misses is [below](#kept-as-is-or-relaunched); settings (`ctrl+alt+s`) has "outside
+   pane kept as-is misses is [below](#kept-as-is-or-relaunched); settings (`ctrl+s`) has "outside
    panes" to take them over once idle without asking.
 4. **The loop.** `ctrl+n` starts an agent, `ctrl+p` sets its priority, `ctrl+i` works through the queue
    of everything waiting on you, `enter` focuses one session, `ctrl+q` comes back to the list, and
@@ -88,7 +88,7 @@ gate-inbox
 2. `ctrl+q` goes back to the list. Each row shows its status as the agent works.
 3. `ctrl+i` opens the queue at its head: questions first, then by priority.
 4. Answer it. The queue advances to the next one on its own.
-5. `ctrl+h` shows every key for the current screen, and `ctrl+alt+s` opens settings.
+5. `ctrl+h` shows every key for the current screen, and `ctrl+s` opens settings.
 
 Sessions live in tmux, so quitting the board leaves them running. Start `gate-inbox` again and it
 picks them back up.
@@ -147,7 +147,7 @@ anything. Dismissing the offer keeps it closed for that limit; the shortcuts rem
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
-`alt+pgup` / `alt+end` scroll back through its output and return to the live bottom. `ctrl+s`
+`alt+pgup` / `alt+end` scroll back through its output and return to the live bottom. `ctrl+z`
 opens the hotkey menu, which sends one of your snippets to the selected session without focusing it; a
 lettered snippet also sends on `option+<key>` in one press, no menu. `ctrl+alt+t` opens a shell tab under the
 selected agent for builds and one-off commands.
@@ -160,7 +160,7 @@ selected agent for builds and one-off commands.
 |-----|--------|
 | `ctrl+n` / `ctrl+alt+n` | New session, quick or with the full form, also from the Reviews queue |
 | `ctrl+]` | Switch between Sessions and Reviews, including from a focused session |
-| `ctrl+s` | Hotkey menu: send a snippet to the selected session |
+| `ctrl+z` | Hotkey menu: send a snippet from the list or a focused session |
 | `enter` | Focus the session; `ctrl+q` returns to the list |
 | `ctrl+i` | Triage queue; `\` hides the list for a full-width drain |
 | `ctrl+w` | Show only what needs attention |
@@ -172,7 +172,7 @@ selected agent for builds and one-off commands.
 | `ctrl+alt+t` | Shell tab under the selected agent |
 | `ctrl+x` / `ctrl+r` | Kill a session to free its RAM / revive it on its own conversation |
 | `ctrl+k` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
-| `ctrl+h` / `ctrl+alt+s` | Key map for the current screen / settings |
+| `ctrl+h` / `ctrl+s` | Key map for the current screen / settings |
 
 Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
 
@@ -415,7 +415,7 @@ directory's most recent one.
 
 **Uninstall.**
 
-1. `gate-inbox park`. In Settings (`ctrl+alt+s`), switch "claude code setup" off so the board takes its
+1. `gate-inbox park`. In Settings (`ctrl+s`), switch "claude code setup" off so the board takes its
    hooks and MCP relay back out of your Claude Code config, run `gate-inbox codex-hooks
    uninstall` to take its hooks out of your Codex config, set `[opencode] setup = false` in
    `config.toml` so it takes its plugin out of your OpenCode config, then quit the board with `ctrl+alt+q`.

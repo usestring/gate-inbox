@@ -1095,46 +1095,46 @@ type settingsState struct {
 }
 
 const (
-	settingsFieldTool = iota
+	settingsFieldHibernate = iota
+	settingsFieldLeave
+	settingsFieldReopenSessions
+	settingsFieldOutsidePanes
+	settingsFieldIdleSwitch
+	settingsFieldArchiveConfirm
+	settingsFieldDeleteConfirm
+	settingsFieldRestartConfirm
+	settingsFieldTool
 	settingsFieldAccountRouting
 	settingsFieldNewSessionAgent
+	settingsFieldConfirmLaunches
+	settingsFieldCLIs
+	settingsFieldClaudeSetup
+	settingsFieldRestartFlags
 	settingsFieldTheme
 	settingsFieldBackdrop
-	settingsFieldDensity
 	settingsFieldLayout
 	settingsFieldSidebar
+	settingsFieldDensity
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldRowDetail
 	settingsFieldWorkingActivity
-	settingsFieldPriorityScale
-	settingsFieldArchiveConfirm
-	settingsFieldDeleteConfirm
-	settingsFieldRestartConfirm
 	settingsFieldListSort
 	settingsFieldListConsistency
-	settingsFieldChrome
-	settingsFieldLeave
-	settingsFieldQuickClose
-	settingsFieldFocusKey
+	settingsFieldPriorityScale
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
 	settingsFieldTriageOrder
 	settingsFieldTriageContent
 	settingsFieldTriageKeepAlives
-	settingsFieldIdleSwitch
-	settingsFieldConfirmLaunches
-	settingsFieldReopenSessions
-	settingsFieldOutsidePanes
-	settingsFieldHibernate
-	settingsFieldClaudeSetup
+	settingsFieldChrome
+	settingsFieldFocusKey
+	settingsFieldQuickClose
+	settingsFieldSnippets
+	settingsFieldKeys
 	settingsFieldJev
 	settingsFieldExperimental
-	settingsFieldSnippets
-	settingsFieldRestartFlags
-	settingsFieldCLIs
 	settingsFieldGuide
-	settingsFieldKeys
 	settingsFieldVersion
 	settingsFieldCount
 )

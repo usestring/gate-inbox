@@ -217,7 +217,8 @@ func (m *Model) openSettings() {
 		arrowsStay:           m.arrowsStay,
 		backdropSync:         storedBackdrop(m.store) == backdropSync,
 	}
-	m.settings.search.Placeholder = "search settings"
+	m.settings.search.Prompt = ""
+	m.settings.search.Placeholder = "Filter settings"
 	m.settings.search.CharLimit = 100
 	m.mode = modeSettings
 }
@@ -318,13 +319,38 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func settingsSection(field int) string {
+	switch {
+	case field < settingsFieldTool:
+		return "Sessions"
+	case field < settingsFieldTheme:
+		return "Launch & tools"
+	case field < settingsFieldAutoProceed:
+		return "Board appearance"
+	case field < settingsFieldChrome:
+		return "Triage"
+	case field < settingsFieldJev:
+		return "Keyboard & snippets"
+	case field < settingsFieldGuide:
+		return "Advanced"
+	default:
+		return "About"
+	}
+}
+
 func (m *Model) matchingSettings() []int {
 	terms := strings.Fields(strings.ToLower(m.settings.search.Value()))
-	var fields []int
+	fields := make([]int, 0, settingsFieldCount)
+	if len(terms) == 0 {
+		for field := range settingsFieldCount {
+			fields = append(fields, field)
+		}
+		return fields
+	}
 	for field, row := range m.settingsRows(true) {
-		text := strings.ToLower(ansi.Strip(row))
+		text := strings.ToLower(settingsSection(field) + " " + ansi.Strip(row))
 		if field == settingsFieldHibernate {
-			text += " hibernation memory sensitivity active sessions age"
+			text += " memory sensitivity active sessions age"
 		}
 		if slices.ContainsFunc(terms, func(term string) bool { return !strings.Contains(text, term) }) {
 			continue

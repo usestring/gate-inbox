@@ -87,7 +87,7 @@ type Decision struct {
 
 // piTools maps pi's built-in tool names to Claude Code's, so the operator's
 // Claude rules apply to pi unchanged. An MCP tool already has Claude's name,
-// and any other tool keeps its own.
+// and any other tool keeps its own. omp, pi's fork, adds glob.
 var piTools = map[string]string{
 	"bash":  "Bash",
 	"read":  "Read",
@@ -95,6 +95,7 @@ var piTools = map[string]string{
 	"edit":  "Edit",
 	"grep":  "Grep",
 	"find":  "Glob",
+	"glob":  "Glob",
 	"ls":    "LS",
 }
 

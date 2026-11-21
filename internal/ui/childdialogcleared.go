@@ -159,18 +159,23 @@ func clearedNotice(sess store.Session, questions []dialog.Question, answers map[
 		out.WriteString(strings.Join(lines, "\n"))
 	}
 	fmt.Fprintf(&out, "\n\nread_session on %s shows what it was answered and where it went.", sess.ID)
-	return out.String()
+	return logging.ScrubWrapped(out.String())
 }
 
 // childRegisteredAnswers is what the child's record shows the relayed
 // dialog was answered, keyed by question text, or nil when it shows none.
 func childRegisteredAnswers(sess store.Session, relay *childDialogRelay) map[string]string {
-	since := relay.sentAt.Add(-time.Minute)
-	answered, err := asks.AnsweredSince(childAskTarget(sess), since)
+	if relay.callID == "" {
+		return nil
+	}
+	answered, err := asks.AnsweredSince(childAskTarget(sess), time.Time{})
 	if err != nil {
 		return nil
 	}
 	for i := len(answered) - 1; i >= 0; i-- {
+		if answered[i].ToolUseID != relay.callID {
+			continue
+		}
 		got := map[string]string{}
 		for question, answer := range answered[i].Answers {
 			for _, r := range relay.questions {
@@ -227,18 +232,18 @@ func askingAnyOf(shown, relayed []dialog.Question) bool {
 	return false
 }
 
-// childDialogQuestions is the questions of the dialog sess's pane holds, or
-// nil for any other screen.
-func childDialogQuestions(sess store.Session, pane, savedAsk string) []dialog.Question {
+// childDialogQuestions is the questions and call ID of the dialog sess's
+// pane holds, or nil and an empty ID for any other screen.
+func childDialogQuestions(sess store.Session, pane, savedAsk string) ([]dialog.Question, string) {
 	target := childAskTarget(sess)
 	target.PendingAskFile = savedAsk
 	call, _ := asks.Pending(target)
 	if call.Async {
-		return nil
+		return nil, ""
 	}
 	reading, ok := dialog.ReadQuestions(sess.Tool, pane, call.Questions)
 	if !ok {
-		return nil
+		return nil, ""
 	}
-	return reading.Questions
+	return reading.Questions, call.ID
 }

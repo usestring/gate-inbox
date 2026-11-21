@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -296,11 +297,12 @@ func TestTheDismissalNoticeSaysWhatTheUserAnswered(t *testing.T) {
 	child.AgentSessionID = "c0ffee00-0000-4000-8000-000000000001"
 	child.Cwd = "/work"
 	start := time.Now()
-	relayAndAsk(t, p, st, panes, &parent, child, start)
 	answeredAt := start.Add(30 * time.Second).UTC().Format(time.RFC3339)
-	writeChildTranscript(t, child,
-		`{"type":"assistant","timestamp":"`+start.UTC().Format(time.RFC3339)+`","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_c1","name":"AskUserQuestion","input":{"questions":[{"header":"Scope","question":"Which storefront should the census cover?","multiSelect":false,"options":[{"label":"Germany only","description":"DE"},{"label":"Every storefront","description":"All"}]}]}}]}}`+"\n"+
-			`{"type":"user","timestamp":"`+answeredAt+`","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_c1","content":"answered"}]},"toolUseResult":{"answers":{"Which storefront should the census cover?":"Every storefront"}}}`)
+	askRecord := `{"type":"assistant","timestamp":"` + start.UTC().Format(time.RFC3339) + `","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_c1","name":"AskUserQuestion","input":{"questions":[{"header":"Scope","question":"Which storefront should the census cover?","multiSelect":false,"options":[{"label":"Germany only","description":"DE"},{"label":"Every storefront","description":"All"}]}]}}]}}`
+	writeChildTranscript(t, child, askRecord)
+	relayAndAsk(t, p, st, panes, &parent, child, start)
+	writeChildTranscript(t, child, askRecord+"\n"+
+		`{"type":"user","timestamp":"`+answeredAt+`","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_c1","content":"answered"}]},"toolUseResult":{"answers":{"Which storefront should the census cover?":"Every storefront"}}}`)
 	if err := p.watchChildDialog(child, status.Working, "", start.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -316,5 +318,39 @@ func TestTheDismissalNoticeSaysWhatTheUserAnswered(t *testing.T) {
 		if !strings.Contains(notice.Body, want) {
 			t.Errorf("notice lacks %q:\n%s", want, notice.Body)
 		}
+	}
+}
+
+func TestClearedNoticeScrubsQuestionAndAnswerCredentials(t *testing.T) {
+	credential := "sk-" + "proj-" + strings.Repeat("aB3dE5fG7h", 6)
+	question := "Use " + credential + "?"
+	body := clearedNotice(store.Session{Name: "child"}, []dialog.Question{{Header: credential, Question: question}}, map[string]string{question: credential}, false)
+	if strings.Contains(body, credential) || !strings.Contains(body, "[redacted]") {
+		t.Fatal("notice did not redact the credential")
+	}
+}
+
+func TestClearedNoticeDoesNotReuseAnEarlierDialogsAnswer(t *testing.T) {
+	p, st, panes, parent, child := clearedFixture(t, status.Working)
+	child.AgentSessionID = "c0ffee00-0000-4000-8000-000000000001"
+	child.Cwd = "/work"
+	start := time.Now()
+	first := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_old","name":"AskUserQuestion","input":{"questions":[{"question":"Which storefront should the census cover?","options":[{"label":"Germany only"},{"label":"Every storefront"}]}]}}]}}`
+	answer := `{"type":"user","timestamp":"` + start.UTC().Format(time.RFC3339) + `","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_old","content":"answered"}]},"toolUseResult":{"answers":{"Which storefront should the census cover?":"Every storefront"}}}`
+	second := strings.ReplaceAll(first, "toolu_old", "toolu_new")
+	writeChildTranscript(t, child, first+"\n"+answer+"\n"+second)
+	relayAndAsk(t, p, st, panes, &parent, child, start.Add(time.Second))
+	if got := p.childDialogs[child.ID].callID; got != "toolu_new" {
+		t.Fatalf("relayed call = %q, want toolu_new", got)
+	}
+	if err := p.watchChildDialog(child, status.Working, "", start.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	notice, found, err := st.HeadMessage(parent.ID)
+	if err != nil || !found {
+		t.Fatalf("no notice: %v %v", found, err)
+	}
+	if strings.Contains(notice.Body, "→ Every storefront") {
+		t.Fatal("notice reused the previous dialog's answer")
 	}
 }

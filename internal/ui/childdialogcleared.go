@@ -131,8 +131,9 @@ func clearedNotice(sess store.Session, questions []dialog.Question, answers map[
 	if dismissed {
 		out.WriteString(" Your own question to your user asking the same thing was still open, so Gate " +
 			"Inbox dismissed it by pressing Escape. The \"user doesn't want to proceed\" or \"interrupted\" " +
-			"result you got for that question is that Escape, not your user declining: they answered it at " +
-			"the child. Tell your user their answer was received, and carry on.")
+			"result you got for that question is that Escape, not your user declining: the child's dialog " +
+			"was settled at its pane or on the board. Tell your user their answer was received (what was " +
+			"answered is below when Gate Inbox could read it), and carry on.")
 	}
 	var lines []string
 	for _, q := range questions {

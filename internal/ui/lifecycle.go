@@ -14,12 +14,14 @@ import (
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/launchpace"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 // deadSessionHint names both ways back from a dead row: revive resumes the
@@ -812,6 +814,12 @@ type killTarget struct {
 // would compare it against a pre-kill hash and read the teardown as
 // streaming output.
 func (m *Model) killPanes(targets []killTarget) map[string]error {
+	return killPanes(m.poller, targets)
+}
+
+// killPanes is the method's body for code off the event loop, which holds
+// the poller but must not touch the model.
+func killPanes(p *poller, targets []killTarget) map[string]error {
 	errs := map[string]error{}
 	if len(targets) == 0 {
 		return errs
@@ -822,7 +830,7 @@ func (m *Model) killPanes(targets []killTarget) map[string]error {
 	}
 	// Drops the pane hashes a revived session would be compared against, in
 	// the same pause.
-	m.poller.reflowSessions(ids, func() {
+	p.reflowSessions(ids, func() {
 		for _, target := range targets {
 			if err := target.kill(target.sess.ID); err != nil {
 				errs[target.sess.ID] = err
@@ -1007,32 +1015,139 @@ func (m *Model) archiveConfirmed(live map[string]bool) string {
 // same kills, the same end records and the same single commit either way.
 // path is the group a group archive files once its sessions are gone.
 func (m *Model) archiveSessions(sessions []store.Session, isGroup bool, path string, live map[string]bool) string {
-	var failed []string
-	// A parent leaving the list takes its fold with it, so a new session
-	// reusing the id cannot inherit somebody else's decision.
-	for _, sess := range sessions {
-		if m.hasChildren(sess.ID) {
-			m.clearChildFold(sess.ID)
+	run := m.newArchiveRun(sessions, isGroup, path, live)
+	return m.landArchive(run, run.execute())
+}
+
+// archiveRun is one archive's teardown, split where the event loop ends.
+// newArchiveRun reads the model, on the loop. execute does the tmux kills,
+// the hook-file removals and the store writes and reads nothing of the
+// model, so it can run in a command. landArchive writes what execute did
+// back onto the board, on the loop again.
+//
+// The dialog's answer runs all three in a row, as it always did. The child
+// sweep runs execute in a command (see applyChildSweep): it has nobody at
+// the keys waiting on it, and on the loop a kill waits out a whole poll pass
+// for the poller's lock (killPanes) -- 43 seconds of frozen board on a
+// loaded machine.
+type archiveRun struct {
+	sessions []store.Session
+	isGroup  bool
+	path     string
+	// live is the panes known to be up, or nil to ask tmux per session.
+	live map[string]bool
+	// sweep marks the child sweep's archive, which also lists the panes and
+	// captures them in execute: the dialog did both on the loop before it got
+	// here, and the sweep must not. recheckID is the child the sweep chose;
+	// execute reads its row again first and leaves it alone if it went back
+	// to work after the choice.
+	sweep     bool
+	recheckID string
+
+	st           *store.Store
+	driver       *tmux.Driver
+	hooks        *hooks.Manager
+	poller       *poller
+	setSnapshots func(map[string]string) error
+}
+
+// archiveResult is what an archiveRun's execute did.
+type archiveResult struct {
+	// ended is the sessions whose panes this archive ended and whose hook
+	// files are gone; landArchive marks them dead on screen.
+	ended []string
+	// filed is every session the commit was asked to file; missing is the
+	// ones it could not find. committed says the commit itself succeeded.
+	filed, missing []string
+	committed      bool
+	groupFiled     bool
+	done           int
+	failed         []string
+	// abort is a failure before anything was ended: the sweep's capture. The
+	// archive did nothing and says only this.
+	abort error
+	// skipped says the recheck found the child back at work, so nothing ran.
+	skipped bool
+}
+
+func (m *Model) newArchiveRun(sessions []store.Session, isGroup bool, path string, live map[string]bool) *archiveRun {
+	return &archiveRun{
+		sessions:     sessions,
+		isGroup:      isGroup,
+		path:         path,
+		live:         live,
+		st:           m.store,
+		driver:       m.tmux,
+		hooks:        m.hooks,
+		poller:       m.poller,
+		setSnapshots: m.setSnapshots,
+	}
+}
+
+func (r *archiveRun) paneIsLive(sess store.Session, live map[string]bool) bool {
+	if live == nil {
+		return r.driver.Exists(sess.ID)
+	}
+	return live[sess.ID]
+}
+
+// execute is the teardown's tmux and store work. It reads only the run,
+// never the model, so it is safe off the event loop.
+func (r *archiveRun) execute() archiveResult {
+	var res archiveResult
+	if r.recheckID != "" {
+		if row, err := r.st.Get(r.recheckID); err == nil && (row.Archived || row.Status == status.Working) {
+			res.skipped = true
+			return res
 		}
 	}
-	targets := make([]killTarget, 0, len(sessions))
-	for _, sess := range sessions {
-		if !m.paneIsLive(sess, live) {
+	live := r.live
+	if r.sweep {
+		// One listing for the batch, as livePanes does; a failed one is nil,
+		// which asks per session.
+		if scan, err := r.driver.ScanPanes(); err == nil {
+			live = make(map[string]bool, len(scan.PIDs))
+			for id := range scan.PIDs {
+				live[id] = true
+			}
+		}
+		shots := make(map[string]string, len(r.sessions))
+		for _, sess := range r.sessions {
+			if !r.paneIsLive(sess, live) {
+				continue
+			}
+			pane, err := r.driver.CapturePane(sess.ID)
+			if err != nil {
+				res.abort = err
+				return res
+			}
+			if pane != "" {
+				shots[sess.ID] = pane
+			}
+		}
+		if err := r.setSnapshots(shots); err != nil {
+			res.abort = err
+			return res
+		}
+	}
+	targets := make([]killTarget, 0, len(r.sessions))
+	for _, sess := range r.sessions {
+		if !r.paneIsLive(sess, live) {
 			// Nothing to end. The row is still filed away below, which is
 			// what archiving a dead session has always done.
 			continue
 		}
-		kill := m.tmux.Kill
+		kill := r.driver.Kill
 		if sess.TmuxPaneID != "" {
 			// The dialog named the pane and the server and said what dies
 			// with it; this is the answer to that, and the only reason a
 			// batch may reach KillAdopted at all. killSession's refusal
 			// still guards every path that did not warn.
-			kill = m.tmux.KillAdopted
+			kill = r.driver.KillAdopted
 		}
 		targets = append(targets, killTarget{sess: sess, kill: kill})
 	}
-	killErrs := m.killPanes(targets)
+	killErrs := killPanes(r.poller, targets)
 	// Failures are dropped from the batch below before this is read, so
 	// being in it is what "this archive ended it" means.
 	ended := make(map[string]bool, len(targets))
@@ -1040,75 +1155,116 @@ func (m *Model) archiveSessions(sessions []store.Session, isGroup bool, path str
 		ended[target.sess.ID] = true
 	}
 
-	done := 0
-	filed := make([]string, 0, len(sessions))
+	res.filed = make([]string, 0, len(r.sessions))
 	killed := make([]string, 0, len(targets))
-	for _, sess := range sessions {
+	for _, sess := range r.sessions {
 		if err := killErrs[sess.ID]; err != nil {
-			failed = append(failed, err.Error())
+			res.failed = append(res.failed, err.Error())
 			continue
 		}
 		// Only a session this archive actually ended is cleaned up after as
 		// one. A row that was already dead is filed away with the status it
 		// stopped on, and its hook files were cleared when it died.
 		if ended[sess.ID] {
-			if err := m.forgetKilled(sess); err != nil {
-				failed = append(failed, err.Error())
+			// The hook status file would otherwise decide what a revived
+			// session reads as (forgetKilled).
+			if err := r.hooks.Remove(sess.ID); err != nil {
+				res.failed = append(res.failed, err.Error())
 				continue
 			}
+			res.ended = append(res.ended, sess.ID)
 			// Filed away is already never offered back, but a row restored
 			// from the archive still has to read as ended on purpose.
-			if err := m.store.RecordEnd(sess, store.EndArchived); err != nil {
-				failed = append(failed, err.Error())
+			if err := r.st.RecordEnd(sess, store.EndArchived); err != nil {
+				res.failed = append(res.failed, err.Error())
 				continue
 			}
 			killed = append(killed, sess.ID)
 		}
-		filed = append(filed, sess.ID)
-		// A group archive leaves the launch record alone, the way it always
-		// has: restoring the group revives from it.
-		if !isGroup {
-			m.forgetLaunch(sess.ID)
-		}
-		done++
+		res.filed = append(res.filed, sess.ID)
+		res.done++
 	}
-	missing, err := m.store.ArchiveKilled(filed, killed)
+	missing, err := r.st.ArchiveKilled(res.filed, killed)
 	if err != nil {
-		failed = append(failed, err.Error())
-		done = 0
+		res.failed = append(res.failed, err.Error())
+		res.done = 0
 	} else {
+		res.committed = true
+		res.missing = missing
 		// A row that went out from under the dialog is reported the way the
 		// per-session write used to report it, and does not count as filed.
 		for _, id := range missing {
-			failed = append(failed, fmt.Sprintf("session %s: %v", id, store.ErrSessionGone))
-			done--
+			res.failed = append(res.failed, fmt.Sprintf("session %s: %v", id, store.ErrSessionGone))
+			res.done--
 		}
-		// The rest leave the active list on this frame rather than on the
-		// next poll: the tree filters on what is in hand, and a row that
-		// stays a poll longer reads as an archive that did not take.
-		m.markArchivedLocally(filed, missing)
 		// A session this archive ended takes its queue with it, and each
 		// sender hears which of its messages went.
 		for _, id := range killed {
-			if _, err := m.store.ResolveEndedRecipient(id, time.Now()); err != nil {
-				failed = append(failed, err.Error())
+			if _, err := r.st.ResolveEndedRecipient(id, time.Now()); err != nil {
+				res.failed = append(res.failed, err.Error())
 			}
 		}
 	}
 	// The group row itself only follows its sessions once they have all
 	// gone; a group marked archived over a session still running is the
 	// stranding this is here to avoid.
-	if isGroup && len(failed) == 0 {
-		if err := m.store.SetGroupArchived(path, true); err != nil {
-			failed = append(failed, err.Error())
+	if r.isGroup && len(res.failed) == 0 {
+		if err := r.st.SetGroupArchived(r.path, true); err != nil {
+			res.failed = append(res.failed, err.Error())
 		} else {
-			m.markGroup(m.confirm.path, goneMark{archived: true})
+			res.groupFiled = true
 		}
 	}
-	if len(failed) == 0 {
+	return res
+}
+
+// landArchive puts what execute did on the board, and says what failed:
+// empty when nothing did.
+func (m *Model) landArchive(r *archiveRun, res archiveResult) string {
+	if res.skipped {
 		return ""
 	}
-	return fmt.Sprintf("archived %d of %d: %s", done, len(sessions), strings.Join(failed, "; "))
+	if res.abort != nil {
+		return res.abort.Error()
+	}
+	// A parent leaving the list takes its fold with it, so a new session
+	// reusing the id cannot inherit somebody else's decision.
+	for _, sess := range r.sessions {
+		if m.hasChildren(sess.ID) {
+			m.clearChildFold(sess.ID)
+		}
+	}
+	if len(res.ended) > 0 {
+		ended := make(map[string]bool, len(res.ended))
+		for _, id := range res.ended {
+			ended[id] = true
+		}
+		for i := range m.sessions {
+			if ended[m.sessions[i].ID] {
+				m.sessions[i].Status = status.Dead
+			}
+		}
+	}
+	// A group archive leaves the launch record alone, the way it always
+	// has: restoring the group revives from it.
+	if !r.isGroup {
+		for _, id := range res.filed {
+			m.forgetLaunch(id)
+		}
+	}
+	if res.committed {
+		// The rest leave the active list on this frame rather than on the
+		// next poll: the tree filters on what is in hand, and a row that
+		// stays a poll longer reads as an archive that did not take.
+		m.markArchivedLocally(res.filed, res.missing)
+	}
+	if res.groupFiled {
+		m.markGroup(r.path, goneMark{archived: true})
+	}
+	if len(res.failed) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("archived %d of %d: %s", res.done, len(r.sessions), strings.Join(res.failed, "; "))
 }
 
 // markArchivedLocally files rows away in the list on screen, matching the

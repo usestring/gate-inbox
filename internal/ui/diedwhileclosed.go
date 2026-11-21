@@ -81,7 +81,11 @@ func (m *Model) noteAdopted(msg adoptedMsg) {
 	if n == 0 {
 		return
 	}
-	switch m.outsidePanesMode() {
+	mode := msg.outsideMode
+	if mode == "" {
+		mode = m.outsidePanesMode()
+	}
+	switch mode {
 	case paneAdopt:
 		if !first {
 			m.offerAdopted(msg.ids, time.Now())

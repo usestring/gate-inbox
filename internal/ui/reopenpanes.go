@@ -86,10 +86,16 @@ func outsidePanesLabel(mode string) string {
 }
 
 func (m *Model) storedMode(key string, normalize func(string) string) string {
-	if m.store == nil {
+	return storedSetting(m.store, key, normalize)
+}
+
+// storedSetting is storedMode for code that holds the store but not the
+// model: a command reading a setting off the event loop.
+func storedSetting(st *store.Store, key string, normalize func(string) string) string {
+	if st == nil {
 		return normalize("")
 	}
-	value, err := m.store.Setting(key)
+	value, err := st.Setting(key)
 	if err != nil {
 		logging.Info("setting unreadable", "key", key, logging.Err(err))
 	}

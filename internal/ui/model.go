@@ -325,6 +325,9 @@ type Model struct {
 	hibernating       bool
 	hibernateSweptAt  time.Time
 	hibernatePressure bool
+	// wakeAll is the wake-all run in progress, nil when none is. See
+	// hibernate.go.
+	wakeAll *wakeAllRun
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -2751,6 +2754,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hibernateSettledMsg:
 		m.applyHibernateSettled(msg)
 		return m, nil
+
+	case wakeAllStepMsg:
+		return m, m.wakeAllStep()
 
 	case adoptTickMsg:
 		if m.adoptBusy {

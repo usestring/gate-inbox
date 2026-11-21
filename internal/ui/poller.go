@@ -947,9 +947,21 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		moved = moved[:0]
 		return err
 	}
+	// endSnooze unmutes a snoozed row in the pass's own write, and on the
+	// slice straight away so the rail this pass paints already has it back.
+	endSnooze := func(i int) {
+		rowState = append(rowState, store.DerivedState{ID: sessions[i].ID, EndSnooze: sessions[i].MutedUntil})
+		sessions[i].Muted, sessions[i].MutedUntil = false, time.Time{}
+	}
 	for i, sess := range sessions {
 		if sess.Archived {
 			continue
+		}
+		// A snooze that has run out lifts here, in the pass that was reading
+		// the row anyway: no timer per session, and a board that was down
+		// when the time came lifts it on its first pass back up.
+		if !sess.MutedUntil.IsZero() && !now.Before(sess.MutedUntil) {
+			endSnooze(i)
 		}
 		step := time.Now()
 		if err := p.applyPendingRename(&sessions[i]); err != nil {
@@ -1173,6 +1185,13 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 			step = time.Now()
 			rowState = append(rowState, store.DerivedState{ID: sess.ID, Status: newStatus})
 			moved = append(moved, transition{id: sess.ID, from: sess.Status, to: newStatus})
+			// A snoozed session that stops on a dialog or errors needs the
+			// operator in a way it did not when they set it aside, so the
+			// snooze ends with the move. One that was already there when
+			// it was snoozed makes no move, and stays snoozed.
+			if !sessions[i].MutedUntil.IsZero() && store.EndsSnooze(newStatus) {
+				endSnooze(i)
+			}
 			// The relays below read this session's parent back out of the
 			// store, and that row may be one this pass has already moved on
 			// paper. A child has the queue flushed before they run, so a

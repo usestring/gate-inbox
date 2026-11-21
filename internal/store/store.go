@@ -65,7 +65,12 @@ type Session struct {
 	// ephemeral drain mark in internal/ui/mute.go it is stored on the row and
 	// outlives a pass, a restart and the operator's memory: a muted session
 	// never rejoins the queue until somebody unmutes it.
-	Muted        bool
+	Muted bool
+	// MutedUntil is when a snooze, a mute with an end, lifts on its own;
+	// zero for a mute that holds until somebody unmutes it. Only ever set on
+	// a muted row. The board's poll lifts it, at this time or sooner if the
+	// session stops on a dialog or errors; see DerivedState.EndSnooze.
+	MutedUntil   time.Time
 	CreatedAt    time.Time
 	LastStatusAt time.Time
 	// OperatorAt is when a person last handed the session something: a
@@ -573,6 +578,9 @@ CREATE TABLE IF NOT EXISTS settings (
 		// stays out of triage across polls and restarts until it is
 		// explicitly unmuted. See Session.Muted.
 		`ALTER TABLE sessions ADD COLUMN muted INTEGER NOT NULL DEFAULT 0`,
+		// When a snooze lifts; zero for a mute with no end. See
+		// Session.MutedUntil.
+		`ALTER TABLE sessions ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0`,
 		// A group that pins its path starts every session spawned into it
 		// there. See PinnedPath.
 		`ALTER TABLE groups ADD COLUMN pin_path INTEGER NOT NULL DEFAULT 0`,
@@ -957,7 +965,7 @@ func (s *Store) ListSessions(includeArchived bool) ([]Session, error) {
 }
 
 func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
-	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, operator_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, skip_permissions, children_skip_permissions, name_source, priority_tier, role, replaced_by, ` + migrationColumn + `, ` + migrationOpeningColumn + `, sort_order, rowid
+	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, muted_until, created_at, last_status_at, operator_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, skip_permissions, children_skip_permissions, name_source, priority_tier, role, replaced_by, ` + migrationColumn + `, ` + migrationOpeningColumn + `, sort_order, rowid
 	          FROM sessions`
 	if !includeArchived {
 		query += ` WHERE archived = 0`
@@ -974,11 +982,11 @@ func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
 		var sess Session
 		var archived, acked, muted, pendingClaimed int
 		var tier string
-		var created, lastStatus, operatorAt, agentLaunched, archivedAt int64
+		var created, lastStatus, operatorAt, agentLaunched, archivedAt, mutedUntil int64
 		var pendingInputs, migrationOpening string
 		var skip, childrenSkip int
 		if err := rows.Scan(&sess.ID, &sess.Name, &sess.Tool, &sess.Cwd,
-			&sess.Group, &sess.Status, &archived, &archivedAt, &acked, &muted, &created, &lastStatus, &operatorAt,
+			&sess.Group, &sess.Status, &archived, &archivedAt, &acked, &muted, &mutedUntil, &created, &lastStatus, &operatorAt,
 			&sess.AgentSessionID,
 			&sess.TmuxSocket, &sess.TmuxPaneID,
 			&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &skip, &childrenSkip, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening, &sess.position.SortOrder, &sess.position.RowID); err != nil {
@@ -996,6 +1004,7 @@ func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
 		sess.ArchivedAt = decodeTime(archivedAt)
 		sess.Acked = acked != 0
 		sess.Muted = muted != 0
+		sess.MutedUntil = decodeTime(mutedUntil)
 		sess.SkipPermissions = skip != 0
 		sess.ChildrenSkipPermissions = childrenSkip != 0
 		sess.PendingInputClaimed = pendingClaimed != 0
@@ -1012,14 +1021,14 @@ func (s *Store) Get(id string) (Session, error) {
 	var sess Session
 	var archived, acked, muted, pendingClaimed int
 	var tier string
-	var created, lastStatus, operatorAt, agentLaunched, archivedAt int64
+	var created, lastStatus, operatorAt, agentLaunched, archivedAt, mutedUntil int64
 	var pendingInputs, migrationOpening string
 	var skip, childrenSkip int
 	err := s.db.QueryRow(
-		`SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, operator_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, `+spawnerColumnOf("sessions")+`, launch_prompt, model, account, skip_permissions, children_skip_permissions, name_source, priority_tier, role, replaced_by, `+migrationColumn+`, `+migrationOpeningColumn+`
+		`SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, muted_until, created_at, last_status_at, operator_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, `+spawnerColumnOf("sessions")+`, launch_prompt, model, account, skip_permissions, children_skip_permissions, name_source, priority_tier, role, replaced_by, `+migrationColumn+`, `+migrationOpeningColumn+`
 		 FROM sessions WHERE id = ?`, id,
 	).Scan(&sess.ID, &sess.Name, &sess.Tool, &sess.Cwd, &sess.Group,
-		&sess.Status, &archived, &archivedAt, &acked, &muted, &created, &lastStatus, &operatorAt, &sess.AgentSessionID,
+		&sess.Status, &archived, &archivedAt, &acked, &muted, &mutedUntil, &created, &lastStatus, &operatorAt, &sess.AgentSessionID,
 		&sess.TmuxSocket, &sess.TmuxPaneID,
 		&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &skip, &childrenSkip, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening)
 	if err != nil {
@@ -1036,6 +1045,7 @@ func (s *Store) Get(id string) (Session, error) {
 	sess.ArchivedAt = decodeTime(archivedAt)
 	sess.Acked = acked != 0
 	sess.Muted = muted != 0
+	sess.MutedUntil = decodeTime(mutedUntil)
 	sess.SkipPermissions = skip != 0
 	sess.ChildrenSkipPermissions = childrenSkip != 0
 	sess.PendingInputClaimed = pendingClaimed != 0
@@ -1306,6 +1316,20 @@ type DerivedState struct {
 	ID     string
 	Status string
 	Acked  *bool
+	// EndSnooze, when not zero, is the MutedUntil the pass read on a
+	// snoozed row whose snooze it found over: the time has come, or the
+	// session stopped on a dialog or errored. The write unmutes the row only
+	// while it still holds that same end, so a snooze set again between the
+	// pass's read and its write is not lifted by a verdict on the old one.
+	EndSnooze time.Time
+}
+
+// EndsSnooze reports whether a session moving into status needs the
+// operator in a way a snooze should not sit on: a question or permission
+// dialog, or a failure. A finished turn does not, since waiting out the
+// turns in between is what a snooze is for.
+func EndsSnooze(to string) bool {
+	return to == status.Waiting || to == status.Errored
 }
 
 // ApplyDerivedStates writes a poll pass's derived row state in one
@@ -1359,6 +1383,11 @@ func (s *Store) applyDerivedStates(at time.Time, states []DerivedState) error {
 		return err
 	}
 	defer acks.Close()
+	snoozes, err := tx.Prepare(`UPDATE sessions SET muted = 0, muted_until = 0 WHERE id = ? AND muted_until = ?`)
+	if err != nil {
+		return err
+	}
+	defer snoozes.Close()
 	stamped := encodeTime(at)
 	for _, state := range states {
 		if state.Status != "" {
@@ -1368,6 +1397,11 @@ func (s *Store) applyDerivedStates(at time.Time, states []DerivedState) error {
 		}
 		if state.Acked != nil {
 			if _, err := acks.Exec(boolToInt(*state.Acked), state.ID); err != nil {
+				return err
+			}
+		}
+		if !state.EndSnooze.IsZero() {
+			if _, err := snoozes.Exec(state.ID, encodeTime(state.EndSnooze)); err != nil {
 				return err
 			}
 		}
@@ -1426,10 +1460,31 @@ func (s *Store) SetOperatorAt(id string, at time.Time) error {
 
 // SetMuted stores the operator's persistent mute on a session. A muted session
 // is left out of triage entirely until this is called with false, which is
-// what the board's mute key and the `mute` command toggle.
+// what the board's mute key and the `mute` command toggle. Either way it
+// replaces a snooze: a mute set this way has no end, and an unmute leaves
+// none behind.
 func (s *Store) SetMuted(id string, muted bool) error {
 	res, err := s.db.Exec(
-		`UPDATE sessions SET muted = ? WHERE id = ?`, boolToInt(muted), id)
+		`UPDATE sessions SET muted = ?, muted_until = 0 WHERE id = ?`, boolToInt(muted), id)
+	if err != nil {
+		return err
+	}
+	return requireRow(res, id)
+}
+
+// SetSnoozed mutes a session until until, replacing any mute or snooze it
+// already has. Nothing here lifts it: the board's poll does, through
+// DerivedState.EndSnooze. It refuses while the Timed snooze experiment is
+// off, so no caller that missed the switch can set one.
+func (s *Store) SetSnoozed(id string, until time.Time) error {
+	if until.IsZero() {
+		return errors.New("a snooze needs a time to end at")
+	}
+	if !s.SnoozeEnabled() {
+		return ErrSnoozeOff
+	}
+	res, err := s.db.Exec(
+		`UPDATE sessions SET muted = 1, muted_until = ? WHERE id = ?`, encodeTime(until), id)
 	if err != nil {
 		return err
 	}

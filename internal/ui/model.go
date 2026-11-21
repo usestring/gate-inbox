@@ -319,6 +319,9 @@ type Model struct {
 	// set already waiting. See childsweep.go.
 	childSweeping     bool
 	childClosurePlans map[childClosureKey]bool
+	// childHolds is what the sweeps last logged a held child for; see
+	// childHoldLog.
+	childHolds *childHoldLog
 	// hibernating is set while a settleHibernated pass is out, and
 	// hibernateSweptAt is when the last one swept for idle sessions. See
 	// hibernate.go.

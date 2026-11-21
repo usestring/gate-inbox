@@ -141,7 +141,14 @@ func (p *poller) enqueueChildRest(sess store.Session, newStatus, body string) er
 		SentAt:      time.Now(),
 	}, store.DefaultInboxLimits)
 	if err != nil {
-		logging.Info("child rest not relayed to its parent",
+		// A duplicate is the refusal a resting child meets on every pass
+		// until its row moves, and it loses nothing (below). At info it was
+		// 3,684 identical lines in 13 hours, almost all the noise in the log.
+		logRefusal := logging.Info
+		if errors.Is(err, store.ErrInboxDuplicate) {
+			logRefusal = logging.Debug
+		}
+		logRefusal("child rest not relayed to its parent",
 			"session", sess.ID, "parent", parent.ID, "status", newStatus, logging.Err(err))
 		// A full queue is the one refusal that loses news: the parent is
 		// never told this child stopped, and nothing retries. It reaches the

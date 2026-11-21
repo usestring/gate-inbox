@@ -21,8 +21,10 @@ func serverArgs(profile string, extra ...string) []string {
 	return append(args, extra...)
 }
 
-// codexArgs is serverArgs as the TOML array a codex -c override takes.
+// codexArgs is serverArgs as the TOML array a codex -c override takes. It
+// names the codex steering so the server leaves out the delegation rule the
+// launch's developer_instructions already carry.
 func codexArgs(profile string) string {
-	encoded, _ := json.Marshal(serverArgs(profile))
+	encoded, _ := json.Marshal(serverArgs(profile, SteeringFlag, "codex"))
 	return string(encoded)
 }

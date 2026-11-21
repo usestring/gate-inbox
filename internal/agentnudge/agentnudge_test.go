@@ -106,13 +106,16 @@ func TestWriteCapableCallIsSteeredWithACreateSessionCall(t *testing.T) {
 			t.Fatalf("%q decision = %q, want deny", subagent, decided)
 		}
 		args := createCall(t, reason)
-		want := map[string]string{"name": "fix-the-payments-retry", "prompt": "make the backoff exponential", "directory": "/work/repo"}
+		want := map[string]string{"name": "fix-the-payments-retry", "directory": "/work/repo"}
 		for key, value := range want {
 			if args[key] != value {
 				t.Errorf("%q create_session %s = %q, want %q", subagent, key, args[key], value)
 			}
 		}
-		for _, want := range []string{"without asking for separate permission to open a session", "send_session", "wait_for_session", "send the same Agent call again"} {
+		if got, err := os.ReadFile(args["prompt_file"]); err != nil || string(got) != "make the backoff exponential" {
+			t.Errorf("%q prompt_file holds %q (%v), want the prompt", subagent, got, err)
+		}
+		for _, want := range []string{"wait_for_session", "send the same Agent call again"} {
 			if !strings.Contains(reason, want) {
 				t.Errorf("%q reason lacks %q: %s", subagent, want, reason)
 			}
@@ -170,14 +173,20 @@ func TestStateOlderThanTheRetentionIsPruned(t *testing.T) {
 }
 
 func TestThePromptReadsAsWritten(t *testing.T) {
-	_, out := hook(payload(t, "Agent", "general-purpose", "html", "compare a < b && c > d", "/work"), paths(t))
-	_, reason := decision(t, out)
+	var in Input
+	in.ToolName, in.ToolInput.Description, in.ToolInput.Prompt = "Agent", "html", "compare a < b && c > d"
+	args, err := CreateArgs(in, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := Reason(in, args)
 	if !strings.Contains(reason, `"prompt":"compare a < b && c > d"`) {
 		t.Fatalf("reason escapes the prompt: %s", reason)
 	}
 }
 
-func TestALongPromptGoesInAFile(t *testing.T) {
+// The deny names the brief file rather than echoing the prompt back.
+func TestThePromptGoesInAFile(t *testing.T) {
 	p := paths(t)
 	brief := strings.Repeat("a long brief. ", 400)
 	_, out := hook(payload(t, "Agent", "general-purpose", "big job", brief, "/work"), p)
@@ -189,8 +198,8 @@ func TestALongPromptGoesInAFile(t *testing.T) {
 	if got, err := os.ReadFile(args["prompt_file"]); err != nil || string(got) != brief {
 		t.Fatalf("prompt_file holds %d bytes (%v), want the brief", len(got), err)
 	}
-	if strings.Contains(reason, "a long brief. a long brief.") {
-		t.Fatal("reason repeats the long brief")
+	if strings.Contains(reason, "a long brief.") {
+		t.Fatal("reason repeats the brief")
 	}
 }
 

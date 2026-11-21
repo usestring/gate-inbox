@@ -52,7 +52,8 @@ func TestDelegationSteeringNamesEachCLIsOwnSubagentTool(t *testing.T) {
 
 // A claude launch appends one line pointing at the Gate Inbox plugin's
 // delegate-with-gate-inbox skill, which says what every other CLI's steering
-// says and owns its children's dialogs the same way.
+// says beyond the delegation rule, and owns its children's dialogs the same
+// way.
 func TestClaudeSteeringIsThePluginSkill(t *testing.T) {
 	dir := t.TempDir()
 	command, err := Apply("claude", "/opt/bin/gate-inbox", dir, "claude", map[string]string{}, "")
@@ -70,7 +71,16 @@ func TestClaudeSteeringIsThePluginSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertSteers(t, "claude skill", string(skill), builtinDelegation["claude"])
+	for _, want := range []string{"create_session instead of " + builtinDelegation["claude"], "quick read-only lookup", "user's board", "its questions are relayed to you", "wait_for_session"} {
+		if !strings.Contains(string(skill), want) {
+			t.Errorf("the skill is missing %q:\n%s", want, skill)
+		}
+	}
+	// A claude session reads the rule from the server's block; the skill
+	// does not say it again.
+	if strings.Contains(string(skill), DelegationRule) {
+		t.Errorf("the skill repeats the delegation rule the server's block states:\n%s", skill)
+	}
 	for _, want := range []string{"Your children's dialogs are yours", "answer_session", "Approval are always your user's to answer"} {
 		if !strings.Contains(string(skill), want) {
 			t.Fatalf("the skill lost the child-dialog rule %q:\n%s", want, skill)

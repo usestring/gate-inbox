@@ -100,11 +100,11 @@ func TestSessionToolsReachAnAdoptedPaneWithNoBoard(t *testing.T) {
 
 // An adopted claude is told what a launched one reads at startup: this
 // server's own instructions, word for word, and the launch's delegation
-// steering, but not the rule about the session that spawned it, since none
-// did.
+// steering without the rule the block already states, but not the rule
+// about the session that spawned it, since none did.
 func TestAdoptedInstructionsAreTheServerBlockAndTheLaunchSteering(t *testing.T) {
 	got := AdoptedInstructions()
-	for _, want := range []string{serverInstructions, strings.TrimSpace(mcpreg.DelegationSteering("claude"))} {
+	for _, want := range []string{serverInstructions, strings.TrimSpace(mcpreg.DelegationSteeringBesideServer("claude"))} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("the adopted instructions lack:\n%s\n\ngot:\n%s", want, got)
 		}

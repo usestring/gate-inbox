@@ -48,7 +48,7 @@ func TestApplyProfileStartsTheCoreServer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		encoded, _ := json.Marshal(c.want)
+		encoded, _ := json.Marshal(append(c.want, SteeringFlag, "codex"))
 		if !strings.Contains(codex, `mcp_servers.gate-inbox.args=`+string(encoded)) {
 			t.Fatalf("profile %q codex launch = %q, want args %s", c.profile, codex, encoded)
 		}

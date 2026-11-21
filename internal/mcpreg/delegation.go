@@ -1,6 +1,7 @@
 package mcpreg
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -23,23 +24,58 @@ var builtinDelegation = map[string]string{
 	"pi":       "a subagent extension or a pi process started from the shell",
 }
 
+// DelegationRule is the delegation policy, stated once per session. A
+// session reads it from wherever its CLI reliably shows standing
+// instructions: the MCP server's block for claude, the launch steering
+// (DelegationSteering) for codex, opencode and pi, whose servers leave it
+// out (see LaunchCarriesDelegation). Tool descriptions, the delegate skill
+// and the Agent hook's deny do not repeat it.
+const DelegationRule = "Delegate within the user's task or an explicitly invoked skill without asking for separate permission to open a session. Respect explicit limits on delegation and ask before expanding the task's scope. Delegation does not grant tool permissions or replace required approvals. Call list_sessions first and send_session to the session that owns that workstream, idle or working, with interrupt true when its current turn is wrong or superseded. Create a session only for a distinct workstream with no suitable owner."
+
+// LaunchCarriesDelegation reports whether style's launch delivers
+// DelegationSteering itself: codex as developer_instructions, pi through the
+// board's extension, opencode appended to the server's block by
+// ServerSteering. The server's own delegation paragraph would repeat it
+// there, so it is left out of that CLI's block.
+func LaunchCarriesDelegation(style string) bool {
+	switch style {
+	case "codex", "opencode", "pi":
+		return true
+	}
+	return false
+}
+
 // DelegationSteering is the standing instruction for style's CLI. It is
 // ASCII on purpose: codex receives it as a TOML string inside a -c override,
 // and the quoting there is Go's %q, which only matches TOML for ASCII.
 func DelegationSteering(style string) string {
+	return delegationSteering(style, true)
+}
+
+// DelegationSteeringBesideServer is DelegationSteering without
+// DelegationRule, for a session that already holds the rule from the
+// server's block.
+func DelegationSteeringBesideServer(style string) string {
+	return delegationSteering(style, false)
+}
+
+func delegationSteering(style string, withRule bool) string {
 	builtin := builtinDelegation[style]
-	return strings.Join([]string{
+	rule := []string{DelegationRule, ""}
+	if !withRule {
+		rule = nil
+	}
+	return strings.Join(slices.Concat([]string{
 		"# Delegating work: use Gate Inbox sessions",
 		"",
-		"Delegate within the user's task or an explicitly invoked skill without asking for separate permission to open a session. Respect explicit limits on delegation and ask before expanding the task's scope. Delegation does not grant tool permissions or replace required approvals. Call list_sessions first and send_session to the session that owns that workstream, idle or working, with interrupt true when its current turn is wrong or superseded. Create a session only for a distinct workstream with no suitable owner.",
-		"",
+	}, rule, []string{
 		"For a new delegated workstream, start it with create_session instead of " + builtin + ". A session is on the user's board, and its questions are relayed to you. Keep the built-in tool for a quick read-only lookup.",
 		"",
 		"Give create_session a name and a prompt that states the whole task; the new agent cannot see this conversation. Track shared plans with the task tool. Check on it with read_session, redirect it with send_session and block on it with wait_for_session. A finished child archives on its own after a grace period; archive_session files one sooner. One session per workstream.",
 		"",
 		"If the gate-inbox tools are missing, use " + builtin + " as usual.",
 		"",
-	}, "\n") + "\n" + childDialogSteering
+	}), "\n") + "\n" + childDialogSteering
 }
 
 // childDialogSteering is the standing rule that a parent owns its children's
@@ -74,6 +110,14 @@ func ServerSteering(style string, askRename bool) (string, bool) {
 		return launchSteering(style), true
 	}
 	return string(renameSteering()) + "\n" + launchSteering(style), true
+}
+
+// KnownSteering reports whether style may be passed with SteeringFlag: a
+// style whose steering the server carries, or one whose launch carries it
+// and whose server only leaves out what that launch already says.
+func KnownSteering(style string) bool {
+	_, carried := ServerSteering(style, true)
+	return carried || LaunchCarriesDelegation(style)
 }
 
 // claudeAppendFlag is the flag the claude launch carries. Claude Code keeps

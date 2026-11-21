@@ -230,13 +230,10 @@ func SessionName(description string) string {
 	return strings.Join(words, "-")
 }
 
-// inlinePromptLimit is the longest prompt the steer message carries in
-// place; a longer one is written to a file and named by prompt_file, so the
-// message does not repeat a long brief the model has just written.
-const inlinePromptLimit = 2000
-
 // CreateArgs is the create_session call that replaces the Agent call.
-// briefPath is where a long prompt is written; empty keeps it inline.
+// briefPath is where the prompt is written and handed over as prompt_file,
+// so the deny names the brief instead of repeating what the model has just
+// written; an empty briefPath keeps the prompt inline.
 func CreateArgs(in Input, briefPath string) (map[string]string, error) {
 	args := map[string]string{"name": SessionName(in.ToolInput.Description)}
 	if in.Cwd != "" {
@@ -246,7 +243,7 @@ func CreateArgs(in Input, briefPath string) (map[string]string, error) {
 		args["model"] = model
 	}
 	prompt := in.ToolInput.Prompt
-	if len(prompt) <= inlinePromptLimit || briefPath == "" {
+	if briefPath == "" {
 		args["prompt"] = prompt
 		return args, nil
 	}
@@ -257,19 +254,17 @@ func CreateArgs(in Input, briefPath string) (map[string]string, error) {
 	return args, nil
 }
 
-// Reason is the deny message: why, the call to send, and the way out.
+// Reason is the deny message: the call to send instead, and the way out. It
+// does not restate the delegation policy, which the session already holds
+// from its server instructions; it only says what to do with this call.
 func Reason(in Input, args map[string]string) string {
-	// Unescaped, so a prompt's <, > and & read as written.
+	// Unescaped, so an inline prompt's <, > and & read as written.
 	var call bytes.Buffer
 	encoder := json.NewEncoder(&call)
 	encoder.SetEscapeHTML(false)
 	_ = encoder.Encode(args)
-	return "Gate Inbox: run this " + in.Subagent() + " subagent as a board session instead, so your user " +
-		"sees it on the board and its questions and permission prompts come to you. " +
-		"Delegate within the user's task or an explicitly invoked skill without asking for separate permission to open a session. Respect explicit limits on delegation and ask before expanding the task's scope. Delegation does not grant tool permissions or replace required approvals. Call list_sessions first and send_session the task to the session " +
-		"already on the board that owns it (interrupt true if its current turn is wrong). For a distinct workstream with no suitable owner, call " +
+	return "Gate Inbox: run this " + in.Subagent() + " subagent as a board session instead: call " +
 		"mcp__gate-inbox__create_session with " + strings.TrimSpace(call.String()) + ", then wait_for_session for its report. " +
-		"Read-only subagents (Explore, Plan, claude-code-guide) still run in-process. " +
 		"If the gate-inbox tools are unavailable, or this task needs this conversation's context, " +
 		"send the same " + in.ToolName + " call again unchanged and it will run."
 }

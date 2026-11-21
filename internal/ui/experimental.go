@@ -40,6 +40,8 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.reviewQueue }},
 	{store.CIFeedbackSetting, "PR CI feedback", "Return failed CI checks to the live agent that opened the pull request.\nAllows up to two repair prompts until CI passes; requires the GitHub integration.",
 		func(s *settingsState) *bool { return &s.ciFeedback }},
+	{store.MemoryGuardSetting, "Memory guard", "Refuse queued relaunches while macOS reports warning or critical memory pressure.\nCovers account switches, repairs, revives and unpark; new sessions are never refused.",
+		func(s *settingsState) *bool { return &s.memoryGuard }},
 	{arrowsStaySetting, "Arrows stay in sessions", "Send Left and Right to the focused session at the prompt's edges too.\nOff, Left at the prompt's head and Right at its end go back to the list.",
 		func(s *settingsState) *bool { return &s.arrowsStay }},
 	{nextStepSetting, "Next step", "On a finished session, suggest the next instruction from its pull request's checks and reviews.\nShown in the hotkey menu; ctrl+y inserts it unsent. Asks no model and fetches nothing.",

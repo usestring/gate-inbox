@@ -429,7 +429,7 @@ func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseComman
 	// off the event loop since the queue's lock can be held a moment, so
 	// the automatic relaunches behind it wait on it.
 	if dir := m.configDir(); dir != "" {
-		go launchpace.FromConfig(dir, m.cfg.Relaunch, nil).Record(sess.ID)
+		go launchpace.FromConfig(dir, m.cfg.Relaunch, nil, false).Record(sess.ID)
 	}
 	if err := m.tmux.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name)); err != nil {
 		return err

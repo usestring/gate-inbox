@@ -251,6 +251,8 @@ Settings → **experimental** contains optional features, all off by default.
 
 **PR CI feedback** sends failed checks to the live agent that opened the pull request. It allows up to two repair prompts until CI passes and requires the GitHub integration. Saving the switch takes effect immediately; turning it off retires feedback that has not started delivery. See [PR CI feedback](configuration.md#pr-ci-feedback) for the ownership and delivery guards.
 
+**Memory guard** refuses queued relaunches (account switches, repairs, revives and unpark) while macOS reports warning or critical memory pressure. New sessions and manual board revives are never refused. It is off because the kernel reports warning once swap fills, even with plenty of RAM free, and the guard then blocked revives of hibernated sessions. See [the relaunch queue](configuration.md) for details.
+
 **Compressed focus view** keeps the shortened conversation on screen in focus mode. It is off by default, including for existing users who previously chose the conversation view. Prompt and input mirroring is still experimental; use `F3` to return to the live terminal to see and submit input. Disabling it restores the live terminal whenever a session is focused.
 
 **Prompt suggestions** reads local Claude/Codex history to suggest recurring New Session prompts. On its own it makes no network requests. Disable it to stop history reads and suggestions.

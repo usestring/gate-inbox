@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -67,28 +68,119 @@ func (p *poller) childDialogCleared(sess store.Session, relay *childDialogRelay,
 		logging.Info("withdrew an unread child-dialog relay", "session", sess.ID, "parent", parent.ID)
 		return nil
 	}
-	var out strings.Builder
-	fmt.Fprintf(&out, "%s (session %s) is no longer on the dialog relayed to you earlier: it was answered "+
-		"at its pane, on the board, or by another relay. Do not put it to your user, and do not call "+
-		"answer_session for it; read_session on %s shows what it was answered and where it went.",
-		sess.Name, sess.ID, sess.ID)
+	answers := childRegisteredAnswers(sess, relay)
+	body := clearedNotice(sess, relay.questions, answers, dismissed)
+	// A dismissal is an event of its own: the same question dismissed twice
+	// must reach the parent twice, so its fingerprint carries the moment.
+	keyed := body
 	if dismissed {
-		out.WriteString(" Your own question to your user asking the same thing was still open, so Gate " +
-			"Inbox dismissed it; your user has already answered it once.")
+		keyed += "\n" + now.UTC().Format(time.RFC3339Nano)
 	}
-	body := out.String()
 	_, _, err = p.store.Enqueue(store.InboxMessage{
 		SessionID:   parent.ID,
 		SenderID:    sess.ID,
 		SenderName:  sess.Name,
 		Body:        body,
-		Fingerprint: textfmt.Fingerprint(body),
-		Subject:     childDialogSubject,
+		Fingerprint: textfmt.Fingerprint(keyed),
+		Subject:     clearedSubject(relay.questions),
 		SentAt:      now,
-	}, store.DefaultInboxLimits)
+	}, clearedNoticeLimits)
 	if err != nil {
 		logging.Info("could not tell a parent its child's dialog cleared",
-			"session", sess.ID, "parent", parent.ID, logging.Err(err))
+			"session", sess.ID, "parent", parent.ID, "dismissed", dismissed, logging.Err(err))
+	}
+	return nil
+}
+
+// childDialogClearedSubject labels the notice that a relayed dialog cleared.
+// It is not childDialogSubject: the next relay about the child withdraws or
+// replaces whatever is queued on that subject, and the notice is the
+// parent's only way to tell Gate Inbox's Escape from its user declining.
+const childDialogClearedSubject = "child-dialog-cleared"
+
+// clearedSubject is the notice's subject for one dialog, so a notice about
+// a later, different dialog never replaces an undelivered one about this.
+func clearedSubject(questions []dialog.Question) string {
+	var key strings.Builder
+	for _, q := range questions {
+		key.WriteString(q.Header)
+		key.WriteString("\x00")
+		key.WriteString(q.Question)
+		key.WriteString("\x00")
+	}
+	return childDialogClearedSubject + ":" + textfmt.Fingerprint(key.String())
+}
+
+// clearedNoticeLimits exempt the notice from the per-recipient rate cap. A
+// burst of relays from the same child fills that cap, and the notice it
+// would then drop is the one telling the parent a dismissal was not a
+// decline. Clears are bounded by relays, which the cap still holds.
+var clearedNoticeLimits = func() store.InboxLimits {
+	limits := store.DefaultInboxLimits
+	limits.RateCap = math.MaxInt32
+	return limits
+}()
+
+// clearedNotice tells the parent the dialog it was relayed is settled, what
+// it asked and, when the child's record shows it, what was answered.
+func clearedNotice(sess store.Session, questions []dialog.Question, answers map[string]string, dismissed bool) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "%s (session %s) is no longer on the dialog relayed to you earlier: it was answered "+
+		"at its pane, on the board, or by another relay. Do not put it to your user, and do not call "+
+		"answer_session for it.", sess.Name, sess.ID)
+	if dismissed {
+		out.WriteString(" Your own question to your user asking the same thing was still open, so Gate " +
+			"Inbox dismissed it by pressing Escape. The \"user doesn't want to proceed\" or \"interrupted\" " +
+			"result you got for that question is that Escape, not your user declining: they answered it at " +
+			"the child. Tell your user their answer was received, and carry on.")
+	}
+	var lines []string
+	for _, q := range questions {
+		if q.Question == "" {
+			continue
+		}
+		label := q.Question
+		if q.Header != "" {
+			label = "[" + q.Header + "] " + q.Question
+		}
+		if answer, ok := answers[q.Question]; ok && answer != "" {
+			lines = append(lines, fmt.Sprintf("- %s → %s", label, answer))
+		} else {
+			lines = append(lines, "- "+label)
+		}
+	}
+	if len(lines) > 0 {
+		if len(answers) > 0 {
+			out.WriteString("\n\nWhat was answered:\n")
+		} else {
+			out.WriteString("\n\nThe dialog asked:\n")
+		}
+		out.WriteString(strings.Join(lines, "\n"))
+	}
+	fmt.Fprintf(&out, "\n\nread_session on %s shows what it was answered and where it went.", sess.ID)
+	return out.String()
+}
+
+// childRegisteredAnswers is what the child's record shows the relayed
+// dialog was answered, keyed by question text, or nil when it shows none.
+func childRegisteredAnswers(sess store.Session, relay *childDialogRelay) map[string]string {
+	since := relay.sentAt.Add(-time.Minute)
+	answered, err := asks.AnsweredSince(childAskTarget(sess), since)
+	if err != nil {
+		return nil
+	}
+	for i := len(answered) - 1; i >= 0; i-- {
+		got := map[string]string{}
+		for question, answer := range answered[i].Answers {
+			for _, r := range relay.questions {
+				if r.Question != "" && dialog.SameQuestion(question, r.Question) {
+					got[r.Question] = answer
+				}
+			}
+		}
+		if len(got) > 0 {
+			return got
+		}
 	}
 	return nil
 }

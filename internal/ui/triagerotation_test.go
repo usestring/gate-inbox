@@ -246,8 +246,8 @@ func sameSet(a, b []string) bool {
 // The reported case: a parent waiting on a child's two-hour watch, kept warm
 // by the cache warden so its last turns are a keep-alive and "ok", showed on
 // the first triage tab with nothing to answer. That "ok" is a chore rest and
-// stays off the walk. A background turn with an answer of its own is a
-// finish: it is handed over after the questions, and neither counts as a
+// stays off the walk. A background turn with an answer of its own is handed
+// over after the questions and the finishes, and neither counts as a
 // question.
 func TestTriageSkipsAKeptWarmDelegatingParentButHandsOverBackground(t *testing.T) {
 	parent := smartSess("delegating-parent", status.Delegating, time.Minute)
@@ -265,8 +265,8 @@ func TestTriageSkipsAKeptWarmDelegatingParentButHandsOverBackground(t *testing.T
 		"delegating-parent": {SenderID: store.OperatorVoicedSenderID("cache-warden"), Body: keepWarmBody, DeliveredAt: smartNow},
 	})
 	m.rebuildRows()
-	if got := drainOrder(m); !slices.Equal(got, []string{"ask-a", "ask-b", "watching", "done", "napping"}) {
-		t.Fatalf("drain = %v, want questions, then the finishes, without the kept-warm parent", got)
+	if got := drainOrder(m); !slices.Equal(got, []string{"ask-a", "ask-b", "done", "watching", "napping"}) {
+		t.Fatalf("drain = %v, want questions, the finish, then the background turn, without the kept-warm parent", got)
 	}
 	for _, name := range []string{"delegating-parent", "watching"} {
 		sess, _ := m.sessionByID(name)

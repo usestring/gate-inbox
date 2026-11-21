@@ -435,14 +435,15 @@ func TestTriageRespectsPriorityForBackgroundTurns(t *testing.T) {
 	}
 }
 
-// Smart triage ranks an unseen background turn as the finish it is.
-func TestBackgroundTurnsAreFinishesInSmartTriage(t *testing.T) {
+// Smart triage hands over an unseen background turn after a finish, however
+// much more recent it is, and before an idle row.
+func TestBackgroundTurnsRankUnderFinishesInSmartTriage(t *testing.T) {
 	m := smartFleet(t,
 		smartSess("monitor", status.Background, time.Minute),
 		smartSess("idle", status.Idle, time.Hour),
 		smartSess("done", status.Finished, 2*time.Hour),
 	)
-	if got, want := drainOrder(m), []string{"monitor", "done", "idle"}; !slices.Equal(got, want) {
+	if got, want := drainOrder(m), []string{"done", "monitor", "idle"}; !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want %v", got, want)
 	}
 	monitor := sessionNamed(t, m, "monitor")

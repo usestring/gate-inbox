@@ -58,6 +58,9 @@ type childDialogRelay struct {
 	settledAt time.Time
 	reminders int
 	escalated bool
+	// refusal is why the last send was refused, so a retry refused for the
+	// same reason is not logged at info again. Empty once one goes through.
+	refusal string
 	// heldUntil is when the parent was last seen on a dialog of its own,
 	// which holds every message to it; the relay's undelivered wait runs
 	// from then.
@@ -199,10 +202,19 @@ func (p *poller) sendChildDialog(sess, parent store.Session, relay *childDialogR
 		return nil
 	case err != nil:
 		relay.msgID = 0
-		logging.Info("child dialog not relayed to its parent yet",
+		// Retried every pass until it goes through, so only a refusal that
+		// differs from the last is news: a parent whose queue stayed full for
+		// an afternoon wrote this line every 30 seconds.
+		logRefusal := logging.Debug
+		if why := err.Error(); why != relay.refusal {
+			relay.refusal = why
+			logRefusal = logging.Info
+		}
+		logRefusal("child dialog not relayed to its parent yet",
 			"session", sess.ID, "parent", parent.ID, logging.Err(err))
 		return nil
 	}
+	relay.refusal = ""
 	relay.msgID = id
 	logging.Info("relayed a child's dialog to its parent",
 		"session", sess.ID, "parent", parent.ID, "interrupt", interrupt)

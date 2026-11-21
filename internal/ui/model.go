@@ -2745,7 +2745,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.startActivityTick(), m.loadDrafts())
 
 	case childSweptMsg:
-		m.applyChildSweep(msg)
+		return m, m.applyChildSweep(msg)
+
+	case childRetiredMsg:
+		m.applyChildRetired(msg)
 		return m, nil
 
 	case hibernateSettledMsg:

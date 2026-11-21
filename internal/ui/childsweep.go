@@ -167,44 +167,93 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 type childSweptMsg struct {
 	filed   []string
 	missing []string
-	// retire is the finished children to end and file, which happens back
-	// on the loop through the board's own teardown.
+	// retire is the finished children to end and file. The landing checks
+	// each against the rows on the loop, then hands the teardown to a
+	// command of its own (childRetiredMsg).
 	retire []store.RetirableChild
 	plans  []childClosurePlan
 	err    error
 }
 
-// applyChildSweep lands a finished sweep and frees the next one to go out.
-func (m *Model) applyChildSweep(msg childSweptMsg) {
+// childRetiredMsg is the teardown of the finished children a sweep chose,
+// done off the loop and carried back to be put on the board.
+type childRetiredMsg struct {
+	runs    []*archiveRun
+	results []archiveResult
+}
+
+// applyChildSweep lands a finished sweep. It frees the next one to go out,
+// unless it sent finished children to be ended: then the sweep stays out
+// until childRetiredMsg lands, so a second sweep cannot choose them again.
+func (m *Model) applyChildSweep(msg childSweptMsg) tea.Cmd {
 	m.childSweeping = false
 	if msg.err != nil {
 		m.errBar.text = "child sweep: " + msg.err.Error()
-		return
+		return nil
 	}
 	if len(msg.filed) > 0 {
 		m.markArchivedLocally(msg.filed, msg.missing)
 	}
-	retired, plans := m.retireFinishedChildren(msg.retire)
+	runs, plans := m.retireFinishedChildren(msg.retire)
 	if m.cfg.Children.DryRun {
 		if err := m.recordChildClosurePlans(append(msg.plans, plans...)); err != nil {
 			m.errBar.text = "child sweep dry run: " + err.Error()
 		}
 	}
-	if len(msg.filed) > 0 || retired {
+	if len(msg.filed) > 0 {
+		m.rebuildRows()
+	}
+	if len(runs) == 0 {
+		return nil
+	}
+	m.childSweeping = true
+	return func() tea.Msg {
+		results := make([]archiveResult, len(runs))
+		for i, run := range runs {
+			results[i] = run.execute()
+		}
+		return childRetiredMsg{runs: runs, results: results}
+	}
+}
+
+// applyChildRetired puts the finished children's teardown on the board and
+// frees the next sweep.
+func (m *Model) applyChildRetired(msg childRetiredMsg) {
+	m.childSweeping = false
+	retired := false
+	for i, run := range msg.runs {
+		res := msg.results[i]
+		if res.skipped {
+			logging.Info("child sweep left a finished child that went back to work", "session", run.recheckID)
+			continue
+		}
+		if text := m.landArchive(run, res); text != "" {
+			m.errBar.text = "child sweep: " + text
+			continue
+		}
+		logging.Info("child sweep archived a finished child", "session", run.recheckID, "with", len(run.sessions)-1)
+		retired = true
+	}
+	if retired {
 		m.rebuildRows()
 	}
 }
 
-// retireFinishedChildren ends and files each finished child the sweep found,
-// with whatever sits under it, through the same teardown x uses: the screen
-// is kept, the row goes to the archived view where u restores it, and the
-// retention sweep deletes it a week on.
+// retireFinishedChildren decides which finished children the sweep found are
+// to be ended and filed, with whatever sits under it, through the same
+// teardown x uses: the screen is kept, the row goes to the archived view
+// where u restores it, and the retention sweep deletes it a week on.
 //
 // Everything is asked again against the rows as they are now, since the
 // sweep read them a frame ago: a child sent a follow-up in between is
 // working, and one of its own children may have started.
-func (m *Model) retireFinishedChildren(children []store.RetirableChild) (bool, []childClosurePlan) {
-	retired := false
+//
+// It decides only. The teardown is tmux kills behind the poller's lock and
+// store writes, so it goes back off the loop as the returned runs (see
+// applyChildSweep); each run reads its child's row once more before ending
+// anything.
+func (m *Model) retireFinishedChildren(children []store.RetirableChild) ([]*archiveRun, []childClosurePlan) {
+	var runs []*archiveRun
 	var plans []childClosurePlan
 	shells := m.shellTools()
 	for _, child := range children {
@@ -225,20 +274,11 @@ func (m *Model) retireFinishedChildren(children []store.RetirableChild) (bool, [
 			plans = append(plans, newChildClosurePlan(sess, "finished", child.Via, ids))
 			continue
 		}
-		set := append(descendants, sess)
-		live := m.livePanes()
-		if err := m.snapshotLive(set, live); err != nil {
-			m.errBar.text = "child sweep: " + err.Error()
-			continue
-		}
-		if text := m.archiveSessions(set, false, "", live); text != "" {
-			m.errBar.text = "child sweep: " + text
-			continue
-		}
-		logging.Info("child sweep archived a finished child", "session", id, "with", len(set)-1)
-		retired = true
+		run := m.newArchiveRun(append(descendants, sess), false, "", nil)
+		run.sweep, run.recheckID = true, id
+		runs = append(runs, run)
 	}
-	return retired, plans
+	return runs, plans
 }
 
 // retireHeld reports whether a finished child must stay even though its

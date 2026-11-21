@@ -83,7 +83,8 @@ func TestTheChildSweepLeavesALivePaneAndFilesAnExitedOne(t *testing.T) {
 // runChildSweep arms one sweep, runs its command the way Bubble Tea would,
 // and lands the answer. The sweep asks tmux and the store off the event loop
 // now, so a test that only called it would be asserting on a question nobody
-// had answered yet.
+// had answered yet. A finished child's teardown is a second command, run and
+// landed the same way.
 func runChildSweep(t *testing.T, m *Model) {
 	t.Helper()
 	answer := armChildSweep(t, m)()
@@ -91,7 +92,23 @@ func runChildSweep(t *testing.T, m *Model) {
 	if !ok {
 		t.Fatalf("the sweep answered with %T, want childSweptMsg", answer)
 	}
-	m.applyChildSweep(msg)
+	landChildSweep(t, m, msg)
+}
+
+// landChildSweep lands a sweep's answer and, when it sent finished children
+// to be ended, runs that teardown and lands it too.
+func landChildSweep(t *testing.T, m *Model, msg childSweptMsg) {
+	t.Helper()
+	retire := m.applyChildSweep(msg)
+	if retire == nil {
+		return
+	}
+	answer := retire()
+	retired, ok := answer.(childRetiredMsg)
+	if !ok {
+		t.Fatalf("the teardown answered with %T, want childRetiredMsg", answer)
+	}
+	m.applyChildRetired(retired)
 }
 
 // finishedFanOut is a parent with one child resting finished on a live pane,
@@ -272,7 +289,7 @@ func TestTheChildSweepRechecksTheRowBeforeEndingIt(t *testing.T) {
 			m.sessions[i].Status = status.Working
 		}
 	}
-	m.applyChildSweep(msg)
+	landChildSweep(t, m, msg)
 	if row, err := m.store.Get(kid.ID); err != nil || row.Archived || !m.tmux.Exists(kid.ID) {
 		t.Fatalf("the landing ended a child that had gone back to work: %+v, %v", row, err)
 	}

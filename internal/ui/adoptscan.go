@@ -48,6 +48,10 @@ type adoptedMsg struct {
 	// found by hand. Nil when the scan did not look at every pane.
 	unsure []unsurePane
 	err    error
+	// outsideMode is the outside-panes setting the scan decided with, read
+	// in its command so the landing does not read it again on the loop.
+	// Empty when the scan stopped before reading it.
+	outsideMode string
 }
 
 // unsurePane is a pane, not sitting at a shell, that draws a tool's prompt
@@ -119,12 +123,7 @@ func (m *Model) newAdoptRun() *adoptRun {
 		naming:       m.cfg.Naming,
 		rejected:     map[string]int{},
 		namedOutside: m.namedOutsideTools(),
-		// The operator's own answers: panes they left off the board, and
-		// whether outside panes are wanted at all. Orphaned sessions of
-		// the manager's own are recovered either way.
-		ignored:     loadPaneDecisions(m.store).ignoredPaneKeys(),
-		skipForeign: m.outsidePanesMode() == paneIgnore,
-		agentTools:  m.agentToolNames(),
+		agentTools:   m.agentToolNames(),
 	}
 	for _, sess := range m.sessions {
 		if key := adoptKey(sess.TmuxSocket, sess.TmuxPaneID); key != "" {
@@ -139,6 +138,7 @@ func (m *Model) newAdoptRun() *adoptRun {
 // pane on the servers scanned, which is what lets the ledger of panes left
 // out be pruned against them.
 func (r *adoptRun) scan(candidates []adopt.Candidate, started time.Time, complete bool) adoptedMsg {
+	r.readDecisions()
 	// The rows are read after the panes, and from the store rather than
 	// the model, so archived sessions still count as accounted for.
 	// take also checks managed ids against the live store, since a launch
@@ -172,10 +172,18 @@ func (r *adoptRun) scan(candidates []adopt.Candidate, started time.Time, complet
 	r.claude = convo.LiveClaudeSessions(convo.ClaudeHome())
 
 	taken, err := r.take(candidates, procs)
-	logging.Info("adopt scan",
+	// A scan runs every 45 seconds and almost always takes nothing; at info
+	// that was a thousand identical lines a day. One that took a pane, failed
+	// or ran slow is still worth reading at info.
+	took := time.Since(started)
+	logScan := logging.Debug
+	if taken > 0 || err != nil || took > slowPass {
+		logScan = logging.Info
+	}
+	logScan("adopt scan",
 		"candidates", len(candidates), "arrivals", len(r.arrivals), "taken", taken,
-		"rejected", rejectionSummary(r.rejected), "took", time.Since(started).Round(time.Millisecond).String())
-	msg := adoptedMsg{taken: taken, ids: r.takenIDs, err: err}
+		"rejected", rejectionSummary(r.rejected), "took", took.Round(time.Millisecond).String())
+	msg := adoptedMsg{taken: taken, ids: r.takenIDs, err: err, outsideMode: r.outsideMode}
 	if complete {
 		msg.unsure = r.unsure
 		if msg.unsure == nil {
@@ -325,9 +333,13 @@ type adoptRun struct {
 	namedOutside map[string]bool
 	// ignored is the panes the operator left off the board, by
 	// paneDecisionKey. skipForeign refuses every pane the manager did not
-	// start, which is the "ignore them" setting.
+	// start, which is the "ignore them" setting. outsideMode is that
+	// setting as read, carried back on adoptedMsg. All three are read by
+	// readDecisions, off the event loop.
 	ignored     map[string]bool
 	skipForeign bool
+	outsideMode string
+	decided     bool
 	// takenIDs are the rows take created.
 	takenIDs []string
 	// unsure are the panes take refused as not confident.
@@ -342,6 +354,26 @@ type adoptRun struct {
 	// the conversation id -- and a dead row on that same conversation is
 	// known to be superseded rather than lost (see supersededBy).
 	claude []convo.ClaudeSession
+}
+
+// readDecisions reads the operator's own answers: panes they left off the
+// board, and whether outside panes are wanted at all. Orphaned sessions of
+// the manager's own are recovered either way.
+//
+// Read here, in the scan's command, and not in newAdoptRun: both are store
+// reads, and the store has one connection that the poll pass, the extensions
+// and the usage monitor all queue on. Read on the event loop, they froze the
+// board for as long as a slow pass held that connection (27s on a loaded
+// machine). Answers the operator gives while a scan is out are seen by the
+// next one, as an answer given a moment after a scan always was.
+func (r *adoptRun) readDecisions() {
+	if r.decided {
+		return
+	}
+	r.decided = true
+	r.ignored = loadPaneDecisions(r.stor).ignoredPaneKeys()
+	r.outsideMode = storedSetting(r.stor, outsidePanesSetting, normalizeOutsidePanes)
+	r.skipForeign = r.outsideMode == paneIgnore
 }
 
 func (r *adoptRun) reject(candidate adopt.Candidate, why string, extra ...any) {

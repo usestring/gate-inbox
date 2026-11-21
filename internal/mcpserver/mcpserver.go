@@ -578,10 +578,11 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "report_status",
-		Description: "Say where your work stands as the last thing you do in a turn. " +
-			"done: you have done all you can, and what is left waits on a review, another person or a step only the user can run. waiting: you need the user's answer or decision. blocked: an error or missing access stops you. working: you will carry on without being asked. " +
-			"For done on work that changed something, note names the check you ran and its result, or says what is unverified. " +
-			"The board uses it to tell the user which sessions they can close; the user does not see it as a message.",
+		Description: "Say where your work stands as you hand control back, as the last thing you do in a turn. " +
+			"done: you have done everything you can, and anything left waits on a review, a blocked merge, another person, or a step only the user can run. " +
+			"waiting: you need the user's answer or decision to go on. blocked: an error or missing access stops you. working: you will carry on without being asked. " +
+			"When done covers work that changed something, note names the check you ran and its result; if no check ran, it says what is unverified. " +
+			"The board reads it to tell the user which sessions they can close; it is not shown to them as a message.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reportStatusArgs) (*mcp.CallToolResult, any, error) {
 		// Nothing is stored: the call in the transcript is the record
 		// (search.ReadStatusReport), so a report lapses with its turn.

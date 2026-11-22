@@ -21,3 +21,21 @@ func TestClaudeShellsUnderCountsEachShellOnce(t *testing.T) {
 		t.Fatalf("ClaudeShellsUnder(mcp) = %d, want 0", got)
 	}
 }
+
+// Only direct children count: a shell at its prompt has none, and one in a
+// fan-out loop's sleep has one.
+func TestChildrenOfCountsDirectChildren(t *testing.T) {
+	table := func() ([]byte, error) {
+		return []byte("" +
+			"  40     1 /opt/homebrew/bin/bash -l\n" +
+			"  41    40 sleep 1\n" +
+			"  42    41 grandchild\n" +
+			"  50     1 /opt/homebrew/bin/bash -l\n"), nil
+	}
+	if got := ChildrenOf(40, table); got != 1 {
+		t.Fatalf("ChildrenOf(busy) = %d, want 1", got)
+	}
+	if got := ChildrenOf(50, table); got != 0 {
+		t.Fatalf("ChildrenOf(idle) = %d, want 0", got)
+	}
+}

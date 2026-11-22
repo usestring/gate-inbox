@@ -118,6 +118,13 @@ func (s *Sessions) BoardMigrateAccount(targetID, account string) (moved Session,
 // migrate is Migrate past its caller's checks; sessionID is the calling
 // session, empty for the board.
 func (s *Sessions) migrate(runtime *runtime, sessionID string, source store.Session, opts MigrateOptions) (Session, error) {
+	verb := "migrate"
+	if opts.accountOverride != nil {
+		verb = "switch"
+	}
+	if err := RefuseReplaced(source, verb); err != nil {
+		return Session{}, err
+	}
 	// Whether the source is still running goes into the brief and the
 	// migration hook, and an adopted source only answers once reached.
 	if err := runtime.reach(source); err != nil {
@@ -236,6 +243,20 @@ func (s *Sessions) migrate(runtime *runtime, sessionID string, source store.Sess
 		return moved, err
 	}
 	return moved, nil
+}
+
+// RefuseReplaced refuses to move source anywhere once another session has
+// taken its place. It has to run before the new session is launched: the
+// handover that retires the source is what would otherwise notice, and by
+// then a second copy of the conversation is already running beside the
+// successor. The error names the successor, which is the session the
+// caller meant to move; verb is what the caller was doing ("switch" or
+// "migrate"), so the suggestion reads as the command to run instead.
+func RefuseReplaced(source store.Session, verb string) error {
+	if source.ReplacedBy == "" {
+		return nil
+	}
+	return fmt.Errorf("%s (%s) was already replaced by %s; %s %s instead", source.Name, source.ID, source.ReplacedBy, verb, source.ReplacedBy)
 }
 
 // retireMigrated hands the source's children to moved and files the source

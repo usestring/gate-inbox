@@ -290,6 +290,16 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
+	// Read again rather than trusted from the card: a switch made elsewhere
+	// while it was open may already have handed the source on.
+	verb := "migrate"
+	if m.migrate.account != nil {
+		verb = "switch"
+	}
+	if err := sessioncmd.RefuseReplaced(source, verb); err != nil {
+		m.errBar.text = err.Error()
+		return m, nil
+	}
 	toolName := m.migrateTool()
 	tool, ok := m.cfg.Tools[toolName]
 	if !ok {

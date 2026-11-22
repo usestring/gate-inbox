@@ -13,6 +13,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/migrate"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -242,6 +243,10 @@ func (m *Model) switchAccountTo(label string) (tea.Model, tea.Cmd) {
 		account = ""
 	}
 	m.mode = modeList
+	if err := sessioncmd.RefuseReplaced(sess, "switch"); err != nil {
+		m.errBar.text = err.Error()
+		return m, nil
+	}
 	// An adopted row's account is whatever its pane was started on, which the
 	// row never recorded, so only a managed row can already be on the pick.
 	if account == sess.Account && sess.TmuxPaneID == "" {

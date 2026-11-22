@@ -265,6 +265,56 @@ func TestMigrateRequiresTranscriptButAllowsOnlyCurrentTool(t *testing.T) {
 	}
 }
 
+// A source handed to a successor while its card was open is refused at
+// submit, before anything launches, and the board names the successor. The
+// card used to launch first and only find out when handing children over,
+// leaving a second copy running beside the successor.
+func TestMigrateRefusesASourceReplacedWhileTheCardWasOpen(t *testing.T) {
+	for _, switching := range []bool{false, true} {
+		name, verb := "migrate card", "migrate"
+		if switching {
+			name, verb = "switch-account card", "switch"
+		}
+		t.Run(name, func(t *testing.T) {
+			m := buildModel(t)
+			source, _ := seedMigrateSource(t, m)
+			m.openMigrate()
+			if m.mode != modeMigrate {
+				t.Fatalf("mode = %v, err = %q", m.mode, m.errBar.text)
+			}
+			if switching {
+				account := "ALICE1"
+				m.migrate.account = &account
+			}
+			successor := store.Session{ID: "migrate-successor", Name: "source-claude", Tool: "claude", Cwd: source.Cwd, Group: source.Group, Status: status.Idle}
+			if err := m.store.CreateSession(successor); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.store.CompleteMigration(source.ID, successor.ID); err != nil {
+				t.Fatal(err)
+			}
+			before, err := m.store.ListSessions(true)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			updated, _ := m.handleMigrateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+			m = updated.(*Model)
+			want := "already replaced by migrate-successor; " + verb + " migrate-successor instead"
+			if !strings.Contains(m.errBar.text, want) {
+				t.Fatalf("error bar = %q, want it to contain %q", m.errBar.text, want)
+			}
+			after, err := m.store.ListSessions(true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(after) != len(before) {
+				t.Fatalf("a refused move left a session behind: %d rows before, %d after", len(before), len(after))
+			}
+		})
+	}
+}
+
 func TestMigrationPairReordersTogetherInNormalAndFilteredViews(t *testing.T) {
 	m := buildModel(t)
 	for _, sess := range []store.Session{

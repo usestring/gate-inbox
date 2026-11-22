@@ -188,3 +188,67 @@ func TestSwitchAccountMigratesLargeContextInsteadOfResuming(t *testing.T) {
 		})
 	}
 }
+
+// A source that an earlier switch already handed to a successor is refused
+// before anything is launched, and the refusal names the successor so the
+// caller can move that one instead. Launching first left a second copy of
+// the conversation running beside the real successor, because the handover
+// that follows the launch is the step that notices the source is taken.
+func TestMigrateRefusesASourceThatAlreadyHasAReplacement(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	source, transcript := claudeSource(t, h)
+	if err := h.store.SetAccount(source.ID, "OLD"); err != nil {
+		t.Fatal(err)
+	}
+	// Large enough to send switch-account down the migration path, which is
+	// the one that launched a duplicate.
+	raw := fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"model":"claude-fixture","content":[{"type":"text","text":"continue this work"}],"usage":{"input_tokens":1001,"cache_read_input_tokens":198000,"cache_creation_input_tokens":1000}}}`, time.Now().Format(time.RFC3339Nano))
+	if err := os.WriteFile(transcript, []byte(raw+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	successor := store.Session{ID: uuid.NewString()[:8], Name: "payments-fix-claude", Tool: "claude", Cwd: source.Cwd, Group: source.Group, Status: status.Idle, Account: "NEW"}
+	if err := h.store.CreateSession(successor); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.CompleteMigration(source.ID, successor.ID); err != nil {
+		t.Fatal(err)
+	}
+	before, err := h.store.ListSessions(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	attempts := []struct {
+		name string
+		run  func() (Session, error)
+		verb string
+	}{
+		{"switch-account", func() (Session, error) { return h.sessions.SwitchAccount(h.caller.ID, source.ID, "ALICE1") }, "switch"},
+		{"migrate", func() (Session, error) {
+			return h.sessions.Migrate(h.caller.ID, source.ID, MigrateOptions{Tool: "echoer"})
+		}, "migrate"},
+		{"board migrate account", func() (Session, error) { return h.sessions.BoardMigrateAccount(source.ID, "alice1") }, "switch"},
+	}
+	for _, attempt := range attempts {
+		moved, err := attempt.run()
+		want := fmt.Sprintf("already replaced by %s; %s %s instead", successor.ID, attempt.verb, successor.ID)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s: error = %v, want it to contain %q", attempt.name, err, want)
+		}
+		if moved.ID != "" {
+			t.Fatalf("%s: a refusal returned a session: %+v", attempt.name, moved)
+		}
+	}
+	after, err := h.store.ListSessions(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("a refused move left a session behind: %d rows before, %d after", len(before), len(after))
+	}
+	kept, err := h.store.Get(successor.ID)
+	if err != nil || kept.Archived || kept.ReplacedBy != "" {
+		t.Fatalf("successor after the refusals = %+v %v", kept, err)
+	}
+}

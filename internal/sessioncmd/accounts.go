@@ -166,6 +166,11 @@ func (s *Sessions) SwitchAccount(sessionID, targetID, account string) (Session, 
 // refusal leaves it on the account it runs on; how says how it takes that
 // turn.
 func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account string, how pacing, large func(string) (Session, error)) (Session, error) {
+	// A replaced row has already been retired: re-pointing it would report a
+	// switch that moved nothing, and a large context would launch a copy.
+	if err := RefuseReplaced(target, "switch"); err != nil {
+		return Session{}, err
+	}
 	tool, known := runtime.cfg.Tools[target.Tool]
 	if !known {
 		return Session{}, fmt.Errorf("tool %s is no longer configured", target.Tool)

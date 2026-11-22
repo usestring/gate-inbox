@@ -44,6 +44,22 @@ type AccountRequest struct {
 	// Preview asks what the launch would get without launching anything:
 	// a chooser that takes turns among accounts takes none for it.
 	Preview bool
+	// Exclude names accounts this launch must not run on: the core asks
+	// again with an account in it after the chooser picked one whose
+	// secret cannot be read (its version disabled or destroyed, the secret
+	// gone, or the operator not allowed to read it). A chooser that answers
+	// with an excluded account anyway has the launch fall back to the CLI's
+	// own login.
+	Exclude []string
+}
+
+// AccountUnavailableReporter is implemented by an AccountChooser that wants
+// to hear when an account it chose cannot be launched on because its secret
+// cannot be read, so it can stop choosing it and forget any record that the
+// launch went there. The core calls it before asking again with the account
+// in AccountRequest.Exclude. err says why, in one line.
+type AccountUnavailableReporter interface {
+	AccountUnavailable(ctx context.Context, req AccountRequest, account string, err error)
 }
 
 // AccountTool is the CLI an account is being chosen for.

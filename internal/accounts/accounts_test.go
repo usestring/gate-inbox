@@ -43,6 +43,7 @@ func TestSecretSpellsTheAccountAndRefusesAnythingElse(t *testing.T) {
 // empty or failed read by the account's name, so the launch it refuses says
 // which account was in play.
 func TestResolveReadsTheSecretThroughTheCommand(t *testing.T) {
+	freshMarks(t)
 	ran := ""
 	stub(t, func(command string) (string, error) {
 		ran = command
@@ -65,6 +66,7 @@ func TestResolveReadsTheSecretThroughTheCommand(t *testing.T) {
 // List reports accounts by name, whether the command printed bare names or
 // resource paths, and drops secrets that are not accounts at all.
 func TestListReportsAccountsByName(t *testing.T) {
+	freshMarks(t)
 	stub(t, func(string) (string, error) {
 		return "projects/1/secrets/CLAUDE_OAUTH_TOKEN_ALICE1\nCLAUDE_OAUTH_TOKEN_BOB2\nANTHROPIC_API_KEY\n\n", nil
 	})

@@ -321,6 +321,7 @@ func Defaults() []Snippet {
 		submit("n", "needs?", "what do you need from me?"),
 		submit("f", "fix it", "fix it"),
 		submit("j", "judgment", "Use your judgment"),
+		submit("q", "ask again", "Ask me again"),
 		submit("p", "progress", progressText),
 	}
 }

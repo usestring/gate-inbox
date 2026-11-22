@@ -591,7 +591,7 @@ func (m *Model) filterBadgeLines() []string {
 		// the badge is the only thing left saying which group the queue was
 		// drawn from. Truncated rather than wrapped: the badge shares its
 		// line with the key that lifts it.
-		label, key, out := "TRIAGE", m.hintKey(list, keymap.Triage), "back to groups"
+		label, key, out := "TRIAGE", m.sendableHintKey(list, keymap.Triage), "back to groups"
 		if m.triageScope != "" {
 			label += " " + strings.ToUpper(textfmt.TruncateWidth(baseName(m.triageScope), 12, "…"))
 		}

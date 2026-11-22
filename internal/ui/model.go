@@ -815,10 +815,14 @@ type Model struct {
 	help        helpState
 	legendPeek  legendPeekState
 	keyReleases bool
-	nameSweep   nameSweepState
-	welcome     welcomeState
-	tmuxHint    tmuxHintState
-	takeover    takeoverState
+	// keysDisambiguated is whether the terminal tells ctrl+i from tab and
+	// ctrl+m from enter. Without it those chords never reach the board, so a
+	// hint must not name them.
+	keysDisambiguated bool
+	nameSweep         nameSweepState
+	welcome           welcomeState
+	tmuxHint          tmuxHintState
+	takeover          takeoverState
 	// adoptedHooks keeps the global hooks' markers for adopted panes.
 	adoptedHooks adoptedHooksState
 	// arrivals is the panes agents announced and the board has yet to scan.
@@ -3097,6 +3101,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyboardEnhancementsMsg:
 		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()
+		m.keysDisambiguated = msg.SupportsKeyDisambiguation()
 		return m, nil
 
 	case tea.KeyReleaseMsg:

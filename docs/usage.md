@@ -18,7 +18,7 @@ Most board shortcuts use `ctrl` or `ctrl+alt`. For do and undo pairs, press `ctr
 action's key and `alt` (Option on Mac) with that same key to undo. The cursor keys `j` and `k`
 also work without modifiers. The terminal keeps `ctrl+c` for interrupt and `ctrl+v` for paste.
 `ctrl+i`, `ctrl+m` and `ctrl+/` need an enhanced keyboard protocol (Ghostty, kitty, WezTerm,
-iTerm2 with CSI u). Other terminals send them as `tab`, `enter` and `ctrl+_`. Inside a focused session the board's own chords
+iTerm2 with CSI u). Other terminals send them as `tab`, `enter` and `ctrl+_`; `alt+t` also toggles triage, and the TRIAGE badge names it there. Inside a focused session the board's own chords
 work too and leave the pane for the board: `ctrl+i` triage, `ctrl+f` search, `ctrl+k` quick
 actions, `ctrl+alt+s` settings, `ctrl+alt+g` new group, `ctrl+alt+t` new terminal, `ctrl+alt+v`
 revive all, `ctrl+alt+w` wake all hibernated, `ctrl+alt+p` fetch reviews, `alt+x` undo

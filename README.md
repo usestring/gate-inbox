@@ -162,7 +162,7 @@ selected agent for builds and one-off commands.
 | `ctrl+]` | Switch between Sessions and Reviews, including from a focused session |
 | `ctrl+s` | Hotkey menu: send a snippet to the selected session |
 | `enter` | Focus the session; `ctrl+q` returns to the list |
-| `ctrl+i` | Triage queue; `\` hides the list for a full-width drain |
+| `ctrl+i` / `alt+t` | Triage queue (`alt+t` where the terminal sends `ctrl+i` as `tab`); `\` hides the list for a full-width drain |
 | `ctrl+w` | Show only what needs attention |
 | `ctrl+y` | Show only one CLI's sessions, cycling through the harnesses on the board |
 | `ctrl+f` | Fuzzy search; `esc` closes the field, deleting the text clears it |

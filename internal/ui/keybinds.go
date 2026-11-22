@@ -159,6 +159,27 @@ func (m *Model) hintKey(ctx keymap.Context, action keymap.Action) string {
 	return palette + " " + strings.ReplaceAll(string(action), "_", " ")
 }
 
+// legacyAliased are the chords a terminal without an enhanced keyboard
+// protocol sends as another key: ctrl+i as tab, ctrl+m as enter, ctrl+/ as
+// ctrl+_. Bound, they still never arrive.
+var legacyAliased = map[string]bool{"ctrl+i": true, "ctrl+m": true, "ctrl+/": true}
+
+// sendableHintKey is hintKey naming a key this terminal can actually send.
+// A badge that tells someone to press ctrl+i, in a terminal that turns it
+// into tab, leaves them no way out of the state it describes; a second key
+// on the action is named instead when the first cannot arrive.
+func (m *Model) sendableHintKey(ctx keymap.Context, action keymap.Action) string {
+	if m.keysDisambiguated {
+		return m.hintKey(ctx, action)
+	}
+	for _, key := range m.km().Keys(ctx, action) {
+		if !legacyAliased[key] {
+			return keymap.Display(m.sideKey(ctx, action, key))
+		}
+	}
+	return m.hintKey(ctx, action)
+}
+
 // keyHint is keyCap over hintKey: a badge or an empty state naming its way
 // out. With no key to name, the label stands alone rather than beside a gap.
 func (m *Model) keyHint(ctx keymap.Context, action keymap.Action, label string) string {

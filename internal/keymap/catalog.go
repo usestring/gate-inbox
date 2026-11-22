@@ -246,7 +246,9 @@ var Catalog = []Binding{
 	{ContextList, ShowAllWork, []string{}, "show every pull request and ticket, not the first few", false},
 	{ContextList, StatusFilter, []string{"ctrl+w"}, "filter to what needs attention", false},
 	{ContextList, ToolFilter, []string{"ctrl+y"}, "filter to one CLI, or show all", false},
-	{ContextList, Triage, []string{"ctrl+i"}, "triage this group as one queue", false},
+	// alt+t rides along because ctrl+i reaches the board only through an
+	// enhanced keyboard protocol; elsewhere the terminal sends it as tab.
+	{ContextList, Triage, []string{"ctrl+i", "alt+t"}, "triage this group as one queue", false},
 	{ContextList, TriageContent, []string{"alt+]"}, "cycle triage: sessions, reviews, or both", false},
 	{ContextList, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
 	{ContextList, EmptyGroups, []string{}, "hide / show empty groups", false},

@@ -53,6 +53,7 @@ const (
 // childDialogRelay is what was last relayed about one child's dialog.
 type childDialogRelay struct {
 	key       string
+	callID    string
 	msgID     int64
 	sentAt    time.Time
 	settledAt time.Time
@@ -101,7 +102,8 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 		if err := p.childDialogCleared(sess, relay, now); err != nil {
 			return err
 		}
-		relay = &childDialogRelay{key: key, questions: childDialogQuestions(sess, pane, p.pendingAskFile(sess))}
+		questions, callID := childDialogQuestions(sess, pane, p.pendingAskFile(sess))
+		relay = &childDialogRelay{key: key, callID: callID, questions: questions}
 		p.childDialogs[sess.ID] = relay
 		return p.sendChildDialog(sess, parent, relay, body, urgent, now)
 	}
@@ -237,6 +239,7 @@ func childDialogBody(sess store.Session, pane string, saved ...string) (body, ke
 	}
 	if reading, ok := dialog.ReadQuestions(sess.Tool, pane, call.Questions); ok && len(reading.Questions) > 0 {
 		var id strings.Builder
+		id.WriteString(call.ID + "\x00")
 		for _, q := range reading.Questions {
 			id.WriteString(q.Header + "\x00" + q.Question + "\x00")
 		}

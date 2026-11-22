@@ -5,9 +5,7 @@ description: Use before handing any real work (an investigation, implementation,
 
 # Delegating work: use Gate Inbox sessions
 
-Delegate within the user's task or an explicitly invoked skill without asking for separate permission to open a session. Respect explicit limits on delegation and ask before expanding the task's scope. Delegation does not grant tool permissions or replace required approvals. Call list_sessions first and send_session to the session that owns that workstream, idle or working, with interrupt true when its current turn is wrong or superseded. Create a session only for a distinct workstream with no suitable owner.
-
-For a new delegated workstream, start it with create_session instead of the built-in Agent tool (also called Task: general-purpose, fork and any custom agent that can edit files) or the Workflow tool. A session is on the user's board, and its questions are relayed to you. Keep the built-in tool for a quick read-only lookup.
+The gate-inbox server's instructions say when to delegate and to whom. For a new delegated workstream, start it with create_session instead of the built-in Agent tool (also called Task: general-purpose, fork and any custom agent that can edit files) or the Workflow tool. A session is on the user's board, and its questions are relayed to you. Keep the built-in tool for a quick read-only lookup.
 
 Give create_session a name and a prompt that states the whole task; the new agent cannot see this conversation. Track shared plans with the task tool. Check on it with read_session, redirect it with send_session and block on it with wait_for_session. A finished child archives on its own after a grace period; archive_session files one sooner. One session per workstream.
 

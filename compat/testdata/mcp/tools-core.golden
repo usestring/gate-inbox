@@ -43,16 +43,16 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Answer the dialog one of your own spawned sessions has stopped on -- a question, a multi-select, a permission prompt, a workspace or MCP-server trust dialog, or any other screen -- so the fan-out you started keeps moving. Every dialog a child stops on is yours to settle: answer it, or ask your user and answer with what they chose. You are told a child has stopped by a message relaying the dialog in full; this is how you reply to it, which send_session cannot do -- a message is held until the recipient is at rest, and a session on a dialog never is. Questions (Claude Code's AskUserQuestion, one or several drawn as tabs, Codex's request_user_input and OpenCode's question): pass answers, one entry per question, naming it by index or header and giving the option's text, or your own words to type into its free-text row; for a multi-select give ticks, the labels to leave ticked. The call fills them in, checks the review page and presses Submit once every question has an answer (submit false stops before that). answer or ticks alone answers the question on the screen. After answering it reads back what the child registered -- the boxes, the review page, the record Claude Code prints, the answers Codex writes to its rollout or OpenCode records in its session store -- and returns an error naming what was given and what registered if they differ; a result means the child holds exactly your answer (verified). Its \"Chat about this\" row is refused, because it drops the dialog without answering. On Codex, free text goes in its None of the above note; a question asked without a dialog takes the next message, and an unanswered question expires after about two minutes. On OpenCode, give every multi-select option to tick separated by commas, or ticks, and free text goes in its Type your own answer row. Decide each question in turn: answer it yourself where your brief to that child or your user's standing decisions already settle it; otherwise ask your user with your own question tool, copying the header, the question, every option and any recommendation word for word, and answer with what they choose. Permission prompts, trust dialogs, Codex's directory-trust prompt and questions headed Approval are always your user's call, never yours: ask your user with your own question tool, copying the dialog's text and its choices word for word as the relayed message gives them, then pass answer set to the choice they picked and relay: true. The choice is picked by its text, never by position, and the dialog is read back as cleared. relay: true checks your own transcript for that dialog and your user's answer, and refuses a paraphrase, an answer given before the child stopped, or one already relayed; the refusal says exactly what to ask. Every answer is recorded as yours or your user's, and the child is told when an answer was yours. A screen it cannot read as choices takes keys, also only with relay: true: quote the screen to your user, offer the keys as the options, and pass the keys they chose; the screen is read back as changed. Only the session that spawned a child may answer it.",
+  "description": "Answer the dialog a session you spawned has stopped on: a question, multi-select, permission prompt, trust dialog or any other screen. Only the session that spawned a child may answer it. send_session cannot: a message waits until the child is at rest, and a child on a dialog never is. Answer yourself only what your brief to that child or your user's standing decisions settle. Otherwise ask your user with your own question tool, copying the header, the question, every option and any recommendation word for word, and pass what they chose. Permission prompts, trust dialogs (Codex's directory-trust prompt too) and questions headed Approval are always your user's call, never yours: relay them word for word, then pass answer set to the text of the choice they picked (never its position) and relay: true. relay: true checks your transcript for that dialog and your user's answer, and refuses a paraphrase, an answer given before the child stopped, or one already relayed; the refusal says exactly what to ask. Give one of answer (the option's text, or your own words for its free-text row), answers (one entry per question), ticks (a multi-select: the labels to leave ticked) or keys (a screen it cannot read as choices: quote it to your user, offer the keys as options, relay: true only). It submits once every question has an answer (submit false stops before that), reads back what the child registered, and errors if that differs from what you gave. The \"Chat about this\" row is refused. Codex: free text goes in its None of the above note, and an unanswered question expires after about two minutes. OpenCode: separate multi-select picks with commas.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "answer": {
-        "description": "one answer, for the dialog on the child's screen: the text of the option or choice to pick, or your own words to type into a question instead. Give one of answer, answers, ticks or keys",
+        "description": "one answer for the dialog on screen: the option's text, or your own words to type. Give one of answer, answers, ticks or keys",
         "type": "string"
       },
       "answers": {
-        "description": "one entry per question to answer, each naming its question by 1-based index, header or text (as read_session's digest.questions lists them) and giving the option text or your own words. Questions left out keep standing",
+        "description": "one entry per question, naming it by 1-based index, header or text (as read_session's digest.questions lists them) with the option text or your own words; questions left out stay open",
         "items": {
           "additionalProperties": false,
           "properties": {
@@ -61,11 +61,11 @@
               "type": "string"
             },
             "question": {
-              "description": "which question: its 1-based index, its header, or its text, as read_session's digest.questions lists them; empty for the question on the screen",
+              "description": "which question: its 1-based index, header or text, as digest.questions lists them; empty for the one on screen",
               "type": "string"
             },
             "ticks": {
-              "description": "for a multi-select question only: the labels of every option to leave ticked; every other box is unticked, the boxes are read back, and the question is submitted",
+              "description": "for a multi-select question only: the labels of every option to leave ticked; the rest are unticked",
               "items": {
                 "type": "string"
               },
@@ -86,7 +86,7 @@
         ]
       },
       "keys": {
-        "description": "for a screen answer_session cannot read as choices: the keys your user chose, such as [\"Down\", \"Enter\"] (Up, Down, Left, Right, Enter, Tab, BTab, Escape, Space, BSpace, or one letter or digit). Requires relay: true",
+        "description": "for a screen with no readable choices: the keys your user chose, such as [\"Down\", \"Enter\"] (Up, Down, Left, Right, Enter, Tab, BTab, Escape, Space, BSpace, or one letter or digit). Requires relay: true",
         "items": {
           "type": "string"
         },
@@ -96,22 +96,22 @@
         ]
       },
       "relay": {
-        "description": "true when every answer is your user's own: you put the child's dialog to them word for word with your own question tool after the child stopped on it, and pass exactly what they chose. Gate Inbox checks your transcript for that dialog and refuses a mismatch. Required for a question headed Approval, a permission prompt, a trust dialog and keys",
+        "description": "true when every answer is your user's own choice, asked word for word with your own question tool after the child stopped. Required for questions headed Approval, permission prompts, trust dialogs and keys",
         "type": "boolean"
       },
       "session_id": {
-        "description": "child session holding the question, as list_sessions or the relayed message names it",
+        "description": "child session holding the dialog, as list_sessions or the relayed message names it",
         "type": "string"
       },
       "submit": {
-        "description": "with answers: press Submit once every question has an answer. Defaults to true; false fills the answers in and leaves the review page for later",
+        "description": "with answers: press Submit once every question is answered (default true); false leaves the review page",
         "type": [
           "null",
           "boolean"
         ]
       },
       "ticks": {
-        "description": "for a multi-select question on the child's screen: the labels of every option to leave ticked; every other box is unticked, the boxes are read back and the question is submitted",
+        "description": "for a multi-select on screen: the labels of every option to leave ticked; the rest are unticked",
         "items": {
           "type": "string"
         },
@@ -301,12 +301,12 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "File a finished session out of the active list, or restore an archived one with archived false. Use it to keep the user's list readable once a session's work is done; cleanup_children files all of your finished children at once. This ENDS a running agent, and every session it spawned goes with it: the rows and their last screens are kept and revive_session brings one back, but work in progress stops, so read_session first if you are not sure it has finished. Every task those sessions held in progress goes back to pending for any session to claim, and the result says how many; restoring does not take them back.",
+  "description": "File a finished session out of the active list, or restore one with archived false. Archiving ENDS a running agent and every session it spawned (revive_session brings one back), so read_session first if you are not sure it has finished. Tasks they held go back to pending. Finished children archive on their own after a grace period.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "archived": {
-        "description": "true archives the session out of the active list, false restores it; defaults to true",
+        "description": "true (default) archives the session; false restores it",
         "type": [
           "null",
           "boolean"
@@ -638,65 +638,65 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Start another agent CLI in its own Gate Inbox session and hand it a task. Delegate within the user's task or an explicitly invoked skill without asking for separate permission to open a session. Respect explicit limits on delegation and ask before expanding the task's scope. Delegation does not grant tool permissions or replace required approvals. Call list_sessions first and reuse the session that owns the workstream, idle or working; use send_session with interrupt true when its current turn is wrong. Create a session only for a distinct workstream with no suitable owner. When it is called for, use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's subagent); keep the built-in tool for a quick read-only lookup. Pass a descriptive name and a prompt that is the whole brief, since the new agent cannot see this conversation: the goal and why, what is already known or ruled out, the files or docs to read (paths, not pasted text), the scope and its limits, the approvals it already has, and what to report back. Put a long brief in prompt_file. For repo work beside other agents, pass a directory that is its own checkout. Omit account to follow the board's launch-account setting; a child does not inherit its parent's account. The new session is your child: its questions, rests and finishes are relayed here. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session the user owns, with nothing relayed here. Pass tasks to hand it work from the shared task list: existing ids, or new tasks to create, all assigned to it alone. Follow it with read_session and send_session; use create_terminal for a plain shell.",
+  "description": "Start another agent CLI in its own Gate Inbox session and hand it a task. For new delegated work, use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's subagent); keep that for a quick read-only lookup. Call list_sessions first, and send_session instead when a session already owns the work. The new agent cannot see this conversation, so the prompt is the whole brief: the goal and why, what is already known or ruled out, the files or docs to read (paths, not pasted text), the scope and its limits, the approvals it already has, and what to report back. Put a long brief in prompt_file. For repo work beside other agents, pass a directory that is its own checkout. The new session is your child: its questions, rests and finishes are relayed here. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session the user owns. Follow it with read_session or wait_for_session.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "account": {
-        "description": "optional named account from list_accounts; omit to follow the board's launch-account setting (the CLI's own login unless the build's extension chooses); a child does not inherit its parent's account; a named account requires a CLI that accepts a token",
+        "description": "named account from list_accounts; omit to follow the board's launch-account setting; a child does not inherit its parent's account",
         "type": "string"
       },
       "directory": {
-        "description": "existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set; a group that pins its directory (list_groups pinned) starts the session there and hands it this one to change into, unless directory_reason is given",
+        "description": "existing directory to work in; defaults to this agent's, or to the group's path when group is set; a group that pins its directory starts the session there instead, unless directory_reason is given",
         "type": "string"
       },
       "directory_reason": {
-        "description": "why this session must start in directory itself although its group pins another; rarely needed, since a pinned group's directory is where the user wants work to start, so leave it empty unless the task only works when started there",
+        "description": "why the session must start in directory although its group pins another; leave empty unless the task only works when started there",
         "type": "string"
       },
       "group": {
-        "description": "existing group path for a detached session (nest false) to sit in; pass an empty string for the root group; a nested session is always in this agent's group and refuses any other; call list_groups for the existing ones",
+        "description": "existing group path for a detached session (nest false); empty string for the root group; a nested session refuses any group but this agent's",
         "type": [
           "null",
           "string"
         ]
       },
       "keep": {
-        "description": "keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished",
+        "description": "keep this child listed after it finishes; otherwise a finished child is archived once you have seen its finish and left it for the grace period (10 minutes by default)",
         "type": "boolean"
       },
       "model": {
-        "description": "model that CLI should run on, in whatever names it uses (claude: sonnet, opus, haiku, plus the 1M-context opus[1m] and sonnet[1m]; opencode: provider/model); call list_models for the names a CLI accepts rather than guessing one, since an unknown name is refused by the CLI and the session dies on launch; omit for the CLI's own default",
+        "description": "a model name the CLI accepts (claude: sonnet, opus, haiku, opus[1m], sonnet[1m]; opencode: provider/model); an unknown name kills the session at launch, so take names from list_models rather than guessing; omit for the CLI's default",
         "type": "string"
       },
       "name": {
-        "description": "kebab-case name for the new session, 2-4 words naming the work it will do (e.g. payments-retry-fix); leave empty only when the task is unknown, and the new agent will name itself",
+        "description": "kebab-case name of 2-4 words for the work (e.g. payments-retry-fix); leave empty only when the task is unknown",
         "type": "string"
       },
       "nest": {
-        "description": "omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that belongs to the user, not to this session: it still records this session in spawned_by, but this session is not told of its questions, rests or finishes and cannot answer its dialogs, and the two talk only through send_session and read_session; only for work that is not this session's, such as a standalone session the user asked for",
+        "description": "omit it: the new session is your child, and its questions, rests and finishes are relayed to you. false detaches it into a top-level session the user owns: nothing is relayed, you cannot answer its dialogs, and you reach it only with send_session and read_session. Only for work that is not yours, such as a standalone session the user asked for",
         "type": [
           "null",
           "boolean"
         ]
       },
       "prompt": {
-        "description": "first task to hand the new agent, written as a full instruction; it starts idle when empty; a long brief goes in a file named by prompt_file instead",
+        "description": "the whole brief, as a full instruction; empty starts the session idle; a long brief goes in prompt_file",
         "type": "string"
       },
       "prompt_file": {
-        "description": "absolute path of a file holding the first task, used instead of prompt when the brief is long; the server reads it, so write the brief once and name it here",
+        "description": "absolute path of a file holding the brief, used instead of prompt",
         "type": "string"
       },
       "skip_permissions": {
-        "description": "omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox, opencode through its generated config) and is refused unless the user allowed that for this session's children; false keeps its prompts on",
+        "description": "omit to follow the user's setting for this session's children; true launches it with its CLI's permission prompts off and is refused unless the user allowed that for your children; false keeps them on",
         "type": [
           "null",
           "boolean"
         ]
       },
       "tasks": {
-        "description": "tasks to assign to the new session before it starts, each either an existing pending task by id or a new one by title (with body and depends_on); only the new session can claim them, and its prompt gets a short list of their ids and titles telling it to claim and finish them with the task tool",
+        "description": "tasks to assign to the new session before it starts: existing pending tasks by id, or new ones by title (with body and depends_on); only it may claim them, and its prompt lists them",
         "items": {
           "additionalProperties": false,
           "properties": {
@@ -731,7 +731,7 @@
         ]
       },
       "tool": {
-        "description": "agent CLI to run, such as claude, codex or opencode; defaults to the CLI this session runs, and is required when this session is a terminal; call list_sessions to see which are in use",
+        "description": "agent CLI to run, such as claude, codex or opencode; defaults to this session's CLI, and is required when this session is a terminal",
         "type": "string"
       }
     },
@@ -990,24 +990,24 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Give one of your own spawned sessions a permission your user approved, when its permission system refused a step your brief needs -- a command that has to run outside the sandbox, a rule its auto-mode classifier will not pass, a host its sandbox cannot reach. An answer you key into the child is not its user's approval, so neither answer_session nor send_session can do this; this writes the one permission into that child's own settings file, never a shared one, and restarts it on its own conversation so it takes effect. A grant stands until revoked by default: once your user approves it, every Claude Code session Gate Inbox launches carries it, and asking again for a permission that already stands applies it to the child (restarting it) without a new question. Pass expires_in_minutes only for a permission one child should hold for a while. Call it first with the kind, value and window: unless your user already approved exactly that, it refuses with the exact question to put to them -- header Approval, the question naming the child, the window and the permission, options Grant and Don't grant. Ask your user that word for word with your own question tool, then call again; Gate Inbox checks your transcript for their Grant and spends it on this one grant. A step that runs several commands -- add, commit, push, merge -- is one decision: pass every prefix in values and the one question names them all. A prefix is one command, so chaining with \u0026\u0026 or ; is refused; list each command instead. Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code and pi children can be granted to. A pi child takes rule and unsandboxed_command grants (a soft_command or domain is refused, since pi has nothing for one to change) and is never restarted: its tool gate reads grants on every call, so a grant or revoke applies from its next tool call. A child adopted from outside the board is not restarted: rule and command-prefix grants and soft notes reach it through its hooks from its next tool call, and the result says plainly when part of a grant (a sandbox exclusion, a domain) needs a resume, which calling again with restart true does. revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: pass message with the instruction the grant is for, and it is queued for the child carrying your user's Grant as an attestation.",
+  "description": "Give a session you spawned one permission your user approved, when its permission system refused a step your brief needs: a command outside the sandbox, a step its auto-mode classifier blocks, a host its sandbox cannot reach. An answer or message you send a child is not its user's approval, so answer_session and send_session cannot do this. Call it first with kind, value or values, and any expires_in_minutes. Unless your user already approved exactly that, it refuses with the exact question to ask: header Approval, options Grant and Don't grant. Ask your user that word for word with your own question tool, then call again with the same arguments; Gate Inbox checks your transcript for their Grant and spends it on this one grant. A step that runs several commands (add, commit, push, merge) is one decision: list every command prefix in values. A prefix is one command; chaining with \u0026\u0026 or ; is refused. Prefer soft_command: it passes a refused step, even one run with dangerouslyDisableSandbox, while the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. Wildcards, whole tools, and anything touching settings files, sudo or credentials are always refused. The grant goes into that child's own settings file and the child restarts on its conversation, idle: pass message with the instruction the grant is for, and it is queued with your user's Grant attached. A grant stands for every session the board launches until revoked (revoke true; list_sessions shows grants); asking again for one that stands applies it without a new question. Use expires_in_minutes only for a permission one child should hold for a while. Only Claude Code and pi children take grants. A pi child takes rule and unsandboxed_command only and is not restarted; neither is a child adopted from outside the board, and the result says when part of a grant needs restart true.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "expires_in_minutes": {
-        "description": "omit to make it a standing grant every session keeps until revoked, which is never asked for again; set 1 to 1440 minutes only for a permission this child alone should hold for a while. The approval question names the scope",
+        "description": "omit for a standing grant, kept until revoked and never asked for again; 1 to 1440 only for a permission this child alone should hold for a while",
         "type": "integer"
       },
       "kind": {
-        "description": "what to widen: soft_command (prefer it: tells the child's auto-mode classifier the user approved commands starting with an exact prefix, sandboxed or not, while the classifier still judges each call), rule (one permission rule written Tool(pattern), such as Bash(./bin/fetch:*), which skips the classifier for what it matches), unsandboxed_command (an exact prefix that runs outside the sandbox without asking), or domain (one host the sandbox's network proxy lets through)",
+        "description": "soft_command (preferred: tells the child's auto-mode classifier the user approved commands starting with this exact prefix, sandboxed or not; the classifier still judges each call), rule (one permission rule Tool(pattern), such as Bash(./bin/fetch:*), which skips the classifier for what it matches), unsandboxed_command (an exact prefix that runs outside the sandbox without asking) or domain (one host the sandbox's network proxy lets through)",
         "type": "string"
       },
       "message": {
-        "description": "the instruction the grant is for, such as retry the merge; once granted it is queued for the child with your user's Grant attached as an attestation, so the approval need not be passed on again",
+        "description": "the instruction the grant is for, such as retry the merge; queued for the child with your user's Grant attached",
         "type": "string"
       },
       "restart": {
-        "description": "restart the child now even if it is working; without it a working child picks the change up at its next restart",
+        "description": "restart the child now even if it is working; otherwise a working child picks the change up at its next restart",
         "type": "boolean"
       },
       "revoke": {
@@ -1019,11 +1019,11 @@
         "type": "string"
       },
       "value": {
-        "description": "the command prefix, rule or host name, exactly as the approval question names it",
+        "description": "the command prefix, rule or host, exactly as the approval question names it",
         "type": "string"
       },
       "values": {
-        "description": "more of the same kind, approved by the same one question and granted together: name every command one approved step runs, such as the commit, the push and the merge, rather than asking once for each",
+        "description": "more of the same kind, approved by the same one question: every command one step runs, such as the commit, the push and the merge",
         "items": {
           "type": "string"
         },
@@ -1311,7 +1311,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Stop another agent's process, ending whatever it is doing. The row stays with its last screen and can be brought back with revive_session. Every task it held in progress goes back to pending for any session to claim, and the result says how many. Reserve it for a session whose work is finished or has gone wrong, and prefer send_session to redirect an agent that is still useful. Killing interrupts work in progress on the user's machine, so ask first unless the user asked for it.",
+  "description": "Stop another agent's process, ending its work. The row keeps its last screen, and revive_session brings it back. Tasks it held go back to pending. Prefer send_session to redirect an agent that is still useful. Killing interrupts work on the user's machine, so ask first unless the user asked for it.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -1619,31 +1619,31 @@
     "openWorldHint": false,
     "readOnlyHint": true
   },
-  "description": "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, background, finished, idle, errored, hibernating, dead; hibernating is a session stopped to give its memory back, not a dead one: any message sent to it wakes it on its conversation, so send to it rather than reviving it; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it; background is a session whose turn ended with a shell, monitor or task still running, which wakes it into another turn) and which row is this session. Send to the session that already owns the work, idle or working, instead of creating another; use create_session for a distinct workstream with no suitable owner, within the user's task or an explicitly invoked skill. Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
+  "description": "Call first whenever the work involves another agent: before delegating, before reporting on the fleet, and to find a session's id. Lists the board's agent sessions (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories and statuses, and marks this session's row. hibernating means stopped to free memory: a message wakes it, so send to it rather than reviving it. delegating means its turn ended while its children still run; background means its turn ended with a shell or task still running. Send to the session that already owns the work rather than calling create_session for it. Filter rather than reading the whole board: parent \"me\" for your children, status by state; archived rows are left out unless asked for.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "include_archived": {
-        "description": "also list sessions archived out of the active list, which on a long-lived board are most of the table; pass it only when looking for a row to restore with archive_session",
+        "description": "also list archived rows, most of a long-lived board; only when looking for one to restore",
         "type": "boolean"
       },
       "include_text": {
-        "description": "when false, the readable rendering is replaced by a one-line count and the rows come back only in the structured result, which halves the reply; omit or true for both renderings",
+        "description": "false returns the rows only in the structured result, with a one-line count as text",
         "type": [
           "null",
           "boolean"
         ]
       },
       "limit": {
-        "description": "how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent",
+        "description": "rows to return (default 50, maximum 500); the reply says how many matched",
         "type": "integer"
       },
       "parent": {
-        "description": "keep only the sessions this one spawned; pass \"me\" for this session's own children, which is the fan-out it is steering; omit for every session whoever spawned it",
+        "description": "\"me\" for the sessions you spawned; omit for every session",
         "type": "string"
       },
       "status": {
-        "description": "keep only sessions in these states: starting, working, waiting, delegating, background, finished, idle, errored, hibernating or dead; omit for every state",
+        "description": "keep only these states: starting, working, waiting, delegating, background, finished, idle, errored, hibernating or dead",
         "items": {
           "type": "string"
         },
@@ -1875,7 +1875,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
   },
-  "description": "Check what happened to a message send_session queued: still queued, held, delivered into the agent's prompt, dropped, or answered. Works for a message you sent and for any message sent to a session you spawned, so you can audit what reached your children. Call it when you need to know a handoff landed before you build on it, instead of reading the other agent's screen. Superseded means a later message you sent on the same subject replaced it, and that one is what the agent reads. Held means nothing will type it in as things stand: the recipient's screen is showing a dialog that has to be answered first, or its session is archived or no longer running, and reason says which. Dropped means it never reached the prompt and will not be retried, so send it again.",
+  "description": "Check what happened to a message send_session queued, before you build on the handoff: queued, held, delivered, superseded, dropped or answered. Works for your own messages and any message sent to a session you spawned. Held: nothing will type it in as things stand (a dialog on screen, or the session archived or not running); reason says which. Superseded: a later message on the same subject replaced it. Dropped: it will not be retried, so send it again.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -2347,7 +2347,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
   },
-  "description": "Read what another agent is doing: call it after create_session to confirm the agent started on the task, and again to check progress, read an answer, or see why a session is waiting. Every read returns a digest -- the session's status, the question it is holding if any, and the last thing it said -- so check whether a child finished there rather than by reading its prose for a verdict. When it is on a question dialog, digest.questions lists every question in it -- index, header, full text, options with their descriptions, and which are already answered -- including the ones a several-question dialog is not showing, read without touching its pane. With no since, output is the plain text visible in that session's pane, which is the current screen rather than its full history, and a stopped session returns the last screen Gate Inbox captured. Pass the cursor a previous read returned as since and output is only what the session has added since then, which is what a repeat read should use: the whole pane again is the same few thousand characters whether the agent worked for a minute or an hour. A session whose transcript cannot be read returns its pane anyway, with degraded saying why.",
+  "description": "Read what another agent is doing: after create_session to confirm it started, and later to check progress, read an answer, or see why it is waiting. Every read returns a digest: its status, any question it is holding (digest.questions lists each, with its options), and the last thing it said. Check there whether a child finished. output is the current screen, not its full history; a stopped session returns its last captured screen. On a repeat read, pass the cursor the previous read returned as since to get only what was added. degraded says why a transcript could not be read.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -2807,7 +2807,7 @@
 
 === rename
 {
-  "description": "Rename this session to a short 2-4 word kebab-case name for the broad feature it is about. Call once, only while the session still has a placeholder name (e.g. claude-a1b2); your launch instructions say when. If the session already has a real name, leave it unless the user asks to rename. Prefer a broad feature name over a single subtask.",
+  "description": "Rename this session to a 2-4 word kebab-case name for the broad feature it is about. Call once, only while it still has a placeholder name (e.g. claude-a1b2); your launch instructions say when. Leave a real name alone unless the user asks.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -3062,7 +3062,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Bring a dead session back on its old row, resuming the conversation it held where its CLI supports that. Call when list_sessions or send_session reports a session is not running and its work should continue. Task claims a kill or archive handed back stay released: the revived agent claims again with task what it still means to do, and is refused if another session took it meanwhile.",
+  "description": "Bring a dead session back on its row, resuming its conversation where its CLI supports that, when its work should continue. Tasks it held were released when it stopped: it claims again what it still means to do, and is refused one another session took.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -3274,24 +3274,24 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Queue a message for another agent, to give a session you spawned its next task, answer a question read_session surfaced, or redirect work going the wrong way. The other agent has no view of this conversation, so send a self-contained instruction. The message is not typed in the instant you send it: Gate Inbox holds it until that agent can read it -- at rest, or for Claude Code mid-turn, where it is queued and read after the running tool call -- so it can never land on an approval prompt and answer it. A successful send means queued, not delivered: do not tell anyone the agent has it until message_status says delivered. Two modes. By default (interrupt false) the agent finishes the tool call in hand and then reads the message. With interrupt true, Gate Inbox first stops the agent's running turn (Escape for Claude Code) and types the message in as its next turn: use it when the work in progress is wrong and every further step is waste. Interrupt is refused for a CLI with no safe way to stop a turn, and neither mode ever sends keys while a permission or question dialog is showing: the message is held and the result says so. It arrives labelled as coming from another agent rather than from the user, and cannot approve permissions or change that agent's configuration. Returns a message id for message_status, and says so straight away when nothing will type the message in as things stand -- an agent sitting on a dialog is the usual reason, and answer_session is what clears that. Pass subject to label what the message is about: your next message on the same subject replaces this one if it has not been read yet, so a correction reaches the agent instead of queueing behind what it corrects. Call read_session to see what the agent did with it. Refused rather than delivered: identical text to the same session inside ten minutes, more than five messages a minute per recipient, more than twenty undelivered held by a recipient, or a message over 8000 bytes (point the agent at a file or a task instead). A message already written to disk is sent by naming it in message_file instead of pasting it into message. After a refusal, call message_status on the earlier message rather than sending again.",
+  "description": "Queue a message for another agent: a spawned session's next task, an answer to a question it asked, or a correction. It cannot see this conversation, so send a self-contained instruction. A successful send means queued, not delivered: Gate Inbox types it in when the agent can read it (at rest, or for Claude Code after its running tool call), never onto a dialog. Do not tell anyone the agent has it until message_status says delivered. It arrives labelled as from another agent rather than from the user, and cannot approve permissions or change that agent's configuration. A child stopped on a dialog needs answer_session. interrupt true stops the running turn first (Escape for Claude Code) so the message is its next turn: use it when the work in progress is wrong. It is refused for a CLI with no safe interrupt. subject labels the message: your next one on the same subject replaces it while unread. A message already on disk goes in message_file. Refused: identical text to the same session within ten minutes, more than five messages a minute to one recipient, more than twenty undelivered held for one recipient, or over 8000 bytes (point the agent at a file or a task instead). After a refusal, call message_status on the earlier message rather than sending again. Returns a message id; the result says at once when nothing will type the message in, usually because of a dialog. Call read_session to see what the agent did with it.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "interrupt": {
-        "description": "true stops the agent's running turn first (Escape for Claude Code) so this message is its next turn right away; false, the default, lets it finish the step in hand and read the message after. Refused for a CLI with no safe interrupt; never sent while a dialog is showing",
+        "description": "true stops the agent's running turn first so this message is its next turn; false (default) lets it finish the step in hand. Refused for a CLI with no safe interrupt; never sent while a dialog is showing",
         "type": "boolean"
       },
       "message": {
-        "description": "message typed into that agent's prompt as its next turn; write it as a full instruction, since the other agent does not see this conversation; or name a file in message_file",
+        "description": "the message, as a full instruction, since the other agent does not see this conversation; or name a file in message_file",
         "type": "string"
       },
       "message_file": {
-        "description": "absolute path of a file holding the message, used instead of message; the same size limit applies to what it holds",
+        "description": "absolute path of a file holding the message, used instead of message; the same size limit applies",
         "type": "string"
       },
       "relay_question": {
-        "description": "relays your user's approval to a child you spawned: the question you put to your user with your own question tool, word for word. Gate Inbox checks your transcript holds your user's own answer to it, given after the child was spawned, within 30 minutes and never relayed before, and attaches an attestation quoting both that the child's hook verifies once. Refused while the child holds its own Approval dialog: answer that with answer_session relay: true",
+        "description": "passes your user's approval to a child you spawned: the question you asked your user with your own question tool, word for word. Gate Inbox checks your transcript for their answer (given after the child was spawned, within 30 minutes, not relayed before) and attaches it as an attestation the child's hook verifies once. Refused while the child shows its own Approval dialog: answer that with answer_session relay: true",
         "type": "string"
       },
       "session_id": {
@@ -3299,7 +3299,7 @@
         "type": "string"
       },
       "subject": {
-        "description": "short label for what this message is about, such as which-branch or stand-down; a later message you send to the same agent under the same label replaces this one if it has not been read yet, so a correction arrives instead of queueing behind what it corrects",
+        "description": "short label such as which-branch or stand-down; a later message to the same agent on the same subject replaces this one while it is unread",
         "type": "string"
       }
     },
@@ -3593,7 +3593,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle, and pass a note saying what came of it (the outcome, a PR link, what is left): the note stays on the task, and the session that created the task is sent a message with it and with the dependents that just became claimable, unless you created it yourself or its creator is archived or gone. assign points a pending task at one session, the only one that may then claim it, or omitting assignee unassigns it; its creator or current assignee can do it, and create takes assignee too. A claim without task_id takes the tasks assigned to you first; create_session's tasks argument assigns work to a child as it starts, and an archived or killed session's assigned tasks go back to anyone. release hands a claimed task back for another session. delete removes work that turned out not to be needed; it refuses a task another session holds, and one unfinished tasks depend on, naming them, and force true deletes it anyway, taking its dependency edges along so its dependents become claimable, which the reply lists. prune clears stale work off the list: pending tasks older than older_than_days (default 14) whose creator is archived, deleted or was never recorded; it is a dry run listing them unless dry_run is false, and it keeps any task a task in progress depends on. A session that is archived or killed gives its in-progress claims back to pending, and its assignments back to anyone, on its own, so no task waits behind an agent that is gone.",
+  "description": "The shared work list every session on the board claims from; action picks the operation. list: call it before starting work so two agents do not build the same thing. It returns open work (pending and in_progress) as titles, 50 rows by default; the list: arguments narrow or widen it. create: put work up for any session instead of keeping the plan to yourself; split a fleet's plan into tasks and order them with depends_on. claim: take a task before starting it. Without task_id it takes a task assigned to you first, then the oldest unblocked pending task your fleet created (any true widens that to the whole list). A task another session holds is refused. finish: mark it done the moment the work completes, with a note on what came of it; its creator is sent the note, and its dependents become claimable. assign: point a pending task at the one session that may claim it (its creator or assignee may do this); omit assignee to unassign. create_session's tasks argument assigns work to a child as it starts. release: hand a claimed task back. delete: remove work no longer needed; it refuses a task another session holds or one unfinished tasks depend on, unless force is true. prune: clear stale pending tasks whose creator is gone; a dry run unless dry_run is false. An archived or killed session's claims and assignments go back to the list on their own.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -3602,15 +3602,15 @@
         "type": "string"
       },
       "any": {
-        "description": "claim: without task_id, take the oldest ready task on the whole list instead of only your fleet's; tasks created by unrelated sessions or before creators were recorded are often stale",
+        "description": "claim: without task_id, take the oldest ready task on the whole list, not only your fleet's; others' tasks are often stale",
         "type": "boolean"
       },
       "assignee": {
-        "description": "create, assign: the one session that may claim the task: me, or a session id; on assign, omit it to unassign",
+        "description": "create, assign: the one session that may claim it: me, or a session id; omit on assign to unassign",
         "type": "string"
       },
       "body": {
-        "description": "create: full instruction for whoever claims it; it cannot see this conversation; or name a file in body_file",
+        "description": "create: full instruction for whoever claims it, who cannot see this conversation; or name a file in body_file",
         "type": "string"
       },
       "body_file": {
@@ -3618,11 +3618,11 @@
         "type": "string"
       },
       "created_by": {
-        "description": "list: keep only tasks this session created: me, or a session id",
+        "description": "list: only tasks created by me, or by a session id",
         "type": "string"
       },
       "depends_on": {
-        "description": "create: ids of tasks that must be done first; a task with unfinished dependencies cannot be claimed",
+        "description": "create: ids of tasks that must finish before this one can be claimed",
         "items": {
           "type": "string"
         },
@@ -3632,46 +3632,46 @@
         ]
       },
       "dry_run": {
-        "description": "prune: true (the default) lists what would be deleted and deletes nothing; false deletes it",
+        "description": "prune: true (default) lists what would be deleted; false deletes it",
         "type": [
           "null",
           "boolean"
         ]
       },
       "fleet": {
-        "description": "list: keep only tasks your fleet created: you, the session that spawned you or the parent you sit under, and every session you spawned or have under you; the same set a claim without task_id takes from",
+        "description": "list: only tasks your fleet created (you, your spawner or parent, and every session under you); the set a claim without task_id takes from",
         "type": "boolean"
       },
       "force": {
-        "description": "delete: delete a task another session holds, or one unfinished tasks depend on; its dependency edges go with it, so its dependents become claimable and the reply names them",
+        "description": "delete: delete even a task another session holds or one unfinished tasks depend on; its dependents become claimable and the reply names them",
         "type": "boolean"
       },
       "include_body": {
-        "description": "list: carry each task's full instruction; claim returns the body anyway, so choosing what to claim needs only the titles",
+        "description": "list: include each task's full instruction; claim returns it anyway",
         "type": "boolean"
       },
       "include_done": {
-        "description": "list: also list finished tasks, which on a long-lived list are most of it; pass it only when checking what was done",
+        "description": "list: also list finished tasks",
         "type": "boolean"
       },
       "limit": {
-        "description": "list: how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent",
+        "description": "list: rows to return (default 50, maximum 500); the reply says how many matched",
         "type": "integer"
       },
       "mine": {
-        "description": "list: keep only tasks this session holds or finished",
+        "description": "list: only tasks this session holds or finished",
         "type": "boolean"
       },
       "note": {
-        "description": "finish: what came of the work, for whoever reads the list and for the task's creator, who is sent it: the outcome, a PR link, what is left undone; at most 4000 bytes",
+        "description": "finish: what came of the work (the outcome, a PR link, what is left), sent to the task's creator; at most 4000 bytes",
         "type": "string"
       },
       "older_than_days": {
-        "description": "prune: sweep only stale tasks created more than this many days ago (default 14)",
+        "description": "prune: only tasks created more than this many days ago (default 14)",
         "type": "integer"
       },
       "state": {
-        "description": "list: keep only tasks in these states: pending, in_progress or done; omit for pending and in_progress, which is the work still open",
+        "description": "list: keep only these states: pending, in_progress or done; default pending and in_progress",
         "items": {
           "type": "string"
         },
@@ -3681,11 +3681,11 @@
         ]
       },
       "task_id": {
-        "description": "task to act on; omit on claim to take the oldest pending task nothing is blocking that your fleet created",
+        "description": "task to act on; omit on claim to take the next ready task",
         "type": "string"
       },
       "title": {
-        "description": "create: one-line summary of the work, specific enough that another agent knows what done looks like",
+        "description": "create: one-line summary, specific enough that another agent knows what done looks like",
         "type": "string"
       }
     },
@@ -4308,20 +4308,20 @@
     "openWorldHint": false,
     "readOnlyHint": true
   },
-  "description": "Park until a session you are waiting on stops working, instead of calling read_session in a loop. Call it after handing an agent a task when your next step depends on its result. For a fan-out pass children true, or several session_ids: one call parks on the whole set and returns the moment any one of them arrives, so never wait on children one at a time. By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored, hibernating or dead; a session at rest while its own children are still going reads delegating, one resting on a shell still running reads background, and neither ends the wait); pass until to wait for particular states. It counts from your own handoff. While a message you sent that session is still queued, its state describes the turn before, so the wait carries on until that message goes in and its turn ends. Pass timeout_s for how long to park. A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",
+  "description": "Park until a session you are waiting on stops working, instead of calling read_session in a loop. For a fan-out pass children true, or several session_ids: one call returns as soon as any one of them arrives, so never wait on children one at a time. By default it returns on finished, waiting, idle, errored, hibernating or dead; delegating and background do not end it; until picks other states. While a message you sent is still queued, the wait goes on until it is read and that turn ends. A timeout is a normal answer, not a failure: reached false, with the actual state, and outcome reached, timed_out or died. standing gives every waited-on session's outcome; read_session the one that moved.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "children": {
-        "description": "park on every session you spawned, which is what a fan-out wants; give this instead of session_id or session_ids, never alongside them",
+        "description": "wait on every session you spawned, instead of session_id or session_ids",
         "type": "boolean"
       },
       "session_id": {
-        "description": "one session id returned by list_sessions or create_session; for a fan-out use children, or session_ids",
+        "description": "one session id; for a fan-out use children or session_ids",
         "type": "string"
       },
       "session_ids": {
-        "description": "several session ids to park on at once; the call ends as soon as any one of them arrives and reports where all of them stand",
+        "description": "several session ids; the call returns as soon as any one of them arrives",
         "items": {
           "type": "string"
         },
@@ -4331,11 +4331,11 @@
         ]
       },
       "timeout_s": {
-        "description": "seconds to wait before giving up, default 50, maximum 120; your own client may cut the call short before this",
+        "description": "seconds to wait, default 50, maximum 120; your client may end the call sooner",
         "type": "integer"
       },
       "until": {
-        "description": "states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, hibernating, dead); delegating, a session at rest whose own children are still going, and background, one whose turn ended with a shell or task still running, are not among them. Valid values: starting, working, waiting, delegating, background, finished, idle, errored, hibernating, dead",
+        "description": "states that end the wait (default: finished, waiting, idle, errored, hibernating, dead). Valid values: starting, working, waiting, delegating, background, finished, idle, errored, hibernating, dead",
         "items": {
           "type": "string"
         },

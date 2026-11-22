@@ -794,12 +794,43 @@ func TestServerTeachesDelegationWorkflow(t *testing.T) {
 func TestServerCarriesSteeringOnlyWhenAskedTo(t *testing.T) {
 	steered := connectServer(t, NewServer(t.TempDir(), "abc123", "test", all.Extensions(), "opencode")).InitializeResult().Instructions
 	want, _ := mcpreg.ServerSteering("opencode", true)
-	if !strings.HasPrefix(steered, serverInstructions) || !strings.Contains(steered, want) {
+	if !strings.HasPrefix(steered, withoutDelegation(serverInstructions)) || !strings.Contains(steered, want) {
 		t.Fatalf("steered instructions are not the shared block plus the opencode steering:\n%s", steered)
 	}
 	plain := connect(t, t.TempDir(), "abc123").InitializeResult().Instructions
 	if strings.Contains(plain, "# Session naming") || strings.Contains(plain, "# Delegating work") {
 		t.Fatalf("an unsteered server carries launch steering:\n%s", plain)
+	}
+}
+
+// Each CLI reads the delegation rule once: claude from this server's block,
+// codex, opencode and pi from their launch steering, so their block leaves
+// its own copy out. No tool description repeats it.
+func TestEachCLIReadsTheDelegationRuleOnce(t *testing.T) {
+	dir := t.TempDir()
+	for _, c := range []struct {
+		name   string
+		reads  string
+		launch string
+	}{
+		{"claude", connectServer(t, NewProfileServer(dir, "abc123", "test", nil, "", ProfileCore)).InitializeResult().Instructions, ""},
+		{"codex", connectServer(t, NewProfileServer(dir, "abc123", "test", nil, "codex", ProfileCore)).InitializeResult().Instructions, mcpreg.DelegationSteering("codex")},
+		{"opencode", connectServer(t, NewProfileServer(dir, "abc123", "test", nil, "opencode", ProfileCore)).InitializeResult().Instructions, ""},
+		{"pi", PiInstructions(dir), ""},
+		{"claude adopted", AdoptedInstructions(), ""},
+	} {
+		if n := strings.Count(c.reads+c.launch, mcpreg.DelegationRule); n != 1 {
+			t.Errorf("%s reads the delegation rule %d times, want once:\n%s", c.name, n, c.reads)
+		}
+	}
+	listed, err := connect(t, dir, "abc123").ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range listed.Tools {
+		if strings.Contains(tool.Description, "without asking for separate permission") {
+			t.Errorf("%s description repeats the delegation rule", tool.Name)
+		}
 	}
 }
 
@@ -852,7 +883,7 @@ func TestSessionDescriptionsTeachWhenAndHowToChainTools(t *testing.T) {
 	}
 	for tool, wants := range map[string][]string{
 		"list_sessions":    {"Call first", "create_session"},
-		"create_session":   {"instead of your CLI's built-in subagent tool", "quick read-only lookup", "without asking for separate permission to open a session", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
+		"create_session":   {"instead of your CLI's built-in subagent tool", "quick read-only lookup", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
 		"read_session":     {"after create_session", "current screen"},
 		"send_session":     {"self-contained instruction", "read_session", "at rest", "another agent rather than from the user"},
 		"message_status":   {"delivered", "queued"},

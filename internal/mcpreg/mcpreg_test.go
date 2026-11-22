@@ -78,7 +78,7 @@ func TestApplyCodexAppendsOverrides(t *testing.T) {
 	}
 	for _, want := range []string{
 		`mcp_servers.gate-inbox.command="/opt/bin/gate-inbox"`,
-		`mcp_servers.gate-inbox.args=["mcp"]`,
+		`mcp_servers.gate-inbox.args=["mcp","--steering","codex"]`,
 		`mcp_servers.gate-inbox.env_vars=["GATE_INBOX_SESSION_ID"]`,
 	} {
 		if !strings.Contains(command, want) {

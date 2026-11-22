@@ -6,7 +6,8 @@ import "github.com/usestring/gate-inbox/internal/mcpreg"
 // managed pi session's system prompt: this server's instructions and the
 // launch steering (mcpreg.PiSteering). Pi declares the server's tools to the
 // model but shows it only the first line of the server's instructions, so
-// the whole block has to arrive the way a launch's own steering does.
+// the whole block has to arrive the way a launch's own steering does. The
+// block goes without its delegation paragraph, which PiSteering states.
 func PiInstructions(configDir string) string {
-	return serverInstructions + "\n\n" + mcpreg.PiSteering(namingAsks(configDir))
+	return withoutDelegation(serverInstructions) + "\n\n" + mcpreg.PiSteering(namingAsks(configDir))
 }

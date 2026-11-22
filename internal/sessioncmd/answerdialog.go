@@ -37,11 +37,11 @@ import (
 
 // QuestionAnswer is one answer in a call answering several questions.
 type QuestionAnswer struct {
-	Question string `json:"question" jsonschema:"which question: its 1-based index, its header, or its text, as read_session's digest.questions lists them; empty for the question on the screen"`
+	Question string `json:"question" jsonschema:"which question: its 1-based index, header or text, as digest.questions lists them; empty for the one on screen"`
 	Answer   string `json:"answer,omitempty" jsonschema:"the option's text to pick it, or your own words to type into that question's free-text row; give this or ticks"`
 	// Ticks answers a multi-select: the boxes to leave ticked, every other
 	// box unticked.
-	Ticks []string `json:"ticks,omitempty" jsonschema:"for a multi-select question only: the labels of every option to leave ticked; every other box is unticked, the boxes are read back, and the question is submitted"`
+	Ticks []string `json:"ticks,omitempty" jsonschema:"for a multi-select question only: the labels of every option to leave ticked; the rest are unticked"`
 	// typed puts Answer in the free-text row even when it reads as one of the
 	// options: the board's own snippets, whose words are never a pick.
 	typed bool

@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.3.0](https://github.com/usestring/gate-inbox/compare/v1.2.0...v1.3.0) (2026-11-20)
+
+
+### Features
+
+* **cli:** let gate-inbox sweep apply its proposals with --apply ([#695](https://github.com/usestring/gate-inbox/issues/695)) ([dd1c922](https://github.com/usestring/gate-inbox/commit/dd1c922eb10df153c8bd7868645490cf98cdf910))
+* **extension:** tell extensions when a session's agent was launched ([#719](https://github.com/usestring/gate-inbox/issues/719)) ([3fcbb86](https://github.com/usestring/gate-inbox/commit/3fcbb861be01ea201be8795945f0ce17cf693a36))
+* **groups:** file loose sessions into groups by topic with the classifier ([#659](https://github.com/usestring/gate-inbox/issues/659)) ([5fcc9f6](https://github.com/usestring/gate-inbox/commit/5fcc9f6e54930c6bbc8aea0feba2951b658e869e))
+* **mcp:** say what a brief, a child's report and a done status carry ([#722](https://github.com/usestring/gate-inbox/issues/722)) ([50e8ec9](https://github.com/usestring/gate-inbox/commit/50e8ec922bfe220c70ea5e8f314197324ce52c93))
+* **omp:** filter omp transcripts on migrate and handover [stack 4/4] ([#714](https://github.com/usestring/gate-inbox/issues/714)) ([c7169e5](https://github.com/usestring/gate-inbox/commit/c7169e5f3499f1a6c9ddb5e729a8ab3f3bf1c1a5))
+* **omp:** give omp sessions the board's MCP tools and skills [stack 3/4] ([#713](https://github.com/usestring/gate-inbox/issues/713)) ([6ff0504](https://github.com/usestring/gate-inbox/commit/6ff05040ee506c538ad5f1219a53f49a62a2ecf0))
+* **omp:** read omp's session store [stack 1/4] ([#709](https://github.com/usestring/gate-inbox/issues/709)) ([10a8845](https://github.com/usestring/gate-inbox/commit/10a8845e40a02013583d168e1915dd9e1a37bd08))
+* **omp:** run the board's extension in omp sessions [stack 2/4] ([#712](https://github.com/usestring/gate-inbox/issues/712)) ([682ea03](https://github.com/usestring/gate-inbox/commit/682ea030be56a200a4fa9587fea854d1ca9b30a9))
+* **ui:** pick existing worktrees when launching sessions ([#567](https://github.com/usestring/gate-inbox/issues/567)) ([ab8836e](https://github.com/usestring/gate-inbox/commit/ab8836e2310e5b4b5564b3198061377f26aab452))
+* **ui:** suggest a next step on finished sessions from PR and CI state ([#696](https://github.com/usestring/gate-inbox/issues/696)) ([a929788](https://github.com/usestring/gate-inbox/commit/a929788822e2066a66acc0783d2b3783c4136a79))
+
+
+### Bug Fixes
+
+* **pi:** auto-run safe actions without redundant prompts ([#728](https://github.com/usestring/gate-inbox/issues/728)) ([f505a93](https://github.com/usestring/gate-inbox/commit/f505a933871aaa805b85ebe1a0c56da596ddb65b))
+* **prompts:** make the delegation, relay and tool texts agree with the code ([#721](https://github.com/usestring/gate-inbox/issues/721)) ([a7fea19](https://github.com/usestring/gate-inbox/commit/a7fea19e61e3cb2a6d6a256314280c3a75fc28f4))
+* **relay:** withdraw a parent's copy of a child question once it is answered elsewhere ([#724](https://github.com/usestring/gate-inbox/issues/724)) ([5d73418](https://github.com/usestring/gate-inbox/commit/5d734182b60c5d297ec29b7b51deffa862ee0e24))
+* **ui:** fit the search row in the key map and re-record golden files stale on main ([#720](https://github.com/usestring/gate-inbox/issues/720)) ([8e88f2d](https://github.com/usestring/gate-inbox/commit/8e88f2d7c5ad279be982c172410b3f5aa9a69a70))
+* **ui:** let drag-select copy from the pane with the rail hidden ([#718](https://github.com/usestring/gate-inbox/issues/718)) ([4b7c4ba](https://github.com/usestring/gate-inbox/commit/4b7c4ba70cacefa6431960580e18d351ef0279ff))
+* **ui:** show Claude permission prompts in the preview ([#563](https://github.com/usestring/gate-inbox/issues/563)) ([08b929d](https://github.com/usestring/gate-inbox/commit/08b929d9ae904110128650e4b37b15a5f72768ea))
+
 ## [1.2.0](https://github.com/usestring/gate-inbox/compare/v1.1.0...v1.2.0) (2026-11-20)
 
 

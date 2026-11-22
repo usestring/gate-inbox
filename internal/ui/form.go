@@ -1026,7 +1026,8 @@ type skipPermissions struct{ self, children bool }
 func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string, form map[string]string, perms skipPermissions, named string) (string, error) {
 	tool := m.cfg.Tools[toolName]
 	id := newID()
-	account, err := accounts.Select(m.store, tool, named, accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchSpawn})
+	warning := ""
+	account, err := accounts.Select(m.store, tool, named, accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchSpawn, Warn: func(why string) { warning = why }})
 	if err != nil {
 		return "", err
 	}
@@ -1070,7 +1071,16 @@ func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt strin
 		}
 		m.awaitedRenames[id] = awaitedRename{generated: name, prompt: prompt}
 	}
+	if warning != "" {
+		m.errBar.text = ownLoginFallback(warning)
+	}
 	return id, nil
+}
+
+// ownLoginFallback is the status line for a launch the account chooser
+// could not place because the accounts it picked are unavailable.
+func ownLoginFallback(why string) string {
+	return why + "; launched on the CLI's own login"
 }
 
 func (m *Model) buildLaunch(toolName string, tool config.Tool, baseCommand, id, model, account string, skip bool, contributed map[string]string) (string, map[string]string, error) {

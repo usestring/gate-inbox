@@ -27,8 +27,9 @@ type PaneInput struct {
 	// a key that types nothing, which Key names instead.
 	Text string
 	// Key is a key that types nothing, by its tmux name: "BSpace", "Left",
-	// "Enter", "C-w". Alt adds an "M-" prefix, and turns a character into
-	// a named key, so alt+b is "M-b". It is empty when Text is set.
+	// "Enter", "C-w". Alt adds an "M-" prefix. It also turns a character
+	// into a named key, with the character masked as Text's are, so alt+b
+	// arrives as "M-x". It is empty when Text is set.
 	Key string
 	// Paste is set when Text arrived as a paste. A snippet the board types
 	// into the pane is one, whether or not it is sent with it.

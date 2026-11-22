@@ -156,8 +156,8 @@ func TestFocusedKeysAndPastesAreReportedAsPaneInput(t *testing.T) {
 	if bs.Text != "" || bs.Key != "BSpace" || !bs.Ready.Equal(k.At) {
 		t.Fatalf("backspace %+v, want it ready at the second key's %v", bs, k.At)
 	}
-	if altB.Text != "" || altB.Key != "M-b" {
-		t.Fatalf("alt+b %+v, want it named M-b", altB)
+	if altB.Text != "" || altB.Key != "M-x" {
+		t.Fatalf("alt+b %+v, want it named M-x, its character masked", altB)
 	}
 	if paste.Text != " xxx xxxxxxx xxxx" || !paste.Paste || paste.Key != "" || !paste.Ready.IsZero() {
 		t.Fatalf("paste %+v", paste)
@@ -242,7 +242,9 @@ func TestSnippetTypedIntoAPaneIsReportedAsAPaste(t *testing.T) {
 
 // What the operator types or pastes reaches extensions as its shape only: a
 // password typed at a prompt that doesn't echo, or a pasted key, keeps its
-// length and word breaks and loses its characters.
+// length and word breaks and loses its characters. A character typed with
+// alt, as one typed just after Escape arrives, loses its character from
+// the key's name.
 func TestASecretTypedOrPastedNeverReachesAnExtension(t *testing.T) {
 	m := buildModel(t)
 	m.autoProceed = false
@@ -255,20 +257,24 @@ func TestASecretTypedOrPastedNeverReachesAnExtension(t *testing.T) {
 	for _, r := range "hunter2 é!" {
 		m.handleFocusKey(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
+	m.handleFocusKey(tea.KeyPressMsg{Code: 'é', Mod: tea.ModAlt})
 	m.handleFocusPaste(tea.PasteMsg{Content: "sk-live-AbC123\tok\n"})
 	m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	got := paneInputs(observer)
-	var typed, pasted strings.Builder
+	var typed, pasted, keys strings.Builder
 	for _, in := range got {
-		if in.Paste {
+		switch {
+		case in.Paste:
 			pasted.WriteString(in.Text)
-		} else {
+		case in.Key != "":
+			keys.WriteString(in.Key + " ")
+		default:
 			typed.WriteString(in.Text)
 		}
 	}
-	if typed.String() != "xxxxxxx xx" || pasted.String() != "xxxxxxxxxxxxxx\txx\n" {
-		t.Fatalf("typed %q and pasted %q, want only their shapes", typed.String(), pasted.String())
+	if typed.String() != "xxxxxxx xx" || pasted.String() != "xxxxxxxxxxxxxx\txx\n" || keys.String() != "M-x Enter " {
+		t.Fatalf("typed %q, pasted %q and keys %q, want only their shapes", typed.String(), pasted.String(), keys.String())
 	}
 	if seen := fmt.Sprintf("%+v", got); strings.Contains(seen, "hunter") || strings.Contains(seen, "sk-live") {
 		t.Fatalf("an extension received the secret: %s", seen)

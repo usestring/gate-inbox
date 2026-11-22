@@ -34,6 +34,8 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},
 	{jevCopySetting, "Smart copy", "On a key, copy the command, link or value the agent left for you in its last message.\nUses the selected classifier; sends that message to that service.",
 		func(s *settingsState) *bool { return &s.jevCopyOn }},
+	{autoGroupSetting, "Auto group", "File a session left at the root into the group its task belongs to, a preset or a new one-off group.\nUses the selected classifier; sends its name, directory and first prompt to that service.",
+		func(s *settingsState) *bool { return &s.autoGroupOn }},
 	{reviewQueueSetting, "Review queue", "Fetch the pull requests you were asked to review on GitHub onto a Reviews tab (]).\nRuns on the ingest key only; [integrations.reviews] sets what counts as an ask.",
 		func(s *settingsState) *bool { return &s.reviewQueue }},
 	{store.CIFeedbackSetting, "PR CI feedback", "Return failed CI checks to the live agent that opened the pull request.\nAllows up to two repair prompts until CI passes; requires the GitHub integration.",

@@ -167,6 +167,8 @@ type Model struct {
 	jevFinish      jevFinishState
 	jevCopyOn      bool
 	jevCopy        jevCopyState
+	autoGroupOn    bool
+	autoGroup      autoGroupState
 	// nextStepOn is the Next step experiment; nextStep is what it remembers.
 	nextStepOn bool
 	nextStep   nextStepState
@@ -323,6 +325,9 @@ type Model struct {
 	hibernating       bool
 	hibernateSweptAt  time.Time
 	hibernatePressure bool
+	// wakeAll is the wake-all run in progress, nil when none is. See
+	// hibernate.go.
+	wakeAll *wakeAllRun
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -1097,6 +1102,7 @@ type settingsState struct {
 	jevAutoSuggest     bool
 	jevFinishCheck     bool
 	jevCopyOn          bool
+	autoGroupOn        bool
 	// piAutoMode is pi's auto mode (package piauto) as the JEV card holds it.
 	piAutoMode    bool
 	promptSuggest bool
@@ -1483,6 +1489,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		jevAutoSuggest:   storedJevAutoSuggest(st),
 		jevFinishCheck:   storedJevFinishCheck(st),
 		jevCopyOn:        storedJevCopy(st),
+		autoGroupOn:      storedAutoGroup(st),
 		reviewQueue:      reviewQueue,
 		promptSuggest:    storedPromptSuggestions(st),
 		nextStepOn:       storedNextStep(st),
@@ -2558,6 +2565,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case jevFinishResultMsg:
 		m.applyJevFinish(msg)
 		return m, nil
+	case autoGroupResultMsg:
+		m.applyAutoGroup(msg)
+		return m, nil
 	case jevCopyResultMsg:
 		return m, m.applyJevCopy(msg)
 	case jevCopiedMsg:
@@ -2694,7 +2704,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sweep := m.sweepExpiredArchives()
 		// Off the loop, so a busy tmux server delays a child's filing rather
 		// than the board's next frame. What it finds lands as childSweptMsg.
-		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.settleHibernated())
+		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.checkAutoGroup(), m.settleHibernated())
 		m.settleInstall()
 		m.rebuildRows()
 		if focusClosed {
@@ -2744,6 +2754,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hibernateSettledMsg:
 		m.applyHibernateSettled(msg)
 		return m, nil
+
+	case wakeAllStepMsg:
+		return m, m.wakeAllStep()
 
 	case adoptTickMsg:
 		if m.adoptBusy {

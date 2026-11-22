@@ -577,9 +577,9 @@ func TestFocusedMenuBlockedTypingShowsPopup(t *testing.T) {
 	}
 }
 
-// Enter while the focused menu is up submits nothing, so it gets the same
-// notice rather than silence.
-func TestFocusedMenuBlockedSubmitShowsPopup(t *testing.T) {
+// Enter names no snippet, so the focused menu passes it to the pane rather
+// than holding it: the session is submitted and the menu stays up.
+func TestFocusedMenuPassesEnterToThePane(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
@@ -588,13 +588,88 @@ func TestFocusedMenuBlockedSubmitShowsPopup(t *testing.T) {
 
 	updated, _ := m.handleFocusKey(menuTrigger())
 	m = updated.(*Model)
-	updated, _ = m.handleFocusKey(key("enter"))
+	updated, cmd := m.handleFocusKey(key("enter"))
 	m = updated.(*Model)
-	if !m.quick.active {
-		t.Fatal("enter closed the menu")
+	if cmd == nil {
+		t.Fatal("enter in the focused menu did not reach the pane")
 	}
-	if m.errBar.text != "hotkey menu is open — esc closes it to submit" {
-		t.Fatalf("err = %q, want the blocked-submit notice", m.errBar.text)
+	if !m.quick.active || !m.quick.fromFocus {
+		t.Fatalf("enter closed the focused menu: active=%v fromFocus=%v", m.quick.active, m.quick.fromFocus)
+	}
+	if strings.HasPrefix(m.errBar.text, "hotkey menu is open") {
+		t.Fatalf("enter was blocked: %q", m.errBar.text)
+	}
+	if m.mode != modeFocus {
+		t.Fatalf("enter left the session, mode %v", m.mode)
+	}
+}
+
+// A chord names no snippet either, so the menu lets it through: leaving the
+// focused session goes back to the list with the menu still docked, now
+// aimed at the list cursor.
+func TestFocusedMenuLetsLeaveThroughAndStaysUp(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+
+	updated, _ := m.handleKey(menuTrigger())
+	m = updated.(*Model)
+	updated, cmd := m.handleKey(key("ctrl+q"))
+	m = updated.(*Model)
+	if cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if m.mode != modeList {
+		t.Fatalf("ctrl+q in the focused menu left mode %v: %q", m.mode, m.errBar.text)
+	}
+	if !m.quick.active || m.quick.fromFocus {
+		t.Fatalf("leaving dropped or misaimed the menu: active=%v fromFocus=%v", m.quick.active, m.quick.fromFocus)
+	}
+}
+
+// From the list, enter opens the session under the cursor with the menu
+// still up, now answering that session.
+func TestListMenuLetsEnterOpenTheSession(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.selectSessionRow(t, "ask")
+
+	updated, _ := m.handleKey(menuTrigger())
+	m = updated.(*Model)
+	updated, cmd := m.handleKey(key("enter"))
+	m = updated.(*Model)
+	if cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if m.mode != modeFocus {
+		t.Fatalf("enter in the list menu left mode %v: %q", m.mode, m.errBar.text)
+	}
+	if !m.quick.active || !m.quick.fromFocus {
+		t.Fatalf("entering dropped or misaimed the menu: active=%v fromFocus=%v", m.quick.active, m.quick.fromFocus)
+	}
+}
+
+// menuPassesThrough keeps the snippets' keyspace -- every bare printable key,
+// shifted or not -- and lets everything else through.
+func TestMenuPassesThroughOnlyKeysNoSnippetCanHold(t *testing.T) {
+	for name, want := range map[string]bool{
+		"d": false, "D": false, "§": false, "1": false, "space": false,
+		"enter": true, "tab": true, "ctrl+q": true, "alt+d": true, "ctrl+alt+c": true, "left": true,
+	} {
+		msg := key(name)
+		switch name {
+		case "D":
+			msg = tea.KeyPressMsg{Code: 'd', ShiftedCode: 'D', Mod: tea.ModShift, Text: "D"}
+		case "space":
+			msg = tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
+		}
+		if got := menuPassesThrough(msg); got != want {
+			t.Errorf("menuPassesThrough(%s) = %v, want %v (String %q)", name, got, want, msg.String())
+		}
 	}
 }
 

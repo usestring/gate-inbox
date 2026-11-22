@@ -58,6 +58,33 @@ func ReadCodexTail(path string) ([]Message, error) {
 	return readMessagesTail(Target{Tool: ToolCodex, Path: path}, 128<<10)
 }
 
+// ReadLastOperatorPrompt is the newest prompt the user sent, read from a
+// tail that widens only until one turns up. It runs on every transcript
+// change while a live pane is on screen, so a turn deep in tool calls must
+// not cost a 16MB read each time.
+func ReadLastOperatorPrompt(target Target) string {
+	info, err := os.Stat(target.Path)
+	if err != nil {
+		return ""
+	}
+	for window := int64(256 << 10); ; window *= 4 {
+		window = min(window, 16<<20)
+		messages, err := readMessagesTail(target, window)
+		if err != nil {
+			return ""
+		}
+		operator := OperatorMessages(messages)
+		for i := len(operator) - 1; i >= 0; i-- {
+			if operator[i].Role == "user" {
+				return strings.TrimSpace(operator[i].Text)
+			}
+		}
+		if window >= info.Size() || window >= 16<<20 {
+			return ""
+		}
+	}
+}
+
 // ReadMessages reads a bounded tail without admitting tool or harness traffic.
 func ReadMessages(target Target, database string) ([]Message, error) {
 	if target.Tool == ToolOpenCode {

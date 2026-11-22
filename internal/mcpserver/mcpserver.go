@@ -561,9 +561,10 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "report_status",
-		Description: "Say where your work stands as you hand control back, as the last thing you do in a turn. " +
+		Description: "Say where your work stands as you hand control back, as the last thing you do in a turn that ends done, waiting or blocked. " +
 			"done: you have done everything you can, and anything left waits on a review, a blocked merge, another person, or a step only the user can run. " +
-			"waiting: you need the user's answer or decision to go on. blocked: an error or missing access stops you. working: you will carry on without being asked. " +
+			"waiting: you need the user's answer or decision to go on. blocked: an error or missing access stops you. " +
+			"working: you will resume later on your own with nothing running that the board can see, such as a scheduled wake-up; while a shell, task or session you started is still running, skip the call, since the board already shows that. " +
 			"When done covers work that changed something, note names the check you ran and its result; if no check ran, it says what is unverified. " +
 			"The board reads it to tell the user which sessions they can close; it is not shown to them as a message.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reportStatusArgs) (*mcp.CallToolResult, any, error) {

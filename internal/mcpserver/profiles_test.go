@@ -213,6 +213,12 @@ func TestDriftedArgumentNamesAreServed(t *testing.T) {
 		t.Fatalf("timeout_s 9 beside timeout_seconds waited %v", fake.waitedTimeout)
 	}
 
+	reported, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "report_status",
+		Arguments: map[string]any{"status": "done", "summary": "tests pass"}})
+	if err != nil || reported.IsError {
+		t.Fatalf("report_status with status and summary: %v %v", err, reported)
+	}
+
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "send_children",
 		Arguments: map[string]any{"message": "the branch moved", "subject": "branch"}})
 	if err != nil || result.IsError {

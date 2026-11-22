@@ -24,4 +24,13 @@ const claudeSteering = "Gate Inbox manages this session. Before handing work to 
 
 // reportStatusRule is the turn-end report every launch that has the board's
 // tools carries, claude's and pi's alike.
-const reportStatusRule = "End every turn by calling the gate-inbox report_status tool with done, waiting, blocked or working.\n"
+//
+// It asks for the report only where the board cannot tell for itself. Over
+// three days of transcripts, 10,526 of 17,048 reports were "working", from
+// turns that ended with a shell, task or child still running, which the
+// board already shows as background or delegating. Each was a visible tool
+// call in the session's window. working stays for the one case the board
+// cannot see, a session that will wake itself later: the finish check reads
+// any report other than done as "not finished" (ui.jevFinishVerdict.decide).
+const reportStatusRule = "When a turn ends with your work done, waiting on your user, or blocked, call the gate-inbox report_status tool with state done, waiting or blocked. " +
+	"Skip it while a shell, task or session you started is still running; use working only when you will resume later on your own, such as from a scheduled wake-up.\n"

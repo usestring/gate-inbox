@@ -66,3 +66,28 @@ func ClaudeShellsUnder(pid int, table func() ([]byte, error)) int {
 	}
 	return count
 }
+
+// ChildrenOf counts the processes whose parent is pid. A terminal's shell
+// sitting at its prompt has none; one running a command, a function that
+// calls out (a fan-out loop's sleep), or a background job has at least one.
+func ChildrenOf(pid int, table func() ([]byte, error)) int {
+	out, err := table()
+	if err != nil {
+		return 0
+	}
+	count := 0
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 2 {
+			continue
+		}
+		child, err1 := strconv.Atoi(fields[0])
+		parent, err2 := strconv.Atoi(fields[1])
+		if err1 == nil && err2 == nil && parent == pid && child != pid {
+			count++
+		}
+	}
+	return count
+}

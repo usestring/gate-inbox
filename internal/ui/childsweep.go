@@ -98,6 +98,15 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 				if !driver.Exists(child.ID) {
 					continue
 				}
+				// A terminal reads idle from the moment it opens, so its rest
+				// says nothing about whether a command is still running in it.
+				if shells[rows[index].Tool] {
+					if busy := terminalBusy(rows[index].ID, driver.PanePID, agentsession.ProcessTable); busy > 0 {
+						logging.Info("child sweep held a terminal whose shell is still running a command",
+							"session", child.ID, "processes", busy)
+						continue
+					}
+				}
 				if pending, live := childBackgroundWork(tracker, rows[index], driver.PanePID); len(pending) > 0 || live > 0 {
 					logging.Info("child sweep held a finished child whose background work is still running",
 						"session", child.ID, "tasks", pending, "shells", live)

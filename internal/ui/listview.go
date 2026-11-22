@@ -259,13 +259,22 @@ const railBannerRows, railListMin = 3, 3
 // railLines is the sessions rail: the entry list on top and the machine
 // meters docked under it.
 func (m *Model) railLines(width, height int) []contentLine {
-	meters := m.computerLines(width)
-	tier := m.dockTier(height, len(meters))
-	switch tier {
-	case dockBrief:
-		meters = []string{m.computerBrief(width)}
-	case dockNone:
-		meters = nil
+	// Each docked panel heads itself with a fold row (see railfold.go); a
+	// folded panel is that row alone.
+	full := m.computerLines(width)
+	tier := m.dockTier(height, len(full)+1)
+	var meters []contentLine
+	switch {
+	case tier == dockNone:
+	case m.railFolds[railFoldSystem]:
+		meters = []contentLine{m.railFoldHead(railFoldSystem, width)}
+	case tier == dockBrief:
+		meters = []contentLine{{text: m.computerBrief(width)}}
+	default:
+		meters = append(meters, m.railFoldHead(railFoldSystem, width))
+		for _, line := range full {
+			meters = append(meters, contentLine{text: line})
+		}
 	}
 	listHeight := height
 	if meters != nil {
@@ -283,9 +292,16 @@ func (m *Model) railLines(width, height int) []contentLine {
 		for _, line := range m.promptLines(width) {
 			block = append(block, contentLine{text: line})
 		}
-		if len(block) > 0 && listHeight-len(block)-1 >= dockFullMinList {
-			opening = block
-			listHeight -= len(block) + 1
+		if len(block) > 0 {
+			head := m.railFoldHead(railFoldDetails, width)
+			if m.railFolds[railFoldDetails] {
+				block = nil
+			}
+			block = append([]contentLine{head}, block...)
+			if listHeight-len(block)-1 >= dockFullMinList {
+				opening = block
+				listHeight -= len(block) + 1
+			}
 		}
 	}
 	var rows []contentLine
@@ -315,9 +331,7 @@ func (m *Model) railLines(width, height int) []contentLine {
 	}
 	if meters != nil {
 		rows = append(rows, contentLine{rule: true})
-		for _, line := range meters {
-			rows = append(rows, contentLine{text: line})
-		}
+		rows = append(rows, meters...)
 	}
 	for len(rows) < height {
 		rows = append(rows, contentLine{})

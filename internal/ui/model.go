@@ -660,6 +660,9 @@ type Model struct {
 	// bringing it back restores what the operator chose rather than auto.
 	// It lives for the run: a footer hidden at quit comes back on auto.
 	chromeShown string
+	// railFolds is which rail panels are folded to their header rows. See
+	// railfold.go.
+	railFolds map[string]bool
 	// leaveMode is the persisted answer to where ctrl+q goes when it
 	// leaves a focused session. See leaveadvance.go.
 	leaveMode string
@@ -1508,6 +1511,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		listSort:         storedListSort(st),
 		listConsistency:  storedListConsistency(st),
 		chrome:           storedChrome(st),
+		railFolds:        storedRailFolds(st),
 		leaveMode:        storedLeaveMode(st),
 		newSessionAgent:  storedNewSessionAgent(st),
 		triage:           storedTriage(st),

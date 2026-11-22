@@ -381,6 +381,8 @@ type contentLine struct {
 	link      string
 	copyID    string
 	sessionID string
+	// fold names the rail panel a click on this row folds: see railfold.go.
+	fold string
 }
 
 // paintContent paints a content column, leaving raw rows unfilled.

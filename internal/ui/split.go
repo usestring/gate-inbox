@@ -184,6 +184,7 @@ type railHitMap struct {
 	x, width int
 	links    []string
 	copyIDs  map[int]string
+	folds    map[int]string
 	sessions []string
 	covered  []railHitCover
 }
@@ -202,15 +203,19 @@ func (h *railHitMap) cover(x, y, width int) {
 func newRailHitMap(rows []contentLine, x, width int) railHitMap {
 	links := make([]string, len(rows))
 	copyIDs := make(map[int]string)
+	folds := make(map[int]string)
 	sessions := make([]string, len(rows))
 	for i, row := range rows {
 		links[i] = row.link
 		if row.copyID != "" {
 			copyIDs[i] = row.copyID
 		}
+		if row.fold != "" {
+			folds[i] = row.fold
+		}
 		sessions[i] = row.sessionID
 	}
-	return railHitMap{x: x, width: width, links: links, copyIDs: copyIDs, sessions: sessions}
+	return railHitMap{x: x, width: width, links: links, copyIDs: copyIDs, folds: folds, sessions: sessions}
 }
 
 func (h railHitMap) contains(x, y int) bool {
@@ -247,6 +252,10 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		rowY := click.Y - m.listChromeRows()
 		if id := m.railHit.copyIDs[rowY]; id != "" && m.railHit.contains(click.X, rowY) {
 			return m, copySessionIDCmd(id)
+		}
+		if section := m.railHit.folds[rowY]; section != "" && m.railHit.contains(click.X, rowY) {
+			m.toggleRailFold(section)
+			return m, nil
 		}
 		if id := m.railHit.sessionAt(click.X, rowY); id != "" {
 			for i, row := range m.rows {

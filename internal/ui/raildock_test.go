@@ -34,9 +34,9 @@ func railDock(t *testing.T, m *Model) (lastEntry, firstRule, dockRule, height in
 	return lastEntry, firstRule, dockRule, len(rows)
 }
 
-// dockRows is how many rows the dock takes under its rule: the meters, with
-// the blank line that closes them.
-func dockRows(m *Model) int { return len(m.computerLines(59)) }
+// dockRows is how many rows the dock takes under its rule: its fold header,
+// then the meters with the blank line that closes them.
+func dockRows(m *Model) int { return 1 + len(m.computerLines(59)) }
 
 // A hundred-row rail holding thirty sessions has rows to spare, and the
 // machine dock is pinned at the rail's foot regardless: the bottom-left

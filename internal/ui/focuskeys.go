@@ -762,6 +762,12 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// the same argument runs sideways: a session that wants the
 			// width gets it without a trip back to the board.
 			return m, m.toggleRail()
+		case action == keymap.FoldRailDetails:
+			m.toggleRailFold(railFoldDetails)
+			return m, nil
+		case action == keymap.FoldRailSystem:
+			m.toggleRailFold(railFoldSystem)
+			return m, nil
 		case action == keymap.Help:
 			m.openHelp()
 			return m, nil

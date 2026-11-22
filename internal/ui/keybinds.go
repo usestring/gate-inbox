@@ -121,10 +121,14 @@ func (m *Model) action(ctx keymap.Context, msg tea.KeyMsg) (keymap.Action, bool)
 	// Both spellings are offered: the name rebuilt from the key code, which
 	// is what a chord binds under, and the one the terminal printed, which
 	// is what a plain letter or a named key like § arrives as.
-	if action, ok := m.km().Action(ctx, keyName(msg)); ok {
-		return action, true
+	action, ok := m.km().Action(ctx, keyName(msg))
+	if !ok {
+		action, ok = m.km().Action(ctx, msg.String())
 	}
-	return m.km().Action(ctx, msg.String())
+	if ok && m.experimentHidden(action) {
+		return "", false
+	}
+	return action, ok
 }
 
 // isAction reports whether a press is one particular action, for a handler

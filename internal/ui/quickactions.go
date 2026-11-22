@@ -80,7 +80,7 @@ func (m *Model) openQuickActions() {
 func (m *Model) quickActionEntries() []quickActionEntry {
 	var out []quickActionEntry
 	for _, binding := range m.km().Bindings(keymap.ContextList) {
-		if quickActionsHidden[binding.Action] {
+		if quickActionsHidden[binding.Action] || m.experimentHidden(binding.Action) {
 			continue
 		}
 		out = append(out, quickActionEntry{

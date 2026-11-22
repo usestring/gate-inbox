@@ -736,6 +736,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.cyclePrioritySelected()
 		case action == keymap.Mute:
 			return m.toggleMuteSelected()
+		case action == keymap.Snooze:
+			return m.cycleSnoozeSelected()
 		case action == keymap.UnmuteAll:
 			return m.unmuteAllListed()
 		case action == keymap.RestoreAll:

@@ -353,6 +353,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.cyclePrioritySelected()
 	case keymap.Mute:
 		return m.toggleMuteSelected()
+	case keymap.Snooze:
+		return m.cycleSnoozeSelected()
 	case keymap.UnmuteAll:
 		return m.unmuteAllListed()
 	case keymap.OpenLastURL:

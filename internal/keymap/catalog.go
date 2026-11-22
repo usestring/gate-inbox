@@ -63,6 +63,7 @@ const (
 	Dismiss       Action = "dismiss"
 	Priority      Action = "priority"
 	Mute          Action = "mute"
+	Snooze        Action = "snooze"
 	UnmuteAll     Action = "unmute_all"
 	CopySessionID Action = "copy_session_id"
 	CopyJev       Action = "copy_jev"
@@ -234,6 +235,7 @@ var Catalog = []Binding{
 	{ContextList, Dismiss, []string{"alt+."}, "skip", false},
 	{ContextList, Priority, []string{"ctrl+p"}, "cycle priority: high → medium → low → none (tiers set in Settings)", false},
 	{ContextList, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	{ContextList, Snooze, []string{"ctrl+alt+z"}, "snooze: mute it for 1h → 4h → 1d → off, or until it asks or errors", false},
 	{ContextList, UnmuteAll, []string{"alt+m"}, "unmute every muted session listed", false},
 	{ContextList, QuickInput, []string{"ctrl+z"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"ctrl+alt+r"}, "rename it after its conversation", false},
@@ -307,6 +309,10 @@ var Catalog = []Binding{
 	// The list's mute on the same chord. A terminal without an enhanced
 	// keyboard protocol sends ctrl+m as enter, so there it stays a submit.
 	{ContextFocus, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	// The list's snooze on the same chord, which no agent CLI binds; ctrl+alt
+	// rather than option+letter, which belongs to snippet chords. The Timed
+	// snooze experiment gates it: off, the chord reaches the agent.
+	{ContextFocus, Snooze, []string{"ctrl+alt+z"}, "snooze: mute it for 1h → 4h → 1d → off, or until it asks or errors", false},
 	// The list's mass chords, so a drain clears the board without leaving the
 	// pane. Each takes an option+letter from the agent: alt+d is readline's
 	// delete-word-forward, which ctrl+delete still sends.

@@ -139,6 +139,19 @@ func (m *Model) handOverOnEnter(sess store.Session, keyAt time.Time) tea.Cmd {
 	return cmd
 }
 
+// traceLeaveHandover times a ctrl+q handover the way handOverOnEnter times
+// an Enter one: the switch itself now, and the next session's first frame
+// when it lands (see noteHandoverFrame).
+func (m *Model) traceLeaveHandover(from store.Session, keyAt time.Time) {
+	next, ok := m.selected()
+	if !ok || m.mode != modeFocus || next.ID == from.ID {
+		return
+	}
+	m.handoverTrace = handoverTrace{to: next.ID, keyAt: keyAt}
+	logging.Info("leave handover", "from", from.ID, "to", next.ID,
+		"switch", time.Since(keyAt).Round(time.Microsecond).String())
+}
+
 // handoverTrace times the next session's first fresh frame after an Enter
 // handover, the moment the operator can read it.
 type handoverTrace struct {
@@ -161,11 +174,16 @@ func (m *Model) noteHandoverFrame(sessID string) {
 // When the queue is drained the inbox-cleared pane opens with the drain
 // still armed (see triageResume), so work arriving while the operator types
 // can be picked up after they leave the form.
+//
+// The next session's commands run before the leave's: the leave only spends
+// the held acknowledgement of the session just left, a store write nobody is
+// waiting on, and it must not compete with the jump for the connection or the
+// CPU.
 func (m *Model) moveOnFrom(sess store.Session) tea.Cmd {
 	leave := m.leaveFocus()
 	if next := m.advanceTriage(sess.ID); next != nil {
 		m.triageResume = false
-		return tea.Batch(leave, next)
+		return tea.Sequence(next, leave)
 	}
 	if m.triage {
 		m.triageResume = true

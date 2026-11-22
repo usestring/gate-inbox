@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"reflect"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -15,12 +16,17 @@ func runStoreCmd(t *testing.T, cmd tea.Cmd) {
 	if cmd == nil {
 		return
 	}
-	switch msg := cmd().(type) {
-	case nil:
-	case tea.BatchMsg:
-		for _, one := range msg {
-			runStoreCmd(t, one)
+	out := cmd()
+	// A handover runs its commands in order (tea.Sequence), whose message
+	// type bubbletea keeps unexported: it is a []tea.Cmd underneath.
+	if seq := reflect.ValueOf(out); seq.IsValid() && seq.Kind() == reflect.Slice && seq.Type().Elem() == reflect.TypeFor[tea.Cmd]() {
+		for i := range seq.Len() {
+			runStoreCmd(t, seq.Index(i).Interface().(tea.Cmd))
 		}
+		return
+	}
+	switch msg := out.(type) {
+	case nil:
 	case errMsg:
 		t.Fatalf("store write failed: %v", msg.err)
 	}

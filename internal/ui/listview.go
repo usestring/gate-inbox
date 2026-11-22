@@ -262,7 +262,13 @@ func (m *Model) railLines(width, height int) []contentLine {
 	// Each docked panel heads itself with a fold row (see railfold.go); a
 	// folded panel is that row alone.
 	full := m.computerLines(width)
-	tier := m.dockTier(height, len(full)+1)
+	// A folded dock costs its header alone, so the tier is judged on that
+	// row: the rows it gave back are what lets the details panel still fit.
+	dockRows := len(full) + 1
+	if m.railFolds[railFoldSystem] {
+		dockRows = 1
+	}
+	tier := m.dockTier(height, dockRows)
 	var meters []contentLine
 	switch {
 	case tier == dockNone:

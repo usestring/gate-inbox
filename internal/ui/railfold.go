@@ -60,7 +60,11 @@ func (m *Model) railFoldHead(section string, width int) contentLine {
 	}
 	lead := spaces(railInset) + subtleStyle.Render(glyph) + labelStyle.Render(section)
 	key := ""
-	if k := m.cap(keymap.ContextList, railFoldAction(section)); k != "" {
+	context := keymap.ContextList
+	if m.mode == modeFocus {
+		context = keymap.ContextFocus
+	}
+	if k := m.cap(context, railFoldAction(section)); k != "" {
 		key = subtleStyle.Render(k)
 	}
 	return contentLine{text: rowColumns(lead, key, max(width-2, 1)), fold: section}

@@ -3,11 +3,7 @@
 package sysstat
 
 import (
-	"bytes"
-	"encoding/binary"
-
 	"github.com/shirou/gopsutil/v4/process"
-	"golang.org/x/sys/unix"
 )
 
 // nativeTrees answers what Trees does on macOS without forking ps.
@@ -31,35 +27,23 @@ import (
 // It reports false when the table cannot be read, and the caller falls
 // back to ps.
 func nativeTrees(rootPIDs []int) (map[int]ProcStat, bool) {
-	table, err := unix.SysctlKinfoProcSlice("kern.proc.all")
-	if err != nil || len(table) == 0 {
+	table, ok := ReadProcTable()
+	if !ok {
 		return nil, false
-	}
-	children := make(map[int][]int, len(table))
-	listed := make(map[int]bool, len(table))
-	for i := range table {
-		pid, ppid := int(table[i].Proc.P_pid), int(table[i].Eproc.Ppid)
-		children[ppid] = append(children[ppid], pid)
-		listed[pid] = true
 	}
 	stats := make(map[int]ProcStat, len(rootPIDs))
 	for _, root := range rootPIDs {
-		if !listed[root] {
+		if !table.Has(root) {
 			continue
 		}
 		stat := ProcStat{OK: true}
-		walkTree(root, children, func(pid int) {
-			if pid == 0 {
-				// kern.proc.all lists the kernel as pid 0 with itself as
-				// its parent; it is never under a pane.
-				return
-			}
+		table.Walk(root, func(pid int) {
 			cpuSeconds, rss := taskUsage(pid)
 			stat.Procs++
 			stat.CPUSeconds += cpuSeconds
 			stat.RSS += rss
 		})
-		for _, child := range children[root] {
+		for _, child := range table.Children[root] {
 			if program := darwinArgv0(child); program != "" {
 				stat.Children = append(stat.Children, program)
 			}
@@ -86,25 +70,11 @@ func taskUsage(pid int) (float64, uint64) {
 	return cpuSeconds, rss
 }
 
-// darwinArgv0 is a process's argv[0], the program as it was invoked, from
-// kern.procargs2: a 32-bit argc, the executable path, NUL padding, then
-// argv. Empty when the process is gone or not readable.
+// darwinArgv0 is a process's argv[0], the program as it was invoked. Empty
+// when the process is gone or not readable.
 func darwinArgv0(pid int) string {
-	raw, err := unix.SysctlRaw("kern.procargs2", pid)
-	if err != nil || len(raw) < 4 {
-		return ""
+	if argv := Argv(pid); len(argv) > 0 {
+		return argv[0]
 	}
-	if binary.LittleEndian.Uint32(raw[:4]) == 0 {
-		return ""
-	}
-	rest := raw[4:]
-	end := bytes.IndexByte(rest, 0)
-	if end < 0 {
-		return ""
-	}
-	rest = bytes.TrimLeft(rest[end:], "\x00")
-	if end = bytes.IndexByte(rest, 0); end >= 0 {
-		rest = rest[:end]
-	}
-	return string(rest)
+	return ""
 }

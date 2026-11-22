@@ -330,7 +330,7 @@ func TestComposeMergesKindsAndAsksByTheFirmestTier(t *testing.T) {
 	for _, want := range []string{
 		"CPU stop", "450%", "pid 12, 400% CPU: go test ./...",
 		"Memory warn", "20.0 GiB", "pid 99, 12.0 GiB: chrome --headless", "10.0 GiB of 64.0 GiB available",
-		"Stop the named processes now", "CPUQuota=200%", "MemoryMax=",
+		"Stop the named processes now", cpuCapHint, memCapHint,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("notice lacks %q:\n%s", want, body)
@@ -340,7 +340,7 @@ func TestComposeMergesKindsAndAsksByTheFirmestTier(t *testing.T) {
 		t.Fatalf("Highest = %s", Highest(alerts))
 	}
 	notice := Compose([]Alert{{Kind: KindCPU, Tier: TierNotice, Rule: Rule{CPUPercent: 100}, Held: 10 * time.Minute}}, usage, Host{})
-	if !strings.Contains(notice, "Confirm this work is intended") || strings.Contains(notice, "MemoryMax") {
+	if !strings.Contains(notice, "Confirm this work is intended") || strings.Contains(notice, memCapHint) {
 		t.Fatalf("notice-tier CPU message:\n%s", notice)
 	}
 }

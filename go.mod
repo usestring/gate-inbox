@@ -12,6 +12,7 @@ require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/distatus/battery v0.11.0
+	github.com/ebitengine/purego v0.11.1
 	github.com/google/uuid v1.6.0
 	github.com/junegunn/fzf v0.74.4
 	github.com/junegunn/go-shellwords v0.0.0-20250127100254-2aa3b3277741
@@ -36,7 +37,6 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect

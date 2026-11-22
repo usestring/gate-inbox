@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -92,8 +93,8 @@ func TestHogNoticesE2E(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("the memory loads are python3")
 	}
-	if _, err := os.Stat("/proc/self/stat"); err != nil {
-		t.Skip("hog detection reads /proc")
+	if _, err := os.Stat("/proc/self/stat"); err != nil && runtime.GOOS != "darwin" {
+		t.Skip("hog detection reads /proc, or libproc on macOS")
 	}
 	out := os.Getenv("GATE_INBOX_E2E_HOGS_OUT")
 	if out == "" {
@@ -234,7 +235,9 @@ func TestHogNoticesE2E(t *testing.T) {
 		})
 		typed := mem.typed()
 		assertOrdered(t, typed, "Memory notice", "Memory warn", "Memory stop")
-		if !strings.Contains(typed, "python3 -c") || !strings.Contains(typed, "available") {
+		// The holder's argv[0] is python3 on Linux and the Python.app binary
+		// on macOS; its arguments are the same on both.
+		if !strings.Contains(typed, " -c import time;") || !strings.Contains(typed, "available") {
 			t.Fatalf("memory notice does not name the holder or the host:\n%s", typed)
 		}
 	})

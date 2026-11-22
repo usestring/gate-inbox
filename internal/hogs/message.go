@@ -105,9 +105,9 @@ func capHint(alerts []Alert) string {
 	for _, a := range alerts {
 		switch a.Kind {
 		case KindCPU:
-			hints = append(hints, "`systemd-run --user --scope -p CPUQuota=200% <command>`, or `renice -n 19 -p <pid>` for one already running")
+			hints = append(hints, cpuCapHint)
 		case KindMemory:
-			hints = append(hints, "`systemd-run --user --scope -p MemoryMax=8G <command>`, or a smaller worker count")
+			hints = append(hints, memCapHint)
 		}
 	}
 	return strings.Join(hints, "; ")

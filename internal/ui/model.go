@@ -1109,6 +1109,7 @@ type settingsState struct {
 	nextStep      bool
 	reviewQueue   bool
 	ciFeedback    bool
+	memoryGuard   bool
 	arrowsStay    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.

@@ -216,6 +216,7 @@ func (m *Model) openSettings() {
 		nextStep:             m.nextStepOn,
 		reviewQueue:          m.reviewQueue,
 		ciFeedback:           storedExperiment(m.store, store.CIFeedbackSetting),
+		memoryGuard:          storedExperiment(m.store, store.MemoryGuardSetting),
 		arrowsStay:           m.arrowsStay,
 		backdropSync:         storedBackdrop(m.store) == backdropSync,
 	}

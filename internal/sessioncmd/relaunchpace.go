@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/launchpace"
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // pace takes target's turn in the relaunch queue every relaunch goes
@@ -46,7 +47,14 @@ func (s *Sessions) pacer(runtime *runtime) *launchpace.Pacer {
 	if s.newPacer != nil {
 		return s.newPacer(runtime)
 	}
-	return launchpace.FromConfig(s.configDir, runtime.cfg.Relaunch, runtime.relaunchRested)
+	return launchpace.FromConfig(s.configDir, runtime.cfg.Relaunch, runtime.relaunchRested, runtime.memoryGuardOn())
+}
+
+// memoryGuardOn reads the Experimental toggle on every relaunch, so turning
+// it off takes effect without restarting the MCP server.
+func (r *runtime) memoryGuardOn() bool {
+	value, err := r.store.Setting(store.MemoryGuardSetting)
+	return err == nil && value == "on"
 }
 
 // relaunchRested says whether the session launched at since has come to

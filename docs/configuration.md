@@ -114,7 +114,7 @@ settle = "90s"
 load_per_cpu = 2.0
 ```
 
-On macOS, the shared queue also refuses relaunches while the kernel reports warning or critical memory pressure. This check happens before the running agent is stopped, and returns immediately even for commands that normally wait for a slot. Automatic repairs can try again on their next pass; retry an explicit command after freeing memory. If the pressure reading is unavailable, normal pacing applies. This guard covers queued account switches, stale-sandbox repairs, grant restarts, CLI/MCP revives and unpark. New sessions and manual board revives/restarts bypass the queue; existing sessions keep running.
+On macOS, with the **Memory guard** experiment on (Settings → Experimental, off by default), the shared queue also refuses relaunches while the kernel reports warning or critical memory pressure. This check happens before the running agent is stopped, and returns immediately even for commands that normally wait for a slot. Automatic repairs can try again on their next pass; retry an explicit command after freeing memory. If the pressure reading is unavailable, normal pacing applies. This guard covers queued account switches, stale-sandbox repairs, grant restarts, CLI/MCP revives and unpark. New sessions and manual board revives/restarts bypass the queue; existing sessions keep running.
 
 `[auto_group] presets` lists group names the Auto group experiment may start when a session fits one and no group exists for it yet (`presets = ["feeds", "infra"]`). They are hints: existing groups and one-off project groups are offered alongside them. See [Auto group](usage.md).
 

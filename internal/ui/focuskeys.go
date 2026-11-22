@@ -642,8 +642,9 @@ func (m *Model) releaseHeldAck() tea.Cmd {
 // down a pipe the manager already holds. TestFocusedKeystrokeLatencyBreakdown
 // is the measurement.
 func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// The hotkey menu owns the keyboard while it is up, answering the
-	// focused session from its bare snippet keys. Anything that is not a
+	// The hotkey menu owns the bare keys while it is up, answering the
+	// focused session from its snippet keys; enter and chords pass through
+	// it back to this handler (see passPastMenu). Anything that is not a
 	// key press -- a paste -- falls through to the pane below it.
 	if press, ok := msg.(tea.KeyPressMsg); ok && m.quick.active {
 		return m.handleQuickKey(press)

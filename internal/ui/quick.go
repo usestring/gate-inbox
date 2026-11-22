@@ -28,9 +28,11 @@ func (m *Model) openQuickMode() {
 
 // handleQuickKey runs while the hotkey menu is docked in the sidebar: arrows
 // keep moving the selection on the list, a snippet's key sends it, and the
-// key that opened the menu switches to launches; esc closes it. Nothing is
-// typed, so a key that names no snippet does nothing rather than reaching
-// some other binding behind the menu.
+// key that opened the menu switches to launches; esc closes it. A bare
+// printable key is the snippets' keyspace, so one that names no snippet does
+// nothing rather than reaching a binding behind the menu. Enter and every
+// chord name no snippet, so they pass through to the screen below with the
+// menu still up (see passPastMenu).
 func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.quick.launch {
 		return m.handleLaunchSnippetKey(msg)
@@ -85,6 +87,9 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	snip, ok := m.menuSnippetFor(msg.String())
 	if !ok {
+		if menuPassesThrough(msg) {
+			return m.passPastMenu(msg)
+		}
 		return m, nil
 	}
 	// Closing costs nothing even when the send was refused: there is no
@@ -101,9 +106,9 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // cursor under a session being typed into would aim the next key at a row
 // nobody is looking at.
 //
-// Typing and enter reach the pane when the menu is closed, so attempting
-// either while it owns the keyboard names why nothing landed and how to get
-// the keys back.
+// Typing reaches the pane when the menu is closed, so a bare key that names
+// no snippet names why nothing landed and how to get the keys back. Enter
+// and chords pass through to the focused screen as if the menu were closed.
 func (m *Model) handleFocusQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if action, bound := m.action(keymap.ContextFocus, msg); bound {
 		switch action {
@@ -148,6 +153,10 @@ func (m *Model) handleFocusQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	snip, ok := m.menuSnippetFor(msg.String())
 	if !ok {
+		if menuPassesThrough(msg) {
+			m.clearQuickBlockedNotice()
+			return m.passPastMenu(msg)
+		}
 		m.noteQuickBlocked(msg)
 		return m, nil
 	}
@@ -181,11 +190,44 @@ func (m *Model) quickCloseAfterSend() bool {
 	return chosen == "close"
 }
 
-func (m *Model) noteQuickBlocked(msg tea.KeyPressMsg) {
-	if msg.String() == "enter" {
-		m.errBar.text = "hotkey menu is open — esc closes it to submit"
-		return
+// menuPassesThrough reports whether a key the menu did not claim belongs to
+// the screen below it. A snippet is bound to a bare key, so the menu keeps
+// every bare printable key, space included: one that names no snippet may be
+// a mistyped one, and sending it to the pane would type a stray letter.
+// Everything else -- enter, tab, a modified chord, a named key -- cannot
+// collide with a snippet, so the menu has no reason to hold it.
+func menuPassesThrough(msg tea.KeyPressMsg) bool {
+	key := msg.Key()
+	if key.Mod&^tea.ModShift != 0 {
+		return true
 	}
+	name := msg.String()
+	if name == "space" {
+		return false
+	}
+	r := []rune(name)
+	return len(r) != 1 || !unicode.IsPrint(r[0])
+}
+
+// passPastMenu hands a key the menu does not claim to the screen below as if
+// the menu were closed, then docks the menu again over wherever that left the
+// operator: ctrl+q out of a session keeps it up on the list, aimed at the
+// cursor, and enter into one keeps it up aimed at that session. A key that
+// opens some other screen -- settings, a picker -- closes it, since the menu
+// is only drawn on the list and in a focused session. A key that reopened the
+// menu itself keeps what it opened.
+func (m *Model) passPastMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	held := m.quick
+	m.quick.active = false
+	model, cmd := m.handleScreenKey(msg)
+	if !m.quick.active && (m.mode == modeList || m.mode == modeFocus) && !m.searching {
+		m.quick = held
+		m.quick.fromFocus = m.mode == modeFocus
+	}
+	return model, cmd
+}
+
+func (m *Model) noteQuickBlocked(msg tea.KeyPressMsg) {
 	if r := []rune(msg.String()); len(r) != 1 || !unicode.IsPrint(r[0]) {
 		return
 	}

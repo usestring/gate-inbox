@@ -106,12 +106,28 @@ type procRead struct {
 
 // treeMemo is what the sampler keeps of one session's tree between samples.
 type treeMemo struct {
-	at     time.Time
-	uptime float64
-	procs  map[procKey]procRead
+	at time.Time
+	// clock is the source's clock when the sample was read, in seconds on
+	// the same scale as a process start time divided by startUnit, so a
+	// process that started after it is known to be new.
+	clock float64
+	procs map[procKey]procRead
 }
 
-// Sampler reads session process trees out of a /proc filesystem.
+// nativeSource reads process trees through an operating system API where
+// there is no /proc: libproc and sysctl on macOS.
+type nativeSource interface {
+	// sweep reads every root's tree off one snapshot of the process table.
+	// Each procRead's key.start is in microseconds since the Unix epoch, and
+	// mem is the process's footprint. clock is the time of the read on that
+	// scale, in seconds. A root that is gone has no entry.
+	sweep(roots map[string]int) (trees map[string][]procRead, clock float64, ok bool)
+	host() Host
+	command(pid int) string
+}
+
+// Sampler reads session process trees out of a /proc filesystem, or on macOS
+// through libproc (see sampler_darwin.go).
 //
 // Its cost is dominated by what the kernel has to do to answer, not by what
 // is parsed. A stat is ~10µs. A smaps_rollup walks the process's whole
@@ -135,23 +151,37 @@ type Sampler struct {
 	// the first walk finds out, then 1 or -1. Without them (a kernel built
 	// without CONFIG_PROC_CHILDREN) the tree comes from every process's ppid.
 	childLists int
+	// native, when set, is read instead of root. startUnit is the number of
+	// start-time units in one second: clockTicks for /proc, 1e6 for native.
+	native    nativeSource
+	startUnit float64
 }
 
-// NewSampler reads the /proc mounted at root; empty means /proc. It reads
-// no PSS until SetPSSFloor says from what size.
+// NewSampler reads the /proc mounted at root. Empty means the platform's
+// own process table: /proc on Linux, libproc on macOS. It reads no PSS until
+// SetPSSFloor says from what size.
 func NewSampler(root string) *Sampler {
+	s := &Sampler{root: root, pageSize: uint64(os.Getpagesize()), trees: map[string]treeMemo{}, pssFloor: math.MaxUint64, startUnit: clockTicks}
 	if root == "" {
-		root = "/proc"
+		s.root = "/proc"
+		if native := newNativeSource(); native != nil {
+			s.native = native
+			s.startUnit = 1e6
+		}
 	}
-	return &Sampler{root: root, pageSize: uint64(os.Getpagesize()), trees: map[string]treeMemo{}, pssFloor: math.MaxUint64}
+	return s
 }
 
 // SetPSSFloor sets the tree RSS from which memory is summed as PSS.
 func (s *Sampler) SetPSSFloor(bytes uint64) { s.pssFloor = bytes }
 
-// Supported reports whether root looks like a Linux /proc this sampler can
-// read. Everywhere else hog detection is off.
+// Supported reports whether the sampler has a process table to read: the
+// native source, or a root that looks like a Linux /proc. Everywhere else
+// hog detection is off.
 func (s *Sampler) Supported() bool {
+	if s.native != nil {
+		return true
+	}
 	_, err := os.Stat(filepath.Join(s.root, "uptime"))
 	return err == nil
 }
@@ -159,6 +189,9 @@ func (s *Sampler) Supported() bool {
 // Sample reads every session's tree. roots maps a session id to its pane's
 // root pid. A session whose root has exited is left out of the result.
 func (s *Sampler) Sample(now time.Time, roots map[string]int) Sample {
+	if s.native != nil {
+		return s.sampleNative(now, roots)
+	}
 	out := Sample{At: now, Host: s.host(), Sessions: make(map[string]Usage, len(roots))}
 	uptime, uptimeOK := s.uptime()
 	var parents map[int][]int
@@ -195,18 +228,51 @@ func (s *Sampler) Sample(now time.Time, roots map[string]int) Sample {
 		usage := s.usage(id, now, uptimeOK, reads, memo)
 		usage.PSS = pss
 		out.Sessions[id] = usage
-		s.trees[id] = treeMemo{at: now, uptime: uptime, procs: memo}
+		s.trees[id] = treeMemo{at: now, clock: uptime, procs: memo}
 	}
+	s.forgetGone(roots)
+	return out
+}
+
+// sampleNative is Sample through the native source. There is no PSS to
+// refine to: the footprint it reports already leaves out shared pages.
+func (s *Sampler) sampleNative(now time.Time, roots map[string]int) Sample {
+	out := Sample{At: now, Host: s.native.host(), Sessions: make(map[string]Usage, len(roots))}
+	trees, clock, ok := s.native.sweep(roots)
+	if !ok {
+		// No table this time. The sampler keeps its memos so the next good
+		// read still has CPU to difference against; the tracker sees no
+		// sessions and starts its episodes over, which costs one window
+		// on a sysctl that in practice does not fail.
+		return out
+	}
+	for id := range roots {
+		reads := trees[id]
+		if len(reads) == 0 {
+			delete(s.trees, id)
+			continue
+		}
+		memo := make(map[procKey]procRead, len(reads))
+		for _, r := range reads {
+			memo[r.key] = r
+		}
+		out.Sessions[id] = s.usage(id, now, true, reads, memo)
+		s.trees[id] = treeMemo{at: now, clock: clock, procs: memo}
+	}
+	s.forgetGone(roots)
+	return out
+}
+
+func (s *Sampler) forgetGone(roots map[string]int) {
 	for id := range s.trees {
 		if _, live := roots[id]; !live {
 			delete(s.trees, id)
 		}
 	}
-	return out
 }
 
 // usage differences this tree against its previous sample.
-func (s *Sampler) usage(id string, now time.Time, uptimeOK bool, reads []procRead, memo map[procKey]procRead) Usage {
+func (s *Sampler) usage(id string, now time.Time, clockOK bool, reads []procRead, memo map[procKey]procRead) Usage {
 	usage := Usage{Procs: len(reads)}
 	cpu := make([]float64, len(reads))
 	for _, read := range reads {
@@ -224,7 +290,7 @@ func (s *Sampler) usage(id string, now time.Time, uptimeOK bool, reads []procRea
 			case known:
 				delta = (read.own + read.reaped) - (before.own + before.reaped)
 				reapedGain += max(0, read.reaped-before.reaped)
-			case uptimeOK && float64(read.key.start)/clockTicks >= prev.uptime:
+			case clockOK && float64(read.key.start)/s.startUnit >= prev.clock:
 				// Started since the last sample: all of its time is new.
 				delta = read.own + read.reaped
 			default:
@@ -291,6 +357,10 @@ func (s *Sampler) usage(id string, now time.Time, uptimeOK bool, reads []procRea
 func (s *Sampler) Name(usage *Usage) {
 	for _, list := range [][]ProcUsage{usage.TopCPU, usage.TopMem} {
 		for i := range list {
+			if s.native != nil {
+				list[i].Command = quoteCommand(s.native.command(list[i].PID))
+				continue
+			}
 			list[i].Command = s.command(list[i].PID)
 		}
 	}
@@ -592,6 +662,13 @@ func (s *Sampler) command(pid int) string {
 			}
 		})
 	}
+	return quoteCommand(cmd)
+}
+
+// quoteCommand collapses a command line's whitespace and bounds it to
+// commandWidth.
+func quoteCommand(cmd string) string {
+	cmd = strings.Join(strings.Fields(cmd), " ")
 	if len([]rune(cmd)) > commandWidth {
 		cmd = string([]rune(cmd)[:commandWidth-1]) + "…"
 	}

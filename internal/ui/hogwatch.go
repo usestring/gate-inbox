@@ -53,7 +53,7 @@ type hogTarget struct {
 }
 
 // newHogWatch builds the watcher cfg describes, or nil when it is switched
-// off or this platform has no /proc to read.
+// off or this platform has no process table it can read (/proc or libproc).
 func newHogWatch(cfg config.Hogs, procRoot string, enqueue func(store.InboxMessage) error) *hogWatch {
 	if !cfg.On() {
 		return nil

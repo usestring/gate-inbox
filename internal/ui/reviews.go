@@ -615,6 +615,7 @@ var reviewsTabAllows = map[keymap.Action]bool{
 	keymap.QuickActions: true, keymap.Triage: true, keymap.ReviewsTab: true,
 	keymap.IngestReviews: true, keymap.TriageContent: true, keymap.LegendPeek: true,
 	keymap.NewSession: true, keymap.NewSessionForm: true,
+	keymap.FoldRailSystem: true,
 }
 
 // reviewsTabKey answers a key while the Reviews tab is up. Its own keys come

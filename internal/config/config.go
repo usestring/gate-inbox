@@ -673,21 +673,31 @@ type Config struct {
 	StaleStatusAfter Duration `toml:"stale_status_after"`
 	// HibernateAfter retains the age cutoff for manual parking; automatic
 	// hibernation uses HibernateSensitivity instead.
-	HibernateAfter       Duration     `toml:"hibernate_after"`
-	HibernateSensitivity string       `toml:"hibernate_sensitivity"`
-	Board                Board        `toml:"board"`
-	Naming               Naming       `toml:"naming"`
-	Log                  Log          `toml:"log"`
-	Children             Children     `toml:"children"`
-	FinishCheck          FinishCheck  `toml:"finish_check"`
-	Work                 Work         `toml:"work"`
-	Integrations         Integrations `toml:"integrations"`
-	Hogs                 Hogs         `toml:"hogs"`
-	AutoGroup            AutoGroup    `toml:"auto_group"`
-	ClaudeCode           ClaudeCode   `toml:"claude_code"`
-	Codex                Codex        `toml:"codex"`
-	OpenCode             OpenCode     `toml:"opencode"`
-	Relaunch             Relaunch     `toml:"relaunch"`
+	HibernateAfter       Duration `toml:"hibernate_after"`
+	HibernateSensitivity string   `toml:"hibernate_sensitivity"`
+	// CloseCommand is a shell command run, detached, in a session's working
+	// directory after the board closes it for good: a kill, a stop, an
+	// archive, or a child filed away. A hibernate, restart or migration is
+	// not a close and never runs it. The board ends an agent by killing its
+	// window, so the agent's own session-end hooks never run; this is where
+	// that work goes. Stdin carries JSON shaped like Claude Code's SessionEnd
+	// hook input, with session_id set to the agent's conversation id, so an
+	// existing session-end script can be named here unchanged. Its output is
+	// appended to logs/close-command.log. Empty, the default, runs nothing.
+	CloseCommand string       `toml:"close_command"`
+	Board        Board        `toml:"board"`
+	Naming       Naming       `toml:"naming"`
+	Log          Log          `toml:"log"`
+	Children     Children     `toml:"children"`
+	FinishCheck  FinishCheck  `toml:"finish_check"`
+	Work         Work         `toml:"work"`
+	Integrations Integrations `toml:"integrations"`
+	Hogs         Hogs         `toml:"hogs"`
+	AutoGroup    AutoGroup    `toml:"auto_group"`
+	ClaudeCode   ClaudeCode   `toml:"claude_code"`
+	Codex        Codex        `toml:"codex"`
+	OpenCode     OpenCode     `toml:"opencode"`
+	Relaunch     Relaunch     `toml:"relaunch"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see

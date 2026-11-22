@@ -45,6 +45,23 @@ live accounts, transcripts or other opt-in fixtures still require their document
 variables; the hook does not enable them automatically. It runs one Go package at a time and
 defaults GOMAXPROCS to 2. CI retains the full uncached E2E suite. Run `.githooks/pre-push` to check locally.
 
+### Mutation testing
+
+A test is evidence only if it fails when the code under it breaks. `scripts/mutation-test.sh` runs
+[gremlins](https://github.com/go-gremlins/gremlins) (pinned to v0.6.0) on one package: it plants
+small faults and reports which ones no test catches. It is opt-in and report-only, CI does not run
+it, and it never fails on a low score.
+
+```bash
+scripts/mutation-test.sh ./internal/keyconfine [--out report.json] [--workers 2]
+```
+
+Run it outside any agent sandbox, because the tests start tmux. Score only code where a missed fault
+does real damage (secrets handling, permission and safety gates, data the board parses or delivers,
+contracts other tools read), and read each `LIVED` mutant there: either add an assertion to an
+existing test that kills it, or record why it is equivalent. A surviving mutant anywhere else is not
+a reason to write a test.
+
 ### Tests and your live tmux server
 
 The suite is built so it cannot reach the tmux server you are working in, even when `go test` runs

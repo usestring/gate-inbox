@@ -1,0 +1,5 @@
+❯ Rework the nightly export so it streams rows to the bucket i…
+
+● Streaming the export in chunks with a checkpoint after each one.
+
+❯ 

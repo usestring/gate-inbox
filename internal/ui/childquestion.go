@@ -10,6 +10,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/notify"
 	"github.com/usestring/gate-inbox/internal/relayask"
@@ -52,6 +53,7 @@ const (
 // childDialogRelay is what was last relayed about one child's dialog.
 type childDialogRelay struct {
 	key       string
+	callID    string
 	msgID     int64
 	sentAt    time.Time
 	settledAt time.Time
@@ -61,6 +63,9 @@ type childDialogRelay struct {
 	// which holds every message to it; the relay's undelivered wait runs
 	// from then.
 	heldUntil time.Time
+	// questions are the relayed dialog's questions, so a parent's own
+	// dialog asking one of them is withdrawn once the child's clears.
+	questions []dialog.Question
 }
 
 func later(a, b time.Time) time.Time {
@@ -75,8 +80,9 @@ func later(a, b time.Time) time.Time {
 // up on one that stands.
 func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, now time.Time) error {
 	if newStatus != status.Waiting {
+		relay := p.childDialogs[sess.ID]
 		delete(p.childDialogs, sess.ID)
-		return nil
+		return p.childDialogCleared(sess, relay, now)
 	}
 	if pane == "" {
 		return nil
@@ -85,13 +91,19 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 	if err != nil || !ok {
 		return err
 	}
-	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess))
+	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess), p.piPermissionFile(sess))
 	if p.childDialogs == nil {
 		p.childDialogs = map[string]*childDialogRelay{}
 	}
 	relay := p.childDialogs[sess.ID]
 	if relay == nil || relay.key != key {
-		relay = &childDialogRelay{key: key}
+		// A child that went straight from one question to the next has
+		// cleared the first, so the parent's copy of it is withdrawn too.
+		if err := p.childDialogCleared(sess, relay, now); err != nil {
+			return err
+		}
+		questions, callID := childDialogQuestions(sess, pane, p.pendingAskFile(sess))
+		relay = &childDialogRelay{key: key, callID: callID, questions: questions}
 		p.childDialogs[sess.ID] = relay
 		return p.sendChildDialog(sess, parent, relay, body, urgent, now)
 	}
@@ -149,7 +161,7 @@ func (p *poller) relayChildQuestion(sess store.Session, newStatus, pane string) 
 	if err != nil || !ok {
 		return err
 	}
-	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess))
+	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess), p.piPermissionFile(sess))
 	return p.sendChildDialog(sess, parent, &childDialogRelay{key: key}, body, urgent, time.Now())
 }
 
@@ -213,6 +225,9 @@ func (p *poller) pingOperator(sess, parent store.Session, why string) {
 // childDialogBody is the relay for whatever sess's pane is holding, a key
 // that names the dialog regardless of where its cursor is or what is ticked,
 // and whether it cannot wait for the parent's next pause.
+//
+// saved are the files the session's hooks keep its pending call in: the
+// ask-pending file, then the pi permission dialog's.
 func childDialogBody(sess store.Session, pane string, saved ...string) (body, key string, urgent bool) {
 	target := childAskTarget(sess)
 	if len(saved) > 0 {
@@ -224,6 +239,7 @@ func childDialogBody(sess store.Session, pane string, saved ...string) (body, ke
 	}
 	if reading, ok := dialog.ReadQuestions(sess.Tool, pane, call.Questions); ok && len(reading.Questions) > 0 {
 		var id strings.Builder
+		id.WriteString(call.ID + "\x00")
 		for _, q := range reading.Questions {
 			id.WriteString(q.Header + "\x00" + q.Question + "\x00")
 		}
@@ -233,7 +249,13 @@ func childDialogBody(sess store.Session, pane string, saved ...string) (body, ke
 			"q:" + textfmt.Fingerprint(id.String()), traits.Expires > 0
 	}
 	if screen, ok := dialog.ReadScreenFor(sess.Tool, pane); ok {
-		screen = screen.WithExact(childPendingStrings(sess)...)
+		exact := childPendingStrings(sess)
+		if len(saved) > 1 {
+			if pending, ok := hooks.ReadPiPermissionFile(saved[1]); ok {
+				exact = append(exact, pending.Block)
+			}
+		}
+		screen = screen.WithExact(exact...)
 		about := relayask.Screen{Child: sess.Name, Description: childPendingDescription(sess)}
 		return childScreenMessage(sess, screen) + relayask.Line(relayask.ForScreen(screen, about), sess.ID),
 			"s:" + textfmt.Fingerprint(screen.Identity()), false
@@ -291,8 +313,16 @@ func childLostMessage(sess store.Session, lost asks.Result) string {
 	return out.String()
 }
 
+// childAskTarget is where sess's pending question is read from. A CLI with no
+// ask source of its own (pi) draws Claude Code's dialog and saves its call
+// through the same ask-pending hook, so it is read as Claude's, as
+// answer_session reads it.
 func childAskTarget(sess store.Session) asks.Target {
-	return asks.Target{Tool: sess.Tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd}
+	tool := sess.Tool
+	if _, ok := asks.For(tool); !ok {
+		tool = "claude"
+	}
+	return asks.Target{Tool: tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd}
 }
 
 // childPendingStrings is what sess's one unresolved tool call was given, so a
@@ -321,6 +351,15 @@ func (p *poller) pendingAskFile(sess store.Session) string {
 		return ""
 	}
 	return p.hooks.PendingAskFile(sess.ID)
+}
+
+// piPermissionFile is where sess's pi extension keeps the call its
+// permission dialog asks about, or "" for a poller with no hooks manager.
+func (p *poller) piPermissionFile(sess store.Session) string {
+	if p.hooks == nil {
+		return ""
+	}
+	return p.hooks.PiPermissionFile(sess.ID)
 }
 
 // childQuestionsMessage is every question of the dialog in the child's words
@@ -372,6 +411,8 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 		} else {
 			out.WriteString(" It submits the dialog once every question has an answer.")
 		}
+		out.WriteString(" Your user may answer it at the child's pane or on the board first: if the child " +
+			"moves on, Gate Inbox dismisses your matching question and tells you, so never ask it twice.")
 	}
 	if len(multi) > 0 {
 		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select: give its answers entry ticks, the labels of every "+
@@ -388,8 +429,8 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 	}
 	if len(approvals) > 0 {
 		fmt.Fprintf(&out, "\n\nQuestion %s is headed Approval: the child is asking for your user's approval. "+
-			"Never answer it yourself. Your user is shown it in triage on the board and may answer it at the "+
-			"child's pane; read_session first, and if it is answered there is nothing to carry. Otherwise ask "+
+			"Never answer it yourself. Your user is shown it in triage on the board and may already have answered "+
+			"it there; read_session first, and if it is answered there is nothing to carry. Otherwise ask "+
 			"your user verbatim, then answer with relay: true; any other answer is refused.", strings.Join(approvals, ", "))
 	}
 	if len(person) > 0 {

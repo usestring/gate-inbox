@@ -150,3 +150,24 @@ func TestChildBackgroundWorkCountsBashToolShellsUnderThePane(t *testing.T) {
 		t.Fatalf("shells = %d after the shell exited", shells)
 	}
 }
+
+// A terminal running a command is held; one back at its prompt is not.
+func TestTerminalBusyCountsCommandsUnderTheShell(t *testing.T) {
+	cmd := exec.Command("sleep", "30")
+	cmd.Env = tmuxtest.Environ()
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	self := func(string) (int, error) { return os.Getpid(), nil }
+	if got := terminalBusy("term", self, agentsession.ProcessTable); got < 1 {
+		t.Fatalf("terminalBusy = %d with a command running under the shell", got)
+	}
+	idle := func(string) (int, error) { return cmd.Process.Pid, nil }
+	if got := terminalBusy("term", idle, agentsession.ProcessTable); got != 0 {
+		t.Fatalf("terminalBusy = %d for a process with no children", got)
+	}
+}

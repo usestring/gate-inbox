@@ -44,11 +44,14 @@ var darwinManagers = []manager{
 // package the vendor publishes (and that its own installer downloads), never
 // a piped install script. opencode's is the v2 package: the older
 // opencode-ai package is the 1.x line, which the board does not support
-// (opencode.Report.UpgradeNotice).
+// (opencode.Report.UpgradeNotice). omp's package needs Bun: its code imports
+// bun:sqlite, so an npm install has no runtime to run on, and omp's own
+// installer is a piped script.
 var official = map[string]string{
 	"claude":   "npm install -g @anthropic-ai/claude-code",
 	"cmd":      "npm install -g command-code",
 	"codex":    "npm install -g @openai/codex",
+	"omp":      "bun install -g @oh-my-pi/pi-coding-agent",
 	"opencode": "npm install -g @opencode/cli",
 	"pi":       "npm install -g @earendil-works/pi-coding-agent",
 }
@@ -58,6 +61,20 @@ var official = map[string]string{
 // vendor's piped install script, so the dialog has no command to offer.
 var installPage = map[string]string{
 	"muse": "https://dev.meta.ai",
+}
+
+// floors is the oldest release of an agent CLI the board launches. pi 1.0
+// made a fullscreen TUI the default, which the board's pane reading cannot
+// follow without --tui-mode regular, and the board's pi integration is built
+// on 1.5's extension API (built-in MCP, blocked custom dialogs).
+var floors = map[string]string{
+	"pi": "1.5.0",
+}
+
+// Floor is the oldest version of tool the board launches, empty when any
+// version will do.
+func Floor(tool string) string {
+	return floors[tool]
 }
 
 func Hint(tool string) string {

@@ -66,13 +66,15 @@ const (
 	UnmuteAll     Action = "unmute_all"
 	CopySessionID Action = "copy_session_id"
 	CopyJev       Action = "copy_jev"
-	RunJev        Action = "run_jev"
-	HandOver      Action = "hand_over"
-	QuickInput    Action = "quick_prompt"
-	RenameSelf    Action = "rename_from_agent"
-	Rename        Action = "rename"
-	NameSweep     Action = "name_sweep"
-	Move          Action = "move"
+	// OpenLastURL opens the newest link the session's pane printed.
+	OpenLastURL Action = "open_last_url"
+	RunJev      Action = "run_jev"
+	HandOver    Action = "hand_over"
+	QuickInput  Action = "quick_prompt"
+	RenameSelf  Action = "rename_from_agent"
+	Rename      Action = "rename"
+	NameSweep   Action = "name_sweep"
+	Move        Action = "move"
 
 	ShowAllWork  Action = "show_all_work"
 	StatusFilter Action = "status_filter"
@@ -106,6 +108,10 @@ const (
 	ReviewStart   Action = "review_start"
 	ReviewView    Action = "review_view"
 	ReviewAuthor  Action = "review_author"
+	// ReviewDifficulty cycles the selected pull request's difficulty tier;
+	// ReviewDifficultyFilter cycles the hardest tier the queue hands over.
+	ReviewDifficulty       Action = "review_difficulty"
+	ReviewDifficultyFilter Action = "review_difficulty_filter"
 	// The tabs of a pull request's page, as GitHub names them.
 	ReviewConversation Action = "review_conversation"
 	ReviewFiles        Action = "review_files"
@@ -188,7 +194,7 @@ var Catalog = []Binding{
 	{ContextList, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
 	{ContextList, PreviousPane, []string{"ctrl+up", "ctrl+alt+up"}, "previous pane in list order, from any screen", false},
 	{ContextList, NextPane, []string{"ctrl+down", "ctrl+alt+down"}, "next pane in list order, from any screen", false},
-	{ContextList, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
+	{ContextList, Rescind, []string{"alt+z"}, "undo the latest submission while its turn is active", false},
 	{ContextList, JumpAttention, []string{"tab"}, "enter the next session waiting on you", false},
 	{ContextList, JumpWaiting, []string{}, "enter the next waiting session", false},
 	{ContextList, JumpFinished, []string{}, "enter the next finished session", false},
@@ -229,7 +235,7 @@ var Catalog = []Binding{
 	{ContextList, Priority, []string{"ctrl+p"}, "cycle priority: high → medium → low → none (tiers set in Settings)", false},
 	{ContextList, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	{ContextList, UnmuteAll, []string{"alt+m"}, "unmute every muted session listed", false},
-	{ContextList, QuickInput, []string{"ctrl+s"}, "hotkey menu", false},
+	{ContextList, QuickInput, []string{"ctrl+z"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"ctrl+alt+r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{}, "name sweep over idle adopted panes", false},
@@ -240,6 +246,7 @@ var Catalog = []Binding{
 	{ContextList, BringIn, []string{"ctrl+alt+a"}, "bring an outside pane in: resume it as a board session once idle", false},
 	{ContextList, LeaveOut, []string{"ctrl+o"}, "leave an outside pane off the board, still running", false},
 	{ContextList, Move, []string{"ctrl+e"}, "move it to a group", false},
+	{ContextList, OpenLastURL, []string{"ctrl+alt+o"}, "open the most recent link the session showed", false},
 	{ContextList, CopyJev, []string{"alt+'"}, "copy what JEV reads as left for you to copy", false},
 	{ContextList, RunJev, []string{"alt+\""}, "run the next command JEV reads as left for you to run", false},
 
@@ -262,7 +269,7 @@ var Catalog = []Binding{
 	// filter with no visible field used to read as sessions gone missing.
 	{ContextList, ClearSearch, []string{}, "clear the search", false},
 	{ContextList, Resize, []string{}, "resize the split", false},
-	{ContextList, Settings, []string{"ctrl+alt+s"}, "settings", false},
+	{ContextList, Settings, []string{"ctrl+s"}, "settings", false},
 	// No key: what is installed changes rarely, and quick actions finds it.
 	{ContextList, RefreshCLIs, []string{}, "refresh installed CLIs: look on PATH again for each agent CLI", false},
 	{ContextList, ToggleChrome, []string{}, "hide / show the key hints along the foot", false},
@@ -279,7 +286,7 @@ var Catalog = []Binding{
 	{ContextFocus, Leave, []string{"ctrl+q"}, "back to the manager; in triage, on to the next", true},
 	{ContextFocus, HandOver, []string{"§"}, "ctrl+q's one-press alias", false},
 	{ContextFocus, LeaveHard, []string{`ctrl+\`}, "back to the manager, always stopping there", true},
-	{ContextFocus, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
+	{ContextFocus, Rescind, []string{"alt+z"}, "undo the latest submission while its turn is active", false},
 	// A chord for the same reason alt+, is one: a plain "." is a character
 	// the agent was owed. It mirrors the list's own dismiss key.
 	{ContextFocus, Dismiss, []string{"alt+."}, "skip", false},
@@ -309,11 +316,7 @@ var Catalog = []Binding{
 	// reach the agent as readline's backward-delete, and backspace still sends
 	// that edit under its own name.
 	{ContextFocus, Help, []string{"ctrl+h"}, "this key map", false},
-	// The hotkey menu from inside the pane: the same snippet menu the list
-	// opens, answering the focused session. One more claimed ctrl key, and
-	// ctrl+s is free on both screens. It is rebindable like every other
-	// action for an operator who misses it.
-	{ContextFocus, QuickInput, []string{"ctrl+s"}, "hotkey menu: send a snippet without leaving the session", false},
+	{ContextFocus, QuickInput, []string{"ctrl+z"}, "hotkey menu: send a snippet without leaving the session", false},
 	// Session controls reached from inside the pane: a drain that had to leave
 	// the queue to spawn, copy an id or step back was not one queue. See the
 	// ui package's focusactions.go. Option+letter belongs to snippet chords,
@@ -322,6 +325,8 @@ var Catalog = []Binding{
 	{ContextFocus, TriageContent, []string{"alt+]"}, "cycle triage: sessions, reviews, or both", false},
 	{ContextFocus, ReviewsTab, []string{"ctrl+]"}, "switch to the Reviews tab", false},
 	{ContextFocus, CopySessionID, []string{"alt+/"}, "copy the agent's session id", false},
+	// ctrl+alt rather than option+letter, which belongs to snippet chords.
+	{ContextFocus, OpenLastURL, []string{"ctrl+alt+o"}, "open the most recent link the session showed", false},
 	{ContextFocus, CopyJev, []string{"alt+'"}, "copy what JEV reads as left for you to copy", false},
 	{ContextFocus, RunJev, []string{"alt+\""}, "run the next command JEV reads as left for you to run", false},
 	{ContextFocus, LastPane, []string{"ctrl+l", "alt+;"}, "back to the previous pane; again walks further back", false},
@@ -341,7 +346,7 @@ var Catalog = []Binding{
 	{ContextFocus, Triage, []string{"ctrl+i"}, "triage this group as one queue", false},
 	{ContextFocus, Search, []string{"ctrl+f"}, "fuzzy session search", false},
 	{ContextFocus, QuickActions, []string{"ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
-	{ContextFocus, Settings, []string{"ctrl+alt+s"}, "settings", false},
+	{ContextFocus, Settings, []string{"ctrl+s"}, "settings", false},
 	{ContextFocus, NewGroup, []string{"ctrl+alt+g"}, "new group", false},
 	{ContextFocus, NewTerminal, []string{"ctrl+alt+t"}, "new terminal tab", false},
 	{ContextFocus, ReviveAll, []string{"ctrl+alt+v"}, "revive every dead session", false},
@@ -387,6 +392,8 @@ var Catalog = []Binding{
 	{ContextReviews, ReviewStart, []string{"s"}, "start the review", false},
 	{ContextReviews, ReviewOpen, []string{"o"}, "open on GitHub", false},
 	{ContextReviews, ReviewDismiss, []string{"x"}, "dismiss", false},
+	{ContextReviews, ReviewDifficulty, []string{"d"}, "set the difficulty", false},
+	{ContextReviews, ReviewDifficultyFilter, []string{"D", "shift+d"}, "hand over only reviews up to a difficulty", false},
 	{ContextReviews, Refresh, []string{"P", "shift+p"}, "fetch new reviews", false},
 
 	// ---- a pull request's page ----

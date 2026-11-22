@@ -37,7 +37,7 @@ func TestChildNudgeRaisesEachDialogOnceATurn(t *testing.T) {
 	for _, want := range []string{
 		"Child kid-b1b1b1b1 (b1b1b1b1) has waited 14m on: Approval — Push branch feat/x to origin?",
 		"  - Push: git push -u origin feat/x",
-		"marked as your user's own answer",
+		"then pass their answer to answer_session with relay: true",
 	} {
 		if !strings.Contains(opened.HookSpecificOutput.AdditionalContext, want) {
 			t.Errorf("context lacks %q:\n%s", want, opened.HookSpecificOutput.AdditionalContext)
@@ -55,7 +55,7 @@ func TestChildNudgeRaisesEachDialogOnceATurn(t *testing.T) {
 	if err := json.Unmarshal([]byte(f.nudge("Stop", ledger, segDir)), &held); err != nil || held.Decision != "block" {
 		t.Fatalf("Stop = %+v (%v), want a block", held, err)
 	}
-	if !strings.Contains(held.Reason, "kid-c2c2c2c2 (c2c2c2c2)") || !strings.Contains(held.Reason, "permission prompt") ||
+	if !strings.Contains(held.Reason, "kid-c2c2c2c2 (c2c2c2c2)") || !strings.Contains(held.Reason, "permission prompt") || !strings.Contains(held.Reason, "always your user's call") ||
 		strings.Contains(held.Reason, "b1b1b1b1") {
 		t.Errorf("reason names the wrong dialogs:\n%s", held.Reason)
 	}

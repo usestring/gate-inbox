@@ -38,6 +38,28 @@ const callerDomain = "gate-inbox caller v2\n"
 // schema does not advertise.
 const agentSessionDir = "opencode-sessions"
 
+// CallerVerification are the paths under the key dir that a process checking
+// callers reads: the caller key and opencode's session bindings. An MCP server
+// started inside a session's own confinement (keyconfine) still needs them,
+// and nothing else in the directory. With mint the key and the bindings
+// directory are made first: a confinement maps in only what exists when it
+// starts, and a server started before the first binding is written must
+// still see the bindings written after. Without mint the paths are only
+// named.
+func CallerVerification(configDir string, mint bool) ([]string, error) {
+	key := filepath.Join(KeyDir(configDir), callerKeyFile)
+	bindings := filepath.Join(KeyDir(configDir), agentSessionDir)
+	if mint {
+		if _, err := mintKey(key); err != nil {
+			return nil, err
+		}
+		if err := os.MkdirAll(bindings, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	return []string{key, bindings}, nil
+}
+
 // CallerToken is session's caller token, minting the key on first use.
 func CallerToken(configDir, session string) (string, error) {
 	key, err := mintKey(filepath.Join(KeyDir(configDir), callerKeyFile))
@@ -132,6 +154,36 @@ func agentSessionPath(configDir, agentSession string) (string, error) {
 // serverDomain is what a shared server's proof signs besides the client's
 // nonce; distinct from callerDomain, so a proof is never a caller token.
 const serverDomain = "gate-inbox shared server v1\n"
+
+// sessionServerDomain is what a shared server's proof to one session signs
+// besides the nonce; distinct from serverDomain and callerDomain.
+const sessionServerDomain = "gate-inbox shared server for a session v1\n"
+
+// SessionServerProof is the proof, for nonce, that a server knows session
+// token: keyed by the token, so a client that can read its own token but not
+// the caller key -- a session confined away from the key dir
+// (package keyconfine), left only its own MCP config -- can still check the
+// server before handing it that token. Only a holder of the caller key can
+// derive a session's token, so only the board's server can answer.
+func SessionServerProof(token, nonce string) string {
+	mac := hmac.New(sha256.New, []byte(token))
+	mac.Write([]byte(sessionServerDomain + nonce))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// ServerProofForSession is what configDir's server answers to session's
+// client for nonce (SessionServerProof with the session's token). With no
+// key minted there is no token, and so no proof.
+func ServerProofForSession(configDir, session, nonce string) (string, error) {
+	token, err := ExistingCallerToken(configDir, session)
+	if err != nil {
+		return "", err
+	}
+	if token == "" {
+		return "", fmt.Errorf("no caller key minted")
+	}
+	return SessionServerProof(token, nonce), nil
+}
 
 // ServerProof is the proof, for nonce, that a server holds configDir's
 // caller key: what a launch checks before handing a session's token to

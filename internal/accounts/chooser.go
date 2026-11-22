@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -97,7 +98,16 @@ type Request struct {
 	ToolName  string
 	Reason    extension.LaunchReason
 	From      string
+	// Warn, when set, is told in one line why the launch falls back to the
+	// CLI's own login after the chooser's picks proved unavailable:
+	// "account CAROL3 is unavailable: its secret version is disabled".
+	Warn func(string)
 }
+
+// maxPicks bounds how many accounts one launch tries before it falls back
+// to the CLI's own login: each pick that proves unavailable costs a secret
+// read, and a launch waits on them.
+const maxPicks = 3
 
 // Select is the account a launch runs on: the one named, else the
 // chooser's pick while the operator has the extension choosing, else the
@@ -157,7 +167,69 @@ func route(tool config.Tool, req Request, preview bool) (string, error) {
 	return ask(chooser, tool, req, preview)
 }
 
-func ask(chooser extension.AccountChooser, tool config.Tool, req Request, preview bool) (chosen string, err error) {
+// ask is the chooser's pick for a launch, checked before the launch commits
+// to it. A pick whose secret cannot be read (ErrUnavailable) does not fail
+// the launch: the chooser hears of it, if it listens, and is asked again
+// with the account excluded, up to maxPicks; after that, or when it picks an
+// excluded account again, the launch falls back to the CLI's own login with
+// a warning. A preview reads no secret and only skips accounts already found
+// unavailable. A read that fails any other way leaves the pick standing, and
+// the launch's own read reports it.
+func ask(chooser extension.AccountChooser, tool config.Tool, req Request, preview bool) (string, error) {
+	var excluded []string
+	var last error
+	for range maxPicks {
+		chosen, err := askOnce(chooser, tool, req, preview, excluded)
+		if err != nil && len(excluded) > 0 {
+			// The chooser had an account; with that one gone it has none
+			// it will name, which is no reason to refuse the launch.
+			break
+		}
+		if err != nil || chosen == "" {
+			return chosen, err
+		}
+		if slices.Contains(excluded, chosen) {
+			break
+		}
+		if preview {
+			if !MarkedUnavailable(tool, chosen) {
+				return chosen, nil
+			}
+			excluded = append(excluded, chosen)
+			continue
+		}
+		err = Check(tool, chosen)
+		if !errors.Is(err, ErrUnavailable) {
+			return chosen, nil
+		}
+		last = err
+		excluded = append(excluded, chosen)
+		recordUnavailable(req, chosen, err)
+		if reporter, ok := chooser.(extension.AccountUnavailableReporter); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), chooseTimeout)
+			reporter.AccountUnavailable(ctx, request(tool, req, preview, excluded), chosen, err)
+			cancel()
+		}
+	}
+	if last != nil && req.Warn != nil {
+		req.Warn(last.Error())
+	}
+	return "", nil
+}
+
+func request(tool config.Tool, req Request, preview bool, excluded []string) extension.AccountRequest {
+	return extension.AccountRequest{
+		SessionID: req.SessionID,
+		ToolName:  req.ToolName,
+		Tool:      Tool(tool),
+		Reason:    req.Reason,
+		From:      req.From,
+		Preview:   preview,
+		Exclude:   slices.Clone(excluded),
+	}
+}
+
+func askOnce(chooser extension.AccountChooser, tool config.Tool, req Request, preview bool, excluded []string) (chosen string, err error) {
 	started := time.Now()
 	defer func() {
 		tracing.Record("account.selection", started, time.Now(), err,
@@ -168,18 +240,21 @@ func ask(chooser extension.AccountChooser, tool config.Tool, req Request, previe
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), chooseTimeout)
 	defer cancel()
-	chosen, err = chooser.ChooseAccount(ctx, extension.AccountRequest{
-		SessionID: req.SessionID,
-		ToolName:  req.ToolName,
-		Tool:      Tool(tool),
-		Reason:    req.Reason,
-		From:      req.From,
-		Preview:   preview,
-	})
+	chosen, err = chooser.ChooseAccount(ctx, request(tool, req, preview, excluded))
 	if err != nil {
 		return "", fmt.Errorf("choosing an account: %w", err)
 	}
 	return Normalize(chosen), nil
+}
+
+// recordUnavailable traces a chosen account that proved unavailable.
+func recordUnavailable(req Request, account string, err error) {
+	now := time.Now()
+	tracing.Record("account.unavailable", now, now, err,
+		tracing.Attr{Key: "session", Value: req.SessionID},
+		tracing.Attr{Key: "tool", Value: req.ToolName},
+		tracing.Attr{Key: "account.name", Value: account},
+		tracing.Attr{Key: "launch.reason", Value: string(req.Reason)})
 }
 
 // RecordLaunch traces which account a session was launched on.

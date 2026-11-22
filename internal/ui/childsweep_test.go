@@ -1,6 +1,10 @@
 package ui
 
 import (
+	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -271,5 +275,50 @@ func TestTheChildSweepRechecksTheRowBeforeEndingIt(t *testing.T) {
 	m.applyChildSweep(msg)
 	if row, err := m.store.Get(kid.ID); err != nil || row.Archived || !m.tmux.Exists(kid.ID) {
 		t.Fatalf("the landing ended a child that had gone back to work: %+v, %v", row, err)
+	}
+}
+
+func TestTheChildSweepDryRunLeavesLiveAndExitedChildrenOnTheBoard(t *testing.T) {
+	m, parent, kid := finishedFanOut(t)
+	m.cfg.Children.DryRun = true
+	relayRest(t, m, parent, kid, true)
+	m.cfg.Children.AutoArchiveAfter.Duration = time.Nanosecond
+
+	runChildSweep(t, m)
+	runChildSweep(t, m)
+	if row, err := m.store.Get(kid.ID); err != nil || row.Archived || !m.tmux.Exists(kid.ID) {
+		t.Fatalf("dry run changed a live child: archived=%t, err=%v", row.Archived, err)
+	}
+
+	if err := m.tmux.Kill(kid.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.UpdateStatus(kid.ID, status.Dead); err != nil {
+		t.Fatal(err)
+	}
+	loadStoredRows(t, m)
+	runChildSweep(t, m)
+	runChildSweep(t, m)
+	if row, err := m.store.Get(kid.ID); err != nil || row.Archived {
+		t.Fatalf("dry run archived an exited child: archived=%t, err=%v", row.Archived, err)
+	}
+
+	file, err := os.Open(filepath.Join(m.configDir(), childClosurePlanFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	dec := json.NewDecoder(file)
+	for _, want := range []struct{ kind, status string }{{"finished", status.Finished}, {"exited", status.Dead}} {
+		var plan childClosurePlan
+		if err := dec.Decode(&plan); err != nil {
+			t.Fatal(err)
+		}
+		if plan.Kind != want.kind || plan.Status != want.status || plan.SessionID != kid.ID || plan.SpawnerID != parent.ID || plan.Reason == "" {
+			t.Fatalf("wrong %s closure plan: %+v", want.kind, plan)
+		}
+	}
+	if err := dec.Decode(new(childClosurePlan)); err != io.EOF {
+		t.Fatalf("repeated polls recorded another plan: %v", err)
 	}
 }

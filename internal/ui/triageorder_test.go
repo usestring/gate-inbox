@@ -14,7 +14,7 @@ import (
 
 // orderFleet is a question, an urgent finish carrying the cache warden's
 // deadline, an ordinary finish and an idle row, each last turned to at a
-// different time, so every order puts them in a different line.
+// different time to exercise the tie-breaks within a priority.
 func orderFleet(t *testing.T, order string) *Model {
 	t.Helper()
 	urgent := smartSess("urgent-done", status.Finished, 30*time.Minute)
@@ -26,7 +26,10 @@ func orderFleet(t *testing.T, order string) *Model {
 		smartSess("napping", status.Idle, 3*time.Hour),
 	)
 	m.queueDeadlines = map[string]time.Time{"urgent-done": smartNow.Add(50 * time.Minute)}
-	m.triageOrder = order
+	if err := m.store.SetSetting(triageOrderSetting, order); err != nil {
+		t.Fatal(err)
+	}
+	m.triageOrder = storedTriageOrder(m.store)
 	m.rebuildRows()
 	return m
 }
@@ -72,16 +75,11 @@ func TestTriageOrders(t *testing.T) {
 		order       string
 		rail, drain []string
 	}{
-		{triageOrderQuestions, []string{"ask", "urgent-done", "done", "napping"}, []string{"ask", "urgent-done", "done", "napping"}},
-		{"", []string{"ask", "urgent-done", "done", "napping"}, []string{"ask", "urgent-done", "done", "napping"}},
-		// Priority beats state: the urgent finish goes ahead of the question.
+		{"questions-first", []string{"urgent-done", "ask", "done", "napping"}, []string{"urgent-done", "ask", "done", "napping"}},
+		{"", []string{"urgent-done", "ask", "done", "napping"}, []string{"urgent-done", "ask", "done", "napping"}},
 		{triageOrderPriority, []string{"urgent-done", "ask", "done", "napping"}, []string{"urgent-done", "ask", "done", "napping"}},
-		// Longest since the operator's last turn first, whatever the state,
-		// priority or deadline.
-		{triageOrderOldest, []string{"done", "napping", "ask", "urgent-done"}, []string{"done", "napping", "ask", "urgent-done"}},
-		// The rail sorts as questions first; the drain hands over only the
-		// question.
-		{triageOrderQuestionsOnly, []string{"ask", "urgent-done", "done", "napping"}, []string{"ask"}},
+		{triageOrderOldest, []string{"urgent-done", "done", "napping", "ask"}, []string{"urgent-done", "done", "napping", "ask"}},
+		{triageOrderQuestionsOnly, []string{"urgent-done", "ask", "done", "napping"}, []string{"ask"}},
 	} {
 		t.Run(tc.order, func(t *testing.T) {
 			m := orderFleet(t, tc.order)
@@ -93,7 +91,7 @@ func TestTriageOrders(t *testing.T) {
 	}
 }
 
-// Oldest first is a fair rotation: with the warm sessions re-finishing on
+// Within one priority, with warm sessions re-finishing on
 // every hop, every session is still handed over once before any comes back.
 func TestTriageOldestFirstRotatesEverySession(t *testing.T) {
 	m, asks, warm := rotationFleet(t, 6)
@@ -169,8 +167,8 @@ func TestTriageWalksKeptWarmIdleSessionsByDefault(t *testing.T) {
 
 func TestTriageOrderSettingsPersist(t *testing.T) {
 	m := buildModel(t)
-	if m.triageOrder != triageOrderQuestions || !m.triageKeepAlives {
-		t.Fatalf("defaults = %q, %v; want questions first, keep-alives in", m.triageOrder, m.triageKeepAlives)
+	if m.triageOrder != triageOrderPriority || !m.triageKeepAlives {
+		t.Fatalf("defaults = %q, %v; want priority first, keep-alives in", m.triageOrder, m.triageKeepAlives)
 	}
 	// Toggle off then back on, so the saved value is one the operator chose.
 	m.openSettings()
@@ -183,10 +181,9 @@ func TestTriageOrderSettingsPersist(t *testing.T) {
 	m.openSettings()
 	m.settings.field = settingsFieldTriageOrder
 	m.cycleSetting(1)
-	m.cycleSetting(1)
 	m.settings.field = settingsFieldTriageKeepAlives
 	m.cycleSetting(1)
-	if view := ansi.Strip(m.viewSettings()); !strings.Contains(view, "oldest first") {
+	if view := ansi.Strip(m.viewSettings()); !strings.Contains(view, "priority then oldest") {
 		t.Fatalf("settings do not show the chosen order: %s", view)
 	}
 	m.saveAndCloseSettings()
@@ -202,15 +199,15 @@ func TestTriageOrderSettingsPersist(t *testing.T) {
 	if err := m.store.SetSetting(triageOrderSetting, "nonsense"); err != nil {
 		t.Fatal(err)
 	}
-	if got := storedTriageOrder(m.store); got != triageOrderQuestions {
-		t.Fatalf("unknown order read as %q, want questions first", got)
+	if got := storedTriageOrder(m.store); got != triageOrderPriority {
+		t.Fatalf("unknown order read as %q, want priority first", got)
 	}
 }
 
 // The footer's triage key says which order the drain is walking.
 func TestTriageFooterShowsTheOrder(t *testing.T) {
 	m := orderFleet(t, triageOrderPriority)
-	if legend := ansi.Strip(m.peekLegend(m.listBodyHeight())); !strings.Contains(legend, "priority first") {
+	if legend := ansi.Strip(m.peekLegend(m.listBodyHeight())); !strings.Contains(legend, "priority then questions") {
 		t.Fatalf("footer does not name the triage order: %s", legend)
 	}
 }

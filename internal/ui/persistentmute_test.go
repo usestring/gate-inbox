@@ -467,7 +467,7 @@ func TestMutingTheLastTriageSessionLeavesTheDrainOpen(t *testing.T) {
 
 	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'm', Mod: tea.ModCtrl})
 	m = updated.(*Model)
-	if m.mode != modeForm || !m.triageResume || !m.triage {
+	if m.mode != modeCleared || !m.triageResume || !m.triage {
 		t.Fatalf("muting the last session left mode %v, triage %t, resume %t", m.mode, m.triage, m.triageResume)
 	}
 	if !sessionNamed(t, m, "ask").Muted {

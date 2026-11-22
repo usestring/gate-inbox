@@ -61,17 +61,18 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 	}
 	// Read here, on the loop, because the row set is the model's. Everything
 	// below belongs to the store and to tmux, and is read on their own time.
-	known := make(map[string]bool, len(m.sessions))
-	for _, sess := range m.sessions {
-		known[sess.ID] = true
+	rows := slices.Clone(m.sessions)
+	known := make(map[string]int, len(rows))
+	for i, sess := range rows {
+		known[sess.ID] = i
 	}
 	m.childSweeping = true
 	st, driver := m.store, m.tmux
 	window := m.childAutoArchiveAfter()
 	cutoff := time.Now().Add(-window)
 	retire := !m.cfg.Children.KeepFinished
+	dryRun := m.cfg.Children.DryRun
 	grace := m.childFinishedGrace()
-	rows := slices.Clone(m.sessions)
 	cfg := m.cfg
 	owned := maps.Clone(m.extOwned)
 	shells := m.shellTools()
@@ -80,14 +81,15 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 		tracker = m.poller.background
 	}
 	return func() tea.Msg {
-		var retiring []string
+		var retiring []store.RetirableChild
 		if retire {
 			found, err := st.RetirableChildren(time.Now().Add(-grace))
 			if err != nil {
 				return childSweptMsg{err: err}
 			}
 			for _, child := range found {
-				if !known[child.ID] || owned[child.ID] {
+				index, ok := known[child.ID]
+				if !ok || owned[child.ID] {
 					continue
 				}
 				if retireHeld(rows, child.ID, shells) {
@@ -98,16 +100,25 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 				if !driver.Exists(child.ID) {
 					continue
 				}
-				if row, ok := rowByID(rows, child.ID); ok {
-					if pending, live := childBackgroundWork(tracker, row, driver.PanePID); len(pending) > 0 || live > 0 {
-						logging.Info("child sweep held a finished child whose background work is still running",
-							"session", child.ID, "tasks", pending, "shells", live)
+				// A terminal reads idle from the moment it opens, so its rest
+				// says nothing about whether a command is still running in it.
+				if shells[rows[index].Tool] {
+					if busy := terminalBusy(rows[index].ID, driver.PanePID, agentsession.ProcessTable); busy > 0 {
+						logging.Info("child sweep held a terminal whose shell is still running a command",
+							"session", child.ID, "processes", busy)
 						continue
 					}
 				}
-				logging.Info("child sweep retiring a finished child",
-					"session", child.ID, "absorbed", child.Via, "absorbedAt", child.AbsorbedAt, "grace", grace)
-				retiring = append(retiring, child.ID)
+				if pending, live := childBackgroundWork(tracker, rows[index], driver.PanePID); len(pending) > 0 || live > 0 {
+					logging.Info("child sweep held a finished child whose background work is still running",
+						"session", child.ID, "tasks", pending, "shells", live)
+					continue
+				}
+				if !dryRun {
+					logging.Info("child sweep retiring a finished child",
+						"session", child.ID, "absorbed", child.Via, "absorbedAt", child.AbsorbedAt, "grace", grace)
+				}
+				retiring = append(retiring, child)
 			}
 		}
 		children, err := st.AutoArchivableChildren(cutoff)
@@ -115,8 +126,10 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 			return childSweptMsg{err: err}
 		}
 		filed := make([]string, 0, len(children))
+		var plans []childClosurePlan
 		for _, child := range children {
-			if !known[child.ID] {
+			index, ok := known[child.ID]
+			if !ok {
 				continue
 			}
 			// A row reading dead with a pane still up is a status the poller
@@ -137,6 +150,10 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 					"session", child.ID)
 				continue
 			}
+			if dryRun {
+				plans = append(plans, newChildClosurePlan(rows[index], "exited", child.Reason, shellsUnder))
+				continue
+			}
 			logging.Info("child sweep archived an exited child",
 				"session", child.ID, "reason", child.Reason, "window", window, "terminals", len(shellsUnder))
 			for _, id := range append(shellsUnder, child.ID) {
@@ -146,7 +163,7 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 			}
 		}
 		if len(filed) == 0 {
-			return childSweptMsg{retire: retiring}
+			return childSweptMsg{retire: retiring, plans: plans}
 		}
 		missing, err := st.ArchiveKilled(filed, nil)
 		if err != nil {
@@ -172,7 +189,8 @@ type childSweptMsg struct {
 	missing []string
 	// retire is the finished children to end and file, which happens back
 	// on the loop through the board's own teardown.
-	retire []string
+	retire []store.RetirableChild
+	plans  []childClosurePlan
 	err    error
 }
 
@@ -186,7 +204,12 @@ func (m *Model) applyChildSweep(msg childSweptMsg) {
 	if len(msg.filed) > 0 {
 		m.markArchivedLocally(msg.filed, msg.missing)
 	}
-	retired := m.retireFinishedChildren(msg.retire)
+	retired, plans := m.retireFinishedChildren(msg.retire)
+	if m.cfg.Children.DryRun {
+		if err := m.recordChildClosurePlans(append(msg.plans, plans...)); err != nil {
+			m.errBar.text = "child sweep dry run: " + err.Error()
+		}
+	}
 	if len(msg.filed) > 0 || retired {
 		m.rebuildRows()
 	}
@@ -200,10 +223,12 @@ func (m *Model) applyChildSweep(msg childSweptMsg) {
 // Everything is asked again against the rows as they are now, since the
 // sweep read them a frame ago: a child sent a follow-up in between is
 // working, and one of its own children may have started.
-func (m *Model) retireFinishedChildren(ids []string) bool {
+func (m *Model) retireFinishedChildren(children []store.RetirableChild) (bool, []childClosurePlan) {
 	retired := false
+	var plans []childClosurePlan
 	shells := m.shellTools()
-	for _, id := range ids {
+	for _, child := range children {
+		id := child.ID
 		sess, ok := m.sessionByID(id)
 		if !ok || sess.Archived || (sess.Status != status.Finished && sess.Status != status.Idle) {
 			continue
@@ -211,7 +236,16 @@ func (m *Model) retireFinishedChildren(ids []string) bool {
 		if retireHeld(m.sessions, id, shells) {
 			continue
 		}
-		set := append(liveBelow(m.sessions, id), sess)
+		descendants := liveBelow(m.sessions, id)
+		if m.cfg.Children.DryRun {
+			ids := make([]string, 0, len(descendants))
+			for _, descendant := range descendants {
+				ids = append(ids, descendant.ID)
+			}
+			plans = append(plans, newChildClosurePlan(sess, "finished", child.Via, ids))
+			continue
+		}
+		set := append(descendants, sess)
 		live := m.livePanes()
 		if err := m.snapshotLive(set, live); err != nil {
 			m.errBar.text = "child sweep: " + err.Error()
@@ -224,7 +258,7 @@ func (m *Model) retireFinishedChildren(ids []string) bool {
 		logging.Info("child sweep archived a finished child", "session", id, "with", len(set)-1)
 		retired = true
 	}
-	return retired
+	return retired, plans
 }
 
 // retireHeld reports whether a finished child must stay even though its

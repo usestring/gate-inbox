@@ -24,6 +24,20 @@ func childBackgroundWork(tracker *agentsession.Background, sess store.Session, p
 	return pending, agentsession.ClaudeShellsUnder(pid, agentsession.ProcessTable)
 }
 
+// terminalBusy counts the processes directly under a terminal's shell. At its
+// prompt the shell has none; a command in the foreground, a shell function
+// calling out (a fan-out's countdown sleep) or a background job has one or
+// more. Retiring the terminal ends all of them -- how a fan-out script was
+// killed mid-countdown on 2026-11-22, ten minutes after its spawner was
+// archived.
+func terminalBusy(id string, panePID func(string) (int, error), table func() ([]byte, error)) int {
+	pid, err := panePID(id)
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return agentsession.ChildrenOf(pid, table)
+}
+
 // rowByID is the row for id among rows the sweep copied off the loop.
 func rowByID(rows []store.Session, id string) (store.Session, bool) {
 	for _, row := range rows {

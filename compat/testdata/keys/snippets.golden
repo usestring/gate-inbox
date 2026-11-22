@@ -6,6 +6,7 @@ w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. 
 n  "needs?" -> "what do you need from me?"
 f  "fix it" -> "fix it"
 j  "judgment" -> "Use your judgment"
+q  "ask again" -> "Ask me again"
 p  "progress" -> "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
 --- snippets.json as written
 [
@@ -56,6 +57,13 @@ p  "progress" -> "summarise all current progress in bullet points, including eve
     "label": "judgment",
     "chord": "alt+j",
     "text": "Use your judgment",
+    "autoSubmit": true
+  },
+  {
+    "key": "q",
+    "label": "ask again",
+    "chord": "alt+q",
+    "text": "Ask me again",
     "autoSubmit": true
   },
   {

@@ -2,8 +2,9 @@ package launchpace
 
 import "github.com/usestring/gate-inbox/internal/config"
 
-// FromConfig applies the board's [relaunch] settings and host memory guard.
-func FromConfig(dir string, r config.Relaunch, settled Settled) *Pacer {
+// FromConfig applies the board's [relaunch] settings, and the host memory
+// guard when memoryGuard says the experiment is on.
+func FromConfig(dir string, r config.Relaunch, settled Settled, memoryGuard bool) *Pacer {
 	p := New(dir, Limits{
 		MaxInFlight: r.MaxInFlight,
 		MinGap:      r.MinGap.Duration,
@@ -11,6 +12,8 @@ func FromConfig(dir string, r config.Relaunch, settled Settled) *Pacer {
 		Settle:      r.Settle.Duration,
 		LoadPerCPU:  r.LoadPerCPU,
 	}, settled)
-	p.underMemoryPressure = hostMemoryPressure
+	if memoryGuard {
+		p.underMemoryPressure = hostMemoryPressure
+	}
 	return p
 }

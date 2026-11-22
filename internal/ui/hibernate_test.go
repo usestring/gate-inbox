@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -216,8 +217,9 @@ func TestAHibernatedRowShowsHibernatingAndTriageDemotesIt(t *testing.T) {
 	}
 }
 
-// Wake-all brings back every hibernated row in view at once and leaves a
-// row that really died for revive.
+// Wake-all brings back every hibernated row in view, one relaunch per
+// step, ignores a second press while its run is going, and leaves a row
+// that really died for revive.
 func TestWakeAllWakesEveryHibernatedSessionAndNoDeadOne(t *testing.T) {
 	m := buildModel(t)
 	byName := map[string]store.Session{}
@@ -246,7 +248,25 @@ func TestWakeAllWakesEveryHibernatedSessionAndNoDeadOne(t *testing.T) {
 	if !m.applies(keymap.ContextList, keymap.WakeAll, treeRow{}) {
 		t.Fatal("wake-all does not apply with hibernated rows listed")
 	}
-	m.runListAction(keymap.WakeAll, tea.KeyPressMsg{})
+	_, cmd := m.runListAction(keymap.WakeAll, tea.KeyPressMsg{})
+	if cmd == nil {
+		t.Fatalf("wake-all scheduled no next step; err bar %q", m.errBar.text)
+	}
+	if !m.tmux.Exists(first.ID) || m.tmux.Exists(second.ID) {
+		t.Fatalf("first step should wake only %s", first.Name)
+	}
+	if _, again := m.runListAction(keymap.WakeAll, tea.KeyPressMsg{}); again != nil {
+		t.Fatal("a second press started another wake-all run")
+	}
+	if !strings.Contains(m.errBar.text, "already waking") {
+		t.Fatalf("err bar on a second press = %q", m.errBar.text)
+	}
+	for steps := 0; m.wakeAll != nil; steps++ {
+		if steps > 5 {
+			t.Fatal("wake-all run never finished")
+		}
+		m.wakeAllStep()
+	}
 
 	for _, sess := range []store.Session{first, second} {
 		if !m.tmux.Exists(sess.ID) {

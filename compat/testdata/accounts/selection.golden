@@ -21,7 +21,7 @@ secret store calls:
 chosen: "CAT1"
 chooser asked: 1
 secret store calls:
-(none)
+secrets read EXAMPLE_TOKEN_CAT1
 
 == extension mode, an account named
 chosen: "BOB1"

@@ -230,15 +230,15 @@ func TestSettingsSwapsFocusKey(t *testing.T) {
 	if !m.settings.enterFocuses {
 		t.Fatal("settings should open with enter focusing")
 	}
-	card := ansi.Strip(m.viewSettings())
-	if !strings.Contains(card, "session keys") {
-		t.Fatalf("settings card has no session keys row:\n%s", card)
-	}
 	for i := 0; i < settingsFieldFocusKey; i++ {
 		m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	}
 	if m.settings.field != settingsFieldFocusKey {
 		t.Fatalf("stepping down should reach the session keys field, got %d", m.settings.field)
+	}
+	card := ansi.Strip(m.viewSettings())
+	if !strings.Contains(card, "session keys") {
+		t.Fatalf("settings card has no session keys row:\n%s", card)
 	}
 	m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	if !strings.Contains(ansi.Strip(m.viewSettings()), "attach") {

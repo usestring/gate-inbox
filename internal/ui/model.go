@@ -87,6 +87,10 @@ const (
 	// modeHeadPane routes the keyboard into the page behind an extension's
 	// header row, drawn where a session's pane is. See headpane.go.
 	modeHeadPane
+	// modeCleared is the inbox-cleared pane: the list stays up and the
+	// content pane offers one prompt to launch the next session. See
+	// cleared.go.
+	modeCleared
 )
 
 type treeRow struct {
@@ -134,6 +138,10 @@ type Model struct {
 	gitDrv *git.Driver
 	engine *status.Engine
 
+	// recentSaves tracks the background writes of the last checkout each
+	// repository launched in; lookups wait on it so they never read stale.
+	recentSaves *sync.WaitGroup
+
 	// snips are the operator's canned answers, read once at startup;
 	// snipErr is why there are none, when the file would not be read.
 	snips         snippets.Set
@@ -159,6 +167,11 @@ type Model struct {
 	jevFinish      jevFinishState
 	jevCopyOn      bool
 	jevCopy        jevCopyState
+	autoGroupOn    bool
+	autoGroup      autoGroupState
+	// nextStepOn is the Next step experiment; nextStep is what it remembers.
+	nextStepOn bool
+	nextStep   nextStepState
 	// reviewQueue is the Review queue experiment: off, the ingest key
 	// refuses and the rail draws no Reviews tab.
 	reviewQueue    bool
@@ -227,6 +240,9 @@ type Model struct {
 	// the last triage sort lifted it. See reviewtriage.go.
 	reviewsSeen   time.Time
 	triageLineage map[string]triageKey
+	// reviewCeiling is the hardest review difficulty the queue hands over,
+	// empty for every tier. See reviewdifficulty.go.
+	reviewCeiling string
 
 	// extensionNotes are the build's extensions the operator's config
 	// switched off, and the config sections nothing owns, each with its
@@ -301,13 +317,17 @@ type Model struct {
 	// childSweeping is set while a child sweep is out on a command goroutine,
 	// so the poll clock cannot stack a second set of tmux forks behind the
 	// set already waiting. See childsweep.go.
-	childSweeping bool
+	childSweeping     bool
+	childClosurePlans map[childClosureKey]bool
 	// hibernating is set while a settleHibernated pass is out, and
 	// hibernateSweptAt is when the last one swept for idle sessions. See
 	// hibernate.go.
 	hibernating       bool
 	hibernateSweptAt  time.Time
 	hibernatePressure bool
+	// wakeAll is the wake-all run in progress, nil when none is. See
+	// hibernate.go.
+	wakeAll *wakeAllRun
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -685,7 +705,11 @@ type Model struct {
 	jump          groupJump
 	search        string
 	searching     bool
-	panePicker    panePicker
+	// searchTitleOnly narrows the filter to what names a session (its name
+	// and generated title), dropping pane and transcript matches. Tab toggles
+	// it while the search field is open. See titlesearch.go.
+	searchTitleOnly bool
+	panePicker      panePicker
 	// triage mirrors the persisted status-ordered queue: the rail drops its
 	// group structure and sorts by what needs a person, and ctrl+q walks on
 	// to the next such session instead of returning to the list.
@@ -746,6 +770,7 @@ type Model struct {
 	heldAckID string
 
 	form      form
+	cleared   clearedState
 	agentPick agentPick
 	actions   quickActions
 	groupForm groupForm
@@ -1077,10 +1102,15 @@ type settingsState struct {
 	jevAutoSuggest     bool
 	jevFinishCheck     bool
 	jevCopyOn          bool
-	promptSuggest      bool
-	reviewQueue        bool
-	ciFeedback         bool
-	arrowsStay         bool
+	autoGroupOn        bool
+	// piAutoMode is pi's auto mode (package piauto) as the JEV card holds it.
+	piAutoMode    bool
+	promptSuggest bool
+	nextStep      bool
+	reviewQueue   bool
+	ciFeedback    bool
+	memoryGuard   bool
+	arrowsStay    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -1092,46 +1122,46 @@ type settingsState struct {
 }
 
 const (
-	settingsFieldTool = iota
+	settingsFieldHibernate = iota
+	settingsFieldLeave
+	settingsFieldReopenSessions
+	settingsFieldOutsidePanes
+	settingsFieldIdleSwitch
+	settingsFieldArchiveConfirm
+	settingsFieldDeleteConfirm
+	settingsFieldRestartConfirm
+	settingsFieldTool
 	settingsFieldAccountRouting
 	settingsFieldNewSessionAgent
+	settingsFieldConfirmLaunches
+	settingsFieldCLIs
+	settingsFieldClaudeSetup
+	settingsFieldRestartFlags
 	settingsFieldTheme
 	settingsFieldBackdrop
-	settingsFieldDensity
 	settingsFieldLayout
 	settingsFieldSidebar
+	settingsFieldDensity
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldRowDetail
 	settingsFieldWorkingActivity
-	settingsFieldPriorityScale
-	settingsFieldArchiveConfirm
-	settingsFieldDeleteConfirm
-	settingsFieldRestartConfirm
 	settingsFieldListSort
 	settingsFieldListConsistency
-	settingsFieldChrome
-	settingsFieldLeave
-	settingsFieldQuickClose
-	settingsFieldFocusKey
+	settingsFieldPriorityScale
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
 	settingsFieldTriageOrder
 	settingsFieldTriageContent
 	settingsFieldTriageKeepAlives
-	settingsFieldIdleSwitch
-	settingsFieldConfirmLaunches
-	settingsFieldReopenSessions
-	settingsFieldOutsidePanes
-	settingsFieldHibernate
-	settingsFieldClaudeSetup
+	settingsFieldChrome
+	settingsFieldFocusKey
+	settingsFieldQuickClose
+	settingsFieldSnippets
+	settingsFieldKeys
 	settingsFieldJev
 	settingsFieldExperimental
-	settingsFieldSnippets
-	settingsFieldRestartFlags
-	settingsFieldCLIs
 	settingsFieldGuide
-	settingsFieldKeys
 	settingsFieldVersion
 	settingsFieldCount
 )
@@ -1460,8 +1490,10 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		jevAutoSuggest:   storedJevAutoSuggest(st),
 		jevFinishCheck:   storedJevFinishCheck(st),
 		jevCopyOn:        storedJevCopy(st),
+		autoGroupOn:      storedAutoGroup(st),
 		reviewQueue:      reviewQueue,
 		promptSuggest:    storedPromptSuggestions(st),
+		nextStepOn:       storedNextStep(st),
 		comfortableRows:  storedComfortableRows(st),
 		layout:           storedLayout(st),
 		sidebar:          storedSidebar(st, cfg.Board.Sidebar),
@@ -1485,6 +1517,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		smartTriage:      storedSmartTriage(st),
 		triageOrder:      storedTriageOrder(st),
 		triageContent:    triageContent,
+		reviewCeiling:    storedReviewCeiling(st),
 		reviewsTab:       reviewQueue && triageContent == triageContentReviews,
 		triageKeepAlives: storedTriageKeepAlives(st),
 		idleSwitch:       storedIdleSwitch(st),
@@ -1700,12 +1733,6 @@ func (m *Model) syncPollInput() {
 		selectedID = sess.ID
 	}
 	m.poller.setInput(m.showArchived, selectedID)
-	m.poller.mu.Lock()
-	m.poller.jevFinishFocusedID = ""
-	if m.mode == modeFocus {
-		m.poller.jevFinishFocusedID = m.focusedID
-	}
-	m.poller.mu.Unlock()
 }
 
 // requestRefresh publishes the current UI state to the poller and asks
@@ -1820,8 +1847,7 @@ func (m *Model) searchedListedSessions() []store.Session {
 	}
 	matched := make([]store.Session, 0, len(listed))
 	for _, sess := range listed {
-		_, historyMatch := m.historyHit(sess)
-		if matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) || historyMatch {
+		if m.searchMatches(sess, query) {
 			matched = append(matched, sess)
 		}
 	}
@@ -2311,6 +2337,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentPickQuotaMsg:
 		m.finishAgentPickQuota(msg)
 		return m, nil
+	case worktreesLoadedMsg:
+		m.finishWorktreePicker(msg)
+		return m, nil
+	case recentWorktreeMsg:
+		m.finishRecentWorktree(msg)
+		return m, nil
 	case migrateAutoMsg:
 		return m.finishMigrateAuto(msg)
 	case accountAutoMsg:
@@ -2519,7 +2551,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.readConversation(), conversationTick(), m.startStartupTick())
 	case conversationMsg:
 		m.applyConversation(msg)
-		return m, m.scheduleAutoSuggestion()
+		return m, tea.Batch(m.scheduleAutoSuggestion(), m.scheduleNextStepLocal())
+	case nextStepLocalMsg:
+		m.applyNextStepLocal(msg)
+		return m, nil
 	case tokenUsageMsg:
 		m.applyTokenUsage(msg)
 		return m, nil
@@ -2530,6 +2565,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case jevFinishResultMsg:
 		m.applyJevFinish(msg)
+		return m, nil
+	case autoGroupResultMsg:
+		m.applyAutoGroup(msg)
 		return m, nil
 	case jevCopyResultMsg:
 		return m, m.applyJevCopy(msg)
@@ -2667,7 +2705,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sweep := m.sweepExpiredArchives()
 		// Off the loop, so a busy tmux server delays a child's filing rather
 		// than the board's next frame. What it finds lands as childSweptMsg.
-		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.settleHibernated())
+		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.checkAutoGroup(), m.settleHibernated())
 		m.settleInstall()
 		m.rebuildRows()
 		if focusClosed {
@@ -2717,6 +2755,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hibernateSettledMsg:
 		m.applyHibernateSettled(msg)
 		return m, nil
+
+	case wakeAllStepMsg:
+		return m, m.wakeAllStep()
 
 	case adoptTickMsg:
 		if m.adoptBusy {
@@ -3092,7 +3133,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A click can select a session or leave focus, so the poller hears
 		// about it the same way it hears about a keystroke.
 		m.syncPollInput()
-		return model, tea.Batch(cmd, m.startActivityTick(), m.scheduleAutoSuggestion())
+		return model, tea.Batch(cmd, m.startActivityTick(), m.scheduleAutoSuggestion(), m.scheduleNextStepLocal())
 
 	case tea.KeyboardEnhancementsMsg:
 		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()
@@ -3109,9 +3150,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		model, cmd := m.handleKey(msg)
 		m.syncPollInput()
-		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
+		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev(), m.scheduleNextStepLocal())
 
 	case tea.PasteMsg:
+		if m.mode == modeForm && m.form.worktrees != nil {
+			return m, m.form.worktrees.updateFilter(msg)
+		}
 		if m.mode == modeSettings && m.settings.searching {
 			var cmd tea.Cmd
 			m.settings.search, cmd = m.settings.search.Update(msg)
@@ -3139,6 +3183,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == modeFocus {
 			return m.handleFocusPaste(msg)
+		}
+		if m.mode == modeCleared {
+			return m, m.form.prompt.updateInput(msg)
 		}
 	}
 	return m, nil
@@ -3445,9 +3492,7 @@ func (m *Model) buildTree() {
 	// per-group slices inherit the user's manual order.
 	matched := make(map[string]bool, len(listed))
 	for _, sess := range listed {
-		if query == "" || matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) {
-			matched[sess.ID] = true
-		} else if _, ok := m.historyHit(sess); ok {
+		if query == "" || m.searchMatches(sess, query) {
 			matched[sess.ID] = true
 		}
 	}

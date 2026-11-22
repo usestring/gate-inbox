@@ -166,11 +166,33 @@ func (m *Model) wakeForFocus(sess store.Session) bool {
 	return true
 }
 
+// wakeAllStagger is the gap between one wake-all relaunch and the next. A
+// relaunch starts a whole CLI, and starting every hibernated one in the
+// same instant is the memory and CPU spike hibernation exists to avoid.
+const wakeAllStagger = 2 * time.Second
+
+// wakeAllStepMsg asks for the next relaunch of a wake-all run.
+type wakeAllStepMsg struct{}
+
+// wakeAllRun is a wake-all in progress: the rows still to relaunch, in
+// order, and what the run has done so far.
+type wakeAllRun struct {
+	queue    []string
+	woken    int
+	firstErr string
+}
+
 // wakeAllHibernated wakes every hibernated session in the current view, each
 // on its own conversation, the way entering one does. A row that really died
-// is left alone: revive-all is for those. Like reviveMany it carries on past
-// a failure and names the first one.
+// is left alone: revive-all is for those. The relaunches go out one at a
+// time, wakeAllStagger apart, and a press while a run is still going only
+// says how far it has got: there is only ever one run. Like reviveMany it
+// carries on past a failure and names the first one.
 func (m *Model) wakeAllHibernated() (tea.Model, tea.Cmd) {
+	if m.wakeAll != nil {
+		m.errBar.text = fmt.Sprintf("already waking hibernated sessions: %d woken, %d to go", m.wakeAll.woken, len(m.wakeAll.queue))
+		return m, nil
+	}
 	// The store's set rather than the last refresh, as isHibernated reads
 	// it, but once for the whole view instead of once per row.
 	hibernated, err := m.store.Hibernated()
@@ -178,43 +200,82 @@ func (m *Model) wakeAllHibernated() (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
-	var woken []string
-	var firstErr string
+	var queue []string
 	for _, sess := range m.searchedListedSessions() {
-		if sess.Archived || !slices.Contains(hibernated, sess.ID) {
-			continue
-		}
-		if err := m.reviveSession(sess); err != nil {
-			if firstErr == "" {
-				firstErr = err.Error()
-			}
-			continue
-		}
-		woken = append(woken, sess.ID)
-	}
-	if len(woken) > 0 {
-		if err := m.store.RemoveHibernated(woken); err != nil {
-			logging.Warn("woken sessions still on the hibernated set", "sessions", woken, logging.Err(err))
-		}
-		// As in wakeForFocus: the rows read starting at once rather than dead
-		// off the hibernated set until the next refresh.
-		m.hibernated = slices.DeleteFunc(slices.Clone(m.hibernated), func(id string) bool { return slices.Contains(woken, id) })
-		for i := range m.sessions {
-			if slices.Contains(woken, m.sessions[i].ID) {
-				m.sessions[i].Status = status.Starting
-			}
+		if !sess.Archived && slices.Contains(hibernated, sess.ID) {
+			queue = append(queue, sess.ID)
 		}
 	}
-	switch {
-	case len(woken) == 0 && firstErr == "":
+	if len(queue) == 0 {
 		m.errBar.text = "no hibernated sessions to wake"
-	case firstErr != "":
-		m.errBar.text = fmt.Sprintf("woke %d, first error: %s", len(woken), firstErr)
-	default:
-		m.errBar.text = ""
-		m.reportDone(fmt.Sprintf("woke %d from hibernation", len(woken)))
+		return m, nil
+	}
+	m.wakeAll = &wakeAllRun{queue: queue}
+	return m, m.wakeAllStep()
+}
+
+// wakeAllStep relaunches the next row of the wake-all run that still needs
+// it and schedules the one after, or reports the run once nothing is left.
+// A row woken some other way in the meantime is passed over without
+// spending a stagger on it.
+func (m *Model) wakeAllStep() tea.Cmd {
+	run := m.wakeAll
+	if run == nil {
+		return nil
+	}
+	attempted := false
+	for !attempted && len(run.queue) > 0 {
+		id := run.queue[0]
+		run.queue = run.queue[1:]
+		attempted = m.wakeOneForAll(run, id)
 	}
 	m.rebuildRows()
 	m.requestRefresh()
-	return m, nil
+	if len(run.queue) == 0 {
+		m.wakeAll = nil
+		switch {
+		case run.firstErr != "":
+			m.errBar.text = fmt.Sprintf("woke %d, first error: %s", run.woken, run.firstErr)
+		case run.woken == 0:
+			m.errBar.text = "no hibernated sessions to wake"
+		default:
+			m.errBar.text = ""
+			m.reportDone(fmt.Sprintf("woke %d from hibernation", run.woken))
+		}
+		return nil
+	}
+	m.errBar.text = fmt.Sprintf("waking hibernated sessions: %d woken, %d to go", run.woken, len(run.queue))
+	return tea.Tick(wakeAllStagger, func(time.Time) tea.Msg { return wakeAllStepMsg{} })
+}
+
+// wakeOneForAll relaunches one queued row if it is still hibernated, and
+// reports whether it tried: in the seconds the row waited, entering it or
+// mail for it may have woken it already, or the operator archived it.
+func (m *Model) wakeOneForAll(run *wakeAllRun, id string) bool {
+	idx := slices.IndexFunc(m.sessions, func(s store.Session) bool { return s.ID == id })
+	if idx < 0 || m.sessions[idx].Archived {
+		return false
+	}
+	if still, err := m.store.IsHibernated(id); err != nil || !still {
+		return false
+	}
+	if err := m.reviveSession(m.sessions[idx]); err != nil {
+		if run.firstErr == "" {
+			run.firstErr = err.Error()
+		}
+		return true
+	}
+	run.woken++
+	if err := m.store.RemoveHibernated([]string{id}); err != nil {
+		logging.Warn("woken session still on the hibernated set", "session", id, logging.Err(err))
+	}
+	// As in wakeForFocus: the row reads starting at once rather than dead
+	// off the hibernated set until the next refresh.
+	m.hibernated = slices.DeleteFunc(slices.Clone(m.hibernated), func(h string) bool { return h == id })
+	for i := range m.sessions {
+		if m.sessions[i].ID == id {
+			m.sessions[i].Status = status.Starting
+		}
+	}
+	return true
 }

@@ -204,19 +204,24 @@ func (m *Model) openSettings() {
 		triageKeepAlives:     m.triageKeepAlives,
 		idleSwitch:           m.idleSwitch,
 		confirmLaunches:      m.store.ConfirmLaunches(),
+		piAutoMode:           m.store.PiAutoMode(),
 		reopenSessions:       m.reopenSessionsMode(),
 		outsidePanes:         m.outsidePanesMode(),
 		claudeSetup:          m.claudeSetupSwitch(),
 		jevAutoSuggest:       m.jevAutoSuggest,
 		jevFinishCheck:       m.jevFinishCheck,
 		jevCopyOn:            m.jevCopyOn,
+		autoGroupOn:          m.autoGroupOn,
 		promptSuggest:        m.promptSuggest,
+		nextStep:             m.nextStepOn,
 		reviewQueue:          m.reviewQueue,
 		ciFeedback:           storedExperiment(m.store, store.CIFeedbackSetting),
+		memoryGuard:          storedExperiment(m.store, store.MemoryGuardSetting),
 		arrowsStay:           m.arrowsStay,
 		backdropSync:         storedBackdrop(m.store) == backdropSync,
 	}
-	m.settings.search.Placeholder = "search settings"
+	m.settings.search.Prompt = ""
+	m.settings.search.Placeholder = "Filter settings"
 	m.settings.search.CharLimit = 100
 	m.mode = modeSettings
 }
@@ -317,13 +322,38 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func settingsSection(field int) string {
+	switch {
+	case field < settingsFieldTool:
+		return "Sessions"
+	case field < settingsFieldTheme:
+		return "Launch & tools"
+	case field < settingsFieldAutoProceed:
+		return "Board appearance"
+	case field < settingsFieldChrome:
+		return "Triage"
+	case field < settingsFieldJev:
+		return "Keyboard & snippets"
+	case field < settingsFieldGuide:
+		return "Advanced"
+	default:
+		return "About"
+	}
+}
+
 func (m *Model) matchingSettings() []int {
 	terms := strings.Fields(strings.ToLower(m.settings.search.Value()))
-	var fields []int
+	fields := make([]int, 0, settingsFieldCount)
+	if len(terms) == 0 {
+		for field := range settingsFieldCount {
+			fields = append(fields, field)
+		}
+		return fields
+	}
 	for field, row := range m.settingsRows(true) {
-		text := strings.ToLower(ansi.Strip(row))
+		text := strings.ToLower(settingsSection(field) + " " + ansi.Strip(row))
 		if field == settingsFieldHibernate {
-			text += " hibernation memory sensitivity active sessions age"
+			text += " memory sensitivity active sessions age"
 		}
 		if slices.ContainsFunc(terms, func(term string) bool { return !strings.Contains(text, term) }) {
 			continue
@@ -503,6 +533,13 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(store.ConfirmLaunchesKey, confirmLaunches); err != nil {
 		m.errBar.text = err.Error()
 	}
+	piAutoMode := "off"
+	if m.settings.piAutoMode {
+		piAutoMode = "on"
+	}
+	if err := m.store.SetSetting(store.PiAutoModeKey, piAutoMode); err != nil {
+		m.errBar.text = err.Error()
+	}
 	if err := m.store.SetSetting(reopenSessionsSetting, normalizeReopenSessions(m.settings.reopenSessions)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -516,6 +553,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	}
 	m.persistExperiments()
 	m.jevFinishCheck = m.settings.jevFinishCheck
+	m.autoGroupOn = m.settings.autoGroupOn
 	if m.jevCopyOn != m.settings.jevCopyOn {
 		// Either way, what JEV picked before the switch is dropped, and a
 		// read still in flight lands on a generation that no longer counts.
@@ -529,6 +567,10 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.promptSuggest = m.settings.promptSuggest
 	if !m.promptSuggest {
 		m.promptSnips = nil
+	}
+	m.nextStepOn = m.settings.nextStep
+	if !m.nextStepOn {
+		m.nextStep = nextStepState{}
 	}
 	m.jevAutoSuggest = m.settings.jevAutoSuggest
 	if !m.promptSuggest || !m.jevAutoSuggest {

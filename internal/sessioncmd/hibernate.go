@@ -132,6 +132,16 @@ func (s *Sessions) hibernateBlocker(runtime *runtime, sess store.Session, rows [
 	if !runtime.driver.Exists(sess.ID) {
 		return "it is not running"
 	}
+	return s.inFlight(runtime, sess, rows, procs)
+}
+
+// inFlight is what ending sess's process would lose beyond the process
+// itself, or "" when nothing: mail not yet typed in, a child still going,
+// background work its transcript started, a shell running under it. It is
+// the half of hibernateBlocker that is about work rather than about whether
+// the row can be hibernated at all, so a sweep that archives instead asks
+// the same question.
+func (s *Sessions) inFlight(runtime *runtime, sess store.Session, rows []store.Session, procs func() ([]byte, error)) string {
 	if n, err := runtime.store.UndeliveredCount(sess.ID); err != nil {
 		return err.Error()
 	} else if n > 0 {

@@ -1,46 +1,59 @@
-# Space opens the hotkey menu: the snippets under the keys that send them, and
-# no text box. The first still is the menu on a session; the second is the
-# acknowledgement after a bare "c" sends "continue" to it.
+# Exercise Ctrl+S for Settings and Ctrl+Z for Snippets on the list and in a
+# focused session. A bare "t" sends the fixture's continue snippet.
 #
-#   tools/capture/capture.sh --scenario tools/capture/scenarios/hotkey-menu.tape
+#   tools/capture/capture.sh --no-seed --transcripts resting --scenario tools/capture/scenarios/hotkey-menu.tape
 
-Sleep 8s
-
-Type "/"
-Sleep 1s
-Type "claude "
+Ctrl+n
 Sleep 1500ms
-Enter
-Sleep 1500ms
-
-Type " "
-Sleep 1500ms
-Screenshot {{SHOTS}}/01-hotkey-menu.png
-Sleep 1s
-
-Type "c"
+Type "claude"
 Sleep 800ms
-Screenshot {{SHOTS}}/02-sent-from-the-menu.png
+Enter
+Sleep 6s
+Ctrl+\
+Sleep 1s
+# Start from the grouped list. Quick Actions avoids Ctrl+I arriving as Tab.
+Ctrl+k
+Sleep 500ms
+Type "triage this group as one queue"
+Sleep 500ms
+Enter
+Sleep 1s
+
+Ctrl+S
+Sleep 1500ms
+Screenshot {{SHOTS}}/01-settings-from-list.png
+Sleep 1s
+Escape
+Sleep 1s
+
+Ctrl+Z
+Sleep 1500ms
+Screenshot {{SHOTS}}/02-snippets-from-list.png
+Sleep 1s
+
+Type "t"
+Sleep 800ms
+Screenshot {{SHOTS}}/03-sent-from-the-list.png
 Sleep 1s
 
 Escape
 Sleep 1s
 
-# The same menu opens inside a focused pane. Enter focuses, ctrl+s opens
-# the menu, and the bare key answers the pane in front of you.
 Enter
 Sleep 2s
-Ctrl+S
+Ctrl+Z
 Sleep 1500ms
-Screenshot {{SHOTS}}/03-hotkey-menu-in-focus.png
+Screenshot {{SHOTS}}/04-snippets-from-focus.png
 Sleep 1s
 
-Type "c"
+Type "t"
 Sleep 800ms
-Screenshot {{SHOTS}}/04-sent-in-focus.png
+Screenshot {{SHOTS}}/05-sent-from-focus.png
 Sleep 1s
 
 Escape
 Sleep 500ms
-Ctrl+q
+Ctrl+S
+Sleep 1500ms
+Screenshot {{SHOTS}}/06-settings-from-focus.png
 Sleep 1s

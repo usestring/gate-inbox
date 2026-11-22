@@ -565,8 +565,8 @@ func TestFailedEarlyComposerHandoverResumesTheWaitingQueue(t *testing.T) {
 			id := focusedID(t, m)
 			stageComposer(m)
 			m = pressEnter(m)
-			if m.mode != modeForm || !m.triageResume {
-				t.Fatal("the lone session did not open the new-session form with the drain armed")
+			if m.mode != modeCleared || !m.triageResume {
+				t.Fatal("the lone session did not open the inbox-cleared pane with the drain armed")
 			}
 			for i := range m.sessions {
 				m.sessions[i].Status = status.Waiting
@@ -579,11 +579,13 @@ func TestFailedEarlyComposerHandoverResumesTheWaitingQueue(t *testing.T) {
 			} else {
 				pending.deadline = time.Now().Add(-time.Millisecond)
 			}
+			// A draft holds the pane: an untouched one yields to returning work.
+			m.typeInto(t, "next task")
 			m.applyLandingCheck(landingCheckMsg{id: id, gen: pending.gen, verdict: verdict})
-			if m.mode != modeForm {
-				t.Fatal("the failed answer interrupted the new-session form")
+			if m.mode != modeCleared {
+				t.Fatal("the failed answer interrupted the inbox-cleared draft")
 			}
-			m.handleFormKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+			m.handleClearedKey(tea.KeyPressMsg{Code: tea.KeyEscape})
 			cmd := m.triagePickupCmd()
 			if cmd == nil || m.mode != modeFocus || focusedID(t, m) != id {
 				t.Fatal("the failed answer did not immediately reopen the lone session")

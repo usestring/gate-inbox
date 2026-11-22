@@ -44,6 +44,19 @@ func TestClaudeTurnOpen(t *testing.T) {
 			}
 		})
 	}
+	// Request bodies written after a tool result can fill the tail window on
+	// their own; the turn is still open behind them.
+	blob := `{"type":"api-request-blob","body":"` + strings.Repeat("x", 3*tailBytes) + `"}`
+	t.Run("a tool result hidden behind a request body larger than the tail", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "c.jsonl")
+		lines := []string{prompt("Use the advance-goals skill for scoped goal x."), assistant("tool_use"), toolResult, blob, attachment}
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if !ClaudeTurnOpen(path) {
+			t.Fatal("ClaudeTurnOpen = false behind a large request body, want true")
+		}
+	})
 	if !ClaudeTurnOpen(filepath.Join(t.TempDir(), "missing.jsonl")) {
 		t.Fatal("a missing transcript must count as open: there is nothing safe to resume")
 	}

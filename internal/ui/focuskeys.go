@@ -132,12 +132,14 @@ func focusKeyText(key tea.Key) string {
 // focusKeyParts splits a forwarded key for PaneInput: the characters it
 // typed, or else the tmux name it goes by. An alt-modified rune is a
 // command to the line editor (alt+b, alt+f) rather than a character, so it
-// goes by name too, as "M-b".
+// goes by name too. The rune is masked as typed text is, so alt+b is "M-x":
+// a character typed just after Escape arrives as alt with it, and its name
+// would otherwise carry what was typed.
 func focusKeyParts(key tea.Key) (text, name string) {
 	alt := key.Mod.Contains(tea.ModAlt)
 	if text = focusKeyText(key); text != "" {
 		if alt {
-			return "", "M-" + text
+			return "", "M-" + maskText(text)
 		}
 		return text, ""
 	}
@@ -252,12 +254,30 @@ func (m *Model) caretAtInputStart(sessID, tool string) bool {
 	row, caretX := ansi.Strip(rows[y]), m.pane.cursor.x
 	prefix, ok := m.engine.InputPrefix(tool, row)
 	if !ok {
-		return false
+		return m.caretAtBareComposerStart(tool, rows, y, caretX)
 	}
 	if textBeforeCaret(m.engine, tool, row, caretX) || caretX < textfmt.Width(prefix) {
 		return false
 	}
 	return m.composerAboveIsBlank(tool, rows, y)
+}
+
+// caretAtBareComposerStart is caretAtInputStart for a composer with no marker
+// (input_between_rules): the caret's row lies between the last two rules,
+// nothing is written to its left, and the composer rows above it are blank.
+// The last check is what keeps Left with the pane at the head of a second
+// line of a message.
+func (m *Model) caretAtBareComposerStart(tool string, rows []string, y, caretX int) bool {
+	top, ok := m.engine.ComposerBetweenRules(tool, rows, y)
+	if !ok || status.TextBetweenCells(ansi.Strip(rows[y]), 0, caretX) {
+		return false
+	}
+	for i := top + 1; i < y; i++ {
+		if strings.TrimSpace(ansi.Strip(rows[i])) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // composerAboveIsBlank reports whether the rows of the composer above the
@@ -622,8 +642,9 @@ func (m *Model) releaseHeldAck() tea.Cmd {
 // down a pipe the manager already holds. TestFocusedKeystrokeLatencyBreakdown
 // is the measurement.
 func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// The hotkey menu owns the keyboard while it is up, answering the
-	// focused session from its bare snippet keys. Anything that is not a
+	// The hotkey menu owns the bare keys while it is up, answering the
+	// focused session from its snippet keys; enter and chords pass through
+	// it back to this handler (see passPastMenu). Anything that is not a
 	// key press -- a paste -- falls through to the pane below it.
 	if press, ok := msg.(tea.KeyPressMsg); ok && m.quick.active {
 		return m.handleQuickKey(press)
@@ -700,6 +721,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.toggleReviewsTab()
 		case action == keymap.CopySessionID:
 			return m.copySessionID(sess)
+		case action == keymap.OpenLastURL:
+			return m, m.openLastURL(sess)
 		case action == keymap.CopyJev:
 			return m.copyWithJev(sess)
 		case action == keymap.RunJev:

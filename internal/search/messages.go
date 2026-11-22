@@ -21,6 +21,22 @@ type Message struct {
 // ReadFirstPrompts shares the conversation filter so injected instructions
 // and Codex's duplicate event records cannot become the opening prompt.
 func ReadFirstPrompts(target Target, count int) ([]string, error) {
+	return readFirstPrompts(target, count, func(text string) bool { return !band.Has(text) })
+}
+
+// ReadFirstWorkPrompt reads the original assignment from the start of the
+// conversation. A recent tail can begin with a follow-up or a different task.
+func ReadFirstWorkPrompt(target Target) (string, error) {
+	prompts, err := readFirstPrompts(target, 1, func(text string) bool {
+		return ClassifyTurn(text) == TurnWork
+	})
+	if len(prompts) == 0 {
+		return "", err
+	}
+	return prompts[0], err
+}
+
+func readFirstPrompts(target Target, count int, accept func(string) bool) ([]string, error) {
 	f, err := os.Open(target.Path)
 	if err != nil {
 		return nil, err
@@ -31,7 +47,7 @@ func ReadFirstPrompts(target Target, count int) ([]string, error) {
 	scanner.Buffer(make([]byte, 64<<10), limit)
 	var prompts []string
 	for len(prompts) < count && scanner.Scan() {
-		if message, ok := parseMessage(scanner.Bytes(), target.Tool); ok && message.Role == "user" && !band.Has(message.Text) {
+		if message, ok := parseMessage(scanner.Bytes(), target.Tool); ok && message.Role == "user" && accept(message.Text) {
 			prompts = append(prompts, message.Text)
 		}
 	}
@@ -40,6 +56,33 @@ func ReadFirstPrompts(target Target, count int) ([]string, error) {
 
 func ReadCodexTail(path string) ([]Message, error) {
 	return readMessagesTail(Target{Tool: ToolCodex, Path: path}, 128<<10)
+}
+
+// ReadLastOperatorPrompt is the newest prompt the user sent, read from a
+// tail that widens only until one turns up. It runs on every transcript
+// change while a live pane is on screen, so a turn deep in tool calls must
+// not cost a 16MB read each time.
+func ReadLastOperatorPrompt(target Target) string {
+	info, err := os.Stat(target.Path)
+	if err != nil {
+		return ""
+	}
+	for window := int64(256 << 10); ; window *= 4 {
+		window = min(window, 16<<20)
+		messages, err := readMessagesTail(target, window)
+		if err != nil {
+			return ""
+		}
+		operator := OperatorMessages(messages)
+		for i := len(operator) - 1; i >= 0; i-- {
+			if operator[i].Role == "user" {
+				return strings.TrimSpace(operator[i].Text)
+			}
+		}
+		if window >= info.Size() || window >= 16<<20 {
+			return ""
+		}
+	}
 }
 
 // ReadMessages reads a bounded tail without admitting tool or harness traffic.
@@ -127,6 +170,11 @@ func parseMessage(line []byte, tool string) (Message, bool) {
 			return Message{}, false
 		}
 		envelope = row.Payload
+	case ToolPi, ToolOmp:
+		if row.Type != "message" {
+			return Message{}, false
+		}
+		envelope = row.Message
 	default:
 		return Message{}, false
 	}

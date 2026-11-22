@@ -158,7 +158,7 @@ func (m *Model) noteHandoverFrame(sessID string) {
 }
 
 // moveOnFrom leaves sess and enters the next session that needs a person.
-// When the queue is drained the new-session prompt opens with the drain
+// When the queue is drained the inbox-cleared pane opens with the drain
 // still armed (see triageResume), so work arriving while the operator types
 // can be picked up after they leave the form.
 func (m *Model) moveOnFrom(sess store.Session) tea.Cmd {

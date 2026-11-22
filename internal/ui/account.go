@@ -47,6 +47,9 @@ type accountAutoMsg struct {
 	account    string
 	err        error
 	submit     bool
+	// unavailable says why the chooser's picks could not be used, when
+	// every account it picked proved unavailable.
+	unavailable string
 }
 
 // openAccountSwitch opens the card for the session under the cursor. A
@@ -103,6 +106,7 @@ func (m *Model) accountAutoCmd(submit bool) tea.Cmd {
 	m.account.autoSubmit = submit
 	return func() tea.Msg {
 		msg := accountAutoMsg{generation: generation, submit: submit}
+		req.Warn = func(why string) { msg.unavailable = why }
 		if submit {
 			msg.account, msg.err = accounts.Route(tool, req)
 		} else {
@@ -126,6 +130,8 @@ func (m *Model) finishAccountAuto(msg accountAutoMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.err != nil:
 		m.account.autoPick, m.account.autoReason = "", msg.err.Error()
+	case msg.account == "" && msg.unavailable != "":
+		m.account.autoReason = msg.unavailable
 	case msg.account == "":
 		m.account.autoReason = "the chooser picked no account"
 	// An adopted row never recorded its account, so only a managed row can

@@ -189,7 +189,7 @@ func (d *Driver) ControlClientsOn(socket string) int { return d.controls.live(so
 // reopen is a client of ours.
 func (d *Driver) ensureAnchor(socket string) error {
 	tmuxguard.Enforce([]string{"-L", socket})
-	out, err := exec.Command(d.bin, "-L", socket, "list-sessions", "-F", "#{session_name}").CombinedOutput()
+	out, err := d.command("-L", socket, "list-sessions", "-F", "#{session_name}").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("tmux anchor session on %s: %w: %s", socket, err, strings.TrimSpace(string(out)))
 	}
@@ -208,7 +208,7 @@ func (d *Driver) ensureAnchor(socket string) error {
 		if err != nil {
 			return err
 		}
-		made, err := exec.Command(d.bin, "-L", socket, "new-session", "-d",
+		made, err := d.command("-L", socket, "new-session", "-d",
 			"-s", anchorSession, "sh -c "+ShellQuote(anchorCommand)).CombinedOutput()
 		release()
 		// A second manager racing this one wins the name, which is the
@@ -239,7 +239,7 @@ func (d *Driver) closeAnchors() {
 	for socket := range sockets {
 		tmuxguard.Enforce([]string{"-L", socket})
 		if release, err := enterGate(socket, false); err == nil {
-			exec.Command(d.bin, "-L", socket, "kill-session", "-t", anchorSession).Run()
+			d.command("-L", socket, "kill-session", "-t", anchorSession).Run()
 			release()
 		}
 	}
@@ -367,7 +367,7 @@ func (d *Driver) startControl(socket, session, flags string) (*Control, error) {
 	args := []string{"attach-session", "-t", session, "-f", flags}
 	logging.Info("tmux control open", "socket", socket, "cmd", strings.Join(args, " "))
 	tmuxguard.Enforce([]string{"-L", socket})
-	cmd := exec.Command(d.bin, append([]string{"-L", socket, "-C"}, args...)...)
+	cmd := d.command(append([]string{"-L", socket, "-C"}, args...)...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("control stdin: %w", err)

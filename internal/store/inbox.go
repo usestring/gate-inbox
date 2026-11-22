@@ -162,6 +162,18 @@ func (s *Store) ConfirmLaunches() bool {
 	return err != nil || chosen != "off"
 }
 
+// PiAutoModeKey is the board setting for pi's auto mode (package piauto):
+// "off" asks on every call the rules leave undecided; anything else, unset
+// included, lets the JEV classifier allow one.
+const PiAutoModeKey = "pi_auto_mode"
+
+// PiAutoMode reports whether pi's auto mode is on. An unreadable store reads
+// off, so a failure asks rather than allows.
+func (s *Store) PiAutoMode() bool {
+	chosen, err := s.Setting(PiAutoModeKey)
+	return err == nil && chosen != "off"
+}
+
 const (
 	// PollerHeartbeatPeriod is how often the manager restamps that row.
 	PollerHeartbeatPeriod = 10 * time.Second

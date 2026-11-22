@@ -66,6 +66,8 @@ func (m *Model) handleScreenKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeForm:
 		return m.handleFormKey(msg)
+	case modeCleared:
+		return m.handleClearedKey(msg)
 	case modeConfirmDelete:
 		return m.handleConfirmKey(msg)
 	case modeLaunchHint:
@@ -336,7 +338,7 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 	case keymap.NewSession:
 		return m.startNewSession()
 	case keymap.NewSessionForm:
-		m.openForm()
+		return m, m.openForm()
 	case keymap.NewGroup:
 		m.openGroupForm()
 	case keymap.Fork:
@@ -353,6 +355,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.toggleMuteSelected()
 	case keymap.UnmuteAll:
 		return m.unmuteAllListed()
+	case keymap.OpenLastURL:
+		return m.openSelectedLastURL()
 	case keymap.CopyJev:
 		return m.copySelectedWithJev()
 	case keymap.RunJev:
@@ -619,7 +623,7 @@ func (m *Model) reorderSelected(delta int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.triage {
-		m.errBar.text = "triage orders by status — press " + m.cap(keymap.ContextList, keymap.Triage) + " to leave triage before reordering"
+		m.errBar.text = "triage uses the queue order — press " + m.cap(keymap.ContextList, keymap.Triage) + " to leave triage before reordering"
 		return m, nil
 	}
 	if refusal := m.listSortRefusal(); refusal != "" {
@@ -956,6 +960,10 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.scheduleHistorySearch()
 	case "ctrl+u":
 		m.search = ""
+		m.rebuildRows()
+		return m, m.scheduleHistorySearch()
+	case "tab":
+		m.searchTitleOnly = !m.searchTitleOnly
 		m.rebuildRows()
 		return m, m.scheduleHistorySearch()
 	default:

@@ -30,16 +30,22 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.jevAutoSuggest }},
 	{promptSuggestionsSetting, "Prompt suggestions", "Reuse recurring prompts in New Session.\nReads local history; sends matches to the selected classifier only with Auto Suggest on.",
 		func(s *settingsState) *bool { return &s.promptSuggest }},
-	{jevFinishCheckSetting, "Finish check", "On finish, say when a Claude session is done, asking the agent when the classifier is unsure,\nand relaunch one that stopped without Chrome with --chrome. Uses the selected classifier; sends its last turns to that service.",
+	{jevFinishCheckSetting, "Finish check", "Checks whether a Claude session fulfilled its original request.\nSends the opening request and recent turns to the selected classifier.\nCollect-only saves candidates. See [finish_check] in config.toml.",
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},
 	{jevCopySetting, "Smart copy", "On a key, copy the command, link or value the agent left for you in its last message.\nUses the selected classifier; sends that message to that service.",
 		func(s *settingsState) *bool { return &s.jevCopyOn }},
+	{autoGroupSetting, "Auto group", "File a session left at the root into the group its task belongs to, a preset or a new one-off group.\nUses the selected classifier; sends its name, directory and first prompt to that service.",
+		func(s *settingsState) *bool { return &s.autoGroupOn }},
 	{reviewQueueSetting, "Review queue", "Fetch the pull requests you were asked to review on GitHub onto a Reviews tab (]).\nRuns on the ingest key only; [integrations.reviews] sets what counts as an ask.",
 		func(s *settingsState) *bool { return &s.reviewQueue }},
 	{store.CIFeedbackSetting, "PR CI feedback", "Return failed CI checks to the live agent that opened the pull request.\nAllows up to two repair prompts until CI passes; requires the GitHub integration.",
 		func(s *settingsState) *bool { return &s.ciFeedback }},
+	{store.MemoryGuardSetting, "Memory guard", "Refuse queued relaunches while macOS reports warning or critical memory pressure.\nCovers account switches, repairs, revives and unpark; new sessions are never refused.",
+		func(s *settingsState) *bool { return &s.memoryGuard }},
 	{arrowsStaySetting, "Arrows stay in sessions", "Send Left and Right to the focused session at the prompt's edges too.\nOff, Left at the prompt's head and Right at its end go back to the list.",
 		func(s *settingsState) *bool { return &s.arrowsStay }},
+	{nextStepSetting, "Next step", "On a finished session, suggest the next instruction from its pull request's checks and reviews.\nShown in the hotkey menu; ctrl+y inserts it unsent. Asks no model and fetches nothing.",
+		func(s *settingsState) *bool { return &s.nextStep }},
 }
 
 func storedExperiment(st *store.Store, setting string) bool {

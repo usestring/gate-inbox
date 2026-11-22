@@ -18,11 +18,14 @@ type tokenUsageRead struct {
 	key, stamp string
 	usage      search.TokenUsage
 	busy       bool
+	// lastPrompt is the user's newest prompt, drawn under the live pane.
+	lastPrompt string
 }
 
 type tokenUsageMsg struct {
 	key, stamp string
 	usage      search.TokenUsage
+	lastPrompt string
 	unchanged  bool
 }
 
@@ -53,6 +56,7 @@ func (m *Model) readTokenUsage() tea.Cmd {
 			return msg
 		}
 		msg.usage = search.ReadTokenUsage(target)
+		msg.lastPrompt = unwrapPastedPrompt(search.ReadLastOperatorPrompt(target))
 		return msg
 	}
 }
@@ -63,4 +67,5 @@ func (m *Model) applyTokenUsage(msg tokenUsageMsg) {
 		return
 	}
 	m.tokens.key, m.tokens.stamp, m.tokens.usage = msg.key, msg.stamp, msg.usage
+	m.tokens.lastPrompt = msg.lastPrompt
 }

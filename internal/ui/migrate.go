@@ -321,11 +321,11 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	prompt = shape.Shaped(prompt)
-	var account string
+	var account, warning string
 	if m.migrate.account != nil {
 		account = *m.migrate.account
 	} else {
-		account, err = accounts.Route(tool, accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchMigrate, From: source.ID})
+		account, err = accounts.Route(tool, accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchMigrate, From: source.ID, Warn: func(why string) { warning = why }})
 	}
 	if err != nil {
 		m.reportLaunchError(err)
@@ -360,6 +360,9 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 	m.statusFilter = statusFilterAll
 	m.mode = modeList
 	m.errBar.text = ""
+	if warning != "" {
+		m.errBar.text = ownLoginFallback(warning)
+	}
 	if retireErr != nil {
 		m.errBar.text = retireErr.Error()
 	}

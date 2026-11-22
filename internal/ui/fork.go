@@ -142,7 +142,8 @@ func (m *Model) submitFork() (tea.Model, tea.Cmd) {
 	}
 
 	managerID := newID()
-	account, err := accounts.Select(m.store, tool, source.Account, accounts.Request{SessionID: managerID, ToolName: source.Tool, Reason: extension.LaunchSpawn, From: source.ID})
+	warning := ""
+	account, err := accounts.Select(m.store, tool, source.Account, accounts.Request{SessionID: managerID, ToolName: source.Tool, Reason: extension.LaunchSpawn, From: source.ID, Warn: func(why string) { warning = why }})
 	if err != nil {
 		m.reportLaunchError(err)
 		return m, nil
@@ -174,10 +175,10 @@ func (m *Model) submitFork() (tea.Model, tea.Cmd) {
 		agentID = copied
 		baseCommand = strings.ReplaceAll(tool.ResumeByIDCommand, "{id}", tmux.ShellQuote(copied))
 	}
-	return m.launchFork(source, tool, managerID, account, name, agentID, baseCommand)
+	return m.launchFork(source, tool, managerID, account, name, agentID, baseCommand, warning)
 }
 
-func (m *Model) launchFork(source store.Session, tool config.Tool, managerID, account, name, agentID, baseCommand string) (tea.Model, tea.Cmd) {
+func (m *Model) launchFork(source store.Session, tool config.Tool, managerID, account, name, agentID, baseCommand, warning string) (tea.Model, tea.Cmd) {
 	forked := store.Session{
 		ID:             managerID,
 		Name:           name,
@@ -209,6 +210,9 @@ func (m *Model) launchFork(source store.Session, tool config.Tool, managerID, ac
 	// the operator, and it must not be the form.
 	m.mode = modeList
 	m.errBar.text = ""
+	if warning != "" {
+		m.errBar.text = ownLoginFallback(warning)
+	}
 	return m.landInNewSession(managerID)
 }
 

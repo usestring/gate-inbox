@@ -41,8 +41,9 @@ func pressInMenu(t *testing.T, m *Model, msg tea.KeyPressMsg) *Model {
 
 func letter(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Text: string(r)} }
 
-// The menu is a menu: there is no box to type into, so every key that names
-// no snippet does nothing, and nothing is ever sent that was not on a key.
+// The menu is a menu: there is no box to type into, so every bare key that
+// names no snippet does nothing, and nothing is ever sent that was not on a
+// key.
 func TestHotkeyMenuHasNoTextInput(t *testing.T) {
 	m := buildModel(t)
 	bindMenuSnippet(t, m, menuText)
@@ -57,11 +58,6 @@ func TestHotkeyMenuHasNoTextInput(t *testing.T) {
 		if cmd != nil {
 			t.Fatalf("%q in the menu started a command", r)
 		}
-	}
-	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m = updated.(*Model)
-	if cmd != nil || m.errBar.text != "" {
-		t.Fatalf("enter in the menu did something: %q", m.errBar.text)
 	}
 	if !m.quick.active {
 		t.Fatal("keys that name no snippet closed the menu")
@@ -142,8 +138,8 @@ func TestHotkeyMenuWithNoSnippetsNamesTheFile(t *testing.T) {
 }
 
 // In the menu a snippet answers to its bare key; a chord on the same letter
-// is a different key and does nothing, rather than reaching the pane.
-func TestHotkeyMenuBareKeySendsAndChordDoesNothing(t *testing.T) {
+// is a different key, so it passes to the screen below and sends nothing.
+func TestHotkeyMenuBareKeySendsAndChordSendsNothing(t *testing.T) {
 	m := buildModel(t)
 	bindMenuSnippet(t, m, menuText)
 	createSession(t, m, "answer-me", t.TempDir(), "")

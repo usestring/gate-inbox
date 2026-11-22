@@ -125,7 +125,8 @@ func (m *Model) reportKey(msg tea.KeyPressMsg) {
 // list, a focused session or one of the dialogs the key map names.
 //
 // It follows handleKey's order for the screens it reports: the hotkey menu
-// answers its own few actions and then its snippets, a screen's bindings come
+// answers its own few actions and then its snippets, passing enter and chords
+// through to the screen below (see menuPassesThrough), a screen's bindings come
 // before a snippet's chord, and the one snippet key outside the menu last.
 func (m *Model) pressedAction(msg tea.KeyPressMsg) (keymap.Action, string, extension.ViewVia, bool) {
 	ctx, ok := m.pressContext()
@@ -149,7 +150,9 @@ func (m *Model) pressedAction(msg tea.KeyPressMsg) (keymap.Action, string, exten
 		if snip, found := m.menuSnippetFor(msg.String()); found {
 			return extension.ActionSnippet, snip.Key, extension.ViaMenu, true
 		}
-		return "", "", "", false
+		if !menuPassesThrough(msg) {
+			return "", "", "", false
+		}
 	}
 	if bound {
 		return action, "", extension.ViaKey, true

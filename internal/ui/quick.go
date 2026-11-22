@@ -87,6 +87,12 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	snip, ok := m.menuSnippetFor(msg.String())
 	if !ok {
+		if msg.String() == "ctrl+y" {
+			// The menu's insert key, with no card or suggestion to insert.
+			// Passed through, it would hit ctrl+y on the screen below, such
+			// as the list's CLI filter, and move the menu's target.
+			return m, nil
+		}
 		if menuPassesThrough(msg) {
 			return m.passPastMenu(msg)
 		}
@@ -153,6 +159,12 @@ func (m *Model) handleFocusQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	snip, ok := m.menuSnippetFor(msg.String())
 	if !ok {
+		if msg.String() == "ctrl+y" {
+			// The menu's insert key, with no card or suggestion to insert.
+			// Passed through, it would hit ctrl+y on the screen below, such
+			// as the list's CLI filter, and move the menu's target.
+			return m, nil
+		}
 		if menuPassesThrough(msg) {
 			m.clearQuickBlockedNotice()
 			return m.passPastMenu(msg)

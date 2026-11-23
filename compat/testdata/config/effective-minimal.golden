@@ -5,7 +5,7 @@
 #   ignored  written in config.toml, but no setting reads it
 default  adopt_sockets = []
 default  auto_group.presets = []
-default  board.offer_cli_on_limit = false
+default  board.offer_cli_on_limit = true
 default  board.sidebar = "right"
 default  children.auto_archive_after = "30m0s"
 default  children.dry_run = false

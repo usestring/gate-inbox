@@ -139,9 +139,10 @@ default and up to three below; the default is two above and one below. `ctrl+m` 
 **Switch subscriptions or agents.** Select a session and press `alt+a` to switch its subscription,
 or `ctrl+t` to move its conversation to another CLI. When a session hits a usage limit and a
 build extension routes its accounts, that extension moves it to another subscription in the
-background, whichever session is selected. Otherwise the selected session's card offers another
-subscription of the same CLI, or leaving it for later; `[board] offer_cli_on_limit = true` adds
-the other configured CLIs as further choices. Each move opens its review card before starting
+background, whichever session is selected, and the card offers only the other CLIs. Otherwise the selected session's card defaults to
+another subscription of the same CLI, then offers the other configured CLIs (Codex, OpenCode and
+the rest) and leaving it for later; `[board] offer_cli_on_limit = false` limits it to the
+subscription. Each move opens its review card before starting
 anything. Dismissing the offer keeps it closed for that limit; the shortcuts remain available. On macOS, `alt` is Option.
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside

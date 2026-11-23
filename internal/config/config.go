@@ -638,9 +638,16 @@ type Board struct {
 	// file.
 	Sidebar string `toml:"sidebar"`
 	// OfferCLIOnLimit has the usage-limit card offer to continue the
-	// conversation on another CLI as well as on another subscription. Off
-	// by default: a limit is a reason to change accounts, not agents.
-	OfferCLIOnLimit bool `toml:"offer_cli_on_limit"`
+	// conversation on another CLI as well as on another subscription. On
+	// unless the file sets it false; another subscription of the same CLI
+	// stays the card's default either way. Read it through OffersCLIOnLimit.
+	OfferCLIOnLimit *bool `toml:"offer_cli_on_limit"`
+}
+
+// OffersCLIOnLimit reports whether the usage-limit card lists the other
+// CLIs after another subscription: unset means yes.
+func (b Board) OffersCLIOnLimit() bool {
+	return b.OfferCLIOnLimit == nil || *b.OfferCLIOnLimit
 }
 
 // FinishCheck configures collection when the experimental Finish check is enabled.
@@ -1318,6 +1325,10 @@ func (c *Config) applyDefaults() {
 	if c.Board.Sidebar == "" {
 		c.Board.Sidebar = SidebarRight
 	}
+	if c.Board.OfferCLIOnLimit == nil {
+		offer := true
+		c.Board.OfferCLIOnLimit = &offer
+	}
 	if c.Tools == nil {
 		c.Tools = map[string]Tool{}
 	}
@@ -1386,10 +1397,11 @@ const defaultConfig = `poll_interval = "2s"
 # on, "right" or "left"; the session's pane takes the other side. Settings
 # can pick the other side on one machine, and picking this value there again
 # goes back to following this file. offer_cli_on_limit has the usage-limit
-# card offer the other CLIs as well as another subscription of the same one.
+# card offer the other CLIs as well as another subscription of the same one;
+# the subscription stays the default. Set it false to offer only that.
 # [board]
 # sidebar = "right"
-# offer_cli_on_limit = false
+# offer_cli_on_limit = true
 
 # Asking a live agent to name its session interrupts it for a housekeeping
 # turn: the rename directive on a managed launch, the pending note in an

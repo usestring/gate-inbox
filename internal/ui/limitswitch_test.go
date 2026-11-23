@@ -43,11 +43,10 @@ func limitedModel(t *testing.T) *Model {
 
 func TestLimitSwitchOffersReviewWithoutLaunching(t *testing.T) {
 	m := limitedModel(t)
-	m.cfg.Board.OfferCLIOnLimit = true
 	sess, _ := m.selected()
 	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
 	if m.mode != modeLimitSwitch || m.limitSwitch.targets[m.limitSwitch.index] != subscriptionTarget {
-		t.Fatalf("the opted-in card did not default to another subscription: mode=%v offer=%+v", m.mode, m.limitSwitch)
+		t.Fatalf("the card did not default to another subscription: mode=%v offer=%+v", m.mode, m.limitSwitch)
 	}
 	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyTab})
 	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -60,24 +59,42 @@ func TestLimitSwitchOffersReviewWithoutLaunching(t *testing.T) {
 	}
 }
 
-// Moving to another CLI is opt-in: by default a limit offers another
-// subscription of the same CLI and nothing else, and Enter reviews that.
-func TestLimitSwitchNeverOffersCodexByDefault(t *testing.T) {
+// Moving to another CLI is opt-out: with offer_cli_on_limit = false a limit
+// offers another subscription of the same CLI and nothing else, and Enter
+// reviews that.
+func TestLimitSwitchOffersOnlySubscriptionWhenCLIsTurnedOff(t *testing.T) {
 	m := limitedModel(t)
+	off := false
+	m.cfg.Board.OfferCLIOnLimit = &off
 	sess, _ := m.selected()
 	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
 	if m.mode != modeLimitSwitch {
 		t.Fatalf("no card: mode=%v", m.mode)
 	}
 	if !slices.Equal(m.limitSwitch.targets, []string{subscriptionTarget}) {
-		t.Fatalf("default card offers %q, want only another subscription", m.limitSwitch.targets)
+		t.Fatalf("card offers %q, want only another subscription", m.limitSwitch.targets)
 	}
 	if view := ansi.Strip(m.viewLimitSwitch()); strings.Contains(view, "codex") {
-		t.Fatalf("default card names codex:\n%s", view)
+		t.Fatalf("card names codex:\n%s", view)
 	}
 	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.mode != modeAccount || m.account.sess.ID != sess.ID {
 		t.Fatalf("enter did not open the subscription review: mode=%v", m.mode)
+	}
+}
+
+// By default the card leads with another subscription and lists the other
+// CLIs after it.
+func TestLimitSwitchDefaultsToSubscriptionThenOtherCLIs(t *testing.T) {
+	m := limitedModel(t)
+	sess, _ := m.selected()
+	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	if m.mode != modeLimitSwitch || len(m.limitSwitch.targets) < 2 ||
+		m.limitSwitch.targets[0] != subscriptionTarget || !slices.Contains(m.limitSwitch.targets, "codex") {
+		t.Fatalf("card offers %q, want the subscription first and then codex", m.limitSwitch.targets)
+	}
+	if m.limitSwitch.index != 0 {
+		t.Fatalf("card selected %d, want the subscription", m.limitSwitch.index)
 	}
 }
 
@@ -108,10 +125,12 @@ func TestLimitSwitchBannerUnderTheLimitMenuIsTheLimitLine(t *testing.T) {
 	}
 }
 
-// A CLI with no accounts has nothing to switch to, so without the opt-in
-// a limit opens no card at all.
+// A CLI with no accounts has nothing to switch to, so with other CLIs
+// turned off a limit opens no card at all.
 func TestLimitSwitchStaysClosedWithNothingToOffer(t *testing.T) {
 	m := limitedModel(t)
+	off := false
+	m.cfg.Board.OfferCLIOnLimit = &off
 	tool := m.cfg.Tools["claude"]
 	tool.AccountEnv = ""
 	m.cfg.Tools["claude"] = tool
@@ -124,11 +143,14 @@ func TestLimitSwitchStaysClosedWithNothingToOffer(t *testing.T) {
 
 // With the build's chooser routing accounts, the extension moves a limited
 // session in the background, so the board does not open a card that would
-// race it; the opt-in to other CLIs still asks.
+// race it: with other CLIs off no card opens, and with them on the card
+// offers only the CLIs.
 func TestLimitSwitchLeavesRoutedAccountsToTheExtension(t *testing.T) {
 	chooser := &accountstest.Chooser{}
 	t.Cleanup(accounts.UseChooser(chooser.Resolve))
 	m := limitedModel(t)
+	off := false
+	m.cfg.Board.OfferCLIOnLimit = &off
 	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Extension); err != nil {
 		t.Fatal(err)
 	}
@@ -138,13 +160,13 @@ func TestLimitSwitchLeavesRoutedAccountsToTheExtension(t *testing.T) {
 		t.Fatalf("card opened while the extension routes accounts: %+v", m.limitSwitch)
 	}
 
-	m.cfg.Board.OfferCLIOnLimit = true
+	m.cfg.Board.OfferCLIOnLimit = nil
 	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
 	if m.mode != modeLimitSwitch || !slices.Contains(m.limitSwitch.targets, "codex") {
-		t.Fatalf("opted-in card did not offer other CLIs: mode=%v offer=%+v", m.mode, m.limitSwitch)
+		t.Fatalf("default card did not offer other CLIs: mode=%v offer=%+v", m.mode, m.limitSwitch)
 	}
-	if m.limitSwitch.targets[0] != subscriptionTarget {
-		t.Fatalf("a CLI was put ahead of the subscription: %q", m.limitSwitch.targets)
+	if slices.Contains(m.limitSwitch.targets, subscriptionTarget) || m.limitSwitch.account {
+		t.Fatalf("card offers the subscription move the extension is making: %+v", m.limitSwitch)
 	}
 }
 

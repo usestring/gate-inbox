@@ -5,6 +5,8 @@ import (
 	"sync"
 )
 
+const previewSizeOption = "@gi_preview_size"
+
 // windowPin is one window Resize pinned: where to reach it, and what its
 // window-size was before resize-window forced the window to "manual".
 //
@@ -205,6 +207,7 @@ func (d *Driver) restoreWindow(pin *windowPin) {
 	if pin.prior == "" {
 		args = []string{"-L", pin.socket, "set-window-option", "-u", "-t", pin.window, "window-size"}
 	}
+	args = append(args, ";", "set-window-option", "-u", "-t", pin.window, previewSizeOption)
 	// A window closed since it was pinned is nothing to hand back, and
 	// combined has already logged whatever tmux said.
 	d.combined(args)

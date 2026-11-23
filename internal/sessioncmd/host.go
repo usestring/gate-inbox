@@ -76,7 +76,8 @@ func (s *Sessions) AttachHost(id string) error {
 	}
 
 	// A sizing failure can leave the pane narrow but must not prevent access.
-	_ = worker.driver.PrepareAttach(target.ID)
+	restoreSize, _ := worker.driver.PrepareAttachWithRestore(target.ID)
+	defer restoreSize()
 	defer worker.driver.AttachDone(target.ID)
 	cmd := worker.driver.AttachCommand(target.ID)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr

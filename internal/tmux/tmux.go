@@ -1772,7 +1772,8 @@ func (d *Driver) Resize(id string, width, height int) error {
 	// whatever the window had and a value read afterwards is the manager's
 	// own. Release and exit put the recorded one back -- see pin.go.
 	d.pinWindow(id, target.Socket, target.Name)
-	_, err := d.runAt(id, "resize-window", "-t", target.Name, "-x", strconv.Itoa(width), "-y", strconv.Itoa(height))
+	_, err := d.runAt(id, "resize-window", "-t", target.Name, "-x", strconv.Itoa(width), "-y", strconv.Itoa(height),
+		";", "set-window-option", "-t", target.Name, previewSizeOption, fmt.Sprintf("%dx%d", width, height))
 	return err
 }
 
@@ -1943,6 +1944,37 @@ func (d *Driver) PrepareAttach(id string) error {
 		_, err = d.runAt(id, "set-window-option", "-t", target, "window-size", "largest")
 	}
 	return err
+}
+
+// PrepareAttachWithRestore preserves a preview pin when the attaching process
+// cannot invalidate the board's geometry cache after detach.
+func (d *Driver) PrepareAttachWithRestore(id string) (func(), error) {
+	restore := func() {}
+	out, err := d.runAt(id, "display-message", "-p", "-t", d.TargetName(id),
+		"#{window_id} #{window_width} #{window_height} #{window-size} preview=#{"+previewSizeOption+"}")
+	if err != nil {
+		return restore, err
+	}
+	var window, width, height int
+	var sizing, preview string
+	if _, err := fmt.Sscanf(out, "@%d %d %d %s %s", &window, &width, &height, &sizing, &preview); err != nil {
+		return restore, fmt.Errorf("read attach window size: %w", err)
+	}
+	err = d.PrepareAttach(id)
+	attachSizing := "latest"
+	if d.attachSizeLargest.Load() {
+		attachSizing = "largest"
+	}
+	previewSize := fmt.Sprintf("%dx%d", width, height)
+	if sizing == "manual" && preview == "preview="+previewSize {
+		restore = func() {
+			// The board may have released or resized this window during attach.
+			_, _ = d.runAt(id, "if-shell", "-F", "-t", fmt.Sprintf("@%d", window),
+				"#{&&:#{==:#{window-size},"+attachSizing+"},#{==:#{"+previewSizeOption+"},"+previewSize+"}}",
+				fmt.Sprintf("resize-window -t @%d -x %d -y %d", window, width, height))
+		}
+	}
+	return restore, err
 }
 
 // Cursor reports where the session's caret sits in its visible pane, in

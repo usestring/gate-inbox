@@ -9,7 +9,10 @@ import (
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
+
+func TestMain(m *testing.M) { tmuxtest.Main(m) }
 
 func TestSSHQuotesWorkerPathsAndSessionID(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "gate inbox's")
@@ -25,10 +28,9 @@ printf '%s
 	if tail := args[len(args)-3 : len(args)-1]; !slices.Equal(tail, []string{"--", "box"}) {
 		t.Fatalf("SSH destination argv = %q", tail)
 	}
-	// Use a POSIX shell with a stand-in exec to observe exactly what SSH's
-	// worker shell would pass on, without connecting to a host.
-	cmd := exec.Command("sh", "-c", `exec() { printf '%s\n' "$@"; }
-`+args[len(args)-1])
+	// Run the same command a worker shell receives, using the fixture as
+	// the worker binary.
+	cmd := exec.Command("sh", "-c", args[len(args)-1])
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("parse worker command: %v: %s", err, out)

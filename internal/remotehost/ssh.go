@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -45,7 +46,11 @@ func Sessions(host config.Host) (sessioncmd.HostSnapshot, error) {
 
 // Attach gives the same terminal to the worker's tmux client until it detaches.
 func Attach(host config.Host, id string) *exec.Cmd {
-	return exec.Command("ssh", arguments(host, "-tt", "attach", id)...)
+	cmd := exec.Command("ssh", arguments(host, "-tt", "attach", id)...)
+	// The board logs its own stderr. SSH's diagnostics go to the terminal
+	// while the attach process has control of it.
+	cmd.Stderr = os.Stdout
+	return cmd
 }
 
 func arguments(host config.Host, tty string, operands ...string) []string {

@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -226,11 +225,7 @@ func (m *Model) attachRemoteSession() tea.Cmd {
 			return nil
 		}
 		m.errBar.text = ""
-		cmd := remotehost.Attach(m.cfg.Hosts[key.host], key.id)
-		// The board sends stderr to a log. SSH's terminal diagnostics
-		// belong on the terminal while Bubble Tea has released it.
-		cmd.Stderr = os.Stdout
-		return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return tea.ExecProcess(remotehost.Attach(m.cfg.Hosts[key.host], key.id), func(err error) tea.Msg {
 			return remoteAttachDone{host: key.host, err: err}
 		})
 	}

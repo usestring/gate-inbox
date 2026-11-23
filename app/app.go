@@ -97,13 +97,17 @@ type BuildInfo struct {
 var ErrUnknownCommand = errors.New("unknown command")
 
 // ExitCode is the process status a main should exit with for what Run
-// returned: 0 for nil, 2 for a mistyped command, 1 for anything else.
+// returned: 0 for nil, 2 for a mistyped command, 3 when a launch needs the
+// user's approval, and 1 for anything else.
 func ExitCode(err error) int {
+	var approval *sessioncmd.LaunchApprovalNeeded
 	switch {
 	case err == nil:
 		return 0
 	case errors.Is(err, ErrUnknownCommand):
 		return 2
+	case errors.As(err, &approval):
+		return sessioncmd.LaunchApprovalExitCode
 	default:
 		return 1
 	}

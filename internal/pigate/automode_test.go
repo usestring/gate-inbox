@@ -12,6 +12,7 @@ import (
 
 	"github.com/usestring/gate-inbox/grant"
 	"github.com/usestring/gate-inbox/internal/classifier"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/piauto"
@@ -78,6 +79,7 @@ func TestHookWithAKeyButNoBoardServerAsks(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv(classifier.JEV.KeyEnv(), "test-key")
+	t.Setenv(envname.PiGate, "allowlist")
 	if err := os.MkdirAll(filepath.Dir(classifier.JEV.KeyPath(configDir)), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -102,6 +104,7 @@ func TestHookAsksAutoModeWithOnlyItsOwnConfigReadable(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv(envname.PiGate, "allowlist")
 	token, err := parentseal.CallerToken(configDir, "s1")
 	if err != nil {
 		t.Fatal(err)

@@ -23,12 +23,15 @@ type fake struct {
 	fail   bool
 	calls  int
 	state  any
+	// questions is what the last request asked.
+	questions map[string]string
 }
 
 func (f *fake) ask(_ context.Context, key string, state any, questions map[string]string) (map[string]float64, bool) {
 	f.calls++
 	f.state = state
-	if f.fail || key == "" || len(questions) != 2 {
+	f.questions = questions
+	if f.fail || key == "" || len(questions) == 0 {
 		return nil, false
 	}
 	return f.scores, true
@@ -194,5 +197,38 @@ func TestHandlerHonoursTheSettingAndRecordsEachAllow(t *testing.T) {
 				t.Errorf("recorded %q", got)
 			}
 		}
+	}
+}
+
+// The deny-by-exception gate asks one question, about danger, and only a
+// confident yes keeps the call from running.
+func TestJudgeAsksTheDangerQuestion(t *testing.T) {
+	now := time.Now()
+	for _, c := range []struct {
+		danger float64
+		allow  bool
+	}{{0.02, true}, {0.59, true}, {0.60, false}, {0.97, false}} {
+		f := &fake{scores: map[string]float64{"danger": c.danger}}
+		a := testClassifier(f, &now).Judge("s1", "key", Request{Tool: "Bash", Question: QuestionDanger,
+			Input: map[string]any{"command": "sqlite3 state.db .tables"}})
+		if len(f.questions) != 1 || f.questions["danger"] == "" {
+			t.Fatalf("asked %v", f.questions)
+		}
+		if !a.Judged || a.Question != QuestionDanger || a.Danger != c.danger || a.Allow != c.allow {
+			t.Errorf("danger %v: %+v", c.danger, a)
+		}
+		if !c.allow && !strings.Contains(a.Note, "JEV danger") {
+			t.Errorf("danger %v: note %q", c.danger, a.Note)
+		}
+	}
+	// The allow-list gate's question is unchanged.
+	f := &fake{scores: map[string]float64{"in_scope": 0.5, "safe": 0.95}}
+	if a := testClassifier(f, &now).Judge("s1", "key", Request{Tool: "Bash"}); len(f.questions) != 2 || !a.Allow || a.Question != "" {
+		t.Errorf("allow-list question: %v, %+v", f.questions, a)
+	}
+	// A failure is no verdict, for the gate to decide.
+	f = &fake{fail: true}
+	if a := testClassifier(f, &now).Judge("s1", "key", Request{Tool: "Bash", Question: QuestionDanger}); a.Judged || a.Allow {
+		t.Errorf("failure: %+v", a)
 	}
 }

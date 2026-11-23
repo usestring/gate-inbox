@@ -40,6 +40,8 @@ func Hook(in io.Reader, configDir, sessionID, statusFile string, now time.Time) 
 			OperationRules:  func(call grant.Call) []store.PiOperationRule { return configuredOperationRules(configDir, call) },
 			AutoMode:        func(r piauto.Request) piauto.Answer { return askAutoMode(configDir, sessionID, r) },
 			SkipPermissions: os.Getenv(envname.SkipPermissions) == "1",
+			DenyByException: denyByException(os.Getenv(envname.PiGate)),
+			FailureAsks:     failureAsks(os.Getenv(envname.PiClassifierFailure)),
 			Now:             now,
 		}, req)
 	}
@@ -53,6 +55,20 @@ func Hook(in io.Reader, configDir, sessionID, statusFile string, now time.Time) 
 		return `{"permissionDecision":"ask"}`
 	}
 	return string(out)
+}
+
+// denyByException reads a pi tool's gate setting: only "" and "exceptions"
+// are the deny-by-exception gate, so a typo keeps the stricter allow list.
+func denyByException(setting string) bool {
+	setting = strings.ToLower(strings.TrimSpace(setting))
+	return setting == "" || setting == "exceptions"
+}
+
+// failureAsks reads classifier_failure: only "" and "allow" run a call the
+// classifier could not judge.
+func failureAsks(setting string) bool {
+	setting = strings.ToLower(strings.TrimSpace(setting))
+	return setting != "" && setting != "allow"
 }
 
 func recordOperationRules(configDir string, rules []store.PiOperationRule) error {

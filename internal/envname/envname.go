@@ -33,6 +33,14 @@ const (
 	// inherited, so a session launched without it cannot pick up its
 	// parent's.
 	SkipPermissions = "GATE_INBOX_SKIP_PERMISSIONS"
+	// PiGate is a pi tool's `gate` setting, which the board's gate reads:
+	// "" or "exceptions" denies by exception, "allowlist" asks unless
+	// something allows. Set on every pi launch and never inherited.
+	PiGate = "GATE_INBOX_PI_GATE"
+	// PiClassifierFailure is a pi tool's `classifier_failure` setting: ""
+	// or "allow" runs a call the danger list passes when the classifier
+	// gives no verdict, "ask" asks.
+	PiClassifierFailure = "GATE_INBOX_PI_CLASSIFIER_FAILURE"
 	// TypeSafeKey is the TypeSafe API key the board asks the JEV classifier
 	// with.
 	TypeSafeKey = "TYPESAFE_API_KEY"

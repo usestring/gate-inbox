@@ -221,6 +221,17 @@ type Tool struct {
 	// JEV classifier (package piauto), whatever the board setting says;
 	// they ask instead.
 	AutoMode string `toml:"auto_mode"`
+	// Gate is how a pi-hooks tool's gate decides a call no rule, grant or
+	// gate settled: "" or "exceptions" runs it unless the danger list or
+	// the JEV classifier finds it dangerous; "allowlist" asks unless the
+	// read-only fast path or the classifier allows it. Any other value is
+	// read as "allowlist", so a typo never loosens the gate.
+	Gate string `toml:"gate"`
+	// ClassifierFailure is what the "exceptions" gate does when the JEV
+	// classifier gives no verdict (no key, auto mode off, a failure or a
+	// timeout): "" or "allow" runs a call the danger list passes, "ask"
+	// asks. Any other value asks.
+	ClassifierFailure string `toml:"classifier_failure"`
 	// Sandbox is "off" to run a pi session's bash tool outside the sandbox
 	// the board's pi extension wraps it in; "" and "on" keep it. Any other
 	// value keeps it too and makes every command ask. Only read for a tool

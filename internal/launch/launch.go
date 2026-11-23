@@ -560,10 +560,12 @@ var parentEnvBlocklist = map[string]bool{
 	"TERM":       true,
 	"CLAUDECODE": true, "CLAUDE_CODE_SESSION_ID": true, "CLAUDE_CODE_CHILD_SESSION": true,
 	"CLAUDE_CODE_SESSION_ATTENDED": true, "CLAUDE_PID": true, "CLAUDE_EFFORT": true,
-	"AI_AGENT":              true,
-	hooks.EnvStatusFile:     true,
-	hooks.EnvExitFile:       true,
-	envname.SkipPermissions: true,
+	"AI_AGENT":                  true,
+	hooks.EnvStatusFile:         true,
+	hooks.EnvExitFile:           true,
+	envname.SkipPermissions:     true,
+	envname.PiGate:              true,
+	envname.PiClassifierFailure: true,
 }
 
 // inheritParentEnv carries the operator's own shell environment into a
@@ -831,6 +833,11 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		if command, env, err = withPiExtension(manager, command, env, id, profile, sharedConfig, skip, write, omp); err != nil {
 			return "", nil, err
 		}
+		// The gate's mode rides the launch, as the skip does, so the hook
+		// reads it without opening the config on every call; set on every
+		// pi launch and never inherited.
+		env[envname.PiGate] = strings.TrimSpace(tool.Gate)
+		env[envname.PiClassifierFailure] = strings.TrimSpace(tool.ClassifierFailure)
 		claudeMCP := id != "" && piClaudeMCPWanted(tool)
 		if claudeMCP {
 			command, env = withClaudeMCP(manager.ConfigDir(), command, env, id, omp)

@@ -355,6 +355,7 @@ func TestHookReadsSkipPermissionsFromTheLaunch(t *testing.T) {
 	cwd := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(envname.PiGate, "allowlist")
 	in := `{"tool_name":"bash","tool_input":{"command":"mkdir -p skip621"},"cwd":"` + cwd + `"}`
 	for value, want := range map[string]string{"1": Allow, "": Ask} {
 		t.Setenv(envname.SkipPermissions, value)

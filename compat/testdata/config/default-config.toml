@@ -98,6 +98,14 @@ poll_interval = "2s"
 # level = "trace" is the only setting under which captured pane text
 # reaches the log, and secrets are scrubbed even then.
 
+# What traces say once GATE_INBOX_TRACES is on. Every path a span carries
+# is hashed under this install's key (trace.key), and a directory is not
+# sent at all, unless it lies inside a checkout whose origin is a github.com
+# repository matching one of these owner/name globs: then it is sent as
+# "owner/name:path/in/repo", with nothing above the checkout.
+# [tracing]
+# readable_repos = []     # e.g. ["acme/*", "other/widgets"]
+
 # The editor Settings opens the snippets file in, arguments allowed:
 # "code -n", or "open -a 'Visual Studio Code'". Quotes group an argument
 # that carries a space; the line is run directly, never through a shell.

@@ -27,6 +27,7 @@ var DistributionSupplied = []Supplied{
 	{Key: "tools.claude.account_command", Without: "no named account can be launched"},
 	{Key: "tools.claude.accounts_command", Without: "no accounts are listed"},
 	{Key: "AccountChooserProvider", Extension: true, Without: "sessions that name no account run on the CLI's own login; named-account launches work"},
+	{Key: "tracing.readable_repos", Without: "every path a span carries is hashed, and a directory is not sent"},
 	{Key: "GATE_INBOX_TRACES", Env: true, Without: "nothing is traced"},
 	{Key: "GATE_INBOX_TRACE_DATASET", Env: true, Without: "the axiom sink refuses to start"},
 	{Key: "GATE_INBOX_TRACE_SECRET", Env: true, Without: "the axiom sink needs AXIOM_TRACE_TOKEN"},

@@ -170,5 +170,7 @@ func HashPath(path string) string { return tracing.HashPath(path) }
 // file:// URL, or this machine's home, working directory or repository --
 // replaced in place by its hash. An extension that sends anything elsewhere
 // passes its strings through this, so nothing it sends names a place on the
-// disk and its paths join the board's.
+// disk and its paths join the board's. A path inside a repository the
+// operator's [tracing] readable_repos names is sent as
+// "owner/name:path/in/repo" instead, as the board's own spans send it.
 func HidePaths(text string) string { return tracing.HidePaths(text) }

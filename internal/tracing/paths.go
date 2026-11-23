@@ -169,18 +169,22 @@ func replaceLed(re *regexp.Regexp, s string) string {
 	})
 }
 
-// hashToken is a matched path as HashPath sends it, keeping the punctuation
-// that ends a sentence or a "path: error" prefix. A token already hashed is
-// left as it is.
+// hashToken is a matched path as hidePath sends it, keeping the punctuation
+// that ends a sentence or a "path: error" prefix. A token already hashed, or
+// already in a readable repository's form, is left as it is.
 func hashToken(m string) string {
-	if hashedPath.MatchString(m) {
+	if hashedPath.MatchString(m) || isReadableForm(m) {
 		return m
+	}
+	if len(m) > 7 && strings.EqualFold(m[:7], "file://") && isReadableForm(m[7:]) {
+		// A file URL an earlier pass already made readable inside.
+		return m[7:]
 	}
 	body := strings.TrimRight(m, ":.")
 	if body == "" {
 		return m
 	}
-	return HashPath(body) + m[len(body):]
+	return hidePath(body) + m[len(body):]
 }
 
 var hashedPath = regexp.MustCompile(`^p[ar]:[0-9a-f/]*$`)
@@ -212,8 +216,10 @@ var pathStart = regexp.MustCompile(`(?i)^(~|\.{1,2}[/\\]|/|\\\\|[a-z]:[/\\]|file
 
 // HidePaths is s as it may leave the machine: HashPath of it when it is a
 // path and nothing else, otherwise s with each path inside it hashed in
-// place. Extensions call it, through extension.HidePaths, on anything they
-// send elsewhere, so their events and the board's spans agree on a path.
+// place. A path inside a readable repository (readable.go) is sent as
+// "owner/name:path/in/repo" instead, wherever it appears. Extensions call
+// it, through extension.HidePaths, on anything they send elsewhere, so their
+// events and the board's spans agree on a path.
 //
 // A value that begins as a path does is taken whole, spaces in its
 // directories included, unless its last segment runs on into words: that is
@@ -226,18 +232,18 @@ func HidePaths(s string) string {
 	if !strings.ContainsAny(s, `/\`) && !strings.HasPrefix(trimmed, "~") {
 		return s
 	}
-	if trimmed == "" || hashedPath.MatchString(trimmed) {
+	if trimmed == "" || hashedPath.MatchString(trimmed) || isReadableForm(trimmed) {
 		return hashPathsIn(s)
 	}
 	if pathStart.MatchString(trimmed) {
 		last := trimmed[strings.LastIndexAny(trimmed, `/\`)+1:]
 		if !strings.ContainsAny(last, " \t\r\n") {
-			return HashPath(trimmed)
+			return hidePath(trimmed)
 		}
 	}
 	hidden := hashPathsIn(s)
 	if hashedPath.MatchString(strings.Trim(strings.TrimSpace(hidden), ":. ")) {
-		return HashPath(trimmed)
+		return hidePath(trimmed)
 	}
 	return hidden
 }

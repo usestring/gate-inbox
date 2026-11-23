@@ -225,6 +225,36 @@ no_compress = false     # rotated files are gzipped by default
 `max_backups` left unset is derived from `max_total_mb / max_size_mb`, so the two cannot be
 configured into contradicting each other.
 
+## What traces say about paths
+
+Traces are off unless `GATE_INBOX_TRACES` names a destination. Once on, every span is filtered on
+its way out: session ids, accounts and tmux sockets leave as keyed ids, an error's URLs, email
+addresses and host name are blanked, and every path anywhere in a span (its name, attributes, error
+text) is sent as `pa:1a2b3c4d/5e6f7a8b/...` for an absolute path or `pr:...` for a relative one.
+Each segment is an HMAC-SHA256 of the path up to it under this install's 32-byte random key,
+`trace.key` in the config directory (mode 0600, never sent), so paths that share a prefix still
+group but a guessed path cannot be checked against them without the key. The `dir` attribute is
+not sent at all.
+
+A team that reads its own board's traces can name repositories whose paths it wants readable:
+
+```toml
+[tracing]
+readable_repos = ["acme/*", "other/widgets"]   # GitHub owner/name globs; empty is the default
+```
+
+A path inside a checkout, linked worktree or submodule whose `origin` remote is a github.com
+repository matching one of these globs (case is ignored) is then sent as
+`owner/name:path/in/repo`, and the checkout itself as `owner/name:`. Only the part inside the
+checkout is sent: the home directory, user name, worktree directory and machine above it never
+are. The innermost checkout decides, so a private submodule inside a readable superproject stays
+hashed. A path a symlink leads out of the checkout, a relative path, and a path in any other
+repository or none are hashed as before, and `dir` is sent in the readable form only when it has
+one. The remote is read from the repository's git config, not by running `git`. With the list empty
+the output is exactly what it was without it. A distribution can supply the list through
+`app.Options.ConfigDefaults`; an operator's own `[tracing]` section wins, `readable_repos = []`
+included.
+
 ## PR CI feedback
 
 To send failed CI checks back to the agent that opened the pull request, turn on

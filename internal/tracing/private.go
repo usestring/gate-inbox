@@ -43,7 +43,8 @@ var hashed = map[string]string{
 }
 
 // dropped are attributes that cannot be made anonymous and are not needed:
-// a directory is a path, which names a person and a repository.
+// a directory is a path, which names a person and a repository. A directory
+// inside a readable repository (readable.go) is sent in that form instead.
 var dropped = map[string]bool{"dir": true, "host.name": true}
 
 // socketPrefix is an attribute family keyed by socket name.
@@ -59,6 +60,8 @@ func privatize(attrs []Attr) []Attr {
 			continue
 		}
 		switch {
+		case a.Key == "dir" && readableDir(a.Value) != "":
+			a.Value = readableDir(a.Value)
 		case dropped[a.Key]:
 			continue
 		case hashed[a.Key] != "":
@@ -72,6 +75,16 @@ func privatize(attrs []Attr) []Attr {
 		out = append(out, a)
 	}
 	return out
+}
+
+// readableDir is a dir attribute's readable form, or "" when it has none.
+func readableDir(v any) string {
+	s, ok := v.(string)
+	r := readable.Load()
+	if !ok || r == nil {
+		return ""
+	}
+	return r.form(s)
 }
 
 var (

@@ -134,10 +134,16 @@ func TestDefaultsCanSupplyEveryDistributionKey(t *testing.T) {
 		dot := strings.LastIndex(s.Key, ".")
 		section, key := s.Key[:dot], s.Key[dot+1:]
 		value := "supplied-" + key
+		literal := `"` + value + `"`
+		if s.Key == "tracing.readable_repos" {
+			// A list of owner/name globs, not a string.
+			value = "supplied/" + key
+			literal = `["` + value + `"]`
+		}
 		if _, seen := sections[section]; !seen {
 			order = append(order, section)
 		}
-		sections[section] = append(sections[section], key+" = \""+value+"\"")
+		sections[section] = append(sections[section], key+" = "+literal)
 		wants = append(wants, want{section, key, value})
 	}
 	if len(wants) == 0 {
@@ -156,6 +162,8 @@ func TestDefaultsCanSupplyEveryDistributionKey(t *testing.T) {
 			got = toolField(t, cfg.Tools[name], w.key).Interface()
 		case strings.HasPrefix(w.section, "extensions."):
 			got = cfg.Extensions[strings.TrimPrefix(w.section, "extensions.")][w.key]
+		case w.section == "tracing" && w.key == "readable_repos" && len(cfg.Tracing.ReadableRepos) == 1:
+			got = cfg.Tracing.ReadableRepos[0]
 		default:
 			t.Fatalf("%s.%s: no check for this section", w.section, w.key)
 		}

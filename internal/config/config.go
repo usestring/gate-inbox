@@ -20,6 +20,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mergegate"
 	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/priority"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 // defaultNameSweepPace paces the bulk rename sweep. Slow enough that a
@@ -322,6 +323,19 @@ type Log struct {
 	MaxTotalMB int    `toml:"max_total_mb"`
 	// NoCompress keeps rotated files as plain text.
 	NoCompress bool `toml:"no_compress"`
+}
+
+// Tracing configures what the board's spans say once tracing is on
+// (GATE_INBOX_TRACES). Every path a span carries is hashed under this
+// install's key unless it lies inside one of ReadableRepos.
+type Tracing struct {
+	// ReadableRepos are GitHub "owner/name" globs, "acme/*" for all of an
+	// owner's repositories, matched without regard to case against a
+	// checkout's origin remote on github.com. A path inside such a checkout,
+	// linked worktree or submodule is sent as "owner/name:path/in/repo",
+	// and nothing above the checkout is sent. Empty, the default, hashes
+	// every path.
+	ReadableRepos []string `toml:"readable_repos"`
 }
 
 // Children configures what the list does with sessions another session
@@ -678,6 +692,7 @@ type Config struct {
 	Board                Board        `toml:"board"`
 	Naming               Naming       `toml:"naming"`
 	Log                  Log          `toml:"log"`
+	Tracing              Tracing      `toml:"tracing"`
 	Children             Children     `toml:"children"`
 	FinishCheck          FinishCheck  `toml:"finish_check"`
 	Work                 Work         `toml:"work"`
@@ -759,6 +774,7 @@ func LoadDir(dir string) (Config, error) {
 	}
 	key := loadKey{path: path, sum: sha256.Sum256(data), defaults: defaultsIdentity()}
 	if cfg, ok := loaded.get(key); ok {
+		applyTracing(cfg)
 		return cfg, nil
 	}
 	var cfg Config
@@ -773,12 +789,24 @@ func LoadDir(dir string) (Config, error) {
 		return Config{}, fmt.Errorf("config %s: %w", path, err)
 	}
 	loaded.put(key, cfg)
+	applyTracing(cfg)
 	return cfg, nil
+}
+
+// applyTracing hands the tracing section to the span filter. Every process
+// that loads the config -- the board, a session's MCP server, a hook, a CLI
+// command -- may send spans or hide paths for an extension, and this is the
+// one place they all pass. validate has already checked the patterns.
+func applyTracing(cfg Config) {
+	_ = tracing.SetReadableRepos(cfg.Tracing.ReadableRepos)
 }
 
 // validate refuses values the board has no reading for, so a misspelt
 // choice is named at startup rather than quietly drawn as the default.
 func (c Config) validate() error {
+	if err := tracing.CheckReadableRepos(c.Tracing.ReadableRepos); err != nil {
+		return fmt.Errorf("tracing.%w", err)
+	}
 	for _, target := range c.OutboxProbeTargets {
 		u, err := url.Parse(target)
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
@@ -1433,6 +1461,14 @@ const defaultConfig = `poll_interval = "2s"
 #
 # level = "trace" is the only setting under which captured pane text
 # reaches the log, and secrets are scrubbed even then.
+
+# What traces say once GATE_INBOX_TRACES is on. Every path a span carries
+# is hashed under this install's key (trace.key), and a directory is not
+# sent at all, unless it lies inside a checkout whose origin is a github.com
+# repository matching one of these owner/name globs: then it is sent as
+# "owner/name:path/in/repo", with nothing above the checkout.
+# [tracing]
+# readable_repos = []     # e.g. ["acme/*", "other/widgets"]
 
 # The editor Settings opens the snippets file in, arguments allowed:
 # "code -n", or "open -a 'Visual Studio Code'". Quotes group an argument

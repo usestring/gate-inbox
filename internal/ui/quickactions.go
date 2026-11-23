@@ -223,6 +223,9 @@ func (m *Model) runQuickAction(entry quickActionEntry) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) dispatchQuickAction(action keymap.Action) (tea.Model, tea.Cmd) {
+	if action == keymap.RemoteSessions {
+		return m, m.openRemoteSessions()
+	}
 	if model, cmd, answered := m.reviewsTabListAction(action); answered {
 		return model, cmd
 	}

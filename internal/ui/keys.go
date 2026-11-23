@@ -14,6 +14,9 @@ import (
 )
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.mode == modeRemoteSessions {
+		return m.handleRemoteSessionsKey(msg)
+	}
 	// Key capture must receive the chord so these global bindings can be moved.
 	if m.mode != modeHelp || (!m.help.capturing && m.help.clash == nil) {
 		if action, bound := m.action(keymap.ContextList, msg); bound {
@@ -437,6 +440,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, m.toggleRail()
 	case keymap.LegendPeek:
 		return m, m.beginLegendPeek(msg)
+	case keymap.RemoteSessions:
+		return m, m.openRemoteSessions()
 	case keymap.QuickActions:
 		m.openQuickActions()
 	case keymap.Help:

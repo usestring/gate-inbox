@@ -5,6 +5,7 @@ package config
 import (
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/BurntSushi/toml"
 
@@ -629,6 +631,13 @@ const (
 	SidebarLeft  = "left"
 )
 
+// Host is a Gate Inbox worker reached through the operator's OpenSSH configuration.
+type Host struct {
+	SSH    string `toml:"ssh"`
+	Binary string `toml:"binary"`
+	Home   string `toml:"home"`
+}
+
 // Board configures how the board frame is laid out.
 type Board struct {
 	// Sidebar is the side of the frame the sessions list sits on, "right"
@@ -716,6 +725,7 @@ type Config struct {
 	// the public extension package), so adding an extension never means
 	// editing this file.
 	Extensions map[string]map[string]any `toml:"extensions"`
+	Hosts      map[string]Host           `toml:"hosts"`
 	// MergeGate is the standing merge authority the merge-gate mod enforces
 	// ([merge_gate]). Empty owners or authors turns the gate off, and the
 	// mod is not loaded into launched sessions then.
@@ -818,6 +828,19 @@ func (c Config) validate() error {
 		u, err := url.Parse(target)
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 			return fmt.Errorf("outbox_probe_targets: each target must be an HTTP or HTTPS URL")
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(c.Hosts)) {
+		host := c.Hosts[name]
+		if name == "" || strings.ContainsFunc(name, unicode.IsControl) {
+			return fmt.Errorf("hosts: invalid host name %q", name)
+		}
+		if host.SSH == "" || strings.HasPrefix(host.SSH, "-") ||
+			strings.ContainsFunc(host.SSH, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+			return fmt.Errorf("hosts.%s.ssh: use an SSH alias or user@hostname", name)
+		}
+		if strings.HasPrefix(host.Binary, "-") || strings.ContainsFunc(host.Binary+host.Home, unicode.IsControl) {
+			return fmt.Errorf("hosts.%s: invalid binary or home", name)
 		}
 	}
 	switch c.Board.Sidebar {

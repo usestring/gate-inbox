@@ -413,6 +413,14 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
 		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
 	})
+	// host is the worker entry point for another board over SSH.
+	table["host"] = func(args []string) error {
+		dir, err := config.Dir()
+		if err != nil {
+			return err
+		}
+		return runHost(args, dir)
+	}
 	// channel is how a gate channel consumer outside the board answers held
 	// questions. It is machine-facing, like hook.
 	table["channel"] = withConfigDir(func(args []string, sessionID, configDir string) error {

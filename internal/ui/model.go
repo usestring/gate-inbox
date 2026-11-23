@@ -82,6 +82,7 @@ const (
 	// modeQuickActions holds the palette that runs any list action by name
 	// and shows the key it is on. See quickactions.go.
 	modeQuickActions
+	modeRemoteSessions
 	modePanePicker
 	modeRestartWith
 	// modeHeadPane routes the keyboard into the page behind an extension's
@@ -773,6 +774,7 @@ type Model struct {
 	cleared   clearedState
 	agentPick agentPick
 	actions   quickActions
+	remote    remoteBrowser
 	groupForm groupForm
 	pathSugg  pathComplete
 	confirm   confirmTarget
@@ -3058,6 +3060,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.refreshPromptSnips()
+
+	case remotePollTick:
+		if m.mode != modeRemoteSessions || uint64(msg) != m.remote.generation {
+			return m, nil
+		}
+		return m, tea.Batch(m.pollRemoteHosts(), remoteTick(m.remote.generation))
+	case remotePollResult:
+		m.applyRemoteSnapshot(msg)
+		return m, nil
+	case remoteAttachDone:
+		return m, m.finishRemoteAttach(msg)
 
 	case attachDoneMsg:
 		m.attachedID = ""

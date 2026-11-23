@@ -210,6 +210,12 @@ server-global option. Set `tmux_socket` to keep them on a server of their own.
 [`docs/configuration.md`](docs/configuration.md) covers every field: status detection, revive and
 fork commands, prompts and MCP registration.
 
+## Sessions on other hosts
+
+Configure SSH workers to browse their agent sessions from the local board. Open **Quick actions**
+(`ctrl+k`), search for **Remote sessions**, and press Enter on a running session to use its terminal
+in the same window. See [Remote hosts](docs/configuration.md#remote-hosts) for setup.
+
 ## Optional integrations
 
 They talk only to services you run or already use.

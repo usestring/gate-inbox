@@ -93,6 +93,8 @@ const (
 	QuickActions Action = "quick_actions"
 	Help         Action = "help"
 	Quit         Action = "quit"
+
+	RemoteSessions Action = "remote_sessions"
 	// IngestReviews asks GitHub for the reviews the operator was asked for
 	// and queues the new ones: see reviews.go in the ui package.
 	IngestReviews Action = "ingest_reviews"
@@ -276,6 +278,7 @@ var Catalog = []Binding{
 	{ContextList, ToggleRail, []string{}, "hide / show the list beside the pane", false},
 	{ContextList, LegendPeek, []string{"ctrl+/"}, "peek at every available key", false},
 	{ContextList, QuickActions, []string{"ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
+	{ContextList, RemoteSessions, []string{}, "browse remote sessions by host", false},
 	{ContextList, Help, []string{"ctrl+h"}, "this key map", true},
 	{ContextList, Quit, []string{"ctrl+q", "ctrl+alt+q"}, "quit (sessions keep running)", true},
 

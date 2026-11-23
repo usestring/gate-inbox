@@ -311,3 +311,25 @@ repeat a prompt. A changed conflict base can produce the next bounded round. Obs
 queued feedback is retired; claimed messages may already be in delivery. Every prompt
 requires fresh state and repository ownership checks before edits. No review is dismissed,
 thread resolved, worker replaced or PR merged automatically.
+
+## Remote hosts
+
+Install a Gate Inbox build with remote host support on the worker and the machine displaying the board.
+Start Gate Inbox on the worker, then add its SSH destination to the local board's config:
+
+```toml
+[hosts.worker]
+ssh = "worker"
+```
+
+`ssh` is an OpenSSH alias or a `user@hostname` destination. OpenSSH uses your usual key, proxy and
+host-key settings. Confirm the host key and set up noninteractive authentication before opening
+the browser. Set `binary` to the worker's absolute path to Gate Inbox if its SSH command cannot find
+`gate-inbox` on PATH. Set `home` to an absolute path on the worker if its board runs with a custom
+`GATE_INBOX_HOME`.
+
+Restart the local board and open **Remote sessions** from **Quick actions** (`ctrl+k`). The browser
+refreshes each host while open and keeps the last snapshot visible if the connection drops. Select
+a running session and press Enter to attach to its tmux terminal. Press your tmux detach key
+(`prefix` then `d` by default) to return to the browser. Escape returns to the local session list.
+Creating sessions, routing tasks and sending queued messages still use the board that owns them.

@@ -173,7 +173,7 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 	} else {
 		m.errBar.text = ""
 	}
-	if m.triage {
+	if m.advancesOnLeave() {
 		// A drain hands the session over and the operator starts reading and
 		// typing an answer into it. Acknowledging here spends the alert
 		// immediately, and a poll or so later -- which is about when the
@@ -186,7 +186,10 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 		// conditional on a finish in the store and the next poll drops a
 		// hold on a session not resting on one, so holding costs nothing, while
 		// writing here would put the drain's entry -- pressing "i" over a
-		// queue -- behind whichever poll pass owns the connection.
+		// queue -- behind whichever poll pass owns the connection. The same
+		// holds for ctrl+q walking on with the "on leaving: next" setting
+		// and no drain armed: the write would sit between the key and the
+		// next session's pane.
 		m.heldAckID = sess.ID
 	} else if err := m.store.AcknowledgeFinished(sess.ID); err != nil {
 		m.errBar.text = err.Error()
@@ -664,8 +667,11 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.leaveFocus()
 		}
 		if onRow {
+			keyAt := time.Now()
 			m.deferTriageSession(sess.ID)
-			return m, m.moveOnFrom(sess)
+			cmd := m.moveOnFrom(sess)
+			m.traceLeaveHandover(sess, keyAt)
+			return m, cmd
 		}
 		return m, tea.Batch(m.leaveFocus(), m.advanceTriage(leftID))
 	}

@@ -954,7 +954,12 @@ func (m *Model) advanceTriageInScope(leftID string) tea.Cmd {
 		}
 		_, cmd := m.focusSelected()
 		if m.mode == modeFocus {
-			return tea.Batch(cmd, m.handoverPreviewCmd(next, m.previewGen))
+			// The frame goes first and everything focusSelected queued --
+			// the resize, the pane-state read, the conversation read -- waits
+			// for it. Run side by side they compete for the same tmux server
+			// and the same CPU, and on a loaded box that put the frame the
+			// operator is waiting on behind work nobody is looking at yet.
+			return tea.Sequence(m.handoverPreviewCmd(next, m.previewGen), cmd)
 		}
 	}
 }

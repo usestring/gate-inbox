@@ -175,3 +175,34 @@ func TestLeaveModeRoundTripsAndFailsSafe(t *testing.T) {
 		t.Errorf("an unknown stored value read as %q, want %q", got, leaveToList)
 	}
 }
+
+// With the setting on and no drain armed, entering a session must not write
+// its acknowledgement there and then: that write waits behind whichever poll
+// pass owns the store's connection, and it sat between ctrl+q and the next
+// pane. The acknowledgement is held and spent on the way out, as a drain's is.
+func TestLeavingToNextHoldsTheAckUntilLeaving(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"ask":   status.Waiting,
+		"broke": status.Errored,
+	})
+	m.leaveMode = leaveToNext
+	m.rebuildRows()
+
+	m.enterFocusOn(t, "ask")
+	sess, ok := m.selected()
+	if !ok || sess.Name != "ask" {
+		t.Fatal("not focused on ask")
+	}
+	if m.heldAckID != sess.ID {
+		t.Fatalf("entering with the setting on held %q, want the acknowledgement held for %q", m.heldAckID, sess.ID)
+	}
+	updated, _ := m.handleFocusKey(ctrlQ())
+	m = updated.(*Model)
+	if m.mode != modeFocus || focusedName(t, m) != "broke" {
+		t.Fatalf("ctrl+q did not walk on to broke: mode %v", m.mode)
+	}
+	if next, _ := m.selected(); m.heldAckID != next.ID {
+		t.Fatalf("leaving left the hold on %q, want it moved to the session walked into", m.heldAckID)
+	}
+}

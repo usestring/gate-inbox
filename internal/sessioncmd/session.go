@@ -781,11 +781,21 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	release := func() {}
-	if !operator {
-		release, err = s.confirmLaunch(runtime, caller, opts, time.Now())
+	metered := !operator && (!runtime.cfg.Tools[caller.Tool].Shell || store.SpawnerOf(caller) != "")
+	approvedExtra := false
+	if metered {
+		approvedExtra, err = runtime.store.FanoutLimitReached(caller.ID)
 		if err != nil {
 			return Session{}, err
 		}
+	}
+	if approvedExtra {
+		release, err = s.confirmExtraLaunch(runtime, caller, opts, time.Now())
+	} else if !operator {
+		release, err = s.confirmLaunch(runtime, caller, opts, time.Now())
+	}
+	if err != nil {
+		return Session{}, err
 	}
 	// The user's go is for one session that starts, so a launch refused or
 	// failed from here on hands it back for the retry.
@@ -854,15 +864,13 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	// tracks it: store.TrackerOf is empty for it, so the caller hears none
 	// of its rests or questions and cannot answer its dialogs.
 	parentID := ""
-	create := runtime.store.LaunchSession
+	anchorID := ""
 	if nest {
 		if caller.ParentID == "" {
 			parentID = caller.ID
 		} else {
 			parentID = caller.ParentID
-			create = func(row store.Session, launch func() error) error {
-				return runtime.store.LaunchSessionBeside(row, caller.ID, launch)
-			}
+			anchorID = caller.ID
 		}
 	}
 	name := strings.TrimSpace(opts.Name)
@@ -905,12 +913,9 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		// Filed exactly where a nested spawn would have been.
 		sess.Group = caller.Group
 		sess.ParentID = caller.ID
-		create = runtime.store.LaunchSession
 		if caller.ParentID != "" {
 			sess.ParentID = caller.ParentID
-			create = func(row store.Session, launch func() error) error {
-				return runtime.store.LaunchSessionBeside(row, caller.ID, launch)
-			}
+			anchorID = caller.ID
 		}
 	}
 	prompt := shape.Shaped(strings.TrimSpace(opts.Prompt))
@@ -988,17 +993,27 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	launched := false
-	if err := create(sess, func() error {
+	startPane := func() error {
 		err := runtime.createPane(sess.ID, launchDir, command, env)
 		launched = err == nil
 		return err
-	}); err != nil {
+	}
+	if metered {
+		err = runtime.store.LaunchAgentSession(sess, anchorID, approvedExtra, startPane)
+	} else {
+		err = runtime.store.LaunchSession(sess, startPane)
+	}
+	if err != nil {
 		if launched {
 			_ = runtime.driver.Kill(sess.ID)
 		}
 		withdraw()
+		if errors.Is(err, store.ErrFanoutLimit) {
+			err = extraLaunchApproval(opts)
+		}
 		return Session{}, err
 	}
+	release = func() {}
 	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	if opts.Keep {
 		if err := runtime.store.SetKeepChild(sess.ID, true); err != nil {

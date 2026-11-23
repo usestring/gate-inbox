@@ -40,7 +40,7 @@ func grantHarness(t *testing.T) (*sessionHarness, store.Session) {
 	if err := h.store.SetAgentSessionID(h.caller.ID, "conv-parent"); err != nil {
 		t.Fatal(err)
 	}
-	child := store.Session{ID: "child001", Name: "live-grading", Tool: "hooked", Cwd: t.TempDir(),
+	child := store.Session{ID: "c411d001", Name: "live-grading", Tool: "hooked", Cwd: t.TempDir(),
 		Group: "backend", Status: status.Idle, ParentID: h.caller.ID, SpawnedBy: h.caller.ID}
 	if err := h.driver.Create(child.ID, child.Cwd, "cat", nil, 80, 24); err != nil {
 		t.Fatal(err)

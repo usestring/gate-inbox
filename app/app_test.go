@@ -17,6 +17,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
 func TestPrintHelpDoesNotRequireATerminal(t *testing.T) {
@@ -217,6 +218,12 @@ func TestUnknownCommandNamesTheVerbAndTheHelp(t *testing.T) {
 	// A mistyped verb exits 2, as it did before the app package existed.
 	if code := ExitCode(err); code != 2 {
 		t.Fatalf("exit code %d, want 2", code)
+	}
+}
+
+func TestLaunchApprovalHasADistinctExitCode(t *testing.T) {
+	if code := ExitCode(&sessioncmd.LaunchApprovalNeeded{}); code != sessioncmd.LaunchApprovalExitCode {
+		t.Fatalf("exit code = %d, want %d", code, sessioncmd.LaunchApprovalExitCode)
 	}
 }
 

@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -144,6 +145,29 @@ func TestCreateSessionDelegatesWhenTheServerIsStale(t *testing.T) {
 	got := strings.Join(lines[1:], " ")
 	if got != "spawn --json --name reach-census --tool claude --account ALICE1 --nest=true" {
 		t.Errorf("delegate argv = %q", got)
+	}
+}
+
+func TestCreateSessionReturnsTheDelegatedLaunchApproval(t *testing.T) {
+	home := staleHome(t)
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const refusal = "launching beyond six sub-sessions requires approval"
+	script := "#!/bin/sh\necho '" + refusal + "' >&2\nexit " + strconv.Itoa(sessioncmd.LaunchApprovalExitCode) + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "gate-inbox"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(config.HomeEnv, home)
+
+	_, err := createSession(home, "parent01", sessioncmd.CreateSessionOptions{Name: "extra-worker"},
+		func(string, sessioncmd.CreateSessionOptions) (sessioncmd.Session, error) {
+			t.Fatal("a delegated refusal fell back to launching in this process")
+			return sessioncmd.Session{}, nil
+		})
+	if err == nil || !strings.Contains(err.Error(), refusal) {
+		t.Fatalf("launch error = %v, want the manager's refusal", err)
 	}
 }
 

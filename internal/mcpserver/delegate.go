@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -96,6 +97,12 @@ func delegateWhenStale(configDir, callerID string, args []string, tool string,
 	}
 	result, err := delegate(installed, callerID, args, tool)
 	if err != nil {
+		// An explicit refusal from the installed launcher must reach the
+		// caller even when the stale server would allow the request.
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == sessioncmd.LaunchApprovalExitCode {
+			return sessioncmd.Session{}, err
+		}
 		// The delegate is a repair, not a gate: a launch that cannot be run
 		// through it still has to happen, on whatever this build can give it.
 		logging.Info("launch not delegated to the installed manager; running it here instead",

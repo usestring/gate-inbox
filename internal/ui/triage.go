@@ -23,8 +23,9 @@ import (
 // answer and is at rest, with children or a shell still going behind it. The
 // answer is the operator's to read now, and whatever is still running does
 // not make the session busy, so both sit with the resting states, ahead of
-// errored and far ahead of working. Smart triage ranks each as the finish it
-// lies over (see triageScoredState). A keep-alive's "ok" is still a chore
+// errored and far ahead of working. Smart triage ranks a delegating row as the
+// finish it lies over, and a background row under every finish
+// (see triageScoredState). A keep-alive's "ok" is still a chore
 // rest and stays out of the walk (see chorerest.go).
 //
 // triageReview is the Reviews tab's tier, and no session's: a pull request
@@ -112,6 +113,7 @@ var triageScoredTiers = []string{
 	triageBlocked,
 	status.Finished,
 	triageFinishedSeen,
+	status.Background,
 	status.Idle,
 	triageChoreRest,
 	status.Errored,
@@ -137,10 +139,17 @@ func (m *Model) triageScoredState(sess store.Session) string {
 	if sess.Status == status.Idle && sess.Acked && m.extAttention[sess.ID].Rank.tier() == "" {
 		return triageFinishedSeen
 	}
-	// A turn that ended with children or a shell still going is a finish:
-	// what is still running behind it is not the operator's to wait on. Seen,
-	// it is a seen finish like any other.
-	if st == status.Background || st == status.Delegating {
+	// A turn that ended with a shell or monitor still going ranks under every
+	// finish, seen or not, and above idle rows: its answer is there to read,
+	// but the shell may yet change it, so a turn that is fully done goes
+	// first. Only priority, which orders before state, lifts it higher.
+	if st == status.Background {
+		return status.Background
+	}
+	// A turn that ended with children still going is a finish: what is still
+	// running behind it is not the operator's to wait on. Seen, it is a seen
+	// finish like any other.
+	if st == status.Delegating {
 		if sess.Acked {
 			return triageFinishedSeen
 		}

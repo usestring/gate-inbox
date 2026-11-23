@@ -86,8 +86,8 @@ func TestAcknowledgingABackgroundFinishKeepsItsStatus(t *testing.T) {
 	if m.triageNews(got) {
 		t.Fatal("a seen background finish is still news to the open drain")
 	}
-	if st := m.triageScoredState(got); st != triageFinishedSeen {
-		t.Fatalf("seen background scores %q, want a seen finish", st)
+	if st := m.triageScoredState(got); st != status.Background {
+		t.Fatalf("seen background scores %q, want background, under every finish", st)
 	}
 }
 

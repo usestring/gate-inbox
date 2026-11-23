@@ -538,3 +538,27 @@ func TestOperatorSubmissionReleasesEchoForStreaming(t *testing.T) {
 		t.Fatalf("input after submission lost its echo protection: %s", got)
 	}
 }
+
+// A turn that ended with a shell still running hands over after every
+// finished turn, however much more recently it ended, and before idle rows.
+// Priority still orders ahead of state, so an urgent background turn leads.
+func TestSmartTriageRanksBackgroundUnderFinishes(t *testing.T) {
+	seen := smartSess("seen", status.Idle, 3*time.Hour)
+	seen.Acked = true
+	m := smartFleet(t,
+		smartSess("shell", status.Background, time.Minute),
+		smartSess("done", status.Finished, 2*time.Hour),
+		seen,
+		smartSess("napping", status.Idle, 4*time.Hour),
+	)
+	if got := drainOrder(m); !slices.Equal(got, []string{"done", "seen", "shell", "napping"}) {
+		t.Fatalf("drain = %v, want finishes, then the background turn, then idle", got)
+	}
+
+	urgent := smartSess("shell", status.Background, time.Minute)
+	urgent.Priority = priority.Urgent
+	m = smartFleet(t, urgent, smartSess("done", status.Finished, 2*time.Hour))
+	if got := drainOrder(m); !slices.Equal(got, []string{"shell", "done"}) {
+		t.Fatalf("drain = %v, want the urgent background turn first", got)
+	}
+}

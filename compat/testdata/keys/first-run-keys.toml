@@ -96,6 +96,7 @@
 # toggle_rail         = []  # hide / show the list beside the pane
 # legend_peek         = ["ctrl+/"]  # peek at every available key
 # quick_actions       = ["ctrl+k"]  # quick actions: find any action by name, run it, see its key
+# remote_sessions     = []  # browse remote sessions by host
 # help                = ["ctrl+h"]  # this key map (cannot be unbound)
 # quit                = ["ctrl+q", "ctrl+alt+q"]  # quit (sessions keep running) (cannot be unbound)
 

@@ -154,6 +154,7 @@ var hintLiteralAllowed = map[string]string{
 	"jevkey.go":     "the JEV key panel's x is read literally in its handler",
 	"modals.go":     "settings and form keys (J/K in the CLI list) are read literally",
 	"welcome.go":    "n on the card is read literally in handleWelcomeKey, w on the key map in handleHelpKey",
+	"remote.go":     "the remote browser handles r locally in handleRemoteSessionsKey",
 	"confirm.go":    "n/esc on a dialog are read literally in handleConfirmAnswer",
 }
 

@@ -46,6 +46,8 @@ func (m mode) String() string {
 		return "extension-view"
 	case modeQuickActions:
 		return "quick-actions"
+	case modeRemoteSessions:
+		return "remote-sessions"
 	case modePanePicker:
 		return "pane-picker"
 	case modeRestartWith:

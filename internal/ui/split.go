@@ -241,6 +241,9 @@ func (h railHitMap) sessionAt(x, y int) string {
 }
 
 func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.mode == modeRemoteSessions {
+		return m, nil
+	}
 	if click, ok := msg.(tea.MouseClickMsg); ok && click.Button == tea.MouseLeft &&
 		(m.mode == modeList || m.mode == modeFocus) && !m.split.resizeMode && !m.quick.active &&
 		!m.sel.dragging && !m.pending.active && !m.forwardingMouse {

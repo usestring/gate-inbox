@@ -125,6 +125,8 @@ func (m *Model) paint() (string, bool) {
 		frame = m.viewExtension()
 	case modeQuickActions:
 		frame = m.viewQuickActions()
+	case modeRemoteSessions:
+		frame = m.viewRemoteSessions()
 	case modePanePicker:
 		frame = m.viewPanePicker()
 	case modeRestartWith:

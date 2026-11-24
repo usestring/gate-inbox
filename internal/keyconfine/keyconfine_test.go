@@ -34,7 +34,7 @@ func TestSandboxExecDeniesTheKeysAndAllowsReadsOfWhatIsKept(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"sandbox-exec", "-p",
+	want := []string{"/usr/bin/sandbox-exec", "-p",
 		`(version 1)(allow default)(deny file-read* file-write* (subpath "/Users/u/a\"b/channel-keys"))` +
 			`(allow file-read* (subpath "/Users/u/a\"b/channel-keys/caller.key"))`,
 		"codex"}
@@ -50,6 +50,38 @@ func TestArgvRefusesWhenNothingCanConfine(t *testing.T) {
 	}
 	if err := Available(); err == nil {
 		t.Fatal("Available must report the same refusal")
+	}
+}
+
+func TestForLaunchRecoversOnlyWhenTheHostCanApplySandboxExec(t *testing.T) {
+	hostErr := errors.New("host refused confinement")
+	for _, tc := range []struct {
+		name       string
+		local      Mechanism
+		localErr   error
+		hostErr    error
+		want       Mechanism
+		checksHost bool
+	}{
+		{name: "host available", localErr: errSandboxApplyDenied, want: SandboxExec, checksHost: true},
+		{name: "host unavailable", localErr: errSandboxApplyDenied, hostErr: hostErr, checksHost: true},
+		{name: "local available", local: Bubblewrap, want: Bubblewrap},
+		{name: "unrelated failure", localErr: errors.New("bwrap is not installed")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Cleanup(UseForTests(tc.local, tc.localErr))
+			called := false
+			got, err := ForLaunch(func() error {
+				called = true
+				return tc.hostErr
+			})
+			if got != tc.want || (err != nil) != (tc.want == "") || called != tc.checksHost {
+				t.Fatalf("got mechanism %q, error %v, host checked %t", got, err, called)
+			}
+			if tc.hostErr != nil && !errors.Is(err, tc.hostErr) {
+				t.Fatalf("host failure lost: %v", err)
+			}
+		})
 	}
 }
 

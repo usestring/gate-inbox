@@ -2188,6 +2188,9 @@ func noServer(out string) bool {
 // live on a server this pass could not read; Gone holds only the first kind.
 type PaneScan struct {
 	PIDs map[string]int
+	// AdoptedCommands records the foreground command for adopted panes in a
+	// regular poll. An adopted agent can be the pane process itself.
+	AdoptedCommands map[string]string
 	// Paths is where each managed session's pane sits now, as
 	// PaneCurrentPath reads it, from the same listing as PIDs. A caller
 	// describing every session reads it here rather than asking tmux once
@@ -2295,7 +2298,7 @@ func (d *Driver) scanPanes(ctx context.Context, withPaths bool) (PaneScan, error
 // parsePaneLiveness reads a listing of session names, pane pids and window
 // activity stamps.
 func parsePaneLiveness(out string) PaneScan {
-	scan := PaneScan{PIDs: map[string]int{}, Gone: map[string]bool{}, Activity: map[string]time.Time{}}
+	scan := PaneScan{PIDs: map[string]int{}, Gone: map[string]bool{}, Activity: map[string]time.Time{}, AdoptedCommands: map[string]string{}}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		name, rest, ok := strings.Cut(line, " ")
 		if !ok || !managedName(name) {
@@ -2404,6 +2407,9 @@ func (d *Driver) adoptedPanes(ctx context.Context, scan PaneScan) error {
 		}
 		if pane, ok := live[target.Name]; ok {
 			scan.PIDs[id] = pane.pid
+			if scan.AdoptedCommands != nil {
+				scan.AdoptedCommands[id] = pane.command
+			}
 			if !pane.activity.IsZero() && scan.Activity != nil {
 				scan.Activity[id] = pane.activity
 			}
@@ -2428,7 +2434,7 @@ func (d *Driver) adoptedPanes(ctx context.Context, scan PaneScan) error {
 // every adopted session on the socket would land in Gone and be deleted on a
 // pass that never reached the server at all.
 func (d *Driver) serverPanes(ctx context.Context, socket string) (map[string]serverPane, error) {
-	out, err := d.combinedWithin(ctx, []string{"-L", socket, "list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{window_activity} #{session_name}"})
+	out, err := d.combinedWithin(ctx, []string{"-L", socket, "list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{window_activity} #{pane_current_command} #{session_name}"})
 	if errors.Is(err, ErrTimeout) {
 		return nil, fmt.Errorf("tmux list-panes on %s: %w", socket, err)
 	}
@@ -2445,29 +2451,30 @@ func (d *Driver) serverPanes(ctx context.Context, socket string) (map[string]ser
 type serverPane struct {
 	pid      int
 	activity time.Time
+	command  string
 }
 
-// parseServerPanes reads "pane_id pane_pid window_activity session_name"
+// parseServerPanes reads "pane_id pane_pid window_activity pane_current_command session_name"
 // lines. The session name goes last because it is the one field that may
 // hold a space.
 func parseServerPanes(out string) map[string]serverPane {
 	live := map[string]serverPane{}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		fields := strings.SplitN(line, " ", 4)
-		if len(fields) < 4 {
+		fields := strings.SplitN(line, " ", 5)
+		if len(fields) < 5 {
 			continue
 		}
 		pid, err := strconv.Atoi(fields[1])
 		if err != nil {
 			continue
 		}
-		pane := serverPane{pid: pid}
+		pane := serverPane{pid: pid, command: fields[3]}
 		pane.activity, _ = activityStamp(fields[2])
 		live[fields[0]] = pane
 		// A session-named target answers with its first pane, matching what
 		// list-panes -F gives a managed session.
-		if _, taken := live[fields[3]]; !taken {
-			live[fields[3]] = pane
+		if _, taken := live[fields[4]]; !taken {
+			live[fields[4]] = pane
 		}
 	}
 	return live

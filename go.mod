@@ -14,7 +14,7 @@ require (
 	github.com/distatus/battery v0.11.0
 	github.com/ebitengine/purego v0.11.1
 	github.com/google/uuid v1.6.0
-	github.com/junegunn/fzf v0.74.4
+	github.com/junegunn/fzf v0.74.5
 	github.com/junegunn/go-shellwords v0.0.0-20250127100254-2aa3b3277741
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/shirou/gopsutil/v4 v4.26.8

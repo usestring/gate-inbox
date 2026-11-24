@@ -873,7 +873,7 @@ func TestSessionDescriptionsTeachWhenAndHowToChainTools(t *testing.T) {
 	// them.
 	for tool, wants := range map[string][]string{
 		"create_session": {"the goal and why", "already known or ruled out", "files or docs to read", "scope and its limits", "approvals it already has", "what to report back"},
-		"report_status":  {"the check you ran and its result", "what is unverified"},
+		"report_status":  {"original objective", "verified the complete objective", "A completed subtask is progress", "the check you ran and its result", "what is unverified"},
 	} {
 		for _, want := range wants {
 			if !strings.Contains(descriptions[tool], want) {

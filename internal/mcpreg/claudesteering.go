@@ -24,4 +24,4 @@ const claudeSteering = "Gate Inbox manages this session. Before handing work to 
 
 // reportStatusRule is the turn-end report every launch that has the board's
 // tools carries, claude's and pi's alike.
-const reportStatusRule = "End every turn by calling the gate-inbox report_status tool with done, waiting, blocked or working.\n"
+const reportStatusRule = "End each turn with gate-inbox report_status for the original session objective. Use working, waiting or blocked while it remains open. Use done only when its outcome is verified.\n"

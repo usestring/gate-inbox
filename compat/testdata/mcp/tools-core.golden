@@ -2826,7 +2826,7 @@
 
 === report_status
 {
-  "description": "Say where your work stands as you hand control back, as the last thing you do in a turn. done: you have done everything you can, and anything left waits on a review, a blocked merge, another person, or a step only the user can run. waiting: you need the user's answer or decision to go on. blocked: an error or missing access stops you. working: you will carry on without being asked. When done covers work that changed something, note names the check you ran and its result; if no check ran, it says what is unverified. The board reads it to tell the user which sessions they can close; it is not shown to them as a message.",
+  "description": "Report the session's original objective and any explicit scope changes at the end of the turn. working: the objective is open and you can continue. waiting: progress depends on a decision or expected event. blocked: a concrete obstacle prevents progress. done: you have verified the complete objective. A completed subtask is progress while the original work remains open. In note, name the check you ran and its result, what is unverified, and the next step for any open work. The board uses this status to show whether the session should stay open.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {

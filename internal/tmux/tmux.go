@@ -1861,6 +1861,24 @@ func (d *Driver) KillPane(id, pane, processID string) error {
 	return nil
 }
 
+// ProbeHostSandboxExec asks the server that starts new panes. A sandboxed
+// client can reach that server even when it cannot apply another sandbox.
+func (d *Driver) ProbeHostSandboxExec() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	const success = "gate-inbox-sandbox-exec-available"
+	out, err := d.combinedWithin(ctx, d.args("if-shell",
+		"/usr/bin/sandbox-exec -p '(version 1)(allow default)' /usr/bin/true",
+		"display-message -p "+success, "display-message -p gate-inbox-sandbox-exec-unavailable"))
+	if err != nil {
+		return fmt.Errorf("checking sandbox-exec on the tmux host: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if strings.TrimSpace(string(out)) != success {
+		return errors.New("sandbox-exec cannot apply confinement on the tmux host")
+	}
+	return nil
+}
+
 func (d *Driver) RunOutsidePane(id, command string) error {
 	_, err := d.runAt(id, "run-shell", "-b", "-t", d.TargetFor(id).Name, command)
 	return err

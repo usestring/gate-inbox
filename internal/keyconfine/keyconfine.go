@@ -48,6 +48,13 @@ const (
 // probeTimeout bounds the one trial run that checks a mechanism works here.
 const probeTimeout = 5 * time.Second
 
+const (
+	sandboxExecPath    = "/usr/bin/sandbox-exec"
+	sandboxApplyDenied = "sandbox_apply: Operation not permitted"
+)
+
+var errSandboxApplyDenied = errors.New(sandboxApplyDenied)
+
 var (
 	probeOnce sync.Once
 	probed    Mechanism
@@ -83,6 +90,19 @@ func Available() error {
 	return err
 }
 
+// ForLaunch can recover a nested macOS sandbox failure if the tmux server
+// that will start the pane can apply the sandbox itself.
+func ForLaunch(probeHost func() error) (Mechanism, error) {
+	mechanism, err := available()
+	if !errors.Is(err, errSandboxApplyDenied) {
+		return mechanism, err
+	}
+	if hostErr := probeHost(); hostErr != nil {
+		return "", fmt.Errorf("%w (tmux host check: %w)", err, hostErr)
+	}
+	return SandboxExec, nil
+}
+
 // probe finds the mechanism for goos and runs it once, since an installed
 // bwrap can still be refused user namespaces, and a launch that dies in its
 // pane on that error reads far worse than one refused with a reason.
@@ -101,12 +121,16 @@ func probe(goos string) (Mechanism, error) {
 		}
 		return Bubblewrap, nil
 	case "darwin":
-		bin, err := exec.LookPath(string(SandboxExec))
+		bin, err := exec.LookPath(sandboxExecPath)
 		if err != nil {
 			return "", errors.New("sandbox-exec is not available")
 		}
 		if out, err := exec.CommandContext(ctx, bin, "-p", "(version 1)(allow default)", "/usr/bin/true").CombinedOutput(); err != nil {
-			return "", fmt.Errorf("sandbox-exec cannot run here: %s", firstLine(out, err))
+			line := firstLine(out, err)
+			if strings.Contains(line, sandboxApplyDenied) {
+				return "", fmt.Errorf("sandbox-exec cannot run here: %w", errSandboxApplyDenied)
+			}
+			return "", fmt.Errorf("sandbox-exec cannot run here: %s", line)
 		}
 		return SandboxExec, nil
 	}
@@ -132,6 +156,11 @@ func Argv(keyDir string, keep []string, argv []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return mechanism.Argv(keyDir, keep, argv)
+}
+
+// Argv builds the command for a mechanism already checked in the launch host.
+func (mechanism Mechanism) Argv(keyDir string, keep []string, argv []string) ([]string, error) {
 	return wrap(mechanism, resolve(keyDir), keep, argv)
 }
 
@@ -172,7 +201,7 @@ func wrap(mechanism Mechanism, keyDir string, keep []string, argv []string) ([]s
 		out = append(out, "--remount-ro", keyDir, "--")
 		return append(out, argv...), nil
 	case SandboxExec:
-		return append([]string{string(SandboxExec), "-p", profile(keyDir, kept)}, argv...), nil
+		return append([]string{sandboxExecPath, "-p", profile(keyDir, kept)}, argv...), nil
 	}
 	return nil, fmt.Errorf("keyconfine: unknown mechanism %q", mechanism)
 }

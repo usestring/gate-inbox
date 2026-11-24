@@ -717,17 +717,27 @@ func confine(configDir, style, id, command string) (string, error) {
 	keyDir := parentseal.KeyDir(configDir)
 	refused := func(err error) error {
 		return fmt.Errorf("it has no way to keep itself out of Gate Inbox's key directory (%s), "+
-			"and it could not be confined: %w; install bubblewrap (Linux) so the board can hide that directory from it",
-			keyDir, err)
+			"and it could not be confined: %w", keyDir, err)
+	}
+	mechanism, err := keyconfine.ForLaunch(func() error {
+		cfg, err := config.LoadDir(configDir)
+		if err != nil {
+			return err
+		}
+		driver, err := tmux.NewWithSocket(cfg.TmuxSocket)
+		if err != nil {
+			return err
+		}
+		return driver.ProbeHostSandboxExec()
+	})
+	if err != nil {
+		return "", refused(err)
 	}
 	if style == "opencode" {
-		if err := keyconfine.Available(); err != nil {
-			return "", refused(err)
-		}
 		return command, nil
 	}
 	run := []string{"/bin/sh", "-c", command}
-	argv, err := keyconfine.Argv(keyDir, sessionFiles(configDir, id), run)
+	argv, err := mechanism.Argv(keyDir, sessionFiles(configDir, id), run)
 	if err != nil {
 		return "", refused(err)
 	}

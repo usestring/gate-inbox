@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -252,6 +253,18 @@ func TestEnterCapturesTheNextPaneAtOnce(t *testing.T) {
 				}
 				if msg.sessID == nextID {
 					return
+				}
+			default:
+				// Bubble Tea uses an unexported slice of commands for a
+				// sequence. The handover captures the pane before leaving.
+				sequence := reflect.ValueOf(msg)
+				commandSlice := reflect.TypeFor[[]tea.Cmd]()
+				if sequence.IsValid() && sequence.CanConvert(commandSlice) {
+					go func() {
+						for _, sub := range sequence.Convert(commandSlice).Interface().([]tea.Cmd) {
+							msgs <- sub()
+						}
+					}()
 				}
 			}
 		case <-deadline:

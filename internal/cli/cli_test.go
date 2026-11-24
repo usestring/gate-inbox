@@ -71,6 +71,10 @@ type fakeSessions struct {
 	listOpts  sessioncmd.ListOptions
 }
 
+func (f *fakeSessions) BoardList(opts sessioncmd.ListOptions) (sessioncmd.SessionList, error) {
+	return f.List("", opts)
+}
+
 func (f *fakeSessions) List(sessionID string, opts sessioncmd.ListOptions) (sessioncmd.SessionList, error) {
 	f.callerID = sessionID
 	f.listOpts = opts
@@ -721,6 +725,45 @@ func TestSessionsSubcommandCarriesTheSameFiltersAsTheTool(t *testing.T) {
 	if bare := sessions.listOpts; bare.Limit != sessioncmd.DefaultSessionLimit || bare.Parent != "" ||
 		len(bare.Status) != 0 || bare.IncludeArchived {
 		t.Fatalf("a bare call asked for %+v", bare)
+	}
+}
+
+func TestSessionsExposeConversationIDsOnlyWhenRequested(t *testing.T) {
+	sample := sampleSession()
+	sample.AgentSessionID = "native-thread"
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		running  bool
+		archived bool
+		want     string
+	}{
+		{name: "ordinary JSON", args: []string{"--json"}, running: true},
+		{name: "live", args: []string{"--json", "--conversation-ids"}, running: true, want: sample.AgentSessionID},
+		{name: "stopped", args: []string{"--json", "--conversation-ids"}},
+		{name: "archived", args: []string{"--json", "--conversation-ids"}, running: true, archived: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row := sample
+			row.Running, row.Archived = tc.running, tc.archived
+			var out bytes.Buffer
+			if err := runSessions(&out, &fakeSessions{session: row}, tc.args, ""); err != nil {
+				t.Fatal(err)
+			}
+			var result struct {
+				sessioncmd.SessionList
+				ConversationIDs map[string]string `json:"conversation_ids"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Sessions) != 1 || result.ConversationIDs[row.ID] != tc.want {
+				t.Fatalf("unexpected session list: %s", out.String())
+			}
+			if tc.name == "ordinary JSON" && result.ConversationIDs != nil {
+				t.Fatalf("ordinary JSON exposed conversation metadata: %s", out.String())
+			}
+		})
 	}
 }
 

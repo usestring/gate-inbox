@@ -2,19 +2,19 @@
 $ gate-inbox help
 exit 0
 --- stdout
-(10870 bytes of help text)
+(10891 bytes of help text)
 --- left in home: 
 
 $ gate-inbox --help
 exit 0
 --- stdout
-(10870 bytes of help text)
+(10891 bytes of help text)
 --- left in home: 
 
 $ gate-inbox -h
 exit 0
 --- stdout
-(10870 bytes of help text)
+(10891 bytes of help text)
 --- left in home: 
 
 $ gate-inbox --version
@@ -86,7 +86,7 @@ gate-inbox: usage: gate-inbox send <session-id> "<message>" [--subject <label>] 
 $ gate-inbox sessions --no-such-flag
 exit 1
 --- stderr
-gate-inbox: usage: gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]
+gate-inbox: usage: gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json [--conversation-ids]]
 --- left in home: 
 
 $ gate-inbox priority extreme

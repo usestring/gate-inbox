@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	usageSessions      = "sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]"
+	usageSessions      = "sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json [--conversation-ids]]"
 	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--task <id,id>] [--new-task <title>]... [--tasks-json <json>] [--arg <cli-arg>]... [--json]"
 	usageSend          = `send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--relay_question <question>] [--json]`
 	usageRead          = "read <session-id> [--since <cursor>] [--json]"
@@ -49,6 +49,7 @@ const (
 )
 
 type sessionCommands interface {
+	BoardList(opts sessioncmd.ListOptions) (sessioncmd.SessionList, error)
 	List(sessionID string, opts sessioncmd.ListOptions) (sessioncmd.SessionList, error)
 	Create(sessionID string, opts sessioncmd.CreateSessionOptions) (sessioncmd.Session, error)
 	Send(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error)
@@ -124,18 +125,44 @@ func runSessions(out io.Writer, sessions sessionCommands, args []string, session
 	set.Var(&states, "status", "state to keep, repeatable or comma separated: starting, working, waiting, delegating, background, finished, idle, errored or dead")
 	includeArchived := set.Bool("include-archived", false, "also list rows archived out of the active list, which on an old board are most of them")
 	limit := set.Int("limit", sessioncmd.DefaultSessionLimit, fmt.Sprintf("how many rows to print, at most %d; the last line says what was left out", sessioncmd.MaxSessionLimit))
+	conversationIDs := set.Bool("conversation-ids", false, "include native conversation ids for live rows in JSON output")
 	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
-	list, err := sessions.List(sessionID, sessioncmd.ListOptions{
+	if *conversationIDs && !*asJSON {
+		return errors.New("--conversation-ids requires --json")
+	}
+	if *conversationIDs && os.Getenv(agentEnv) != "" {
+		return errors.New("--conversation-ids is available from the operator's shell")
+	}
+	opts := sessioncmd.ListOptions{
 		Parent:          *parent,
 		Status:          states,
 		IncludeArchived: *includeArchived,
 		Limit:           *limit,
-	})
+	}
+	var list sessioncmd.SessionList
+	var err error
+	if *conversationIDs && sessionID == "" {
+		list, err = sessions.BoardList(opts)
+	} else {
+		list, err = sessions.List(sessionID, opts)
+	}
 	if err != nil {
 		return err
+	}
+	if *conversationIDs {
+		ids := make(map[string]string)
+		for _, row := range list.Sessions {
+			if row.Running && !row.Archived && row.AgentSessionID != "" {
+				ids[row.ID] = row.AgentSessionID
+			}
+		}
+		return cmdline.Emit(out, true, struct {
+			sessioncmd.SessionList
+			ConversationIDs map[string]string `json:"conversation_ids"`
+		}{SessionList: list, ConversationIDs: ids}, "")
 	}
 	return cmdline.Emit(out, *asJSON, list, sessioncmd.FormatSessionList(list))
 }

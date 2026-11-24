@@ -202,6 +202,9 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mode = modeFocus
+	if m.triageWarm.id == sess.ID {
+		m.triageWarm = triageWarm{}
+	}
 	m.lastInteractionAt = time.Now()
 	// Recorded here rather than at the top: every guard above returns
 	// without a pane on screen, and a refusal must not count as a session
@@ -237,7 +240,7 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 	// a taller panel. Pinning is now tied to being previewed rather than
 	// done to every session up front, so this is where a focused pane earns
 	// its size.
-	return m, tea.Batch(m.cursorBlink(), m.resizeSessions(), m.paneStateCmd(sess.ID), m.readConversation())
+	return m, tea.Batch(m.cursorBlink(), m.resizeSessions(), m.paneStateCmd(sess.ID), m.readConversation(), m.triageWarmCmd())
 }
 
 // caretAtInputStart reports whether the agent's caret sits at the head of

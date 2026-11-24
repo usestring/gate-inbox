@@ -51,6 +51,27 @@ func spawnedSession(t *testing.T, m *Model, tool string) store.Session {
 	return sess
 }
 
+func TestDirectAgentRequiresAMatchingForegroundCommand(t *testing.T) {
+	p := poller{tools: map[string]config.Tool{
+		"codex": {Command: "codex-client --model codex"},
+		"shell": {Command: "bash", Shell: true},
+	}}
+	for _, tc := range []struct {
+		tool, command string
+		want          bool
+	}{
+		{"codex", "codex", true},
+		{"codex", "bash", false},
+		{"codex", "claude", false},
+		{"codex", "", false},
+		{"shell", "bash", false},
+	} {
+		if got := p.directAgent(tc.tool, tc.command); got != tc.want {
+			t.Errorf("directAgent(%q, %q) = %v, want %v", tc.tool, tc.command, got, tc.want)
+		}
+	}
+}
+
 // A dialog leaves the tool's input line drawn underneath it, so the
 // activity region reports ready while typing would answer the dialog.
 // The rule pass is what tells the two apart.

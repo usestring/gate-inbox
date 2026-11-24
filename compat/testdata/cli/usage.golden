@@ -3,7 +3,9 @@
 $ gate-inbox sessions -h
 exit 0
 --- stdout
-usage: gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]
+usage: gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json [--conversation-ids]]
+  -conversation-ids
+    	include native conversation ids for live rows in JSON output
   -include-archived
     	also list rows archived out of the active list, which on an old board are most of them
   -json

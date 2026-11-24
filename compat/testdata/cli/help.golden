@@ -6,7 +6,7 @@ Gate Inbox runs your session beside the user's other agents and terminals.
 Every command acts as the session it runs in, so run them from your own shell.
 
 Agent sessions
-  gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]
+  gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json [--conversation-ids]]
       list every agent session with its id, CLI, group, directory and status; call it before delegating anything
   gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--task <id,id>] [--new-task <title>]... [--tasks-json <json>] [--arg <cli-arg>]... [--json]
       start another agent CLI on a task of its own, so independent work runs beside you instead of queued behind you

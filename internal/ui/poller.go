@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/band"
@@ -64,6 +65,7 @@ type poller struct {
 	// shellTools marks the config blocks that open a shell rather than an
 	// agent, so a pass can tell a session's own terminal from a session.
 	shellTools map[string]bool
+	tools      map[string]config.Tool
 	// background follows each Claude transcript for the background work a
 	// Stop hook fires over; see backgroundPending.
 	background *agentsession.Background
@@ -979,20 +981,14 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 					proc = stat
 				}
 			}
-			// The pane pid is the shell; the agent runs as its child. A
-			// tree of one process means the agent is gone. A failed ps
-			// sample proves nothing, so it counts as alive.
-			//
-			// An exit record is the last agent's word on how it ended, and
-			// it outlives that agent: an operator who quits and starts the
-			// CLI again from the pane's shell leaves it behind, and nothing
-			// removes it. A tree still holding a process under the shell is
-			// an agent running now, so the record is an earlier one's and
-			// says nothing about this one. A failed sample leaves it believed.
-			if exited && stat.OK && stat.Procs > 1 {
+			// Managed panes start with a shell, but a directly launched agent
+			// can be the only process in an adopted pane. Identify its command
+			// before letting queued input reach a pane with no child process.
+			hasAgent := stat.Procs > 1 || p.directAgent(sess.Tool, scan.AdoptedCommands[sess.ID])
+			if exited && stat.OK && hasAgent {
 				exited = false
 			}
-			agentAlive := !exited && (!stat.OK || stat.Procs > 1)
+			agentAlive := !exited && (!stat.OK || hasAgent)
 			if hooklessTree(sess, p.statusSources[sess.Tool], agentAlive, stat) {
 				p.hookless[sess.ID] = true
 			}
@@ -1751,6 +1747,17 @@ const (
 	draftRetryMax    = 5 * time.Minute
 	draftStuckNotify = 3
 )
+
+func (p *poller) directAgent(toolName, command string) bool {
+	tool, known := p.tools[toolName]
+	if !known || command == "" {
+		return false
+	}
+	_, matched := adopt.Identify(adopt.Candidate{Command: command}, []adopt.Tool{
+		{Name: toolName, Command: tool.Command, Shell: tool.Shell},
+	}, "", nil)
+	return matched
+}
 
 // inboxDeliverable is the set of derived statuses a message may land on.
 // Anything else means the agent is mid-turn, still booting, or gone; mid-turn

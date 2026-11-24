@@ -1532,6 +1532,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		// it to release.
 		visible: true,
 	}
+	model.poller.tools = cfg.Tools
 	model.poller.interruptKeys = interruptKeys
 	model.poller.clearInputKeys = clearInputKeys
 	model.poller.compactTools = compactTools

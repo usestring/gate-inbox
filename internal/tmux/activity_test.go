@@ -23,8 +23,8 @@ func TestPaneLivenessReadsTheActivityStamp(t *testing.T) {
 }
 
 func TestServerPanesKeepASessionNameWithSpaces(t *testing.T) {
-	live := parseServerPanes("%1 100 1793639859 my session\n%2 200 0 other\nshort line\n")
-	if got := live["%1"]; got.pid != 100 || !got.activity.Equal(time.Unix(1793639859, 0)) {
+	live := parseServerPanes("%1 100 1793639859 codex my session\n%2 200 0 bash other\nshort line\n")
+	if got := live["%1"]; got.pid != 100 || got.command != "codex" || !got.activity.Equal(time.Unix(1793639859, 0)) {
 		t.Errorf("%%1 = %+v", got)
 	}
 	if got, ok := live["my session"]; !ok || got.pid != 100 {

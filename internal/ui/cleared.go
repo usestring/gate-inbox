@@ -27,8 +27,11 @@ var clearedArt = []string{
 	`/ \   / \   / \`,
 }
 
-// clearedColumn caps the width of the pane's picker, prompt and keys.
-const clearedColumn = 56
+const (
+	// clearedColumn caps the width of the pane's picker, prompt and keys.
+	clearedColumn        = 56
+	clearedPromptMaxRows = 8
+)
 
 // clearedState is the pane's subscription picker: the accounts listed for
 // tool, auto first, and which one is chosen. The list is read the first time
@@ -54,6 +57,7 @@ func (m *Model) openCleared() {
 	m.mode = modeCleared
 	m.formFocus(fieldPrompt - m.form.focus)
 	m.form.prompt.input.Placeholder = "what's next?"
+	m.form.prompt.input.DynamicHeight = true
 	m.cleared = clearedState{routed: m.accountRouted()}
 }
 
@@ -198,6 +202,7 @@ func (m *Model) clearedLines(width, height int) []string {
 		centerLine(mutedStyle.Render("nothing needs you. start something?"), width),
 		"",
 	)
+	headerRows := len(lines)
 
 	// The picker, prompt and keys share one column centered under the art,
 	// so the pane reads as one card rather than a header over a form.
@@ -216,12 +221,17 @@ func (m *Model) clearedLines(width, height int) []string {
 	}
 	lines = append(lines, pad+textfmt.TruncateWidth(picker, column, "…"))
 
-	m.form.prompt.input.SetWidth(max(column-2, 8))
-	m.form.prompt.input.SetHeight(textareaRows(m.form.prompt.input, max(column-4, 8), formPromptMaxRows))
-	for _, row := range splitLines(m.form.prompt.renderChips(m.form.prompt.input.View())) {
+	prompt := &m.form.prompt
+	// Reserve a row each for the picker and keys. Keep the spacer only if it fits.
+	prompt.maxRows = min(clearedPromptMaxRows, height-2)
+	prompt.input.SetWidth(max(column-2, 8))
+	prompt.input.SetHeight(min(prompt.input.Height(), prompt.maxRows))
+	for _, row := range splitLines(prompt.renderChips(prompt.input.View())) {
 		lines = append(lines, pad+row)
 	}
-	lines = append(lines, "")
+	if len(lines)-headerRows+1 < height {
+		lines = append(lines, "")
+	}
 
 	keys := []string{keyCap("↵", "launch"), keyCapQuiet("tab", "cli")}
 	if m.clearedRoutable() {
@@ -230,12 +240,9 @@ func (m *Model) clearedLines(width, height int) []string {
 	keys = append(keys, keyCapQuiet("esc", "dismiss"))
 	lines = append(lines, pad+textfmt.TruncateWidth(strings.Join(keys, mutedStyle.Render(" · ")), column, "…"))
 
-	// Short panes drop the art first: the prompt is what the pane is for.
+	// Short panes drop the header first so the prompt and controls stay visible.
 	if len(lines) > height {
-		lines = lines[min(len(clearedArt)+1, len(lines)-height):]
-	}
-	if len(lines) > height {
-		lines = lines[:max(height, 0)]
+		lines = lines[len(lines)-height:]
 	}
 	top := max((height-len(lines))/3, 0)
 	return append(make([]string, top), lines...)

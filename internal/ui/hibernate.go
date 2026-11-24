@@ -146,24 +146,24 @@ func (m *Model) isHibernated(sess store.Session) bool {
 // goes in once the agent is at its prompt, the same path as a wake for a
 // send.
 func (m *Model) wakeForFocus(sess store.Session) bool {
-	if err := m.reviveSession(sess); err != nil {
+	if err := m.wakeHibernatedSession(sess); err != nil {
 		m.reportLaunchError(err)
 		return false
-	}
-	if err := m.store.RemoveHibernated([]string{sess.ID}); err != nil {
-		logging.Warn("woken session still on the hibernated set", "session", sess.ID, logging.Err(err))
-	}
-	// The row reads starting at once, as the store now holds it: until the
-	// next refresh it would otherwise be a dead row off the hibernated set.
-	m.hibernated = slices.DeleteFunc(slices.Clone(m.hibernated), func(id string) bool { return id == sess.ID })
-	for i := range m.sessions {
-		if m.sessions[i].ID == sess.ID {
-			m.sessions[i].Status = status.Starting
-		}
 	}
 	m.reportDone("woke " + m.displayName(sess) + " from hibernation on its conversation")
 	m.requestRefresh()
 	return true
+}
+
+func (m *Model) wakeHibernatedSession(sess store.Session) error {
+	if err := m.reviveSession(sess); err != nil {
+		return err
+	}
+	if err := m.store.RemoveHibernated([]string{sess.ID}); err != nil {
+		logging.Warn("woken session still on the hibernated set", "session", sess.ID, logging.Err(err))
+	}
+	m.hibernated = slices.DeleteFunc(slices.Clone(m.hibernated), func(id string) bool { return id == sess.ID })
+	return nil
 }
 
 // wakeAllStagger is the gap between one wake-all relaunch and the next. A
@@ -259,23 +259,12 @@ func (m *Model) wakeOneForAll(run *wakeAllRun, id string) bool {
 	if still, err := m.store.IsHibernated(id); err != nil || !still {
 		return false
 	}
-	if err := m.reviveSession(m.sessions[idx]); err != nil {
+	if err := m.wakeHibernatedSession(m.sessions[idx]); err != nil {
 		if run.firstErr == "" {
 			run.firstErr = err.Error()
 		}
 		return true
 	}
 	run.woken++
-	if err := m.store.RemoveHibernated([]string{id}); err != nil {
-		logging.Warn("woken session still on the hibernated set", "session", id, logging.Err(err))
-	}
-	// As in wakeForFocus: the row reads starting at once rather than dead
-	// off the hibernated set until the next refresh.
-	m.hibernated = slices.DeleteFunc(slices.Clone(m.hibernated), func(h string) bool { return h == id })
-	for i := range m.sessions {
-		if m.sessions[i].ID == id {
-			m.sessions[i].Status = status.Starting
-		}
-	}
 	return true
 }

@@ -86,6 +86,9 @@ func (m *Model) triageStateOf(sess store.Session) string {
 	if m.isStale(sess) || m.isChoreRest(sess) {
 		return status.Idle
 	}
+	if m.isTriageWarmRest(sess) {
+		return status.Hibernating
+	}
 	return m.shownStatus(sess)
 }
 
@@ -277,7 +280,7 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 	// cannot interrupt a turn, and a person looking is the only way the
 	// misread gets noticed.
 	resting := sess.Status == status.Idle || m.isStale(sess) || m.isChoreRest(sess) || m.shownStatus(sess) == status.Hibernating ||
-		m.endedTurnNews(sess)
+		m.endedTurnNews(sess) || m.isTriageWarmRest(sess)
 	return resting && !m.ownedByExtension(sess.ID)
 }
 

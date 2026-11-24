@@ -328,7 +328,8 @@ type Model struct {
 	hibernatePressure bool
 	// wakeAll is the wake-all run in progress, nil when none is. See
 	// hibernate.go.
-	wakeAll *wakeAllRun
+	wakeAll    *wakeAllRun
+	triageWarm triageWarm
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -2667,6 +2668,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agents = msg.agents
 		m.queuedMessages = msg.queuedMessages
 		m.hibernated = msg.hibernated
+		m.reconcileTriageWarm(msg.listedAt)
 		m.granted = msg.granted
 		m.compactWindows = msg.compactWindows
 		m.archivedChildren = msg.archivedChildren
@@ -2738,7 +2740,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A drain that ran out of work left the operator on the list with
 		// the queue still open: the first pass carrying a new session that
 		// needs a person picks it straight up. See triageResume.
-		pickup := tea.Batch(m.triagePickupCmd(), m.handOverOnIdle(time.Now()))
+		pickup := tea.Batch(m.triagePickupCmd(), m.handOverOnIdle(time.Now()), m.triageWarmCmd())
 		// A pass that ran with a stale selection (a session created this
 		// tick) carries the wrong preview; resync and fetch it directly.
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
@@ -2757,6 +2759,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case hibernateSettledMsg:
 		m.applyHibernateSettled(msg)
+		return m, nil
+
+	case triageWarmMsg:
+		m.warmNextTriageSession()
 		return m, nil
 
 	case wakeAllStepMsg:

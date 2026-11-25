@@ -83,6 +83,16 @@ func (m *Model) openAccountSwitch() tea.Cmd {
 	return m.accountAutoCmd(false)
 }
 
+// prefetchAccounts starts listing every CLI's accounts in the background,
+// so the switch-account card opens on a listing already in hand.
+func (m *Model) prefetchAccounts() {
+	for _, toolName := range sortedToolNames(m.cfg) {
+		if tool := m.cfg.Tools[toolName]; tool.AccountEnv != "" {
+			accounts.Prefetch(tool)
+		}
+	}
+}
+
 func (m *Model) accountOnAuto() bool {
 	return m.account.names[m.account.index] == accountAuto
 }
@@ -163,6 +173,8 @@ func (m *Model) accountSwitchCutoff(tool config.Tool, sess store.Session) int {
 }
 
 // accountChoices keeps the current account selectable even when listing fails.
+// It answers from the cached listing (accounts.ListCached): a secret store's
+// listing takes seconds, and this runs on the key press that opens the card.
 func (m *Model) accountChoices(current string) ([]string, int) {
 	names := []string{ownLogin}
 	seen := map[string]bool{}
@@ -171,7 +183,7 @@ func (m *Model) accountChoices(current string) ([]string, int) {
 		if tool.AccountEnv == "" {
 			continue
 		}
-		listed, err := accounts.List(tool)
+		listed, err := accounts.ListCached(tool)
 		if err != nil {
 			m.errBar.text = "listing " + toolName + " accounts: " + err.Error()
 			continue

@@ -1754,6 +1754,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
+	m.prefetchAccounts()
 	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips(), m.loadReviews(), m.detectCLIsCmd(false))
 }
 

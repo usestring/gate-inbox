@@ -93,6 +93,11 @@ func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 		cmd = m.leaveFocus()
 	}
 	m.limitSwitch = limitSwitchState{source: sess, banner: banner, targets: targets, account: account}
+	if account {
+		// Choosing another subscription opens the account card, which then
+		// lists accounts as of now rather than as of its last opening.
+		accounts.Prefetch(m.cfg.Tools[sess.Tool])
+	}
 	m.mode = modeLimitSwitch
 	m.frameReuse = false
 	return cmd

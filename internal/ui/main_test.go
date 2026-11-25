@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/termseq"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -58,6 +59,12 @@ func TestMain(m *testing.M) {
 	// tmux: this one used to be the only one that swept, and the rest went on
 	// leaking.
 	os.Exit(tmuxtest.Guard(testSocket, func() int {
+		// The board lists accounts into a file every process shares; the
+		// suite keeps its own so it never reads or overwrites the operator's.
+		if dir, err := os.MkdirTemp("", "gate-inbox-ui-listings-"); err == nil {
+			accounts.UseListingDir(dir)
+			defer os.RemoveAll(dir)
+		}
 		// Without tmux the run still starts: each test skips through its
 		// own requireTmux. With tmux, a run that could not plant the
 		// anchor would pass or flake on luck, so it stops instead.

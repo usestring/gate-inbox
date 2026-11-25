@@ -145,7 +145,14 @@ func TestSendTextAsyncLeavesTheEnterUnpressedOnADialog(t *testing.T) {
 	t.Cleanup(func() { driver.Kill(id) })
 
 	time.Sleep(200 * time.Millisecond)
-	hold := func(pane string) bool { return strings.Contains(pane, legend) }
+	// The legend is on screen from the start, so the look before the paste
+	// is made to miss it. That is the pane as it was when the dialog arrived
+	// between the paste and the Enter.
+	looks := 0
+	hold := func(pane string) bool {
+		looks++
+		return looks > 1 && strings.Contains(pane, legend)
+	}
 	submitted := make(chan error, 1)
 	if err := driver.SendTextAsync(id, "rebase on main", hold, func(err error) { submitted <- err }); err != nil {
 		t.Fatalf("SendTextAsync: %v", err)
@@ -248,9 +255,11 @@ func TestSubmitDoesNotPressEnterWhenSafetyCaptureFails(t *testing.T) {
 	if err := os.WriteFile(driver.bin, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	holdCalled := false
+	// The first look, before the paste, sees a pane that captured. Only a
+	// second look would be shown the failed capture.
+	looks := 0
 	submit, err := driver.pasteHoldingSubmit("x1", "hello world", func(string) bool {
-		holdCalled = true
+		looks++
 		return false
 	})
 	if err != nil {
@@ -259,10 +268,37 @@ func TestSubmitDoesNotPressEnterWhenSafetyCaptureFails(t *testing.T) {
 	if err := submit(); err == nil {
 		t.Error("submit succeeded without checking whether the pane shows a dialog")
 	}
-	if holdCalled {
+	if looks > 1 {
 		t.Error("hold received a pane that could not be captured")
 	}
 	if strings.Contains(stubCalls(t, callLog), "send-keys") {
 		t.Fatalf("sent a key without a safety capture:\n%s", stubCalls(t, callLog))
+	}
+}
+
+// A pane already showing a dialog when the paste is due gets no paste at
+// all. Holding only the Enter is too late for a question dialog. Its
+// free-text row takes the paste as typing, so the dialog is left with
+// someone else's message where the operator's answer goes. Nothing is
+// pasted and nothing is submitted, and the caller hears ErrPasteHeld at once
+// so it can leave the message queued.
+func TestSendTextAsyncPastesNothingIntoAPaneAlreadyOnADialog(t *testing.T) {
+	driver, callLog := stubDriver(t, 50*time.Millisecond)
+	hold := func(pane string) bool { return strings.Contains(pane, "an empty composer") }
+	err := driver.SendTextAsync("x1", "rebase on main", hold, func(error) {
+		t.Error("submitted was called for a paste that never went out")
+	})
+	if !errors.Is(err, ErrPasteHeld) {
+		t.Fatalf("SendTextAsync = %v, want ErrPasteHeld", err)
+	}
+	calls := stubCalls(t, callLog)
+	for _, banned := range []string{"paste-buffer", "set-buffer", "load-buffer", "send-keys"} {
+		if strings.Contains(calls, banned) {
+			t.Fatalf("the pane was written to (%s) while it showed a dialog:\n%s", banned, calls)
+		}
+	}
+	// The pane is free again: a later send is not stuck behind the hold.
+	if err := driver.SendTextAsync("x1", "later", nil, func(error) {}); err != nil {
+		t.Fatalf("a later send: %v", err)
 	}
 }

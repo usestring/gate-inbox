@@ -94,8 +94,11 @@ func (p *poller) sendInFlight(key string) bool {
 // back.
 //
 // The pass judged the pane from a capture taken before the paste, so the pane
-// is read again before the Enter: a dialog the agent put up in between would
-// take it as an answer.
+// is read again just before the paste and again before the Enter. A dialog
+// the agent put up in between would take the paste as its free-text answer
+// and the Enter as its choice. A paste held at the first look reaches settle
+// as tmux.ErrPasteHeld. Nothing was typed, so settle gives its claim back
+// and the text waits for the next pass.
 func (p *poller) runSend(sess store.Session, key, text string, settle func(error) error) {
 	sessID := sess.ID
 	finish := func(sendErr error) {
@@ -118,15 +121,24 @@ func (p *poller) runSend(sess store.Session, key, text string, settle func(error
 		// consumed -- is worth a frame now rather than at the next tick.
 		p.requestRefresh()
 	}
-	hold := func(pane string) bool {
-		state, matched := p.engine.RuleMatch(sess.Tool, pane)
-		return matched && state == status.Waiting
-	}
+	hold := func(pane string) bool { return p.sendHeld(sess.Tool, pane) }
 	if err := p.tmux.SendTextAsync(sessID, text, hold, finish); err != nil {
 		// The paste never reached the pane, so no submit is coming and
 		// finish has to be the one to record it.
 		finish(err)
 	}
+}
+
+// sendHeld reports whether a pane is showing something typed text would
+// answer. A configured waiting rule is the check the pass itself makes. The
+// dialog readers come on top, because they parse the dialog's body and not
+// only its legend: a question whose legend a waiting rule does not read
+// still holds the send.
+func (p *poller) sendHeld(tool, pane string) bool {
+	if state, matched := p.engine.RuleMatch(tool, pane); matched && state == status.Waiting {
+		return true
+	}
+	return paneHasDialog(tool, pane)
 }
 
 // settledSince reports whether a send to sessID finished at or after at,

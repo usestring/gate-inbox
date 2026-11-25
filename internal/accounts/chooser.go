@@ -88,7 +88,7 @@ func Tool(tool config.Tool) extension.AccountTool {
 	return extension.AccountTool{
 		Env:    tool.AccountEnv,
 		Secret: tool.AccountSecret,
-		Listed: func() ([]string, error) { return List(tool) },
+		Listed: func() ([]string, error) { return ListCached(tool) },
 	}
 }
 

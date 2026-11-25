@@ -13,19 +13,15 @@ import (
 // pooled lists secrets named ACCT_<account>.
 var pooled = config.Tool{AccountSecret: "ACCT_{account}", AccountsCommand: "list"}
 
-// cachedStub replaces run with fn for ListCached and starts each test on an
-// empty cache, so one test's listing is never another's.
-func cachedStub(t *testing.T, fn func(command string) (string, error)) {
+// cachedStub replaces run with fn for ListCached and gives the test its own
+// shared listing file, so one test's listing is never another's and none
+// is the operator's. It returns that file's directory.
+func cachedStub(t *testing.T, fn func(command string) (string, error)) string {
 	t.Helper()
-	resetListings()
+	dir := t.TempDir()
+	t.Cleanup(UseListingDir(dir))
 	stub(t, fn)
-	t.Cleanup(resetListings)
-}
-
-func resetListings() {
-	listings.Lock()
-	defer listings.Unlock()
-	listings.byCommand = map[string]*listing{}
+	return dir
 }
 
 // waitListed waits for the command's background read to end.
@@ -48,11 +44,19 @@ func waitListed(t *testing.T, command string) {
 	}
 }
 
-// ageListing makes the cached listing look older than listingFresh.
-func ageListing(command string) {
+// ageListing makes the listing look older than listingFresh, in this
+// process and in the shared file.
+func ageListing(t *testing.T, command string) {
+	t.Helper()
+	old := time.Now().Add(-2 * listingFresh)
 	listings.Lock()
 	defer listings.Unlock()
-	listings.byCommand[command].at = time.Now().Add(-2 * listingFresh)
+	listings.byCommand[command].at = old
+	stored := readListings(listings.dir)
+	entry := stored[command]
+	entry.At = old
+	stored[command] = entry
+	writeListings(listingPath(listings.dir), stored)
 }
 
 // The account card opens on a key press, so it must not wait on a secret
@@ -75,7 +79,7 @@ func TestListCachedAnswersFromTheLastListingAndRefreshesBehindIt(t *testing.T) {
 	}
 
 	out.Store("ACCT_ALICE1\nACCT_BOB2\n")
-	ageListing(pooled.AccountsCommand)
+	ageListing(t, pooled.AccountsCommand)
 	if names, _ := ListCached(pooled); !slices.Equal(names, []string{"ALICE1"}) {
 		t.Fatalf("a stale listing should still answer at once, got %v", names)
 	}
@@ -130,10 +134,30 @@ func TestListCachedKeepsTheLastGoodListingThroughAFailure(t *testing.T) {
 	}
 
 	fail.Store(true)
-	ageListing(pooled.AccountsCommand)
+	ageListing(t, pooled.AccountsCommand)
 	ListCached(pooled)
 	waitListed(t, pooled.AccountsCommand)
 	if names, err := ListCached(pooled); err != nil || !slices.Equal(names, []string{"ALICE1"}) {
 		t.Fatalf("a failed refresh lost the last listing: %v, %v", names, err)
+	}
+}
+
+// The listing is shared: a process that starts after another has listed,
+// as a restarted board or a new session's MCP server does, answers from the
+// file without reading the secret store at all.
+func TestListCachedSharesOneListingAcrossProcesses(t *testing.T) {
+	var calls atomic.Int32
+	dir := cachedStub(t, func(string) (string, error) {
+		calls.Add(1)
+		return "ACCT_ALICE1\n", nil
+	})
+	if names, err := ListCached(pooled); err != nil || !slices.Equal(names, []string{"ALICE1"}) {
+		t.Fatalf("first listing = %v, %v", names, err)
+	}
+
+	// A second process: same file, nothing in memory.
+	UseListingDir(dir)
+	if names, err := ListCached(pooled); err != nil || !slices.Equal(names, []string{"ALICE1"}) || calls.Load() != 1 {
+		t.Fatalf("the second process read again: %v, %v after %d reads", names, err, calls.Load())
 	}
 }

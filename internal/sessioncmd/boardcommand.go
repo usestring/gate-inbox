@@ -11,7 +11,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -110,6 +112,9 @@ func (r *runtime) promptHold(engine *status.Engine, target store.Session, clean 
 	if hold := engine.TypingHold(target.Tool, clean); hold != "" {
 		return fmt.Errorf("session %s is %s: %w", target.ID, hold, extension.ErrNotAtPrompt)
 	}
+	if r.hookDialog(target) {
+		return fmt.Errorf("session %s has a dialog open: %w", target.ID, extension.ErrNotAtPrompt)
+	}
 	if at, err := r.driver.SessionInputAt(target.ID); err == nil && !at.IsZero() && time.Since(at) < status.OperatorQuiet {
 		return fmt.Errorf("someone is typing in session %s: %w", target.ID, extension.ErrNotAtPrompt)
 	}
@@ -117,6 +122,14 @@ func (r *runtime) promptHold(engine *status.Engine, target store.Session, clean 
 		return fmt.Errorf("someone has text written at session %s's prompt: %w", target.ID, extension.ErrNotAtPrompt)
 	}
 	return nil
+}
+
+// hookDialog is the poller's hold on a dialog the session's own hooks
+// report, which its pane may not show (hooks.Manager.DialogOpen).
+func (r *runtime) hookDialog(target store.Session) bool {
+	return hooks.NewManager(r.configDir).DialogOpen(r.cfg.Tools[target.Tool].StatusSource, target.ID, func() string {
+		return convo.TranscriptFor(convo.ClaudeHome(), target.AgentSessionID, target.Cwd)
+	})
 }
 
 // confirm watches the pane after a command for its own confirmation and

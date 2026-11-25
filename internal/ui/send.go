@@ -177,7 +177,7 @@ func (m *Model) dialogHold(sess store.Session) (hold, pane string) {
 		return "", ""
 	}
 	pane = ansi.Strip(raw)
-	// A pi session's hooks say so even when its dialog's legend matches no
+	// A session's own hooks say so even when its dialog's legend matches no
 	// rule; see poller.hookDialog.
 	if state, matched := m.engine.RuleMatch(sess.Tool, pane); (!matched || state != status.Waiting) && !m.poller.hookDialog(sess) {
 		return "", pane

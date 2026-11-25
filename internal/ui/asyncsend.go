@@ -94,8 +94,8 @@ func (p *poller) sendInFlight(key string) bool {
 // back.
 //
 // The pass judged the pane from a capture taken before the paste, so the pane
-// is read again before the Enter: a dialog the agent put up in between would
-// take it as an answer.
+// and the session's hooks are read again before the Enter: a dialog the
+// agent put up in between would take it as an answer.
 func (p *poller) runSend(sess store.Session, key, text string, settle func(error) error) {
 	sessID := sess.ID
 	finish := func(sendErr error) {
@@ -120,7 +120,7 @@ func (p *poller) runSend(sess store.Session, key, text string, settle func(error
 	}
 	hold := func(pane string) bool {
 		state, matched := p.engine.RuleMatch(sess.Tool, pane)
-		return matched && state == status.Waiting
+		return (matched && state == status.Waiting) || p.hookDialog(sess)
 	}
 	if err := p.tmux.SendTextAsync(sessID, text, hold, finish); err != nil {
 		// The paste never reached the pane, so no submit is coming and

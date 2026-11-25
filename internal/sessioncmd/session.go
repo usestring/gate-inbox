@@ -1512,7 +1512,7 @@ func (r *runtime) heldReason(sessionID string) (string, error) {
 		return "", err
 	}
 	clean := ansi.Strip(pane)
-	if engine.TypingHold(target.Tool, clean) == status.Waiting {
+	if engine.TypingHold(target.Tool, clean) == status.Waiting || r.hookDialog(target) {
 		return fmt.Sprintf("session %s is sitting on a dialog, and nothing is typed into a session while one is on its screen; read that screen and answer it", sessionID), nil
 	}
 	// The same two reads the poller makes before it pastes. A person's

@@ -252,6 +252,12 @@ func read(tool config.Tool, account, secret string) (string, error) {
 // is an account this process found unavailable lately (MarkedUnavailable):
 // listing reads no secret, so it learns that only from a launch's read.
 func List(tool config.Tool) ([]string, error) {
+	return list(tool, run)
+}
+
+// list is List reading the command's output through read, which is run
+// itself or the board's cached listing.
+func list(tool config.Tool, read func(string) (string, error)) ([]string, error) {
 	if tool.AccountsCommand == "" {
 		return nil, errors.New("no accounts_command configured for this tool")
 	}
@@ -259,7 +265,7 @@ func List(tool config.Tool) ([]string, error) {
 	if !ok {
 		return nil, errors.New("account_secret must contain {account}")
 	}
-	out, err := run(tool.AccountsCommand)
+	out, err := read(tool.AccountsCommand)
 	if err != nil {
 		return nil, err
 	}

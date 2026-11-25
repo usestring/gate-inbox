@@ -157,7 +157,7 @@ func (m *Model) cycleClearedAccount(delta int) {
 	toolName := m.selectedToolName()
 	if m.cleared.tool != toolName || len(m.cleared.accounts) == 0 {
 		names := []string{accountAuto}
-		listed, err := accounts.List(m.cfg.Tools[toolName])
+		listed, err := accounts.ListCached(m.cfg.Tools[toolName])
 		if err != nil {
 			m.errBar.text = "listing " + toolName + " subscriptions: " + err.Error()
 		}

@@ -21,6 +21,9 @@ func cachedStub(t *testing.T, fn func(command string) (string, error)) string {
 	dir := t.TempDir()
 	t.Cleanup(UseListingDir(dir))
 	stub(t, fn)
+	// Cleanups run last-registered first, so a refresh a test left running
+	// finishes writing into dir before TempDir removes it.
+	t.Cleanup(func() { waitListed(t, pooled.AccountsCommand) })
 	return dir
 }
 

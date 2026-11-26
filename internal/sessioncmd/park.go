@@ -872,10 +872,6 @@ func (s *Sessions) stopPane(runtime *runtime, target store.Session, pane, reason
 // slot is the relaunch queue's turn, taken (see pace) before anything was
 // changed, so a session waiting for it went on running as it was.
 func (s *Sessions) restart(runtime *runtime, target store.Session, slot launchpace.Slot) (config.Tool, error) {
-	if err := relaunchable(target); err != nil {
-		slot.Cancel()
-		return config.Tool{}, err
-	}
 	if err := runtime.store.SetAgentLaunchedAt(target.ID, time.Now()); err != nil {
 		slot.Cancel()
 		return config.Tool{}, err
@@ -896,6 +892,11 @@ var errDirectoryGone = errors.New("working directory no longer exists")
 // ends the pane first, so a session whose directory had been removed was
 // left dead instead of restarted. Checking before anything is ended leaves
 // it running as it was.
+//
+// Only a restart made for the session's own sake asks it: an account switch
+// or a stale-sandbox restart. restart itself does not, because a revoked or
+// expired grant is removed only by ending the process that holds it, and a
+// session whose directory is gone must still lose the permission.
 func relaunchable(target store.Session) error {
 	if _, err := resolveTerminalDirectory(target.Cwd); err != nil {
 		return fmt.Errorf("%w: %s; the session was left running as it was", errDirectoryGone, target.Cwd)
@@ -908,10 +909,6 @@ func relaunchable(target store.Session) error {
 // own conversation, launched with its settings file -- which is the resume a
 // sandbox or domain grant needed.
 func (s *Sessions) restartAdopted(runtime *runtime, target store.Session, slot launchpace.Slot) (config.Tool, error) {
-	if err := relaunchable(target); err != nil {
-		slot.Cancel()
-		return config.Tool{}, err
-	}
 	if err := runtime.store.SetAgentLaunchedAt(target.ID, time.Now()); err != nil {
 		slot.Cancel()
 		return config.Tool{}, err

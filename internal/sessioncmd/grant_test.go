@@ -148,9 +148,6 @@ func TestGrantNeedsTheUsersExactApproval(t *testing.T) {
 // spawner was archived in that gap by the child sweep (2026-10-09), so the
 // relaunch came up under a row nothing polled. A restart that never comes
 // back holds the gap open: the row must still not be one the sweep files.
-// The relaunch is made to fail on an account the tool has no way to take,
-// which is only read once the pane is gone; a missing directory is now
-// refused before anything is ended.
 func TestAGrantRestartIsNotFiledAsAnExitedChild(t *testing.T) {
 	h, child := grantHarness(t)
 	if err := h.store.SetAgentLaunchedAt(child.ID, time.Now().Add(-time.Hour)); err != nil {
@@ -172,13 +169,13 @@ func TestAGrantRestartIsNotFiledAsAnExitedChild(t *testing.T) {
 	(&transcript{}).ask("toolu_yes", asked, question).
 		answer("toolu_yes", asked.Add(time.Second), map[string]string{question.Question: "Grant"}).
 		write(t, h.sessions.claudeHome, "conv-parent")
-	if err := h.store.SetAccount(child.ID, "ALICE1"); err != nil {
+	if err := os.RemoveAll(child.Cwd); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: string(probe.Kind), Value: probe.Value}); err == nil ||
 		!strings.Contains(err.Error(), "did not come back") {
-		t.Fatalf("grant err = %v, want the relaunch to fail on the account", err)
+		t.Fatalf("grant err = %v, want the relaunch to fail on the missing directory", err)
 	}
 	row, err := h.store.Get(child.ID)
 	if err != nil || row.Status != status.Dead {

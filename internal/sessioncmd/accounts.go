@@ -199,6 +199,11 @@ func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account
 		if slot, err = s.paceAs(runtime, target.ID, how); err != nil {
 			return Session{}, err
 		}
+		// The turn can take minutes, and the directory can go meanwhile.
+		if err := relaunchable(target); err != nil {
+			slot.Cancel()
+			return Session{}, err
+		}
 	}
 	if err := runtime.store.SetAccount(target.ID, account); err != nil {
 		slot.Cancel()

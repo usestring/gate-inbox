@@ -1,0 +1,14 @@
+● Bash(go test ./internal/status)
+  ⎿  ok  	github.com/usestring/gate-inbox/internal/status	0.011s
+     … +2 lines (ctrl+o to expand)
+  ⎿  You've hit your weekly limit · resets Dec 2, 3pm (UTC)
+
+❯ /rate-limit-options
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  What do you want to do?
+
+  ❯ 1. Stop and wait for limit to reset
+    2. Wait here, then continue automatically at Dec 2, 3pm
+
+  Enter to confirm · Esc to cancel                                    Background update waiting while this panel is open

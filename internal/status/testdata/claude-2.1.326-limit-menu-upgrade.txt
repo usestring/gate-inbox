@@ -1,0 +1,11 @@
+● I'll run the reviewer next.
+  ⎿  You've hit your session limit · resets 11am (UTC)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  What do you want to do?
+
+  ❯ 1. Stop and wait for limit to reset
+    2. Wait here, then continue automatically at 11am
+    3. Upgrade your plan
+
+  Enter to confirm · Esc to cancel

@@ -125,6 +125,50 @@ func TestLimitSwitchBannerUnderTheLimitMenuIsTheLimitLine(t *testing.T) {
 	}
 }
 
+// Submitting to an account that is already spent opens Claude's limit menu
+// with no banner for the turn; the only banner on screen belongs to the
+// account the session was moved off. The card still opens, on the menu's own
+// "continue automatically" row rather than that stale banner.
+func TestLimitSwitchOpensOnTheLimitMenuWithoutABanner(t *testing.T) {
+	m := limitedModel(t)
+	def, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := m.cfg.Tools["claude"]
+	tool.LimitMenu = def.Tools["claude"].LimitMenu
+	m.cfg.Tools["claude"] = tool
+	if m.engine, err = status.NewEngine(m.cfg); err != nil {
+		t.Fatal(err)
+	}
+	sess, _ := m.selected()
+	pane := "  ⎿  You've hit your weekly limit · resets 12pm (UTC)\n" +
+		"\n" +
+		"❯ re-run the unit\n" +
+		"\n" +
+		"● Re-running the unit now.\n" +
+		"\n" +
+		"❯ [gate-inbox] Gate Inbox has moved this session onto account work-2. Carry on.\n" +
+		strings.Repeat("▔", 60) + "\n" +
+		"   What do you want to do?\n" +
+		"\n" +
+		"   ❯ 1. Stop and wait for limit to reset\n" +
+		"     2. Wait here, then continue automatically at Nov 28, 12pm\n" +
+		"\n" +
+		"   Enter to confirm · Esc to cancel\n"
+	if got, _ := m.engine.Match("claude", pane); got != status.Errored {
+		t.Fatalf("Match() = %q, want %q", got, status.Errored)
+	}
+	m.Update(previewMsg{sessID: sess.ID, preview: pane})
+	if m.mode != modeLimitSwitch {
+		t.Fatalf("no card: mode=%v", m.mode)
+	}
+	view := ansi.Strip(m.viewLimitSwitch())
+	if !strings.Contains(view, "Wait here, then continue automatically at Nov 28,") || strings.Contains(view, "resets 12pm") {
+		t.Fatalf("the card does not lead with the menu:\n%s", view)
+	}
+}
+
 // A CLI with no accounts has nothing to switch to, so with other CLIs
 // turned off a limit opens no card at all.
 func TestLimitSwitchStaysClosedWithNothingToOffer(t *testing.T) {

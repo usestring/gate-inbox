@@ -1,0 +1,10 @@
+● Bash(go test ./internal/status)
+  ⎿  ok  	github.com/usestring/gate-inbox/internal/status	0.011s
+  ⎿  You've hit your session limit · resets 11am (UTC)
+
+● Usage limit reached · continuing automatically at 11am · esc to cancel
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

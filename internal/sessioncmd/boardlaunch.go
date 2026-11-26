@@ -156,7 +156,7 @@ func (s *Sessions) prepareBoardLaunch(runtime *runtime, sess store.Session, tool
 	if rehearse {
 		account, err = accounts.Preview(runtime.store, tool, sess.Account, accounts.Request{ToolName: sess.Tool, Reason: reason, From: from})
 	} else {
-		account, err = runtime.accountOr(sess.Account, sess.Tool, tool, sess.ID, reason)
+		account, _, err = runtime.accountOr(sess.Account, sess.Tool, tool, sess.ID, reason)
 	}
 	if err != nil {
 		return boardLaunch{}, err

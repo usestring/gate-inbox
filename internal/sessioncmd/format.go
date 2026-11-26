@@ -70,6 +70,9 @@ func FormatSession(session Session) string {
 	if len(session.Permissions) > 0 {
 		line += " granted " + strings.Join(session.Permissions, ", ")
 	}
+	if session.AccountNote != "" {
+		line += " (" + session.AccountNote + ")"
+	}
 	return line
 }
 

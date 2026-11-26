@@ -327,7 +327,13 @@ the browser. Set `binary` to the worker's absolute path to Gate Inbox if its SSH
 `GATE_INBOX_HOME`.
 
 Restart the local board and open **Remote sessions** from **Quick actions** (`ctrl+k`). The browser
-refreshes each host while open and keeps the last snapshot visible if the connection drops. Select
-a running session and press Enter to attach to its tmux terminal. Press your tmux detach key
+refreshes each host while open and keeps the last snapshot visible if the connection drops. If SSH
+still works but the worker's poll heartbeat expires, the browser marks its saved statuses stale.
+The warning clears after the worker polls again and saves any status changes. Upgrade both the
+worker board and the worker binary used over SSH for this behavior. With an older SSH binary, the
+browser shows `status age unknown` and still lists sessions. Live panes remain attachable while SSH
+and the session list are current.
+
+Select a running session and press Enter to attach to its tmux terminal. Press your tmux detach key
 (`prefix` then `d` by default) to return to the browser. Escape returns to the local session list.
 Creating sessions, routing tasks and sending queued messages still use the board that owns them.

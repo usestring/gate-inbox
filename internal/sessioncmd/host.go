@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -20,6 +21,8 @@ type HostSession struct {
 type HostSnapshot struct {
 	Sessions []HostSession `json:"sessions"`
 	Matched  int           `json:"matched"`
+	// StatusesStale is nil for older workers. Running still comes from tmux.
+	StatusesStale *bool `json:"statuses_stale,omitempty"`
 }
 
 // HostSessions is the worker's session snapshot. Opening the database
@@ -30,6 +33,8 @@ func (s *Sessions) HostSessions() (HostSnapshot, error) {
 		return HostSnapshot{}, err
 	}
 	defer worker.store.Close()
+	// A missing or unreadable heartbeat leaves saved statuses stale.
+	awake, _ := worker.managerAwake(time.Now())
 	list, err := worker.list("", ListOptions{Limit: MaxSessionLimit})
 	if err != nil {
 		return HostSnapshot{}, err
@@ -40,7 +45,7 @@ func (s *Sessions) HostSessions() (HostSnapshot, error) {
 			ID: session.ID, Name: session.Name, Status: session.Status, Running: session.Running,
 		})
 	}
-	return HostSnapshot{Sessions: items, Matched: list.Matched}, nil
+	return HostSnapshot{Sessions: items, Matched: list.Matched, StatusesStale: new(!awake)}, nil
 }
 
 func (s *Sessions) openHost() (*runtime, error) {

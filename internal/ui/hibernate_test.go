@@ -117,7 +117,7 @@ func TestHibernateSweepRequiresEnabledPolicyAndMemoryReading(t *testing.T) {
 func hibernatedRow(t *testing.T, m *Model, name string) store.Session {
 	t.Helper()
 	createSession(t, m, name, t.TempDir(), "")
-	sess := m.sessionRows()[0]
+	sess, _ := m.sessionByID(sessionID(t, m, name))
 	if err := m.tmux.Kill(sess.ID); err != nil {
 		t.Fatalf("kill: %v", err)
 	}
@@ -132,9 +132,10 @@ func hibernatedRow(t *testing.T, m *Model, name string) store.Session {
 			m.sessions[i].Status = status.Dead
 		}
 	}
-	m.hibernated = []string{sess.ID}
+	m.hibernated = append(m.hibernated, sess.ID)
 	m.rebuildRows()
-	return m.sessionRows()[0]
+	sess, _ = m.sessionByID(sess.ID)
+	return sess
 }
 
 // Focusing a hibernated session is asking for it back. It wakes on its
@@ -164,7 +165,7 @@ func TestTriageWarmsASleeperBeforeItIsNext(t *testing.T) {
 	t.Cleanup(keyconfine.UseForTests(keyconfine.Unconfined, nil))
 	m := buildModel(t)
 	sleeping := hibernatedRow(t, m, "sleeper")
-	for _, name := range []string{"current", "ready-one", "ready-two", "ready-three", "ready-four"} {
+	for _, name := range []string{"current", "ready-one", "ready-two", "ready-three"} {
 		createSession(t, m, name, t.TempDir(), "")
 	}
 	for i := range 15 {
@@ -181,11 +182,11 @@ func TestTriageWarmsASleeperBeforeItIsNext(t *testing.T) {
 	m.rebuildRows()
 	m.enterFocusOn(t, "current")
 	if cmd := m.triageWarmCmd(); cmd != nil {
-		t.Fatal("warming reached past four ready handoffs")
+		t.Fatal("warming reached past three ready handoffs")
 	}
 
 	// One ready handoff leaves the queue, bringing the sleeper into range.
-	readyID := sessionID(t, m, "ready-four")
+	readyID := sessionID(t, m, "ready-three")
 	ready, _ := m.sessionByID(readyID)
 	m.mute(ready)
 	m.rebuildRows()
@@ -197,7 +198,7 @@ func TestTriageWarmsASleeperBeforeItIsNext(t *testing.T) {
 	m.snap.MemPercent = 65
 	cmd := m.triageWarmCmd()
 	if cmd == nil {
-		t.Fatal("warming did not start with three ready handoffs and spare memory")
+		t.Fatal("warming did not start with two ready handoffs and spare memory")
 	}
 	m.applyCmd(t, cmd)
 	if got := focusedName(t, m); got != "current" {
@@ -208,6 +209,35 @@ func TestTriageWarmsASleeperBeforeItIsNext(t *testing.T) {
 	}
 	if still, err := m.store.IsHibernated(sleeping.ID); err != nil || still {
 		t.Fatalf("the sleeper is still marked hibernated: %v, %v", still, err)
+	}
+}
+
+func TestTriagePrewarmPreservesTheNextHandoffAfterRefresh(t *testing.T) {
+	t.Cleanup(keyconfine.UseForTests(keyconfine.Unconfined, nil))
+	m := buildModel(t)
+	first := hibernatedRow(t, m, "first-sleeper")
+	second := hibernatedRow(t, m, "second-sleeper")
+	createSession(t, m, "current", t.TempDir(), "")
+	loadStoredRows(t, m)
+	m.triage = true
+	m.smartTriage = false
+	m.rebuildRows()
+	m.enterFocusOn(t, "current")
+
+	m.applyCmd(t, m.triageWarmCmd())
+	if !m.tmux.Exists(first.ID) || m.tmux.Exists(second.ID) {
+		t.Fatal("prewarm should start only the first sleeper on the queue")
+	}
+	// The refreshed row reports the new status time from the relaunch.
+	loadStoredRows(t, m)
+	if got := focusedName(t, m); got != "current" {
+		t.Fatalf("prewarm moved focus to %q", got)
+	}
+	current, _ := m.selected()
+	m.leaveFocus()
+	m.advanceTriageInScope(current.ID)
+	if got := focusedName(t, m); m.mode != modeFocus || got != first.Name {
+		t.Fatalf("triage handed over %q in mode %v, want %q focused", got, m.mode, first.Name)
 	}
 }
 

@@ -10,16 +10,21 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-const triageWarmLookahead = 4
+const triageWarmLookahead = 3
 
 type triageWarmMsg struct{}
 
 type triageWarm struct {
-	launched map[string]time.Time
+	launched map[string]triageWarmLaunch
 	failed   map[string]bool
 
 	sensitivity    string
 	reservedStarts int
+}
+
+type triageWarmLaunch struct {
+	launchedAt   time.Time
+	lastStatusAt time.Time
 }
 
 func (m *Model) triageWarmCandidate() (store.Session, bool) {
@@ -92,9 +97,9 @@ func (m *Model) warmNextTriageSession() {
 		return
 	}
 	if m.triageWarm.launched == nil {
-		m.triageWarm.launched = make(map[string]time.Time, triageWarmLookahead)
+		m.triageWarm.launched = make(map[string]triageWarmLaunch, triageWarmLookahead)
 	}
-	m.triageWarm.launched[sess.ID] = time.Now()
+	m.triageWarm.launched[sess.ID] = triageWarmLaunch{launchedAt: time.Now(), lastStatusAt: sess.LastStatusAt}
 	m.rebuildRows()
 	m.requestRefresh()
 }
@@ -102,15 +107,16 @@ func (m *Model) warmNextTriageSession() {
 func (m *Model) isTriageWarmRest(sess store.Session) bool {
 	// Keep a warm session in its old place until the operator reaches it.
 	// A real question or turn from incoming mail still uses its live status.
-	return m.triage && !m.triageWarm.launched[sess.ID].IsZero() &&
+	_, warmed := m.triageWarm.launched[sess.ID]
+	return m.triage && warmed &&
 		(sess.Status == status.Starting || sess.Status == status.Idle)
 }
 
 func (m *Model) reconcileTriageWarm(listedAt time.Time, sampledMemory bool) {
 	starting := 0
-	for id, launchedAt := range m.triageWarm.launched {
+	for id, launch := range m.triageWarm.launched {
 		sess, ok := m.sessionByID(id)
-		if listedAt.After(launchedAt) && (!ok || sess.Archived || (sess.Status != status.Starting && sess.Status != status.Idle)) {
+		if listedAt.After(launch.launchedAt) && (!ok || sess.Archived || (sess.Status != status.Starting && sess.Status != status.Idle)) {
 			delete(m.triageWarm.launched, id)
 			continue
 		}

@@ -354,7 +354,7 @@ func (m *Model) triageBefore(ka, kb triageKey, a, b store.Session, now time.Time
 		return ka.before(kb)
 	}
 	if oldest {
-		return triageLessByAge(a, b)
+		return m.triageLessByAge(a, b)
 	}
 	return m.triageLessWithin(a, b, now)
 }
@@ -553,7 +553,7 @@ func (m *Model) triageLessWithin(a, b store.Session, now time.Time) bool {
 	if before, differ := m.deadlineBefore(a.ID, b.ID, now); differ {
 		return before
 	}
-	return triageLessByAge(a, b)
+	return m.triageLessByAge(a, b)
 }
 
 // deadlineBefore orders two sessions by their deadlines still ahead, the
@@ -584,14 +584,23 @@ func (m *Model) deadlineAhead(id string, now time.Time) time.Time {
 
 // triageLessByAge is the tie-break under the deadline: oldest first, then
 // the two fields that only keep the order total.
-func triageLessByAge(a, b store.Session) bool {
-	if !a.LastStatusAt.Equal(b.LastStatusAt) {
-		return a.LastStatusAt.Before(b.LastStatusAt)
+func (m *Model) triageLessByAge(a, b store.Session) bool {
+	if cmp := m.triageStatusAt(a).Compare(m.triageStatusAt(b)); cmp != 0 {
+		return cmp < 0
 	}
 	if !a.CreatedAt.Equal(b.CreatedAt) {
 		return a.CreatedAt.Before(b.CreatedAt)
 	}
 	return a.ID < b.ID
+}
+
+// Relaunching updates the stored status time. While a prewarmed session
+// is still resting, keep the timestamp that put it in its place in the queue.
+func (m *Model) triageStatusAt(sess store.Session) time.Time {
+	if m.isTriageWarmRest(sess) {
+		return m.triageWarm.launched[sess.ID].lastStatusAt
+	}
+	return sess.LastStatusAt
 }
 
 const (

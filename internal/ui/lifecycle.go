@@ -17,6 +17,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/launchpace"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -194,7 +195,7 @@ func (m *Model) reviveSelected() (tea.Model, tea.Cmd) {
 		m.reportLaunchError(err)
 		return m, nil
 	}
-	m.errBar.text = m.degradedResumeNotice(entry.sess)
+	m.errBar.text = joinNotices(m.relaunchNotice(entry.sess), m.degradedResumeNotice(entry.sess))
 	m.requestRefresh()
 	return m, nil
 }
@@ -347,6 +348,12 @@ func (m *Model) reviveSession(sess store.Session) error {
 // conversation knows, which is why it was never the answer to "the tools
 // are stale".
 func (m *Model) resumeSession(sess store.Session) error {
+	// The account is settled before the agent is ended, so one that cannot
+	// be used leaves the running agent where it is.
+	sess, tool, err := m.prepareRelaunch(sess)
+	if err != nil {
+		return err
+	}
 	if m.tmux.Exists(sess.ID) {
 		// Stamped before the kill, as sessioncmd's restart is: between the
 		// two the row reads dead, and the child sweep archives a dead child
@@ -358,20 +365,90 @@ func (m *Model) resumeSession(sess store.Session) error {
 			return err
 		}
 	}
-	return m.launchOnHeldConversation(sess)
+	return m.launchPrepared(sess, tool)
 }
 
 // launchOnHeldConversation relaunches sess on the conversation the row
 // already points at, whether it got there by dying or by being ended a
 // moment ago.
 func (m *Model) launchOnHeldConversation(sess store.Session) error {
+	sess, tool, err := m.prepareRelaunch(sess)
+	if err != nil {
+		return err
+	}
+	return m.launchPrepared(sess, tool)
+}
+
+// prepareRelaunch checks a relaunch of sess can go ahead and settles the
+// account it runs on (accounts.Relaunch), before anything of the session's
+// is ended. An account whose secret can no longer be read is replaced by
+// the chooser's pick, which is written to the row. When the chooser has
+// nothing better the launch runs on the CLI's own login, the row keeps its
+// account for the next relaunch to check again, and relaunchNotice says
+// so.
+func (m *Model) prepareRelaunch(sess store.Session) (store.Session, config.Tool, error) {
 	tool, ok := m.cfg.Tools[sess.Tool]
 	if !ok {
-		return fmt.Errorf("tool %s is no longer configured", sess.Tool)
+		return sess, config.Tool{}, fmt.Errorf("tool %s is no longer configured", sess.Tool)
 	}
 	if !isDir(sess.Cwd) {
-		return fmt.Errorf("working directory no longer exists: %s", sess.Cwd)
+		return sess, config.Tool{}, fmt.Errorf("working directory no longer exists: %s", sess.Cwd)
 	}
+	delete(m.ownLoginNotes, sess.ID)
+	warning := ""
+	account, err := accounts.Relaunch(tool, sess.Account, accounts.Request{SessionID: sess.ID, ToolName: sess.Tool, Reason: extension.LaunchRelaunch, Warn: func(why string) { warning = why }})
+	if err != nil {
+		return sess, config.Tool{}, err
+	}
+	if account != accounts.Normalize(sess.Account) {
+		if account != "" {
+			if err := m.store.SetAccount(sess.ID, account); err != nil {
+				return sess, config.Tool{}, err
+			}
+			if m.ownLoginNotes == nil {
+				m.ownLoginNotes = map[string]string{}
+			}
+			m.ownLoginNotes[sess.ID] = fmt.Sprintf("%s: account %s is unavailable; relaunched on %s", sess.Name, accounts.Normalize(sess.Account), account)
+		}
+		sess.Account = account
+	}
+	if warning != "" {
+		if m.ownLoginNotes == nil {
+			m.ownLoginNotes = map[string]string{}
+		}
+		m.ownLoginNotes[sess.ID] = fmt.Sprintf("%s: %s; relaunched on the CLI's own login", sess.Name, warning)
+		logging.Warn("relaunched on the CLI's own login", "session", sess.ID, "why", warning)
+	}
+	return sess, tool, nil
+}
+
+// joinNotices is the non-empty notes, on one line.
+func joinNotices(notes ...string) string {
+	return strings.Join(slices.DeleteFunc(notes, func(n string) bool { return n == "" }), "; ")
+}
+
+// relaunchNotice is the note prepareRelaunch left for sess, once: why it
+// came back on the CLI's own login.
+func (m *Model) relaunchNotice(sess store.Session) string {
+	note := m.ownLoginNotes[sess.ID]
+	delete(m.ownLoginNotes, sess.ID)
+	return note
+}
+
+// relaunchNotices is relaunchNotice for each of sessions, on one line.
+func (m *Model) relaunchNotices(sessions []store.Session) string {
+	var notes []string
+	for _, sess := range sessions {
+		if note := m.relaunchNotice(sess); note != "" {
+			notes = append(notes, note)
+		}
+	}
+	return strings.Join(notes, "; ")
+}
+
+// launchPrepared is launchOnHeldConversation for a session prepareRelaunch
+// passed.
+func (m *Model) launchPrepared(sess store.Session, tool config.Tool) error {
 	bind := func() error {
 		launchedAt := time.Now()
 		if err := m.store.SetAgentLaunchedAt(sess.ID, launchedAt); err != nil {
@@ -493,12 +570,11 @@ func (m *Model) restartSession(sess store.Session) error {
 // tool's own command and the conversation id it mints, so they read as
 // options rather than as the prompt.
 func (m *Model) restartSessionWithFlags(sess store.Session, extraArgs string) error {
-	tool, ok := m.cfg.Tools[sess.Tool]
-	if !ok {
-		return fmt.Errorf("tool %s is no longer configured", sess.Tool)
-	}
-	if !isDir(sess.Cwd) {
-		return fmt.Errorf("working directory no longer exists: %s", sess.Cwd)
+	// Settled before the kill, so an account that cannot be used leaves the
+	// running agent alone.
+	sess, tool, err := m.prepareRelaunch(sess)
+	if err != nil {
+		return err
 	}
 	if err := m.killSession(sess); err != nil {
 		return err
@@ -1507,7 +1583,7 @@ func (m *Model) handleConfirmAnswer(msg tea.KeyMsg, confirmed bool) (tea.Model, 
 				}
 				m.markGroupRestoredLocally(m.confirm.path)
 			}
-			m.errBar.text = ""
+			m.errBar.text = m.relaunchNotices(m.confirm.sessions)
 			// The restored rows rejoin the list on this frame rather than on
 			// the next poll, the way an archive's rows leave it.
 			m.rebuildRows()
@@ -1518,7 +1594,7 @@ func (m *Model) handleConfirmAnswer(msg tea.KeyMsg, confirmed bool) (tea.Model, 
 					return m, nil
 				}
 			}
-			m.errBar.text = ""
+			m.errBar.text = m.relaunchNotices(m.confirm.sessions)
 			m.rebuildRows()
 		case actionResume:
 			sessions := m.confirm.sessions
@@ -1563,7 +1639,7 @@ func (m *Model) handleConfirmAnswer(msg tea.KeyMsg, confirmed bool) (tea.Model, 
 					return m, nil
 				}
 			}
-			m.errBar.text = ""
+			m.errBar.text = m.relaunchNotices(m.confirm.sessions)
 		default:
 			m.errBar.text = fmt.Sprintf("unknown confirm action %q", m.confirm.action)
 			return m, nil

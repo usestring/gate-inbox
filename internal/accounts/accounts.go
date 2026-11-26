@@ -94,6 +94,10 @@ func (e *UnavailableError) Unwrap() []error {
 	return []error{ErrUnavailable, e.Err}
 }
 
+// reasonRefused is the UnavailableError reason for a read the secret store
+// refused this operator.
+const reasonRefused = "you may not read its secret"
+
 // unavailableReason reads a failed secret read's error for the secret
 // store's own verdict on the secret, by the status words Google Secret
 // Manager (gcloud) prints. Anything else is not taken for the account's
@@ -109,7 +113,7 @@ func unavailableReason(err error) (string, bool) {
 	case strings.Contains(text, "NOT_FOUND"):
 		return "its secret or secret version does not exist", true
 	case strings.Contains(text, "PERMISSION_DENIED"):
-		return "you may not read its secret", true
+		return reasonRefused, true
 	}
 	return "", false
 }

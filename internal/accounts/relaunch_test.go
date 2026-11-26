@@ -56,7 +56,7 @@ func TestRelaunchFallsBackOrKeepsTheError(t *testing.T) {
 	restore := UseChooser(func() (extension.AccountChooser, error) { return c, nil })
 	warned := ""
 	got, err := Relaunch(readable, "CAROL3", Request{SessionID: "s1", Warn: func(why string) { warned = why }})
-	if err != nil || got != "" || warned != "account CAROL3 is unavailable: its secret version is disabled" {
+	if err != nil || got != "" || warned != "account CAROL3 is unavailable: its secret version is disabled; choosing an account: nothing usable" {
 		t.Fatalf("nothing else: Relaunch = %q %v, warned %q", got, err, warned)
 	}
 	if got, err := Relaunch(readable, "DAVE4", Request{SessionID: "s1"}); err != nil || got != "DAVE4" {
@@ -67,5 +67,47 @@ func TestRelaunchFallsBackOrKeepsTheError(t *testing.T) {
 	got, err = Relaunch(readable, "CAROL3", Request{SessionID: "s1"})
 	if !errors.Is(err, ErrUnavailable) || got != "" {
 		t.Fatalf("no chooser: Relaunch = %q %v", got, err)
+	}
+}
+
+// A chooser that cannot be asked (a timeout, a ledger fault) is named in the
+// warning, not read as a pool with nothing in it; so is a pick that proved
+// unavailable too.
+func TestRelaunchWarnsWhyTheChooserGaveNothing(t *testing.T) {
+	freshMarks(t)
+	secrets(t, map[string]error{"CAROL3": errors.New(disabled), "BOB2": errors.New(disabled)})
+	c := &excluding{order: []string{"BOB2"}, honor: true}
+	t.Cleanup(UseChooser(func() (extension.AccountChooser, error) { return c, nil }))
+	warned := ""
+	got, err := Relaunch(readable, "CAROL3", Request{SessionID: "s1", Warn: func(why string) { warned = why }})
+	want := "account CAROL3 is unavailable: its secret version is disabled; account BOB2 is unavailable: its secret version is disabled; choosing an account: nothing usable"
+	if err != nil || got != "" || warned != want {
+		t.Fatalf("Relaunch = %q %v, warned %q", got, err, warned)
+	}
+}
+
+// A store that refuses every read, the row's account and each pick alike,
+// is the operator's access failing, not the accounts: the relaunch keeps
+// the error, so the session stays where it was instead of moving onto the
+// CLI's own login. A refusal for one account only, with a pick that fails
+// for another reason, is still that account's, and falls back.
+func TestRelaunchKeepsTheErrorWhenEveryReadIsRefused(t *testing.T) {
+	const denied = "exit status 1: ERROR: (gcloud.secrets.versions.access) PERMISSION_DENIED: Permission 'secretmanager.versions.access' denied"
+	freshMarks(t)
+	secrets(t, map[string]error{"CAROL3": errors.New(denied), "BOB2": errors.New(denied), "DAVE4": errors.New(disabled)})
+	c := &excluding{order: []string{"BOB2"}, honor: true}
+	restore := UseChooser(func() (extension.AccountChooser, error) { return c, nil })
+	warned := ""
+	got, err := Relaunch(readable, "CAROL3", Request{SessionID: "s1", Warn: func(why string) { warned = why }})
+	if !errors.Is(err, ErrUnavailable) || got != "" || warned != "" || !strings.Contains(err.Error(), "every other account tried") {
+		t.Fatalf("all refused: Relaunch = %q %v, warned %q", got, err, warned)
+	}
+	restore()
+	freshMarks(t)
+	c = &excluding{order: []string{"DAVE4"}, honor: true}
+	t.Cleanup(UseChooser(func() (extension.AccountChooser, error) { return c, nil }))
+	got, err = Relaunch(readable, "CAROL3", Request{SessionID: "s1", Warn: func(why string) { warned = why }})
+	if err != nil || got != "" || !strings.HasPrefix(warned, "account CAROL3 is unavailable: you may not read its secret") {
+		t.Fatalf("mixed: Relaunch = %q %v, warned %q", got, err, warned)
 	}
 }

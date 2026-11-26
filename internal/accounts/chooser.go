@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -183,33 +184,77 @@ func route(tool config.Tool, req Request, preview bool) (string, error) {
 // unavailable. A read that fails any other way leaves the pick standing, and
 // the launch's own read reports it.
 func ask(chooser extension.AccountChooser, tool config.Tool, req Request, preview bool, exclude []string) (string, error) {
+	p, err := pick(chooser, tool, req, preview, exclude)
+	if err != nil || p.account != "" {
+		return p.account, err
+	}
+	if len(p.unavailable) > 0 && req.Warn != nil {
+		req.Warn(p.warning(nil))
+	}
+	return "", nil
+}
+
+// picked is how a run of picks ended: on account, or on none, with each
+// pick that proved unavailable on the way and the chooser's error if asking
+// it again failed.
+type picked struct {
+	account     string
+	unavailable []error
+	chooserErr  error
+}
+
+// warning is the one line a launch that fell back to the own login gives:
+// why the account it wanted, lead, could not be used, or else the last pick
+// that proved unavailable, and the chooser's own failure when asking it for
+// another failed, so a timeout or a ledger fault is not read as an empty
+// pool.
+func (p picked) warning(lead error) string {
+	var parts []string
+	if lead != nil {
+		parts = append(parts, lead.Error())
+	}
+	if n := len(p.unavailable); n > 0 {
+		parts = append(parts, p.unavailable[n-1].Error())
+	}
+	if p.chooserErr != nil {
+		parts = append(parts, p.chooserErr.Error())
+	}
+	return strings.Join(parts, "; ")
+}
+
+// pick runs ask's picks; see ask.
+func pick(chooser extension.AccountChooser, tool config.Tool, req Request, preview bool, exclude []string) (picked, error) {
 	excluded := slices.Clone(exclude)
-	var last error
+	var p picked
 	for range maxPicks {
 		chosen, err := askOnce(chooser, tool, req, preview, excluded)
 		if err != nil && len(excluded) > 0 {
 			// The chooser had an account; with that one gone it has none
 			// it will name, which is no reason to refuse the launch.
+			p.chooserErr = err
 			break
 		}
 		if err != nil || chosen == "" {
-			return chosen, err
+			p.account = chosen
+			return p, err
 		}
 		if slices.Contains(excluded, chosen) {
 			break
 		}
 		if preview {
 			if !MarkedUnavailable(tool, chosen) {
-				return chosen, nil
+				p.account = chosen
+				return p, nil
 			}
 			excluded = append(excluded, chosen)
 			continue
 		}
 		err = Check(tool, chosen)
 		if !errors.Is(err, ErrUnavailable) {
-			return chosen, nil
+			p.account = chosen
+			return p, nil
 		}
-		last = err
+		p.unavailable = append(p.unavailable, err)
 		excluded = append(excluded, chosen)
 		recordUnavailable(req, chosen, err)
 		if reporter, ok := chooser.(extension.AccountUnavailableReporter); ok {
@@ -218,10 +263,7 @@ func ask(chooser extension.AccountChooser, tool config.Tool, req Request, previe
 			cancel()
 		}
 	}
-	if last != nil && req.Warn != nil {
-		req.Warn(last.Error())
-	}
-	return "", nil
+	return p, nil
 }
 
 // Relaunch is the account a session brought back on its own row runs on:
@@ -233,6 +275,14 @@ func ask(chooser extension.AccountChooser, tool config.Tool, req Request, previe
 // mode. A build with no chooser keeps the error. A read that fails any
 // other way leaves the account, and the launch's own read reports it. The
 // read is handed to the launch, so a relaunch still reads its secret once.
+//
+// When the chooser has nothing usable the relaunch runs on the CLI's own
+// login ("") and req.Warn is told why. Callers should run that launch
+// without writing "" to the row, so the next relaunch checks the account
+// again rather than staying on the own login for good. A refusal to read
+// (PERMISSION_DENIED) that every pick met as well is the operator's access
+// failing, not the accounts: that returns the error and the session stays
+// where it is.
 func Relaunch(tool config.Tool, account string, req Request) (string, error) {
 	account = Normalize(account)
 	if tool.AccountEnv == "" || account == "" {
@@ -253,17 +303,24 @@ func Relaunch(tool config.Tool, account string, req Request) (string, error) {
 		reporter.AccountUnavailable(ctx, request(tool, req, false, excluded), account, err)
 		cancel()
 	}
-	// ask warns only for picks it found unavailable itself; a relaunch that
-	// lands on the own login because the row's account is gone says why too.
-	warned := false
-	if warn := req.Warn; warn != nil {
-		req.Warn = func(why string) { warned = true; warn(why) }
+	p, askErr := pick(chooser, tool, req, false, excluded)
+	if askErr != nil || p.account != "" {
+		return p.account, askErr
 	}
-	chosen, askErr := ask(chooser, tool, req, false, excluded)
-	if askErr == nil && chosen == "" && !warned && req.Warn != nil {
-		req.Warn(err.Error())
+	if len(p.unavailable) > 0 && refused(err) && !slices.ContainsFunc(p.unavailable, func(e error) bool { return !refused(e) }) {
+		return "", fmt.Errorf("%w, and so was every other account tried: the operator's own access to the secrets looks broken", err)
 	}
-	return chosen, askErr
+	if req.Warn != nil {
+		req.Warn(p.warning(err))
+	}
+	return "", nil
+}
+
+// refused says err is a secret store refusing the operator the read, which
+// says more about the operator's credentials than about the account.
+func refused(err error) bool {
+	var unavailable *UnavailableError
+	return errors.As(err, &unavailable) && unavailable.Reason == reasonRefused
 }
 
 func request(tool config.Tool, req Request, preview bool, excluded []string) extension.AccountRequest {

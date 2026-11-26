@@ -348,8 +348,8 @@ func (m *Model) applyJevFinish(msg jevFinishResultMsg) {
 			m.jevFinish.chromeRelaunched = map[string]bool{}
 		}
 		m.jevFinish.chromeRelaunched[sess.ID] = true
-		m.reportDone(fmt.Sprintf("%s: %s lacked Chrome (%.1f%%); relaunched with %s and told it to continue",
-			provider, sess.Name, msg.verdict.MissingChrome*100, chromeFlag))
+		m.reportDone(joinNotices(fmt.Sprintf("%s: %s lacked Chrome (%.1f%%); relaunched with %s and told it to continue",
+			provider, sess.Name, msg.verdict.MissingChrome*100, chromeFlag), m.relaunchNotice(sess)))
 	}
 }
 
@@ -361,9 +361,6 @@ func (m *Model) relaunchWithChrome(sess store.Session) error {
 	if !ok {
 		return fmt.Errorf("tool %s is no longer configured", sess.Tool)
 	}
-	if !isDir(sess.Cwd) {
-		return fmt.Errorf("working directory no longer exists: %s", sess.Cwd)
-	}
 	if sess.AgentSessionID == "" || tool.ResumeByIDCommand == "" {
 		return fmt.Errorf("%s has no conversation id to resume", sess.Name)
 	}
@@ -374,6 +371,12 @@ func (m *Model) relaunchWithChrome(sess store.Session) error {
 	revive = withChromeFlag(revive)
 	const prompt = "continue"
 	base := launch.WithPrompt(tool, revive, prompt)
+	// Settled before the kill, so an account that cannot be used leaves the
+	// running agent alone.
+	sess, tool, err = m.prepareRelaunch(sess)
+	if err != nil {
+		return err
+	}
 	if err := m.killSession(sess); err != nil {
 		return err
 	}

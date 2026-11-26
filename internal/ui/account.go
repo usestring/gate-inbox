@@ -301,7 +301,7 @@ func (m *Model) switchAccountTo(label string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	m.errBar.text = ""
+	m.errBar.text = m.relaunchNotice(sess)
 	m.rebuildRows()
 	m.requestRefresh()
 	return m, nil

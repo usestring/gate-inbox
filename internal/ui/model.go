@@ -882,6 +882,9 @@ type Model struct {
 	// over from a previous manager run to the preview panel's width.
 	sessionsSized bool
 	errBar        errBar
+	// ownLoginNotes holds, by session id, why a relaunch just ran on the
+	// CLI's own login, for the status line the action ends on.
+	ownLoginNotes map[string]string
 	// inputs is the input journal a dump reads; see inputjournal.go.
 	inputs inputJournal
 	// autoDump asks for a dump the board decided on itself; see SetAutoDump.

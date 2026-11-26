@@ -29,7 +29,7 @@ rules[6] errored "(?im)^error:"
 status_source = ""
 default_status = "idle"
 type_ahead = true
-activity_cutoff = "(?m)^(?:[ \\t\\x{2800}-\\x{28ff}]*\\n)*›"
+activity_cutoff = "(?m)^(?:• Queued[ \\t\\n]+follow-up[ \\t\\n]+inputs[ \\t]*\\n  [↳?][^\\n]*\\n(?:  [↳?][^\\n]*\\n|    [^\\n]*\\n|[ \\t]*\\n)*)?(?:[ \\t\\x{2800}-\\x{28ff}]*\\n)*›"
 input_line = "^›"
 turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ [·•] )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
 chrome_line = "^\\s*─*\\s*$|^⚠ (?:The \\S+ MCP server is not logged in\\. Run \\x60codex mcp login \\S+\\x60\\.|MCP startup incomplete \\(failed: [^)]+\\))$|^\\s+(?:⚠|↓|Tip: |Copied )"

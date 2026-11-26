@@ -1,0 +1,8 @@
+• Ran go test ./...
+  └ ok  	example.com/project/pkg	0.011s
+
+■ Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.
+
+› Ask Codex to do anything
+
+  gpt-5.5 high · ~/project

@@ -1,0 +1,13 @@
+• Ran go test ./...
+  └ ok  	example.com/project/pkg	0.011s
+
+■ Your workspace is out of credits. Ask your workspace owner to refill in order to continue.
+
+  You've reached your workspace credit limit
+  Your workspace is out of credits. Ask your workspace owner to add more. Notify owner?
+
+
+  1. Yes (y)
+› 2. No (default) (n)
+
+  enter select · esc back

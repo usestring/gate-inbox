@@ -1,0 +1,8 @@
+• Ran go test ./...
+  └ ok  	example.com/project/pkg	0.011s
+
+■ Usage limit reached. You've reached your usage limit. Increase your limits to continue using codex.
+
+› Ask Codex to do anything
+
+  gpt-5.5 high · ~/project

@@ -72,6 +72,8 @@ type toolRules struct {
 	busyLine       *matcher
 	limitLine      *matcher
 	limitMenu      *matcher
+	errorLine      *matcher
+	retryLine      *matcher
 	scrolledLine   *matcher
 	jumpToBottom   string
 	betweenRules   bool
@@ -107,6 +109,8 @@ func NewEngine(cfg config.Config) (*Engine, error) {
 			{tool.BusyLine, &tr.busyLine},
 			{tool.LimitLine, &tr.limitLine},
 			{tool.LimitMenu, &tr.limitMenu},
+			{tool.ErrorLine, &tr.errorLine},
+			{tool.RetryLine, &tr.retryLine},
 			{tool.ScrolledLine, &tr.scrolledLine},
 			{tool.ArrowDialogLine, &tr.arrowDialog},
 			{tool.DialogStepRow, &tr.stepRow},
@@ -142,6 +146,9 @@ func (e *Engine) Match(tool, pane string) (string, bool) {
 		return Idle, false
 	}
 	if tr.isLimit(pane) || e.CapacityBanner(tool, pane) != "" {
+		return Errored, true
+	}
+	if tr.endedOnError(pane) {
 		return Errored, true
 	}
 	if tool == "codex" && !e.ViewportDisplaced(tool, pane) {
@@ -213,6 +220,18 @@ func (tr toolRules) limitSignal(pane string) []string {
 	return tr.limitLines(pane)
 }
 
+// endedOnError reports whether the newest turn ended on an error_line
+// banner: a lost login or a transient failure the tool stopped retrying. It
+// is placed the way a limit banner is and reads errored, but LimitBanner
+// never returns it, so it is not a limit and no account move follows.
+func (tr toolRules) endedOnError(pane string) bool {
+	if tr.errorLine == nil {
+		return false
+	}
+	tr.limitLine = tr.errorLine
+	return len(tr.limitLines(pane)) != 0
+}
+
 func (e *Engine) LimitBanner(tool, pane string) string {
 	tr, ok := e.tools[tool]
 	if !ok || e.ViewportDisplaced(tool, pane) {
@@ -261,23 +280,45 @@ func (tr toolRules) limitLines(pane string) []string {
 		// is on the screen -- so a banner anywhere counts. It is still only
 		// the banner's rows: the whole pane would hand the limit card the
 		// reply above the banner as the banner, flattened into one paragraph.
-		matches := tr.limitLine.FindAllStringIndex(pane, -1)
+		lines := strings.Split(pane, "\n")
+		var matches [][]int
+		for _, m := range tr.limitLine.FindAllStringIndex(pane, -1) {
+			if !tr.retried(lines, strings.Count(pane[:m[0]], "\n")) {
+				matches = append(matches, m)
+			}
+		}
 		if len(matches) == 0 {
 			return nil
 		}
-		lines := strings.Split(pane, "\n")
-		if i, end, found := tr.newestLimit(lines); found {
+		last := matches[len(matches)-1]
+		// A pattern that spans rows the scan does not join -- Claude's limit
+		// menu runs from an option row down to its legend -- is invisible to
+		// the row scan, which would then settle on an older one-row match
+		// above it. The scan wins only from the newest match's row down.
+		if i, end, found := tr.newestLimit(lines); found && i >= strings.Count(pane[:last[0]], "\n") {
 			return lines[i:end]
 		}
-		// A pattern that spans rows the scan does not join: the rows its
-		// newest match covers.
-		last := matches[len(matches)-1]
+		// Otherwise: the rows its newest match covers, up to the first blank
+		// row. A banner is one paragraph; a match spanning rows runs on past
+		// it to the dialog legend that proves it is the tool's own.
 		from := strings.LastIndex(pane[:last[0]], "\n") + 1
 		to := len(pane)
 		if n := strings.Index(pane[last[1]:], "\n"); n >= 0 {
 			to = last[1] + n
 		}
-		return strings.Split(pane[from:to], "\n")
+		rows := strings.Split(pane[from:to], "\n")
+		// A banner placed by the box rule above it (Claude's footer sits
+		// right below the input box) starts on that rule; the rule is not
+		// part of what the banner says.
+		for len(rows) > 1 && strings.Trim(rows[0], "─ \t") == "" {
+			rows = rows[1:]
+		}
+		for i, row := range rows {
+			if i > 0 && strings.TrimSpace(row) == "" {
+				return rows[:i]
+			}
+		}
+		return rows
 	}
 	lines := strings.Split(region, "\n")
 	i, end, found := tr.newestLimit(lines)
@@ -287,15 +328,24 @@ func (tr toolRules) limitLines(pane string) []string {
 	return lines[i:end]
 }
 
-// limitBelowCutoff reports whether a limit banner starts on a row below the
+// limitBelowCutoff reports whether a limit banner reaches a row below the
 // last activity_cutoff row, which begins at offset at. An input line sits
 // below every turn, so such a row is not one: it is the limited turn's own
 // "❯" prompt echo, left last on screen because Claude's limit menu replaced
-// the input line.
+// the input line, or the selected "›" option of a limit popup Codex draws
+// in place of its composer, whose title sits above that row and whose
+// legend below it.
 func (tr toolRules) limitBelowCutoff(pane string, at int) bool {
-	rest := pane[at:]
-	nl := strings.IndexByte(rest, '\n')
-	return nl >= 0 && tr.limitLine.MatchString(rest[nl+1:])
+	nl := strings.IndexByte(pane[at:], '\n')
+	if nl < 0 {
+		return false
+	}
+	for _, m := range tr.limitLine.FindAllStringIndex(pane, -1) {
+		if m[1] > at+nl {
+			return true
+		}
+	}
+	return false
 }
 
 // newestLimit finds the lowest banner in lines: the row it starts on, and
@@ -312,12 +362,29 @@ func (tr toolRules) newestLimit(lines []string) (start, end int, found bool) {
 		}
 		// A narrow pane can wrap the banner inside the phrase the matcher
 		// looks for, so the unwrapped banner gets a second try.
-		if tr.limitLine.MatchString(strings.TrimRight(lines[i], " \t")) ||
-			tr.limitLine.MatchString(strings.Join(strings.Fields(strings.Join(lines[i:end], " ")), " ")) {
+		if (tr.limitLine.MatchString(strings.TrimRight(lines[i], " \t")) ||
+			tr.limitLine.MatchString(strings.Join(strings.Fields(strings.Join(lines[i:end], " ")), " "))) &&
+			!tr.retried(lines, i) {
 			return i, end, true
 		}
 	}
 	return 0, 0, false
+}
+
+// retried reports whether row sits in a paragraph that holds the tool's own
+// retry banner. The banner names the error it is retrying, and a narrow pane
+// wraps that error onto rows of their own, where the limit's wording would
+// otherwise read as the limit itself while the turn is still retrying.
+func (tr toolRules) retried(lines []string, row int) bool {
+	if tr.retryLine == nil {
+		return false
+	}
+	for i := row; i >= 0 && strings.TrimSpace(lines[i]) != ""; i-- {
+		if tr.retryLine.MatchString(lines[i]) {
+			return true
+		}
+	}
+	return false
 }
 
 // TypingHold reports why text typed into this pane now would land somewhere

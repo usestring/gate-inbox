@@ -273,7 +273,7 @@ func TestLoadDirBackfillsLimitLine(t *testing.T) {
 	if !strings.Contains(cfg.Tools["claude"].LimitLine, "You've hit your") {
 		t.Fatalf("claude limit_line was not backfilled: %q", cfg.Tools["claude"].LimitLine)
 	}
-	if !strings.Contains(cfg.Tools["codex"].LimitLine, "You've hit your usage limit") {
+	if !strings.Contains(cfg.Tools["codex"].LimitLine, "ve hit your usage limit") {
 		t.Fatalf("codex limit_line was not backfilled: %q", cfg.Tools["codex"].LimitLine)
 	}
 	if !strings.Contains(cfg.Tools["opencode"].LimitLine, "limit reached") {

@@ -103,6 +103,9 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 			return err
 		}
 		questions, callID := childDialogQuestions(sess, pane, p.pendingAskFile(sess))
+		if strings.HasPrefix(key, "s:") {
+			questions = screenQuestions(sess, pane, p.pendingAskFile(sess), p.piPermissionFile(sess))
+		}
 		relay = &childDialogRelay{key: key, callID: callID, questions: questions}
 		p.childDialogs[sess.ID] = relay
 		return p.sendChildDialog(sess, parent, relay, body, urgent, now)
@@ -248,22 +251,33 @@ func childDialogBody(sess store.Session, pane string, saved ...string) (body, ke
 				relayask.Line(relayask.For(call.Questions, reading.Questions), sess.ID),
 			"q:" + textfmt.Fingerprint(id.String()), traits.Expires > 0
 	}
-	if screen, ok := dialog.ReadScreenFor(sess.Tool, pane); ok {
-		exact := childPendingStrings(sess)
-		if len(saved) > 1 {
-			if pending, ok := hooks.ReadPiPermissionFile(saved[1]); ok {
-				exact = append(exact, pending.Block)
-			}
-		}
-		screen = screen.WithExact(exact...)
-		about := relayask.Screen{Child: sess.Name, Description: childPendingDescription(sess)}
-		return childScreenMessage(sess, screen) + relayask.Line(relayask.ForScreen(screen, about), sess.ID),
+	if screen, ask, ok := childScreen(sess, pane, saved...); ok {
+		return childScreenMessage(sess, screen) + relayask.Line(ask, sess.ID),
 			"s:" + textfmt.Fingerprint(screen.Identity()), false
 	}
 	if lost, ok := asks.Unanswered(childAskTarget(sess)); ok {
 		return childLostMessage(sess, lost), "x:" + lost.Call.ID, true
 	}
 	return childWaitMessage(sess), "wait", false
+}
+
+// childScreen is the permission, trust or other choices dialog sess's pane
+// holds, and the AskUserQuestion input its relay hands the parent. saved is
+// as for childDialogBody.
+func childScreen(sess store.Session, pane string, saved ...string) (dialog.Screen, *relayask.Input, bool) {
+	screen, ok := dialog.ReadScreenFor(sess.Tool, pane)
+	if !ok {
+		return dialog.Screen{}, nil, false
+	}
+	exact := childPendingStrings(sess)
+	if len(saved) > 1 {
+		if pending, ok := hooks.ReadPiPermissionFile(saved[1]); ok {
+			exact = append(exact, pending.Block)
+		}
+	}
+	screen = screen.WithExact(exact...)
+	about := relayask.Screen{Child: sess.Name, Description: childPendingDescription(sess)}
+	return screen, relayask.ForScreen(screen, about), true
 }
 
 func childAsyncMessage(sess store.Session, call asks.Call) string {

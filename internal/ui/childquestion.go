@@ -66,6 +66,9 @@ type childDialogRelay struct {
 	// questions are the relayed dialog's questions, so a parent's own
 	// dialog asking one of them is withdrawn once the child's clears.
 	questions []dialog.Question
+	// parentID is who the relay went to, so a sibling's copy of the same
+	// question is not dismissed when this one clears.
+	parentID string
 }
 
 func later(a, b time.Time) time.Time {
@@ -103,7 +106,10 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 			return err
 		}
 		questions, callID := childDialogQuestions(sess, pane, p.pendingAskFile(sess))
-		relay = &childDialogRelay{key: key, callID: callID, questions: questions}
+		if strings.HasPrefix(key, "s:") {
+			questions = screenQuestions(sess, pane, p.pendingAskFile(sess), p.piPermissionFile(sess))
+		}
+		relay = &childDialogRelay{key: key, callID: callID, questions: questions, parentID: parent.ID}
 		p.childDialogs[sess.ID] = relay
 		return p.sendChildDialog(sess, parent, relay, body, urgent, now)
 	}
@@ -248,22 +254,33 @@ func childDialogBody(sess store.Session, pane string, saved ...string) (body, ke
 				relayask.Line(relayask.For(call.Questions, reading.Questions), sess.ID),
 			"q:" + textfmt.Fingerprint(id.String()), traits.Expires > 0
 	}
-	if screen, ok := dialog.ReadScreenFor(sess.Tool, pane); ok {
-		exact := childPendingStrings(sess)
-		if len(saved) > 1 {
-			if pending, ok := hooks.ReadPiPermissionFile(saved[1]); ok {
-				exact = append(exact, pending.Block)
-			}
-		}
-		screen = screen.WithExact(exact...)
-		about := relayask.Screen{Child: sess.Name, Description: childPendingDescription(sess)}
-		return childScreenMessage(sess, screen) + relayask.Line(relayask.ForScreen(screen, about), sess.ID),
+	if screen, ask, ok := childScreen(sess, pane, saved...); ok {
+		return childScreenMessage(sess, screen) + relayask.Line(ask, sess.ID),
 			"s:" + textfmt.Fingerprint(screen.Identity()), false
 	}
 	if lost, ok := asks.Unanswered(childAskTarget(sess)); ok {
 		return childLostMessage(sess, lost), "x:" + lost.Call.ID, true
 	}
 	return childWaitMessage(sess), "wait", false
+}
+
+// childScreen is the permission, trust or other choices dialog sess's pane
+// holds, and the AskUserQuestion input its relay hands the parent. saved is
+// as for childDialogBody.
+func childScreen(sess store.Session, pane string, saved ...string) (dialog.Screen, *relayask.Input, bool) {
+	screen, ok := dialog.ReadScreenFor(sess.Tool, pane)
+	if !ok {
+		return dialog.Screen{}, nil, false
+	}
+	exact := childPendingStrings(sess)
+	if len(saved) > 1 {
+		if pending, ok := hooks.ReadPiPermissionFile(saved[1]); ok {
+			exact = append(exact, pending.Block)
+		}
+	}
+	screen = screen.WithExact(exact...)
+	about := relayask.Screen{Child: sess.Name, Description: childPendingDescription(sess)}
+	return screen, relayask.ForScreen(screen, about), true
 }
 
 func childAsyncMessage(sess store.Session, call asks.Call) string {
@@ -411,8 +428,7 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 		} else {
 			out.WriteString(" It submits the dialog once every question has an answer.")
 		}
-		out.WriteString(" Your user may answer it at the child's pane or on the board first: if the child " +
-			"moves on, Gate Inbox dismisses your matching question and tells you, so never ask it twice.")
+		out.WriteString(paneAnswerNote)
 	}
 	if len(multi) > 0 {
 		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select: give its answers entry ticks, the labels of every "+
@@ -447,6 +463,15 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 // dialog that is not a question, relayed as drawn with credentials scrubbed,
 // and the relayed answer_session call that settles it.
 func childScreenMessage(sess store.Session, screen dialog.Screen) string {
+	return childScreenSteps(sess, screen) + paneAnswerNote
+}
+
+// paneAnswerNote tells a parent a relayed dialog may be settled before it
+// asks, and that its copy is then withdrawn for it.
+const paneAnswerNote = " Your user may answer it at the child's pane or on the board first: if the child " +
+	"moves on, Gate Inbox dismisses your matching question and tells you, so never ask it twice."
+
+func childScreenSteps(sess store.Session, screen dialog.Screen) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "%s (session %s), which you spawned, has stopped on a %s and is waiting. "+
 		"It reads:\n\n", sess.Name, sess.ID, screen.Kind)

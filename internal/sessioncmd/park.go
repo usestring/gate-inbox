@@ -610,6 +610,7 @@ type UnparkResult struct {
 	AlreadyRunning int      `json:"already_running" jsonschema:"parked sessions found running and dropped from the set"`
 	Gone           int      `json:"gone" jsonschema:"parked sessions whose row was deleted or archived since, dropped from the set"`
 	Errors         []string `json:"errors,omitempty" jsonschema:"sessions that could not be revived, kept in the set for a retry"`
+	Warnings       []string `json:"warnings,omitempty" jsonschema:"sessions revived on the CLI's own login because their account's secret could not be read and no other account was available, and why"`
 	Owed           int      `json:"owed" jsonschema:"sessions still in the parked set after this pass"`
 }
 
@@ -743,10 +744,16 @@ func (s *Sessions) Unpark(sessionID string) (unparked UnparkResult, err error) {
 			}
 			continue
 		}
-		tool, err := s.relaunch(runtime, sess, prompt, slot)
+		warning := ""
+		tool, err := s.relaunchWarning(runtime, sess, prompt, slot, func(why string) { warning = why })
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s (id %s): %v", sess.Name, sess.ID, err))
 			continue
+		}
+		if warning != "" {
+			warning = ownLoginNote(warning)
+			result.Warnings = append(result.Warnings, fmt.Sprintf("%s (id %s): %s", sess.Name, sess.ID, warning))
+			sess.Account = ""
 		}
 		if prompt != "" {
 			result.Nudged = append(result.Nudged, sess.ID)
@@ -755,7 +762,9 @@ func (s *Sessions) Unpark(sessionID string) (unparked UnparkResult, err error) {
 			result.Continued++
 		}
 		sess.Status = tool.DefaultStatus
-		result.Revived = append(result.Revived, runtime.sessionInfo(sess, true, sess.ID == sessionID))
+		info := runtime.sessionInfo(sess, true, sess.ID == sessionID)
+		info.AccountNote = warning
+		result.Revived = append(result.Revived, info)
 		if err := drop(sess.ID); err != nil {
 			return result, err
 		}
@@ -785,6 +794,12 @@ func reviveWarning(runtime *runtime, sess store.Session) string {
 		return "no conversation id captured, so unpark will use the tool's continue command"
 	}
 	return ""
+}
+
+// ownLoginNote is the note on a session relaunched on the CLI's own login
+// because its account could not be used.
+func ownLoginNote(why string) string {
+	return why + "; relaunched on the CLI's own login, and its row keeps the account for the next relaunch"
 }
 
 // continuePrompt is what an agent stopped mid-turn is told on relaunch.
@@ -956,7 +971,14 @@ func promoteDeadAdopted(runtime *runtime, target store.Session) (store.Session, 
 //
 // slot is the relaunch queue's turn the caller took (see pace); a launch
 // that fails gives it back.
-func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt string, slot launchpace.Slot) (tool config.Tool, err error) {
+func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt string, slot launchpace.Slot) (config.Tool, error) {
+	return s.relaunchWarning(runtime, target, prompt, slot, nil)
+}
+
+// relaunchWarning is relaunch telling warn, when set, in one line why the
+// session came back on another login than its row's: its account's secret
+// cannot be read and the chooser had nothing better than the CLI's own.
+func (s *Sessions) relaunchWarning(runtime *runtime, target store.Session, prompt string, slot launchpace.Slot, warn func(string)) (tool config.Tool, err error) {
 	defer func() {
 		if err != nil {
 			slot.Cancel()
@@ -971,6 +993,24 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	}
 	if target, err = promoteDeadAdopted(runtime, target); err != nil {
 		return config.Tool{}, err
+	}
+	// An account whose secret can no longer be read is replaced by the
+	// chooser's pick, so the session comes back rather than failing every
+	// relaunch with the same error. A pick is written to the row. A fall
+	// back to the CLI's own login is not: the row keeps its account, so the
+	// next relaunch checks it again instead of staying on the own login once
+	// the secret reads.
+	account, err := accounts.Relaunch(tool, target.Account, accounts.Request{SessionID: target.ID, ToolName: target.Tool, Reason: extension.LaunchRelaunch, Warn: warn})
+	if err != nil {
+		return config.Tool{}, err
+	}
+	if account != accounts.Normalize(target.Account) {
+		if account != "" {
+			if err := runtime.store.SetAccount(target.ID, account); err != nil {
+				return config.Tool{}, err
+			}
+		}
+		target.Account = account
 	}
 	revive, err := launch.ReviveCommand(target.Tool, tool, target.AgentSessionID, target.Model)
 	if err != nil {

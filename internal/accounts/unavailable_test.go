@@ -213,15 +213,21 @@ func TestSelectFallsBackToOwnLoginWhenNoPickIsReadable(t *testing.T) {
 	freshMarks(t)
 	st := extensionMode(t)
 	secrets(t, map[string]error{"CAROL3": errors.New(disabled)})
-	for name, c := range map[string]*excluding{
-		"ignores exclude": {order: []string{"CAROL3"}},
-		"has no other":    {order: []string{"CAROL3"}, honor: true},
+	// A chooser that answers the exclusion with an error is named in the
+	// warning, so a timeout is not read as an empty pool.
+	for name, tc := range map[string]struct {
+		c    *excluding
+		want string
+	}{
+		"ignores exclude": {&excluding{order: []string{"CAROL3"}}, "account CAROL3 is unavailable: its secret version is disabled"},
+		"has no other":    {&excluding{order: []string{"CAROL3"}, honor: true}, "account CAROL3 is unavailable: its secret version is disabled; choosing an account: nothing usable"},
 	} {
+		c := tc.c
 		restore := UseChooser(func() (extension.AccountChooser, error) { return c, nil })
 		warned := ""
 		req := Request{SessionID: "s1", ToolName: "claude", Warn: func(why string) { warned = why }}
 		got, err := Select(st, readable, "", req)
-		if err != nil || got != "" || warned != "account CAROL3 is unavailable: its secret version is disabled" {
+		if err != nil || got != "" || warned != tc.want {
 			t.Errorf("%s: Select = %q %v, warned %q", name, got, err, warned)
 		}
 		warned = ""

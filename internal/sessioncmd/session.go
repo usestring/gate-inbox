@@ -81,7 +81,9 @@ type Session struct {
 	// ReplacedBy reaches extensions only, as Role does.
 	ReplacedBy string `json:"-"`
 	// AccountNote is filled in only by create_session, when the session
-	// runs on another account than the one named because that one is spent.
+	// runs on another account than the one named because that one is spent,
+	// and by revive_session and unpark, when the session came back on the
+	// CLI's own login because its account's secret could not be read.
 	// It reaches the caller in the result's text line (FormatSession) rather
 	// than as a schema field: Session is the output schema of most tools,
 	// and every session's tool list would carry the field for a rare note.
@@ -1758,12 +1760,20 @@ func (s *Sessions) reviveRow(runtime *runtime, target store.Session) (Session, e
 	if err != nil {
 		return Session{}, err
 	}
-	tool, err := s.relaunch(runtime, target, "", slot)
+	warning := ""
+	tool, err := s.relaunchWarning(runtime, target, "", slot, func(why string) { warning = why })
 	if err != nil {
 		return Session{}, err
 	}
 	target.Status = tool.DefaultStatus
-	return runtime.sessionInfo(target, true, false), nil
+	if warning != "" {
+		target.Account = ""
+	}
+	info := runtime.sessionInfo(target, true, false)
+	if warning != "" {
+		info.AccountNote = ownLoginNote(warning)
+	}
+	return info, nil
 }
 
 // Archive files a session out of the active list, or restores it. Archiving

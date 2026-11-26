@@ -1,0 +1,9 @@
+● Usage limit reached · continuing automatically at 11am · esc to cancel
+
+● Automatic continue stopped · your login changed or ended · send a prompt to continue
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

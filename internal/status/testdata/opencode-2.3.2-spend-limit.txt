@@ -1,0 +1,9 @@
+  ┃  Summarise the changes.
+  ┃
+
+     You've reached the spend limit for this model. Switch models to keep going.
+
+  ┃
+  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  ~/project  13.3K (1%)  ctrl+p commands

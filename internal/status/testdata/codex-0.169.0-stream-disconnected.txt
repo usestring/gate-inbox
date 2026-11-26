@@ -1,0 +1,8 @@
+• Ran go test ./...
+  └ ok  	example.com/project/pkg	0.011s
+
+■ stream disconnected before completion: error sending request for url (https://api.example.com/v1/responses)
+
+› Ask Codex to do anything
+
+  gpt-5.5 high · ~/project

@@ -1,0 +1,8 @@
+• Ran go test ./...
+  └ ok  	example.com/project/pkg	0.011s
+
+■ You hit your spend cap set in your workspace. Increase your spend cap to continue.
+
+› Ask Codex to do anything
+
+  gpt-5.5 high · ~/project

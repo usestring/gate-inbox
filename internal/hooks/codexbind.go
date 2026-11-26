@@ -303,12 +303,20 @@ func (m *Manager) bindCodexThread(payload CodexPayload, capture PaneCapture) boo
 		}
 	}
 	for _, group := range [][]codexAdoptedPane{near, far} {
-		var hits []codexAdoptedPane
+		var hits, whole []codexAdoptedPane
 		for _, pane := range group {
 			screen, err := capture(pane.Socket, pane.Pane)
 			if err == nil && ScreenShowsPrompt(screen, needle) {
 				hits = append(hits, pane)
+				if screenShowsWholePrompt(screen, payload.Prompt) {
+					whole = append(whole, pane)
+				}
 			}
+		}
+		// Launch prompts open with the same directive, so their first lines
+		// match in every fresh pane; the rest of the prompt tells them apart.
+		if len(hits) > 1 && len(whole) == 1 {
+			hits = whole
 		}
 		switch len(hits) {
 		case 0:
@@ -372,6 +380,39 @@ func ScreenShowsPrompt(screen, needle string) bool {
 		}
 	}
 	return false
+}
+
+// screenShowsWholePrompt reports whether a user message on a codex screen
+// shows all of prompt, however codex wrapped it: the text from a "›" row to
+// the next one, whitespace dropped, must open with the prompt's.
+func screenShowsWholePrompt(screen, prompt string) bool {
+	want := dropSpace(prompt)
+	if want == "" {
+		return false
+	}
+	lines := strings.Split(screen, "\n")
+	for i, line := range lines {
+		rest, ok := strings.CutPrefix(strings.TrimLeft(line, "  "), "›")
+		if !ok {
+			continue
+		}
+		var shown strings.Builder
+		shown.WriteString(dropSpace(rest))
+		for _, next := range lines[i+1:] {
+			if strings.HasPrefix(strings.TrimLeft(next, "  "), "›") {
+				break
+			}
+			shown.WriteString(dropSpace(next))
+		}
+		if strings.HasPrefix(shown.String(), want) {
+			return true
+		}
+	}
+	return false
+}
+
+func dropSpace(s string) string {
+	return strings.Join(strings.Fields(s), "")
 }
 
 // CodexHookStatus is the newest status a codex row's hooks logged and how

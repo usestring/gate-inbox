@@ -1,0 +1,23 @@
+● Background shell command didn't finish before the previous session ended
+
+❯ [gate-inbox] From agent "lead" (session 1a2b3c4d), sent 2026-11-25 17:30.
+
+  ----CROSS-SESSION-MESSAGE-lead-1a2b3c4d-K7Q2M9XA----
+  I moved you to another account to spread the load. Re-run the unit now.
+  ----CROSS-SESSION-MESSAGE-lead-1a2b3c4d-K7Q2M9XA----
+  ⎿  You've hit your weekly limit · resets 12pm (UTC)
+
+● Usage limit reached · continuing automatically at 12pm · esc to cancel
+
+❯ [gate-inbox] From the "account-pool" extension running on this board, not from the user, sent 2026-11-25 17:31.
+
+  ----EXTENSION-MESSAGE-account-pool-R4T8W2NC----
+  Your last turn was cut off because Claude account work-1 hit its usage limit. Gate Inbox has moved this session, same conversation, onto account work-2. Carry on with the task from where it stopped.
+  ----EXTENSION-MESSAGE-account-pool-R4T8W2NC----
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ◐ medium · /effort ▔
+   What do you want to do?
+
+   ❯ 1. Stop and wait for limit to reset
+     2. Wait here, then continue automatically at Nov 28, 12pm
+
+   Enter to confirm · Esc to cancel

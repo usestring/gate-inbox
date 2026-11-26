@@ -266,6 +266,12 @@ type Tool struct {
 	// turn is errored even when a turn-end summary or a limit dialog would
 	// otherwise settle the turn.
 	LimitLine string `toml:"limit_line"`
+	// LimitMenu is what a tool draws for a usage limit when no limit_line
+	// banner of the current turn is on screen: Claude Code's "What do you want
+	// to do?" limit menu, which it can open on submit with no new banner, and
+	// the "continuing automatically" wait line that option leaves behind. It
+	// counts only where a current banner would, and only once no banner does.
+	LimitMenu string `toml:"limit_menu"`
 	// ArrowDialogLine is the keybinding legend of a dialog that navigates
 	// with the horizontal arrows, which is what decides whether Right still
 	// belongs to the pane once a dialog has parked the caret on its own
@@ -1098,6 +1104,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	fill(&user.TrailingNote, def.TrailingNote)
 	fill(&user.BusyLine, def.BusyLine)
 	fill(&user.LimitLine, def.LimitLine)
+	fill(&user.LimitMenu, def.LimitMenu)
 	fill(&user.ScrolledLine, def.ScrolledLine)
 	fill(&user.JumpToBottomKey, def.JumpToBottomKey)
 	fill(&user.ArrowDialogLine, def.ArrowDialogLine)
@@ -1649,6 +1656,16 @@ trailing_note = "^※"
 busy_line = "^[✻✳✶✽✢·✦✧+*] (?:Waiting for \\d+ (?:background agents?|dynamic workflows?)|\\S+ for \\d.*· \\d+ [^·]*still running)"
 # a usage/rate-limit banner sits above the turn-end summary
 limit_line = "(?m)You've hit your .+limit"
+# Claude's limit menu ("What do you want to do?" with "1. Stop and wait for
+# limit to reset" and "2. Wait here, then continue automatically at ...") is
+# a limit, not a dialog for anybody to answer. Submitting a turn to an account
+# already known to be spent opens it with no new banner, so the only banner on
+# screen is an older one above the prompt, and the menu alone says the turn
+# hit the limit. Choosing to wait leaves "Usage limit reached · continuing
+# automatically at ..." in its place, which parks the session until the reset.
+# Only the menu's own rows match: at most four columns in, numbered, the whole
+# row; a tool result quoting them sits five columns in under its marker.
+limit_menu = "(?m)^[ \\t]{0,4}(?:❯[ \\t]+)?\\d+\\.[ \\t]+(?:Stop and wait for limit to reset|Wait here, then continue automatically\\b.*)$|^[●⏺] Usage limit reached · continuing automatically\\b.*$"
 # claude draws this over the last content row while its own viewport is
 # parked above the live bottom
 scrolled_line = "Jump to bottom \\(ctrl\\+End\\)"

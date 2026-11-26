@@ -71,6 +71,7 @@ type toolRules struct {
 	stepEntry      *matcher
 	busyLine       *matcher
 	limitLine      *matcher
+	limitMenu      *matcher
 	scrolledLine   *matcher
 	jumpToBottom   string
 	betweenRules   bool
@@ -105,6 +106,7 @@ func NewEngine(cfg config.Config) (*Engine, error) {
 			{tool.TrailingNote, &tr.trailingNote},
 			{tool.BusyLine, &tr.busyLine},
 			{tool.LimitLine, &tr.limitLine},
+			{tool.LimitMenu, &tr.limitMenu},
 			{tool.ScrolledLine, &tr.scrolledLine},
 			{tool.ArrowDialogLine, &tr.arrowDialog},
 			{tool.DialogStepRow, &tr.stepRow},
@@ -194,7 +196,21 @@ func (e *Engine) RuleMatch(tool, pane string) (string, bool) {
 // sees it, and turnState would settle the quiet turn as finished. A limit
 // dialog can also look like a waiting prompt.
 func (tr toolRules) isLimit(pane string) bool {
-	return len(tr.limitLines(pane)) != 0
+	return len(tr.limitSignal(pane)) != 0
+}
+
+// limitSignal is the newest turn's limit banner, or failing that the limit
+// menu standing in for it. The banner leads because it names the window and
+// its reset; the menu counts on its own only once no current banner does,
+// which is when Claude opened it on submit and drew no banner for the turn.
+// The menu is placed the way a banner is, so a quoted menu inside an older
+// turn does not count.
+func (tr toolRules) limitSignal(pane string) []string {
+	if lines := tr.limitLines(pane); len(lines) != 0 || tr.limitMenu == nil {
+		return lines
+	}
+	tr.limitLine = tr.limitMenu
+	return tr.limitLines(pane)
 }
 
 func (e *Engine) LimitBanner(tool, pane string) string {
@@ -205,7 +221,7 @@ func (e *Engine) LimitBanner(tool, pane string) string {
 	if banner := e.CapacityBanner(tool, pane); banner != "" {
 		return banner
 	}
-	return strings.Join(strings.Fields(strings.Join(tr.limitLines(pane), " ")), " ")
+	return strings.Join(strings.Fields(strings.Join(tr.limitSignal(pane), " ")), " ")
 }
 
 var codexFailureLine = &matcher{re: regexp.MustCompile(`(?m)^[ \t]*■[ \t]+\S`)}

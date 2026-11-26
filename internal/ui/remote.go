@@ -121,10 +121,15 @@ func (m *Model) remoteRows() []remoteRow {
 	var rows []remoteRow
 	for _, name := range slices.Sorted(maps.Keys(m.cfg.Hosts)) {
 		state := m.remote.hosts[name]
-		rows = append(rows, remoteRow{label: name + " · " + state.summary()})
-		hostLabel := name
-		if !state.fresh() {
-			hostLabel += " (stale)"
+		rows = append(rows, remoteRow{label: state.summary(name)})
+		var prefix string
+		switch {
+		case !state.fresh():
+			prefix = "cached · "
+		case state.snapshot.StatusesStale == nil:
+			prefix = "unverified · "
+		case *state.snapshot.StatusesStale:
+			prefix = "stale status · "
 		}
 		for _, session := range state.snapshot.Sessions {
 			title := session.Name
@@ -137,33 +142,41 @@ func (m *Model) remoteRows() []remoteRow {
 			}
 			rows = append(rows, remoteRow{
 				key:   remoteSessionKey{host: name, id: session.ID},
-				label: hostLabel + " · " + status + " · " + title,
+				label: prefix + name + " · " + status + " · " + title,
 			})
 		}
 	}
 	return rows
 }
 
-func (s remoteHostState) summary() string {
+func (s remoteHostState) summary(name string) string {
+	host := name + " · "
 	if !s.checked {
-		return "checking SSH"
+		return host + "checking SSH"
 	}
 	if s.err != nil {
 		if s.lastSeen.IsZero() {
-			return "offline · " + s.err.Error()
+			return host + "offline · " + s.err.Error()
 		}
-		return "offline · last seen " + textfmt.Age(time.Since(s.lastSeen)) + " ago · " + s.err.Error()
+		return host + "offline · last seen " + textfmt.Age(time.Since(s.lastSeen)) + " ago · " + s.err.Error()
 	}
 	if !s.fresh() {
-		return "stale · last seen " + textfmt.Age(time.Since(s.lastSeen)) + " ago"
+		return host + "stale · last seen " + textfmt.Age(time.Since(s.lastSeen)) + " ago"
+	}
+	label := host + "connected"
+	switch {
+	case s.snapshot.StatusesStale == nil:
+		label = "status age unknown · " + label
+	case *s.snapshot.StatusesStale:
+		label = "statuses stale · " + label
 	}
 	if listed := len(s.snapshot.Sessions); listed < s.snapshot.Matched {
-		return fmt.Sprintf("connected · showing %d of %d sessions", listed, s.snapshot.Matched)
+		return fmt.Sprintf("%s · showing %d of %d sessions", label, listed, s.snapshot.Matched)
 	}
 	if len(s.snapshot.Sessions) == 0 {
-		return "connected · no sessions"
+		return label + " · no sessions"
 	}
-	return "connected"
+	return label
 }
 
 func (s remoteHostState) fresh() bool {

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -1529,15 +1528,7 @@ type MessageState struct {
 // managerAwake reports whether a manager has polled recently enough to
 // still be delivering. Queued messages only move while it runs.
 func (r *runtime) managerAwake(now time.Time) (bool, error) {
-	raw, err := r.store.Setting(store.PollerHeartbeatKey)
-	if err != nil || raw == "" {
-		return false, err
-	}
-	stamp, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil {
-		return false, fmt.Errorf("poller heartbeat %q is not a timestamp: %w", raw, err)
-	}
-	return now.Sub(time.Unix(0, stamp)) < max(3*r.cfg.PollInterval.Duration, store.PollerHeartbeatStale), nil
+	return r.store.ManagerAwake(now, r.cfg.PollInterval.Duration)
 }
 
 // Read is what another session is doing, in one of two shapes.

@@ -737,26 +737,6 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	}
 	// Focus changes wake passes too; machine gauges must not follow keystrokes.
 	sampleStats := time.Since(p.statsAt) >= max(2*p.interval, backgroundWorkingInterval)
-	// Delivering a queued message needs this process, so a pass leaves a
-	// heartbeat the session tools can read to tell a sender whether anyone
-	// is home. Stamping every poll would be a write transaction every couple
-	// of seconds for as long as the manager is open; its readers allow the
-	// stamp to age instead.
-	//
-	// The pass decides when a stamp is due and hands it over; it does not
-	// write it. A pass holds the poll lock for its whole duration, and this
-	// write waits on a database some thirty `gate-inbox mcp` processes
-	// write to as well -- seconds of it, when one of them holds the lock.
-	// Nothing reads this row to decide anything but what to tell a sender,
-	// so it may be late; the pass may not.
-	if time.Since(p.heartbeatAt) >= store.PollerHeartbeatPeriod {
-		stamped := time.Now()
-		select {
-		case p.beats <- stamped:
-			p.heartbeatAt = stamped
-		default:
-		}
-	}
 	if p.tick%inboxPruneEvery == 0 {
 		if err := p.store.PruneInbox(time.Now().Add(-inboxRetention)); err != nil {
 			return errMsg{err}
@@ -1210,6 +1190,18 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	step := time.Now()
 	if err := flushRowState(); err != nil {
 		return errMsg{err}
+	}
+	// Publish the heartbeat after saving statuses so a worker snapshot
+	// can use it to tell whether the board has refreshed its rows. Rate
+	// limit the stamps and let the writer handle SQLite contention off
+	// the poll pass. Session tools also use the stamp for inbox liveness.
+	if time.Since(p.heartbeatAt) >= store.PollerHeartbeatPeriod {
+		stamped := time.Now()
+		select {
+		case p.beats <- stamped:
+			p.heartbeatAt = stamped
+		default:
+		}
 	}
 	// Only now, with the dead status stored: the store drops a queue only
 	// for a row that reads dead, so a pane a restart is relaunching keeps

@@ -191,3 +191,20 @@ func TestADroppedStampIsRetriedByTheNextPass(t *testing.T) {
 		t.Fatal("the pass behind the dropped stamp did not try again")
 	}
 }
+
+func TestFailedPollDoesNotRefreshHeartbeat(t *testing.T) {
+	m := buildModel(t)
+	if err := m.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var stats passStat
+	result := m.poller.refreshPass(&stats, false)
+	if _, ok := result.(errMsg); !ok {
+		t.Fatalf("poll with a closed store returned %T, want errMsg", result)
+	}
+	select {
+	case <-m.poller.beats:
+		t.Fatal("failed poll refreshed the heartbeat without saving statuses")
+	default:
+	}
+}

@@ -958,6 +958,12 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if launchDir != dir {
 		workdir = dir
 	}
+	if tool.SessionStore == "codex" && !runtime.store.LaunchOverlapSince().IsZero() {
+		// The board delivers typed launch prompts. Keep the normal command-line
+		// prompt for CLI launches made while it is closed.
+		awake, _ := runtime.managerAwake(time.Now())
+		tool = launch.WithLaunchOverlap(tool, awake)
+	}
 	plan, err := launch.Assemble(toolName, tool, prompt, workdir, autoNamed && runtime.cfg.Naming.Asks(), opts.Model, account)
 	if err != nil {
 		return Session{}, err

@@ -3,6 +3,7 @@ package sessioncmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -159,6 +160,10 @@ func (s *Sessions) prepareBoardLaunch(runtime *runtime, sess store.Session, tool
 	}
 	if err != nil {
 		return boardLaunch{}, err
+	}
+	if from == "" && tool.SessionStore == "codex" && !runtime.store.LaunchOverlapSince().IsZero() {
+		awake, _ := runtime.managerAwake(time.Now())
+		tool = launch.WithLaunchOverlap(tool, awake)
 	}
 	plan, err := launch.Assemble(sess.Tool, tool, strings.TrimSpace(prompt), "", false, sess.Model, account)
 	if err != nil {

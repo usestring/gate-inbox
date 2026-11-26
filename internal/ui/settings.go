@@ -212,6 +212,7 @@ func (m *Model) openSettings() {
 		jevFinishCheck:       m.jevFinishCheck,
 		jevCopyOn:            m.jevCopyOn,
 		autoGroupOn:          m.autoGroupOn,
+		launchOverlap:        storedExperiment(m.store, store.LaunchOverlapSetting),
 		promptSuggest:        m.promptSuggest,
 		nextStep:             m.nextStepOn,
 		reviewQueue:          m.reviewQueue,

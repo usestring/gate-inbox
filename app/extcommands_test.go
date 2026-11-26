@@ -24,7 +24,7 @@ func (v *verbs) Commands() []extension.Command             { return v.commands }
 func noop(context.Context, []string, extension.Host) error { return nil }
 
 func TestExtensionCommandsRefusesEveryBadName(t *testing.T) {
-	core := subcommands(context.Background(), "dev", nil)
+	core := subcommands(context.Background(), "dev", nil, nil)
 	_, err := extensionCommands([]extension.Extension{
 		&verbs{id: "a", commands: []extension.Command{
 			{Name: "Upper", Run: noop},
@@ -60,7 +60,7 @@ func TestHelpListsExtensionCommandsByGroupInOrder(t *testing.T) {
 			{Group: "Shared", Name: "two", About: "the second", Run: noop},
 		}},
 		&verbs{id: "second", commands: []extension.Command{{Group: "Shared", Name: "three", About: "the third", Run: noop}}},
-	}, subcommands(context.Background(), "dev", nil))
+	}, subcommands(context.Background(), "dev", nil, nil))
 	if err != nil {
 		t.Fatal(err)
 	}

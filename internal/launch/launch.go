@@ -218,6 +218,15 @@ func TypesPrompt(tool config.Tool, prompt string) bool {
 	return false
 }
 
+// WithLaunchOverlap queues Codex's opening prompt so the board has published
+// the pane for the shared-daemon hook before the prompt reaches it.
+func WithLaunchOverlap(tool config.Tool, enabled bool) config.Tool {
+	if enabled && tool.SessionStore == "codex" {
+		tool.PromptMode = "send"
+	}
+	return tool
+}
+
 // WithPrompt appends the first prompt to a tool's command, using the
 // tool's prompt flag when it has one. A prompt the tool takes as typed
 // input instead leaves the bare command.

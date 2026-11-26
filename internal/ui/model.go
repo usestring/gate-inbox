@@ -1106,6 +1106,7 @@ type settingsState struct {
 	jevFinishCheck     bool
 	jevCopyOn          bool
 	autoGroupOn        bool
+	launchOverlap      bool
 	// piAutoMode is pi's auto mode (package piauto) as the JEV card holds it.
 	piAutoMode    bool
 	promptSuggest bool

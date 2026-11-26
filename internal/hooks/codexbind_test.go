@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 const (
@@ -34,6 +36,25 @@ func promptPayload(thread, prompt, cwd string) []byte {
 }
 
 func steeringText() string { return "board steering" }
+
+func TestDispatchCodexBindsOpeningPromptInManagedPane(t *testing.T) {
+	m := NewManager(t.TempDir())
+	pane := tmux.SessionName("c01d1234")
+	if err := m.SyncCodex([]CodexRow{{ID: "c01d1234", Socket: "/s", Pane: pane, Cwd: "/repo"}}); err != nil {
+		t.Fatal(err)
+	}
+	screen := screens{"/s" + pane: codexScreen("Repair the import")}
+	for _, cwd := range []string{"/elsewhere", "/repo"} {
+		raw := promptPayload(threadA, "Repair the import", cwd)
+		if out := m.DispatchCodex("UserPromptSubmit", raw, screen.capture, steeringText); out != "" {
+			t.Fatalf("managed row received adopted steering: %s", out)
+		}
+		id, adopted, ok := m.CodexThreadRow(threadA)
+		if ok != (cwd == "/repo") || (ok && (id != "c01d1234" || adopted)) {
+			t.Fatalf("cwd %s: bound %s, adopted=%v, ok=%v", cwd, id, adopted, ok)
+		}
+	}
+}
 
 func additionalContext(t *testing.T, out string) string {
 	t.Helper()

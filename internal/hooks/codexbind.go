@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 // Codex rows and threads.
@@ -23,9 +24,8 @@ import (
 //   - threads/<thread>: the row a thread belongs to and how the row came on
 //     the board, "<row> adopted" or "<row> launched". Every live codex row
 //     whose thread the board knows has one.
-//   - adopted.json: every live adopted codex row with the pane it is in, so
-//     a hook for a thread nobody has claimed can find the pane that thread
-//     is typing in.
+//   - adopted.json: live adopted panes and fresh launches awaiting a thread
+//     for the overlap check, so a hook can identify where a thread is typing.
 //   - watch: present while either of the above names anything. The hook
 //     prelude goes no further without it.
 //
@@ -52,7 +52,8 @@ type CodexRow struct {
 	// Thread is the codex thread id the row is bound to, or "" when the
 	// board does not know it yet.
 	Thread string
-	// Adopted rows also carry the pane they are in.
+	// Adopted rows carry a pane ID. Launches awaiting their first hook may
+	// carry their managed tmux target.
 	Adopted bool
 	Socket  string
 	Pane    string
@@ -64,6 +65,7 @@ type codexAdoptedPane struct {
 	Socket string `json:"socket"`
 	Pane   string `json:"pane"`
 	Cwd    string `json:"cwd,omitempty"`
+	Launch bool   `json:"launch,omitempty"`
 }
 
 func (m *Manager) codexDir() string { return filepath.Join(m.dir, codexDirName) }
@@ -92,8 +94,10 @@ func (m *Manager) SyncCodex(rows []CodexRow) error {
 			if !paneIDPattern.MatchString(row.Pane) {
 				continue
 			}
-			adopted = append(adopted, codexAdoptedPane{ID: row.ID, Socket: row.Socket, Pane: row.Pane, Cwd: row.Cwd})
 			steered[row.ID] = true
+		}
+		if row.Adopted || (row.Thread == "" && row.Pane == tmux.SessionName(row.ID)) {
+			adopted = append(adopted, codexAdoptedPane{ID: row.ID, Socket: row.Socket, Pane: row.Pane, Cwd: row.Cwd, Launch: !row.Adopted})
 			if pending, found := m.ReadConversation(row.ID); found && validThread(pending) {
 				threads[pending] = row.ID + " " + kind + "\n"
 			}
@@ -167,9 +171,10 @@ func (m *Manager) CodexThreadRow(thread string) (id string, adopted bool, ok boo
 
 // CodexPayload is the part of a codex hook payload the board reads.
 type CodexPayload struct {
-	Thread string `json:"session_id"`
-	Prompt string `json:"prompt"`
-	Cwd    string `json:"cwd"`
+	Thread         string `json:"session_id"`
+	Prompt         string `json:"prompt"`
+	Cwd            string `json:"cwd"`
+	TranscriptPath string `json:"transcript_path"`
 }
 
 // PaneCapture reads the visible screen of a pane on a tmux server.
@@ -189,8 +194,9 @@ func (m *Manager) DispatchCodex(event string, raw []byte, capture PaneCapture, s
 	}
 	id, adopted, ok := m.CodexThreadRow(payload.Thread)
 	if !ok && event == "UserPromptSubmit" && capture != nil {
-		id, ok = m.bindCodexThread(payload, capture)
-		adopted = ok
+		if m.bindCodexThread(payload, capture) {
+			id, adopted, ok = m.CodexThreadRow(payload.Thread)
+		}
 	}
 	if !ok {
 		return ""
@@ -262,57 +268,72 @@ func (m *Manager) codexAdopted() []codexAdoptedPane {
 	return panes
 }
 
-// bindCodexThread finds the adopted row whose pane shows payload's prompt,
+// bindCodexThread finds the row whose pane shows payload's prompt,
 // and binds the thread to it. Panes in the payload's directory are read
 // first; the rest only when none of those shows it.
-func (m *Manager) bindCodexThread(payload CodexPayload, capture PaneCapture) (string, bool) {
+func (m *Manager) bindCodexThread(payload CodexPayload, capture PaneCapture) bool {
 	needle := promptNeedle(payload.Prompt)
 	if needle == "" {
-		return "", false
+		return false
 	}
 	panes := m.codexAdopted()
 	if len(panes) == 0 {
-		return "", false
+		return false
 	}
 	var near, far []codexAdoptedPane
 	for _, pane := range panes {
-		if checkID(pane.ID) != nil || !paneIDPattern.MatchString(pane.Pane) {
+		if checkID(pane.ID) != nil {
 			continue
 		}
-		if payload.Cwd != "" && filepath.Clean(pane.Cwd) == filepath.Clean(payload.Cwd) {
+		nearby := payload.Cwd != "" && filepath.Clean(pane.Cwd) == filepath.Clean(payload.Cwd)
+		if pane.Launch {
+			bound, _ := m.ReadConversation(pane.ID)
+			if nearby && pane.Pane == tmux.SessionName(pane.ID) && !validThread(bound) {
+				near = append(near, pane)
+			}
+			continue
+		}
+		if !paneIDPattern.MatchString(pane.Pane) {
+			continue
+		}
+		if nearby {
 			near = append(near, pane)
 		} else {
 			far = append(far, pane)
 		}
 	}
 	for _, group := range [][]codexAdoptedPane{near, far} {
-		var hits []string
+		var hits []codexAdoptedPane
 		for _, pane := range group {
 			screen, err := capture(pane.Socket, pane.Pane)
 			if err == nil && ScreenShowsPrompt(screen, needle) {
-				hits = append(hits, pane.ID)
+				hits = append(hits, pane)
 			}
 		}
 		switch len(hits) {
 		case 0:
 			continue
 		case 1:
-			id := hits[0]
+			id := hits[0].ID
+			kind := "adopted"
+			if hits[0].Launch {
+				kind = "launched"
+			}
 			if err := WriteWhole(m.ConversationFile(id), payload.Thread+"\n"); err != nil {
-				return "", false
+				return false
 			}
 			threadDir := filepath.Join(m.codexDir(), "threads")
-			if os.MkdirAll(threadDir, 0o755) != nil || WriteWhole(filepath.Join(threadDir, payload.Thread), id+" adopted\n") != nil {
-				return "", false
+			if os.MkdirAll(threadDir, 0o755) != nil || WriteWhole(filepath.Join(threadDir, payload.Thread), id+" "+kind+"\n") != nil {
+				return false
 			}
-			return id, true
+			return true
 		default:
 			// Two panes show the same prompt: binding either could
 			// speak for the wrong one.
-			return "", false
+			return false
 		}
 	}
-	return "", false
+	return false
 }
 
 // promptNeedleLen is how much of a prompt's first line is matched: enough to

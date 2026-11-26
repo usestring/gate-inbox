@@ -179,15 +179,15 @@ func TestConfirmLaunchesOffSkipsTheQuestionForNestedLaunches(t *testing.T) {
 	}
 }
 
-func TestFanoutLimitRequiresOneUserApprovalForEachExtraLaunch(t *testing.T) {
-	h, child := grantHarness(t)
+func TestLaunchCountDoesNotRequireApproval(t *testing.T) {
+	h, child := gatedHarness(t, false)
 	if err := h.store.SetSetting(store.ConfirmLaunchesKey, "off"); err != nil {
 		t.Fatal(err)
 	}
 	detached := false
-	for i := range 6 {
+	for i := range 8 {
 		caller := h.caller.ID
-		opts := CreateSessionOptions{Name: "worker"}
+		opts := CreateSessionOptions{Name: "worker", Tool: child.Tool}
 		if i%2 == 0 {
 			caller = child.ID
 			opts.Nest = &detached
@@ -201,20 +201,10 @@ func TestFanoutLimitRequiresOneUserApprovalForEachExtraLaunch(t *testing.T) {
 		}
 	}
 
-	opts := CreateSessionOptions{Name: "extra-worker", Nest: &detached}
+	opts := CreateSessionOptions{Name: "standalone", Nest: &detached}
 	_, err := h.sessions.Create(h.caller.ID, opts)
 	var needed *LaunchApprovalNeeded
-	if !errors.As(err, &needed) {
-		t.Fatalf("seventh launch: %v, want an approval question", err)
-	}
-	asked := time.Now().Add(-time.Minute)
-	(&transcript{}).ask("toolu_extra_launch", asked, needed.Question).
-		answer("toolu_extra_launch", asked.Add(time.Second), map[string]string{needed.Question.Question: LaunchOption}).
-		write(t, h.sessions.claudeHome, "conv-parent")
-	if _, err := h.sessions.Create(h.caller.ID, opts); err != nil {
-		t.Fatalf("approved extra launch: %v", err)
-	}
-	if _, err := h.sessions.Create(h.caller.ID, opts); !errors.As(err, &needed) {
-		t.Fatalf("reused approval: %v, want another approval question", err)
+	if !errors.As(err, &needed) || needed.Question.Question != LaunchQuestion(opts.Name, opts.Prompt).Question {
+		t.Fatalf("voiced detached launch: %v, want the usual launch approval", err)
 	}
 }

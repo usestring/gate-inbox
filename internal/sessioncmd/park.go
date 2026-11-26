@@ -898,6 +898,27 @@ func (s *Sessions) restart(runtime *runtime, target store.Session, slot launchpa
 	return s.relaunch(runtime, target, "", slot)
 }
 
+// errDirectoryGone is why a session whose working directory has been
+// removed cannot be relaunched.
+var errDirectoryGone = errors.New("working directory no longer exists")
+
+// relaunchable refuses a restart that relaunch would refuse after the pane
+// was already ended. relaunch checks the working directory, but a restart
+// ends the pane first, so a session whose directory had been removed was
+// left dead instead of restarted. Checking before anything is ended leaves
+// it running as it was.
+//
+// Only a restart made for the session's own sake asks it: an account switch
+// or a stale-sandbox restart. restart itself does not, because a revoked or
+// expired grant is removed only by ending the process that holds it, and a
+// session whose directory is gone must still lose the permission.
+func relaunchable(target store.Session) error {
+	if _, err := resolveTerminalDirectory(target.Cwd); err != nil {
+		return fmt.Errorf("%w: %s; the session was left running as it was", errDirectoryGone, target.Cwd)
+	}
+	return nil
+}
+
 // restartAdopted is restart for a session adopted from outside the board.
 // Its pane is gone once it ends, so it comes back as a board session on its
 // own conversation, launched with its settings file -- which is the resume a

@@ -285,9 +285,23 @@ func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account
 		return large(account)
 	}
 	running := runtime.driver.Exists(target.ID)
+	// A running session is restarted, which ends its pane before the
+	// relaunch; one whose directory is gone would be left dead and its row
+	// re-pointed. It is refused before either, and keeps running where it
+	// is. A dead row is only re-pointed, and its revive says the same.
+	if running {
+		if err := relaunchable(target); err != nil {
+			return Session{}, err
+		}
+	}
 	var slot launchpace.Slot
 	if running {
 		if slot, err = s.paceAs(runtime, target.ID, how); err != nil {
+			return Session{}, err
+		}
+		// The turn can take minutes, and the directory can go meanwhile.
+		if err := relaunchable(target); err != nil {
+			slot.Cancel()
 			return Session{}, err
 		}
 	}

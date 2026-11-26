@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
@@ -622,4 +623,76 @@ func TestRRefusesAgentRenameWhileOffline(t *testing.T) {
 	restore()
 	m.smartRenameSelected()
 	waitForPaneText(t, m, id, "/rename")
+}
+
+// proseRenameAsk is a phrase of the prose request sent to a tool with no
+// rename command.
+const proseRenameAsk = `"$GATE_INBOX_BIN" rename`
+
+// pressRRefused presses r on the selected row and fails unless the bar shows
+// the dialog refusal and the request stayed out of the pane.
+func pressRRefused(t *testing.T, m *Model, id string) *Model {
+	t.Helper()
+	updated, _ := m.handleKey(keyR)
+	m = updated.(*Model)
+	if !strings.Contains(m.errBar.text, "rename not sent") {
+		t.Fatalf("the bar said %q, want the dialog refusal", m.errBar.text)
+	}
+	pane, err := m.tmux.CapturePane(id)
+	if err != nil {
+		t.Fatalf("capture %s: %v", id, err)
+	}
+	if strings.Contains(squashSpace(ansi.Strip(pane)), squashSpace(proseRenameAsk)) {
+		t.Fatalf("the rename request reached a pane on a dialog:\n%s", ansi.Strip(pane))
+	}
+	return m
+}
+
+// The request is pasted and submitted, so on a dialog it would go in as the
+// dialog's answer. A dialog the hooks report refuses it even when the pane
+// reads as a resting prompt, and the request goes in once the hooks log the
+// answer.
+func TestRRefusesAgentRenameWhileTheHooksReportADialog(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "claude-hooked")
+	sess, _ = claudeConversation(t, m, sess, claudePromptRecord, claudeAskRecord)
+	if err := m.tmux.SendKeys(sess.ID, "❯ "); err != nil {
+		t.Fatal(err)
+	}
+	pane := settledPane(t, m, sess.ID, "❯")
+	if state, matched := m.engine.RuleMatch(sess.Tool, ansi.Strip(pane)); matched && state == status.Waiting {
+		t.Fatalf("fixture shows a dialog the rules read; only the hooks may report it:\n%s", pane)
+	}
+	writeDialogStatus(t, m, sess.ID, claudeAskStatus)
+	m.applyCmd(t, nil)
+	m.selectSessionRow(t, sess.Name)
+	if got := m.rows[m.cursor].sess.AgentSessionID; got != sess.AgentSessionID {
+		t.Fatalf("the row the key reads names conversation %q, want %q", got, sess.AgentSessionID)
+	}
+
+	m = pressRRefused(t, m, sess.ID)
+
+	writeHookStatus(t, m, sess.ID, claudeAskStatus+"working PostToolUse\n")
+	updated, _ := m.handleKey(keyR)
+	m = updated.(*Model)
+	if !strings.Contains(m.errBar.text, "name itself") {
+		t.Fatalf("after the answer the bar said %q", m.errBar.text)
+	}
+	waitForPaneText(t, m, sess.ID, proseRenameAsk)
+}
+
+// A dialog the screen rules read refuses the request the same way.
+func TestRRefusesAgentRenameOnADialogOnScreen(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "claude-hooked")
+	if err := m.tmux.SendText(sess.ID, "Choose an option\n❯ 1. First\n  2. Second\nEnter to select · Esc to cancel"); err != nil {
+		t.Fatalf("paint dialog: %v", err)
+	}
+	waitForHeldDialog(t, m, sess.ID)
+	if m.poller.hookDialog(sess) {
+		t.Fatal("fixture has the hooks reporting a dialog; only the screen may show it")
+	}
+	m.selectSessionRow(t, sess.Name)
+
+	pressRRefused(t, m, sess.ID)
 }

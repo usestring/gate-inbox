@@ -19,6 +19,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/promptcache"
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
@@ -122,12 +123,7 @@ func (m *Model) sendNameSweep() tea.Cmd {
 	m.nameSweep.sending = true
 	m.nameSweep.stop = stop
 	pace := m.cfg.NameSweepPace.Duration
-	gate := sweepGate{
-		tmux:    m.tmux,
-		engine:  m.engine,
-		cache:   promptcache.NewReader(promptcache.DefaultRoot()),
-		network: m.poller.net,
-	}
+	gate := m.nameSweepGate()
 	driver, network := m.tmux, m.poller.net
 	send := func(id, text string) error {
 		if offline, _ := network.Offline(); offline {
@@ -146,6 +142,19 @@ type sweepGate struct {
 	engine  *status.Engine
 	cache   *promptcache.Reader
 	network *netwatch.Watcher
+	// dialog is poller.hookDialog: the session's hooks saying a dialog is
+	// up that the pane may not show.
+	dialog func(store.Session) bool
+}
+
+func (m *Model) nameSweepGate() sweepGate {
+	return sweepGate{
+		tmux:    m.tmux,
+		engine:  m.engine,
+		cache:   promptcache.NewReader(promptcache.DefaultRoot()),
+		network: m.poller.net,
+		dialog:  m.poller.hookDialog,
+	}
 }
 
 func (g sweepGate) Status(target namesweep.Verdict) (string, error) {
@@ -154,6 +163,9 @@ func (g sweepGate) Status(target namesweep.Verdict) (string, error) {
 	}
 	if !g.tmux.Exists(target.ID) {
 		return status.Dead, nil
+	}
+	if g.dialog(store.Session{ID: target.ID, Tool: target.Tool, Cwd: target.Cwd, AgentSessionID: target.AgentSessionID}) {
+		return status.Waiting, nil
 	}
 	pane, err := g.tmux.CapturePane(target.ID)
 	if err != nil {

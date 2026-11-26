@@ -75,6 +75,12 @@ func (m *Model) smartRenameSelected() (tea.Model, tea.Cmd) {
 			m.errBar.text = "offline — rename not sent; retry when the network returns"
 			return m, nil
 		}
+		// SendText pastes and presses Enter, so on a dialog the request would
+		// go in as the dialog's answer.
+		if hold, _ := m.dialogHold(sess); hold != "" {
+			m.errBar.text = m.displayName(sess) + " is on a dialog — rename not sent; answer it, then retry"
+			return m, nil
+		}
 		if err := m.tmux.SendText(sess.ID, command); err != nil {
 			m.errBar.text = "rename: " + err.Error()
 			return m, nil

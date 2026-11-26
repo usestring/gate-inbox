@@ -1770,12 +1770,13 @@ func inboxDeliverable(derived string, typeAhead bool) bool {
 // maybeDeliverInbox types one queued message into a session that is at
 // rest, or mid-turn in a tool that queues typed input. The activity region alone is not enough of a gate: several tools
 // keep their input line drawn underneath an approval dialog, so a message
-// sent then would answer the dialog instead of being read. A dialog always
-// trips a configured rule, while a question left on screen at a resting
-// prompt does not, which is the difference TypingHold checks. What the
-// rules cannot see is a person: the paste ends in Enter, so a line someone
-// is part way through writing, or a keystroke of theirs still on its way
-// to the screen, holds the queue for another poll.
+// sent then would answer the dialog instead of being read. A dialog with its
+// legend on screen trips a configured rule, while a question left on screen
+// at a resting prompt does not, which is the difference TypingHold checks.
+// A dialog the rules cannot read is held by the session's own hooks
+// (hookDialog). Nor can the rules see a person: the paste ends in Enter, so
+// a line someone is part way through writing, or a keystroke of theirs
+// still on its way to the screen, holds the queue for another poll.
 func (p *poller) maybeDeliverInbox(sess store.Session, heads map[string]store.InboxMessage, capture tmux.Capture, derived string, agentAlive bool) error {
 	_, err := p.deliverInboxHead(sess, heads, capture, derived, agentAlive)
 	return err
@@ -2149,11 +2150,16 @@ func (p *poller) interruptForMessage(sess store.Session, msg store.InboxMessage,
 // hookDialog reports whether sess's own status hooks say a dialog is on its
 // screen, which holds every key the board would send it on its own: a
 // message, its interrupt, a launch prompt, a limit retry. The pane rules
-// cannot see a dialog drawn with a legend they do not know, and a paste's
-// Enter answers it. Only pi reports its dialogs this way; see
-// hooks.PromptOpen.
+// cannot see a dialog drawn with a legend they do not know, or one scrolled
+// out of view, and a paste's Enter answers it. pi and Claude Code report
+// their dialogs this way; see hooks.DialogOpen.
 func (p *poller) hookDialog(sess store.Session) bool {
-	return p != nil && p.hooks != nil && p.statusSources[sess.Tool] == hooks.StatusSourcePi && p.hooks.PromptOpen(sess.ID)
+	if p == nil || p.hooks == nil {
+		return false
+	}
+	return p.hooks.DialogOpen(p.statusSources[sess.Tool], sess.ID, func() string {
+		return convo.TranscriptFor(convo.ClaudeHome(), sess.AgentSessionID, sess.Cwd)
+	})
 }
 
 // safeToInterrupt reports whether the pane is plainly a turn at work: its

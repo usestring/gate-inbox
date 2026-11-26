@@ -1,12 +1,14 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keyconfine"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -155,6 +157,57 @@ func TestFocusingAHibernatedSessionWakesIt(t *testing.T) {
 	}
 	if got := m.shownStatus(m.sessionRows()[0]); got == status.Dead {
 		t.Fatal("the woken row reads dead until the next refresh")
+	}
+}
+
+func TestTriageWarmsASleeperBeforeItIsNext(t *testing.T) {
+	t.Cleanup(keyconfine.UseForTests(keyconfine.Unconfined, nil))
+	m := buildModel(t)
+	sleeping := hibernatedRow(t, m, "sleeper")
+	for _, name := range []string{"current", "ready-one", "ready-two", "ready-three", "ready-four"} {
+		createSession(t, m, name, t.TempDir(), "")
+	}
+	for i := range 15 {
+		m.sessions = append(m.sessions, store.Session{
+			ID: fmt.Sprintf("busy-%d", i), Tool: "claude", Status: status.Working,
+		})
+	}
+	m.snap = sysstat.Snapshot{MemOK: true, MemTotal: 24 << 30, MemPercent: 65}
+	m.hibernateSweepDue("balanced", time.Now())
+	if !m.hibernatePressure {
+		t.Fatal("fixture must exceed the balanced live session estimate")
+	}
+	m.triage = true
+	m.rebuildRows()
+	m.enterFocusOn(t, "current")
+	if cmd := m.triageWarmCmd(); cmd != nil {
+		t.Fatal("warming reached past four ready handoffs")
+	}
+
+	// One ready handoff leaves the queue, bringing the sleeper into range.
+	readyID := sessionID(t, m, "ready-four")
+	ready, _ := m.sessionByID(readyID)
+	m.mute(ready)
+	m.rebuildRows()
+	m.snap.MemPercent = 79
+	if cmd := m.triageWarmCmd(); cmd != nil {
+		t.Fatal("warming started without enough measured memory for one agent")
+	}
+
+	m.snap.MemPercent = 65
+	cmd := m.triageWarmCmd()
+	if cmd == nil {
+		t.Fatal("warming did not start with three ready handoffs and spare memory")
+	}
+	m.applyCmd(t, cmd)
+	if got := focusedName(t, m); got != "current" {
+		t.Fatalf("warming moved focus to %q", got)
+	}
+	if !m.tmux.Exists(sleeping.ID) {
+		t.Fatal("the sleeper was not relaunched ahead of handoff")
+	}
+	if still, err := m.store.IsHibernated(sleeping.ID); err != nil || still {
+		t.Fatalf("the sleeper is still marked hibernated: %v, %v", still, err)
 	}
 }
 

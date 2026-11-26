@@ -111,3 +111,23 @@ func TestSkipPermissionsRidesPisExtensionThroughTheEnvironment(t *testing.T) {
 		}
 	}
 }
+
+// A pi launch carries its tool's gate mode to the hook, and never a parent's.
+func TestPiLaunchCarriesTheGateMode(t *testing.T) {
+	t.Setenv(envname.PiGate, "allowlist")
+	t.Setenv(envname.PiClassifierFailure, "ask")
+	manager := hooks.NewManager(t.TempDir())
+	for _, c := range []struct{ gate, failure string }{{"", ""}, {"allowlist", "ask"}, {" exceptions ", "allow"}} {
+		tool := config.Tool{Command: "sh", StatusSource: hooks.StatusSourcePi, Gate: c.gate, ClassifierFailure: c.failure}
+		_, env, err := Compose(manager, "pi", tool, "sh", "abc", "", "", false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, set := env[envname.PiGate]; !set || got != strings.TrimSpace(c.gate) {
+			t.Errorf("gate %q: %s = %q (set %v)", c.gate, envname.PiGate, got, set)
+		}
+		if got, set := env[envname.PiClassifierFailure]; !set || got != c.failure {
+			t.Errorf("classifier_failure %q: %s = %q (set %v)", c.failure, envname.PiClassifierFailure, got, set)
+		}
+	}
+}

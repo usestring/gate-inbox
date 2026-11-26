@@ -20,9 +20,17 @@
 //  5. Allow rules from the settings files.
 //  6. Local operation rules for reads, trusted creation commands and
 //     pushes to opted-in repositories through the PR creation command.
-//  7. Auto mode: the JEV classifier, asked on the board's side, may allow a
-//     call nothing above settled (package piauto). Every doubt asks.
-//  8. Otherwise ask.
+//  7. What nothing above settled is then decided by the gate's mode
+//     ([tools.<pi>] gate in the board's config):
+//     - "exceptions" (the default), deny by exception: a call on the
+//     deterministic danger list (danger.go) asks; otherwise the JEV
+//     classifier, asked on the board's side (package piauto), is asked
+//     whether it falls into a danger class, and a confident yes asks.
+//     Everything else runs. When the classifier gives no verdict
+//     (no key, auto mode off, a failure or timeout), classifier_failure
+//     decides: "allow" (the default) runs it, "ask" asks.
+//     - "allowlist", the gate before it: the JEV classifier may allow a call
+//     it judges safe, and everything else asks.
 //
 // A grant is applied after the rules' denials and asks, as a launched Claude
 // Code session reads its grants from an allow list its own deny and ask rules
@@ -224,6 +232,13 @@ type Env struct {
 	// AutoMode asks pi's auto-mode classifier (package piauto) about a call
 	// nothing else settled. Nil means auto mode is not asked.
 	AutoMode func(piauto.Request) piauto.Answer
+	// DenyByException is the default gate: what nothing settled runs unless
+	// the danger list or the classifier finds it dangerous. False is the
+	// allow-list gate, which asks unless something allows.
+	DenyByException bool
+	// FailureAsks makes the deny-by-exception gate ask when the classifier
+	// gives no verdict, instead of running the call.
+	FailureAsks bool
 	// SkipPermissions is a session launched with permissions skipped. Like
 	// Claude Code's bypass mode, it allows what no deny or ask rule and no
 	// merge gate has decided.
@@ -303,10 +318,6 @@ func Decide(env Env, req Request) Decision {
 		d.Decision, d.Reason = Allow, "permissions are skipped for this session"
 		return d
 	}
-	if env.SkipPermissions {
-		d.Decision, d.Reason = Allow, "permissions are skipped for this session"
-		return d
-	}
 	grants := env.Grants
 	if grants == nil {
 		grants = sessionGrants(env)
@@ -358,6 +369,9 @@ func Decide(env Env, req Request) Decision {
 			return d
 		}
 	}
+	if env.DenyByException {
+		return byException(env, req, call, d)
+	}
 	reason := "no rule or grant allows it"
 	if autoModeMayAsk(env, call) {
 		a := env.AutoMode(piauto.Request{Tool: tool, Input: req.ToolInput, Cwd: req.Cwd, Brief: req.Brief, Recent: req.Recent})
@@ -370,6 +384,36 @@ func Decide(env Env, req Request) Decision {
 		}
 	}
 	return asking(d, call, reason)
+}
+
+// byException decides a call nothing settled under the deny-by-exception
+// gate: the danger list, then the classifier's danger question, then
+// classifier_failure.
+func byException(env Env, req Request, call grant.Call, d Decision) Decision {
+	if why, ok := dangerous(call); ok {
+		return asking(d, call, "Gate Inbox asks about "+why)
+	}
+	note := "pi auto mode is off"
+	if autoModeMayAsk(env, call) {
+		a := env.AutoMode(piauto.Request{Tool: d.Tool, Input: req.ToolInput, Cwd: req.Cwd, Sandbox: d.Tool == "Bash",
+			Question: piauto.QuestionDanger, Brief: req.Brief, Recent: req.Recent})
+		if a.Judged && a.Question == piauto.QuestionDanger {
+			if a.Danger >= piauto.DangerThreshold {
+				return asking(d, call, fmt.Sprintf("the JEV classifier finds it dangerous (JEV danger %.2f → asking)", a.Danger))
+			}
+			d.Decision, d.Reason = Allow, fmt.Sprintf("nothing on Gate Inbox's danger list, and JEV finds no danger (danger %.2f)", a.Danger)
+			return d
+		}
+		note = "the JEV classifier did not answer"
+		if a.Note != "" {
+			note = a.Note
+		}
+	}
+	if env.FailureAsks {
+		return asking(d, call, "nothing on Gate Inbox's danger list, but "+note+` (classifier_failure = "ask")`)
+	}
+	d.Decision, d.Reason = Allow, "nothing on Gate Inbox's danger list; the classifier gave no verdict ("+note+")"
+	return d
 }
 
 // autoModeMayAsk reports whether auto mode may be asked about call at all.

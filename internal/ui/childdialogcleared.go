@@ -67,7 +67,7 @@ func (p *poller) childDialogCleared(sess store.Session, relay *childDialogRelay,
 	if err != nil {
 		return ignoreDeletedSession(err)
 	}
-	dismissed := p.dismissParentAsk(parent, relay.questions)
+	dismissed := p.dismissParentAsk(parent, relay.questions, p.siblingQuestions(parent.ID, sess.ID))
 	if dropped > 0 && !dismissed {
 		// The parent never saw it and is not asking it: nothing to undo.
 		logging.Info("withdrew an unread child-dialog relay", "session", sess.ID, "parent", parent.ID)
@@ -246,9 +246,25 @@ func childRegisteredAnswers(sess store.Session, relay *childDialogRelay) map[str
 	return nil
 }
 
+// siblingQuestions are the questions still relayed to parentID by children
+// other than childID. Two children can stop on the same screen, whose prompt
+// names neither, so the parent's copy of one reads the same as the other's.
+func (p *poller) siblingQuestions(parentID, childID string) []dialog.Question {
+	var out []dialog.Question
+	for id, relay := range p.childDialogs {
+		if id == childID || relay == nil || relay.parentID != parentID {
+			continue
+		}
+		out = append(out, relay.questions...)
+	}
+	return out
+}
+
 // dismissParentAsk presses Escape on parent's own question dialog when its
-// screen shows one of relayed, unanswered, and reports whether it did.
-func (p *poller) dismissParentAsk(parent store.Session, relayed []dialog.Question) bool {
+// screen shows one of relayed, unanswered, and reports whether it did. It
+// leaves a question that is also one of siblings alone: the parent may be
+// asking it for a child that is still waiting on it.
+func (p *poller) dismissParentAsk(parent store.Session, relayed, siblings []dialog.Question) bool {
 	k := p.keyer()
 	if k == nil || parent.Status != status.Waiting {
 		return false
@@ -261,6 +277,10 @@ func (p *poller) dismissParentAsk(parent store.Session, relayed []dialog.Questio
 	target.PendingAskFile = p.pendingAskFile(parent)
 	reading, ok := dialog.ReadQuestions(parent.Tool, pane, asks.PendingQuestions(target))
 	if !ok || !askingAnyOf(reading.Questions, relayed) {
+		return false
+	}
+	if askingAnyOf(reading.Questions, siblings) {
+		logging.Info("left a parent's question open: a sibling still waits on the same one", "parent", parent.ID)
 		return false
 	}
 	if err := k.SendKeys(parent.ID, "Escape"); err != nil {

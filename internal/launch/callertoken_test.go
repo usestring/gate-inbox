@@ -6,10 +6,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // A session's caller token never reaches its environment: the launch
@@ -26,6 +29,46 @@ func TestALaunchCarriesNoCallerToken(t *testing.T) {
 	for key, value := range env {
 		if value == token {
 			t.Fatalf("the launch env, which the pane's launch script exports, carries the caller token as %s", key)
+		}
+	}
+}
+
+func TestLaunchOverlapProvisionsTheConfinedCodexHook(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var starts int
+	original := ensureShared
+	ensureShared = func(string) (string, error) {
+		starts++
+		return "http://127.0.0.1:4567", nil
+	}
+	t.Cleanup(func() { ensureShared = original })
+	tool := config.Tool{Command: "cat", SessionStore: "codex"}
+	manager := hooks.NewManager(dir)
+	if _, _, err := Environment(manager, "plain", tool, tool.Command, "child01", "", "", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if starts != 0 || mcpshared.SessionToken(dir, "child01") != "" {
+		t.Fatal("default-off launch started a classifier server or minted a caller token")
+	}
+	if err := st.SetLaunchOverlap(true, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	command, env, err := Environment(manager, "plain", tool, tool.Command, "child02", "", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := mcpshared.SessionToken(dir, "child02")
+	if starts != 1 || token == "" || strings.Contains(command, token) {
+		t.Fatal("opted-in launch did not provision the caller privately")
+	}
+	for key, value := range env {
+		if strings.Contains(value, token) {
+			t.Fatalf("launch exported the caller token as %s", key)
 		}
 	}
 }

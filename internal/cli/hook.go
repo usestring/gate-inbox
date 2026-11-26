@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/agentnudge"
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -27,10 +26,10 @@ import (
 // not a command an agent runs, so it is left out of the help. It always
 // exits 0: a hook that fails must not stand in the child's way.
 func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir string) error {
-	return RunHookWithActiveWork(context.Background(), in, out, args, sessionID, configDir, nil)
+	return RunHookContext(context.Background(), in, out, args, sessionID, configDir)
 }
 
-func RunHookWithActiveWork(ctx context.Context, in io.Reader, out io.Writer, args []string, sessionID, configDir string, source extension.ActiveWorkSource) error {
+func RunHookContext(ctx context.Context, in io.Reader, out io.Writer, args []string, sessionID, configDir string) error {
 	if len(args) == 2 && args[0] == "codex" {
 		// A codex hook runs in codex's shared daemon, whose environment --
 		// a session id included -- is whichever pane started it. Only the
@@ -45,7 +44,7 @@ func RunHookWithActiveWork(ctx context.Context, in io.Reader, out io.Writer, arg
 			var event hooks.CodexPayload
 			if json.Unmarshal(payload, &event) == nil {
 				if id, adopted, ok := manager.CodexThreadRow(event.Thread); ok && !adopted {
-					output = hooks.MergeHookOutputs(output, sessioncmd.LaunchOverlapHook(ctx, configDir, id, event, search.ToolCodex, source))
+					output = hooks.MergeHookOutputs(output, sessioncmd.RequestLaunchOverlap(ctx, configDir, id, event, search.ToolCodex))
 				}
 			}
 		}
@@ -170,7 +169,7 @@ func RunHookWithActiveWork(ctx context.Context, in io.Reader, out io.Writer, arg
 		note, attested := sessioncmd.PromptSubmitHook(configDir, sessionID, payload, time.Now())
 		var event hooks.CodexPayload
 		if json.Unmarshal(payload, &event) == nil {
-			note = hooks.MergeHookOutputs(note, sessioncmd.LaunchOverlapHook(ctx, configDir, sessionID, event, search.ToolClaude, source))
+			note = hooks.MergeHookOutputs(note, sessioncmd.RequestLaunchOverlap(ctx, configDir, sessionID, event, search.ToolClaude))
 		}
 		if attested {
 			if flag := attestFlag(); flag != "" {

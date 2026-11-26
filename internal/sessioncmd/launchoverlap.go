@@ -1,9 +1,13 @@
 package sessioncmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,12 +21,15 @@ import (
 	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/mcpshared"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
 const (
+	LaunchOverlapPath    = "/launch-overlap"
 	overlapTimeout       = 6 * time.Second
 	overlapPromptLimit   = 6000
 	overlapWorkLimit     = 1500
@@ -38,19 +45,69 @@ type overlapWork struct {
 	Description string `json:"description,omitempty"`
 }
 
-// LaunchOverlapHook checks the opening prompt of a freshly launched board
-// session. Claim reads and classification happen only after the operator
-// opted in and this process reserved the session's one check.
-func LaunchOverlapHook(ctx context.Context, configDir, sessionID string, event hooks.CodexPayload, tool string, source extension.ActiveWorkSource) string {
-	prompt := overlapPrompt(event.Prompt)
-	if sessionID == "" || event.Thread == "" || prompt == "" {
-		return ""
-	}
+// RequestLaunchOverlap sends the opening prompt to the authenticated board
+// server. A confined hook need not read the classifier or claim-store keys.
+func RequestLaunchOverlap(ctx context.Context, configDir, sessionID string, event hooks.CodexPayload, tool string) string {
 	st, err := store.OpenReadOnly(filepath.Join(configDir, "state.db"))
 	if err != nil {
 		return ""
 	}
-	defer st.Close()
+	manager := hooks.NewManager(configDir)
+	prompt := launchOverlapCandidate(st, manager, sessionID, event, tool)
+	st.Close()
+	if prompt == "" {
+		return ""
+	}
+	unavailable := func() string {
+		_, _ = manager.RecordLaunchScope(sessionID, truncateRunes(prompt, overlapWorkLimit))
+		return overlapHookOutput(overlapUnavailable)
+	}
+	if utf8.RuneCountInString(prompt) > overlapPromptLimit {
+		return unavailable()
+	}
+	address := mcpshared.URL(configDir)
+	server, err := url.Parse(address)
+	if err != nil || server.Scheme != "http" || server.Hostname() != "127.0.0.1" || server.User != nil {
+		return unavailable()
+	}
+	token := mcpshared.SessionToken(configDir, sessionID)
+	if token == "" {
+		token, _ = parentseal.ExistingCallerToken(configDir, sessionID)
+	}
+	if !mcpshared.HealthyFor(address, sessionID, token) {
+		return unavailable()
+	}
+	// Only the hook reads its transcript. The server never opens a path
+	// furnished by a session.
+	body, _ := json.Marshal(hooks.CodexPayload{Thread: event.Thread, Prompt: prompt})
+	ctx, cancel := context.WithTimeout(ctx, overlapTimeout+time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, address+LaunchOverlapPath, bytes.NewReader(body))
+	if err != nil {
+		return unavailable()
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(mcpshared.CallerHeader, sessionID)
+	req.Header.Set(mcpshared.CallerTokenHeader, token)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		return unavailable()
+	}
+	defer resp.Body.Close()
+	const maxReply = 256 << 10
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxReply+1))
+	if resp.StatusCode != http.StatusOK || err != nil || len(data) > maxReply {
+		return unavailable()
+	}
+	return string(data)
+}
+
+func launchOverlapCandidate(st *store.Store, manager *hooks.Manager, sessionID string, event hooks.CodexPayload, tool string) string {
+	prompt := overlapPrompt(event.Prompt)
+	if sessionID == "" || event.Thread == "" || prompt == "" {
+		return ""
+	}
 	since := st.LaunchOverlapSince()
 	if since.IsZero() {
 		return ""
@@ -62,7 +119,6 @@ func LaunchOverlapHook(ctx context.Context, configDir, sessionID string, event h
 	if row.AgentSessionID != "" && row.AgentSessionID != event.Thread {
 		return ""
 	}
-	manager := hooks.NewManager(configDir)
 	if manager.LaunchScope(sessionID) != "" {
 		return ""
 	}
@@ -89,6 +145,23 @@ func LaunchOverlapHook(ctx context.Context, configDir, sessionID string, event h
 			}
 			opening = typed
 		}
+	}
+	return prompt
+}
+
+// LaunchOverlapHook runs on the board's shared server. Claim reads and
+// classification happen only after reserving a fresh session's one check.
+func LaunchOverlapHook(ctx context.Context, configDir, sessionID string, event hooks.CodexPayload, source extension.ActiveWorkSource) string {
+	st, err := store.OpenReadOnly(filepath.Join(configDir, "state.db"))
+	if err != nil {
+		return ""
+	}
+	defer st.Close()
+	manager := hooks.NewManager(configDir)
+	event.TranscriptPath = ""
+	prompt := launchOverlapCandidate(st, manager, sessionID, event, "")
+	if prompt == "" {
+		return ""
 	}
 	// Keep a bounded opening scope for later sessions, including sessions
 	// started blank on the board. The sidecar is swept with the session.

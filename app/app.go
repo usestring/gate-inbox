@@ -413,7 +413,7 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 		return runOpencodeServe(ctx, args)
 	}
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
-		return cli.RunHookWithActiveWork(ctx, os.Stdin, os.Stdout, args, sessionID, configDir, activeWork)
+		return cli.RunHookContext(ctx, os.Stdin, os.Stdout, args, sessionID, configDir)
 	})
 	// host is the worker entry point for another board over SSH.
 	table["host"] = func(args []string) error {
@@ -436,7 +436,7 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 		if err != nil {
 			return err
 		}
-		return mcpserver.ServeShared(ctx, dir, version, extensions)
+		return mcpserver.ServeShared(ctx, dir, version, extensions, activeWork)
 	}
 	table["mcp-relay"] = func(args []string) error {
 		dir, err := config.Dir()

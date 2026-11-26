@@ -278,6 +278,11 @@ type Tool struct {
 	// but it is never a limit, so nothing moves the session to another
 	// account for it.
 	ErrorLine string `toml:"error_line"`
+	// RetryLine is the row that opens a tool's own retry banner. The banner
+	// names the error it is retrying, which can carry a limit's wording, and
+	// a narrow pane wraps that wording onto rows of its own; a limit_line
+	// match inside a paragraph that holds this row is not a limit.
+	RetryLine string `toml:"retry_line"`
 	// ArrowDialogLine is the keybinding legend of a dialog that navigates
 	// with the horizontal arrows, which is what decides whether Right still
 	// belongs to the pane once a dialog has parked the caret on its own
@@ -1112,6 +1117,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	fill(&user.LimitLine, def.LimitLine)
 	fill(&user.LimitMenu, def.LimitMenu)
 	fill(&user.ErrorLine, def.ErrorLine)
+	fill(&user.RetryLine, def.RetryLine)
 	fill(&user.ScrolledLine, def.ScrolledLine)
 	fill(&user.JumpToBottomKey, def.JumpToBottomKey)
 	fill(&user.ArrowDialogLine, def.ArrowDialogLine)
@@ -1667,10 +1673,13 @@ busy_line = "^[✻✳✶✽✢·✦✧+*] (?:Waiting for \\d+ (?:background agen
 # list of limit messages: out of usage credits or extra usage, the org out of
 # usage or paused, an allocation disabled by an admin, a group limit of $0, a
 # seat without usage, and a model that requires usage credits. Those match
-# only under the marker, so a reply bullet or a list quoting them does not.
+# only under the marker at Claude's own two-column indent, so a reply bullet,
+# a list, or an indented quote of the row (a code block in a reply) does not.
 # "⚠ Usage limit reached · wrapping up" is the footer status Claude shows
-# while it finishes the current step on a spent account before stopping.
-limit_line = "(?m)You've hit your .+limit|^[ \\t]*⎿[ \\t]+(?:You've reached your .+limit|You're out of (?:usage credits|extra usage)|Your org(?:anization)? is out of usage|Your organization's usage credit cap is reached|Usage is paused for your organization|Your usage allocation has been disabled by your admin|Your group's usage limit is set to \\$0|Your seat type doesn't include (?:extra )?usage|(?:Fable|Haiku|Mythos|Opus|Sonnet)(?: [^·\\n]{1,40})? requires usage credits\\b)|^[ \\t]*⚠[ \\t]+Usage limit reached · wrapping up\\b"
+# while it finishes the current step on a spent account before stopping. It
+# counts only right below the input box's bottom rule, where the footer sits,
+# so a reply ending on that text or a draft in the composer does not.
+limit_line = "(?m)You've hit your .+limit|^  ⎿  (?:You've reached your .+limit|You're out of (?:usage credits|extra usage)|Your org(?:anization)? is out of usage|Your organization's usage credit cap is reached|Usage is paused for your organization|Your usage allocation has been disabled by your admin|Your group's usage limit is set to \\$0|Your seat type doesn't include (?:extra )?usage|(?:Fable|Haiku|Mythos|Opus|Sonnet)(?: [^·\\n]{1,40})? requires usage credits\\b)|^─{4,}[ \\t]*\\n[ \\t]*⚠[ \\t]+Usage limit reached · wrapping up\\b"
 # Claude's limit menu ("What do you want to do?" with "1. Stop and wait for
 # limit to reset" and "2. Wait here, then continue automatically at ...") is
 # a limit, not a dialog for anybody to answer. Submitting a turn to an account
@@ -1690,10 +1699,10 @@ limit_menu = "(?m)^[ \\t]{0,6}(?:❯[ \\t]+)?\\d+\\.[ \\t]+(?:Stop and wait for 
 # ..."), and transient capacity errors Claude prints only once its own retries
 # are spent ("API Error: Repeated 529 Overloaded errors", "API Error: Server
 # is temporarily limiting requests (not your usage limit)", the high-demand
-# notice). Those sit under the tool-result marker. "Automatic continue stopped
-# · your login changed or ended" is a system line of its own and must be the
-# whole row.
-error_line = "(?m)^[ \\t]*⎿[ \\t]+(?:Not logged in · (?:Please run|Run) /login|Please run /login · |Authentication required · Sign in again|OAuth token revoked · Please run /login|Login expired · (?:Please run|Run) /login|Login reached its time limit · Please run /login|Failed to authenticate: (?:OAuth token revoked|this login reached its time limit)|API Error: (?:Repeated 529 Overloaded errors|Server is temporarily limiting requests \\(not your usage limit\\))|We are experiencing high demand for |(?:Opus|Fable) is experiencing high load)|^[●⏺][ \\t]+Automatic continue stopped · your login changed or ended · send a prompt to continue[ \\t]*$"
+# notice). Those sit under the tool-result marker, at Claude's own indent.
+# "Automatic continue stopped · your login changed or ended" is a system line
+# of its own and must be the whole row.
+error_line = "(?m)^  ⎿  (?:Not logged in · (?:Please run|Run) /login|Please run /login · |Authentication required · Sign in again|OAuth token revoked · Please run /login|Login expired · (?:Please run|Run) /login|Login reached its time limit · Please run /login|Failed to authenticate: (?:OAuth token revoked|this login reached its time limit)|API Error: (?:Repeated 529 Overloaded errors|Server is temporarily limiting requests \\(not your usage limit\\))|We are experiencing high demand for |(?:Opus|Fable) is experiencing high load)|^[●⏺][ \\t]+Automatic continue stopped · your login changed or ended · send a prompt to continue[ \\t]*$"
 # claude draws this over the last content row while its own viewport is
 # parked above the live bottom
 scrolled_line = "Jump to bottom \\(ctrl\\+End\\)"
@@ -1840,8 +1849,12 @@ busy_line = "↓ \\d+ (?:shells?|subagents?)"
 # The only "⚠" row opencode 2.3.2 draws in a transcript is its retry banner
 # ("⚠ Retrying in 5s · attempt 2 · <error>"), and the error it names can be a
 # limit's wording while the turn is still retrying, so a row led by it is not
-# a limit; the turn stays working.
-limit_line = "(?im)^[ \\t]*(?:[^ \\t⚠\\n][^\\n]*?)?(?:requires more credits|(?:Usage|Free|Go) limit reached|You've reached the spend limit for)"
+# a limit; the turn stays working. retry_line covers the same banner wrapped
+# in a narrow pane, where the limit's words land on a row of their own. The
+# spend-limit notice must open its row, so a reply that ends on those words
+# does not read as one.
+limit_line = "(?im)^[ \\t]*(?:(?:[^ \\t⚠\\n][^\\n]*?)?(?:requires more credits|(?:Usage|Free|Go) limit reached)|You've reached the spend limit for)"
+retry_line = "^[ \\t]*⚠[ \\t]+Retrying in\\b"
 # The permission overlay steps its options with the horizontal arrows
 # ("ctrl+f fullscreen  ⇆ select  enter confirm"), so the arrows belong to the
 # pane there. A question dialog instead names "↑↓ select" -- "⇆ tab" only where

@@ -1,0 +1,12 @@
+  ┃  Summarise the changes.
+  ┃
+
+   ⚠ Retrying in 5s · attempt 2 · Free
+     usage limit reached. Connect a
+     provider or subscribe to OpenCode
+     Go to keep going, or switch models.
+
+  ┃
+  ┃  Build auto · DeepSeek V4 Pro (New)
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt

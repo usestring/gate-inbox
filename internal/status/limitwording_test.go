@@ -81,26 +81,33 @@ func TestCLIErrorWordingIsErroredNotALimit(t *testing.T) {
 }
 
 // OpenCode's retry banner names the error it is retrying, which can carry a
-// limit's wording; the turn is still running, so it stays working.
+// limit's wording; the turn is still running, so it stays working. A narrow
+// pane wraps the limit's words onto a row of their own below the "⚠" row.
 func TestOpencodeRetryBannerStaysWorking(t *testing.T) {
 	engine := defaultEngine(t)
-	pane := readFixture(t, "opencode-2.3.2-retrying.txt")
-	if got, _ := engine.Match("opencode", pane); got != Working {
-		t.Fatalf("Match() = %q, want %q", got, Working)
-	}
-	if got := engine.LimitBanner("opencode", pane); got != "" {
-		t.Fatalf("LimitBanner() = %q, want none", got)
+	for _, fixture := range []string{"opencode-2.3.2-retrying.txt", "opencode-2.3.2-retrying-wrapped.txt"} {
+		t.Run(fixture, func(t *testing.T) {
+			pane := readFixture(t, fixture)
+			if got, _ := engine.Match("opencode", pane); got != Working {
+				t.Fatalf("Match() = %q, want %q", got, Working)
+			}
+			if got := engine.LimitBanner("opencode", pane); got != "" {
+				t.Fatalf("LimitBanner() = %q, want none", got)
+			}
+		})
 	}
 }
 
 // The same words elsewhere are not the CLI saying them: a reply bullet, a
-// markdown list in a reply, a tool result followed by a reply, and a banner
-// in an older turn with a newer turn below it. None may read errored, or a
+// markdown list in a reply, an indented quote or code block in a reply, a
+// tool result followed by a reply, a banner in an older turn with a newer
+// turn below it, and a draft in the composer. None may read errored, or a
 // healthy session would be moved or flagged.
 func TestCLIWordingQuotedIsNotErrored(t *testing.T) {
 	engine := defaultEngine(t)
 	rule := strings.Repeat("─", 80)
-	claudeTail := "\n✻ Worked for 3s · done 5:31 PM\n\n" + rule + "\n❯ \n" + rule + "\n"
+	claudeBox := rule + "\n❯ \n" + rule + "\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
+	claudeTail := "\n✻ Worked for 3s · done 5:31 PM\n\n" + claudeBox
 	codexTail := "\n  Worked for 3s · 17:31\n\n› Ask Codex to do anything\n"
 	quoted := []string{
 		"You're out of usage credits. Switch to another model to continue.",
@@ -124,7 +131,14 @@ func TestCLIWordingQuotedIsNotErrored(t *testing.T) {
 		"codex popup title in a reply":       {"codex", "• The popup read:\n\n  You've reached your workspace credit limit\n  Usage limit reached\n" + codexTail},
 		"codex limit as a reply bullet":      {"codex", "• Usage limit reached on the other workspace, so I stayed here.\n" + codexTail},
 		"codex failure quoted in a list":     {"codex", "• The log shows:\n  1. ■ exceeded retry limit, last status: 429 Too Many Requests\n  2. ■ You hit your spend cap set in your workspace.\n\n• Both are from yesterday.\n" + codexTail},
-		"opencode spend limit in a reply":    {"opencode", "     The docs say that once a model's budget is spent opencode shows a notice\n     about the spend limit for it.\n     Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s\n  ┃\n  ╹▀▀▀▀"},
+		// The wrap-up footer counts only right below the input box: a reply
+		// whose last row is its text, finished or still running, and a draft
+		// in the composer are not it.
+		"claude wrap-up text ends a reply":      {"claude", "● The footer will read:\n\n  ⚠ Usage limit reached · wrapping up · limit resets 9:40pm\n" + claudeTail},
+		"claude wrap-up text ends a live reply": {"claude", "● The footer will read:\n\n  ⚠ Usage limit reached · wrapping up · limit resets 9:40pm\n\n✻ Compiling… (12s · ↓ 1.1k tokens)\n\n" + claudeBox},
+		"claude wrap-up text in the composer":   {"claude", "● Done.\n" + "\n✻ Worked for 3s · done 5:31 PM\n\n" + rule + "\n❯ check this footer:\n  ⚠ Usage limit reached · wrapping up · limit resets 9:40pm\n" + rule + "\n"},
+		"opencode spend limit ends a reply":     {"opencode", "     If the budget runs out, opencode says You've reached the spend limit for this model.\n     Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s\n  ┃\n  ╹▀▀▀▀"},
+		"opencode spend limit in a reply":       {"opencode", "     The docs say that once a model's budget is spent opencode shows a notice\n     about the spend limit for it.\n     Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s\n  ┃\n  ╹▀▀▀▀"},
 	}
 	// Claude draws "● Automatic continue stopped · ..." as a system line under
 	// the same marker a reply wears, so a reply that is that exact row is not
@@ -137,6 +151,10 @@ func TestCLIWordingQuotedIsNotErrored(t *testing.T) {
 		cases["claude reply list "+string(rune('a'+i))] = struct{ tool, pane string }{"claude", "● The pane showed:\n\n  1. " + line + "\n  2. Nothing else.\n" + claudeTail}
 		cases["claude tool result "+string(rune('a'+i))] = struct{ tool, pane string }{"claude", "● Bash(cat notes.txt)\n  ⎿  " + line + "\n\n● That is an old note; nothing is wrong.\n" + claudeTail}
 		cases["claude older turn "+string(rune('a'+i))] = struct{ tool, pane string }{"claude", "  ⎿  " + line + "\n\n❯ carry on\n\n● Carrying on with the review.\n" + claudeTail}
+		// A reply quoting the tool-result row inside a code block, as the last
+		// thing it says: deeper than Claude's own two-column indent.
+		cases["claude code block quote "+string(rune('a'+i))] = struct{ tool, pane string }{"claude", "● The log ends:\n\n    ⎿  " + line + "\n" + claudeTail}
+		cases["claude fenced quote "+string(rune('a'+i))] = struct{ tool, pane string }{"claude", "● The log ends:\n\n  ```\n    ⎿  " + line + "\n  ```\n" + claudeTail}
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

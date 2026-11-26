@@ -988,6 +988,9 @@ const (
 // edited by hand keeps what its author wrote.
 const arrowDialogNavigateOnly = `(?i)\x{B7} [^\x{B7}\n]*(?:Arrow keys|\x{2190}|\x{2192})[^\x{B7}\n]* to navigate\b`
 
+// codexActivityCutoffWithoutQueue predates the follow-up preview above the composer.
+const codexActivityCutoffWithoutQueue = `(?m)^(?:[ \t\x{2800}-\x{28ff}]*\n)*›`
+
 // codexTurnEndRuleOnly, codexChromeLineMCPOnly and codexWorkingNoHints are
 // the codex patterns shipped before codex 0.154 moved the turn end to a dim
 // label under the reply and 0.157 parked hint rows above the composer. A
@@ -1101,7 +1104,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	fill(&user.DialogStepRow, def.DialogStepRow)
 	fill(&user.DialogStepEntry, def.DialogStepEntry)
 	if name == "codex" {
-		if user.ActivityCutoff == `(?m)^›` {
+		if user.ActivityCutoff == `(?m)^›` || user.ActivityCutoff == codexActivityCutoffWithoutQueue {
 			user.ActivityCutoff = def.ActivityCutoff
 		}
 		if user.ChromeLine == `^\s*─*\s*$` || user.ChromeLine == codexChromeLineMCPOnly {
@@ -1879,9 +1882,10 @@ fork_command = "codex fork {id}"
 # fallback: resumes the most recent session in the working directory
 revive_command = "codex resume --last"
 default_status = "idle"
-# The animated composer paints Braille dots above its input row; those redraws
-# are not agent output and must stay outside the activity fingerprint.
-activity_cutoff = "(?m)^(?:[ \\t\\x{2800}-\\x{28ff}]*\\n)*›"
+# Codex draws queued follow-ups and Braille animation above its composer.
+# Keep both out of the activity region so they cannot hide the spinner,
+# look like transcript output, or turn queued text into a dialog signal.
+activity_cutoff = '(?m)^(?:• Queued[ \t\n]+follow-up[ \t\n]+inputs[ \t]*\n  [↳?][^\n]*\n(?:  [↳?][^\n]*\n|    [^\n]*\n|[ \t]*\n)*)?(?:[ \t\x{2800}-\x{28ff}]*\n)*›'
 input_line = "^›"
 # Codex 0.153 separates turns with a full-width horizontal rule, drawn as the
 # next turn opens, and no longer draws the "─ Worked for 12s ─" summary older

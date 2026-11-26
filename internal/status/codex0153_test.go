@@ -142,3 +142,25 @@ func TestCodexHookReviewHoldsDelivery(t *testing.T) {
 		t.Errorf("quoted hook-review legend holds a normal composer: %q", got)
 	}
 }
+
+func TestCodexStatusWithQueuedFollowUps(t *testing.T) {
+	engine := codexEngine(t)
+	queue := "\n• Queued follow-up inputs\n  ↳ Review the result\n    ⇧← edit last queued message\n"
+	composer := "\n› Ask Codex to do anything\n"
+	for _, tc := range []struct{ name, pane, want string }{
+		{"active turn", "• Working (12s • esc to interrupt)\n" + queue + composer, Working},
+		{"wrapped preview", "• Working (12s • esc to interrupt)\n  └ Reading output\n\n" +
+			"• Queued follow-up\n  inputs\n  ↳ Review the result\n\n    Include the summary\n  ↳ Run the tests\n" + composer, Working},
+		{"finished turn", "• Done.\n\n  4:20 AM\n" + queue + composer, Finished},
+		{"waiting dialog", "• Working (12s • esc to interrupt)\n" + queue +
+			"\n› 1. Yes, proceed (y)\n  Press enter to confirm or esc to cancel\n", Waiting},
+		{"queued text quoting a dialog", "• Working (12s • esc to interrupt)\n" +
+			strings.Replace(queue, "Review the result", "Press enter to confirm", 1) + composer, Working},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, matched := engine.Match("codex", tc.pane); got != tc.want || !matched {
+				t.Fatalf("status = %q, matched=%v; want %q", got, matched, tc.want)
+			}
+		})
+	}
+}

@@ -185,12 +185,16 @@ func TestLoadDirUpgradesCodexComposerPatterns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, custom := range []bool{false, true} {
+	for _, tc := range []struct {
+		cutoff, chrome string
+		custom         bool
+	}{
+		{`(?m)^›`, `^\s*─*\s*$`, false},
+		{`(?m)^(?:[ \t\x{2800}-\x{28ff}]*\n)*›`, codexChromeLineMCPOnly, false},
+		{"^custom prompt", "^custom chrome", true},
+	} {
 		dir := t.TempDir()
-		cutoff, chrome := `(?m)^›`, `^\s*─*\s*$`
-		if custom {
-			cutoff, chrome = `^custom prompt`, `^custom chrome`
-		}
+		cutoff, chrome := tc.cutoff, tc.chrome
 		raw := "[tools.codex]\nactivity_cutoff = '" + cutoff + "'\nchrome_line = '" + chrome + "'\n"
 		if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(raw), 0o644); err != nil {
 			t.Fatal(err)
@@ -199,12 +203,12 @@ func TestLoadDirUpgradesCodexComposerPatterns(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !custom {
+		if !tc.custom {
 			cutoff, chrome = defaults.Tools["codex"].ActivityCutoff, defaults.Tools["codex"].ChromeLine
 		}
 		got := cfg.Tools["codex"]
 		if got.ActivityCutoff != cutoff || got.ChromeLine != chrome {
-			t.Fatalf("custom=%v: cutoff=%q chrome=%q; want %q, %q", custom, got.ActivityCutoff, got.ChromeLine, cutoff, chrome)
+			t.Fatalf("custom=%v: cutoff=%q chrome=%q; want %q, %q", tc.custom, got.ActivityCutoff, got.ChromeLine, cutoff, chrome)
 		}
 	}
 }

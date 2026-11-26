@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
@@ -47,6 +48,26 @@ type ToolAccounts struct {
 	AccountsCommand string   `json:"accounts_command,omitempty"`
 	Accounts        []string `json:"accounts"`
 	Problem         string   `json:"problem,omitempty"`
+	// States and Suggested are the build's account advisor's, when it has
+	// one: see extension.AccountAdvisor.
+	States    map[string]AccountState `json:"states,omitempty"`
+	Suggested string                  `json:"suggested,omitempty"`
+}
+
+// AccountState is one account's state as the build's advisor reads it.
+type AccountState struct {
+	Spent bool `json:"spent,omitempty"`
+	// Until is when a spent account takes sessions again, when known.
+	Until   time.Time     `json:"until,omitzero"`
+	Reason  string        `json:"reason,omitempty"`
+	Windows []UsageWindow `json:"windows,omitempty"`
+}
+
+// UsageWindow is one usage window's reading.
+type UsageWindow struct {
+	Name     string    `json:"name"`
+	Used     float64   `json:"used_percent"`
+	ResetsAt time.Time `json:"resets_at,omitzero"`
 }
 
 // ListAccounts is Accounts as data.
@@ -89,11 +110,69 @@ func accountsFor(name string, spec config.Tool) ToolAccounts {
 	if names != nil {
 		answer.Accounts = names
 	}
+	if len(answer.Accounts) == 0 {
+		return answer
+	}
+	if advice, ok := accounts.Advise(spec, name, answer.Accounts); ok {
+		answer.Suggested = advice.Suggested
+		for _, account := range answer.Accounts {
+			state, known := advice.Accounts[accounts.Normalize(account)]
+			if !known {
+				continue
+			}
+			if answer.States == nil {
+				answer.States = map[string]AccountState{}
+			}
+			answer.States[account] = accountState(state)
+		}
+	}
 	return answer
+}
+
+func accountState(state extension.AccountState) AccountState {
+	out := AccountState{Spent: state.Spent, Reason: state.Reason, Until: state.Until}
+	for _, window := range state.Windows {
+		out.Windows = append(out.Windows, UsageWindow{Name: window.Name, Used: window.Used, ResetsAt: window.ResetsAt})
+	}
+	return out
+}
+
+// accountLine is one account in list_accounts: its name, and what the
+// build's advisor knows of it, so an agent choosing one can skip the spent
+// ones. at is the time resets are told against.
+func accountLine(tool ToolAccounts, name string, at time.Time) string {
+	line := name
+	state, known := tool.States[name]
+	if known {
+		var parts []string
+		if state.Spent {
+			parts = append(parts, accounts.DescribeSpent(extension.AccountState{Spent: true, Until: state.Until, Reason: state.Reason}, at))
+		} else if state.Reason != "" {
+			parts = append(parts, state.Reason)
+		}
+		for _, window := range state.Windows {
+			part := fmt.Sprintf("%s %.0f%%", window.Name, window.Used)
+			if !window.ResetsAt.IsZero() {
+				part += " resets " + window.ResetsAt.UTC().Format("01-02 15:04 UTC")
+			}
+			parts = append(parts, part)
+		}
+		if len(parts) > 0 {
+			line += "  " + strings.Join(parts, "; ")
+		}
+	}
+	if tool.Suggested != "" && accounts.Normalize(name) == tool.Suggested {
+		line += "  (suggested)"
+	}
+	return line
 }
 
 // FormatAccounts writes list the way list_accounts answers.
 func FormatAccounts(list AccountList) string {
+	return formatAccountsAt(list, time.Now())
+}
+
+func formatAccountsAt(list AccountList, at time.Time) string {
 	var b strings.Builder
 	for _, tool := range list.Tools {
 		switch {
@@ -102,7 +181,14 @@ func FormatAccounts(list AccountList) string {
 		case len(tool.Accounts) == 0:
 			fmt.Fprintf(&b, "%s: no accounts found by %q\n", tool.Tool, tool.AccountsCommand)
 		default:
-			fmt.Fprintf(&b, "%s (%d, from %q):\n%s\n", tool.Tool, len(tool.Accounts), tool.AccountsCommand, strings.Join(tool.Accounts, "\n"))
+			lines := make([]string, len(tool.Accounts))
+			for i, name := range tool.Accounts {
+				lines[i] = accountLine(tool, name, at)
+			}
+			fmt.Fprintf(&b, "%s (%d, from %q):\n%s\n", tool.Tool, len(tool.Accounts), tool.AccountsCommand, strings.Join(lines, "\n"))
+			if spent := spentCount(tool); spent > 0 {
+				fmt.Fprintf(&b, "%d of them spent: a new session named onto a spent account is launched on another account, or refused when there is none.\n", spent)
+			}
 		}
 		if list.Tool == "" {
 			b.WriteString("\n")
@@ -117,13 +203,27 @@ func FormatAccounts(list AccountList) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+func spentCount(tool ToolAccounts) int {
+	n := 0
+	for _, state := range tool.States {
+		if state.Spent {
+			n++
+		}
+	}
+	return n
+}
+
 // Accounts is ListAccounts against this layer's config, for the CLI.
 func (s *Sessions) Accounts(tool string) (AccountList, error) {
 	return ListAccounts(s.configDir, tool)
 }
 
-func (r *runtime) accountOr(named, toolName string, tool config.Tool, sessionID string, reason extension.LaunchReason) (string, error) {
-	return accounts.Select(r.store, tool, named, accounts.Request{SessionID: sessionID, ToolName: toolName, Reason: reason})
+// accountOr is the account a launch runs on, and, when that is not the one
+// named, why: a new session named onto a spent account goes to the
+// chooser's pick instead (see accounts.Select).
+func (r *runtime) accountOr(named, toolName string, tool config.Tool, sessionID string, reason extension.LaunchReason) (account, note string, err error) {
+	account, err = accounts.Select(r.store, tool, named, accounts.Request{SessionID: sessionID, ToolName: toolName, Reason: reason, Warn: func(why string) { note = why }})
+	return account, note, err
 }
 
 // SwitchAccount migrates a Claude context over its tier's account-switch

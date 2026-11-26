@@ -80,6 +80,12 @@ type Session struct {
 	LaunchedAt time.Time `json:"-"`
 	// ReplacedBy reaches extensions only, as Role does.
 	ReplacedBy string `json:"-"`
+	// AccountNote is filled in only by create_session, when the session
+	// runs on another account than the one named because that one is spent.
+	// It reaches the caller in the result's text line (FormatSession) rather
+	// than as a schema field: Session is the output schema of most tools,
+	// and every session's tool list would carry the field for a rare note.
+	AccountNote string `json:"-"`
 	// Permissions is only filled in by a list, which reads every grant in
 	// one query; see grant.go.
 	Permissions []string `json:"permissions,omitempty" jsonschema:"permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true"`
@@ -926,7 +932,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 
-	account, err := runtime.accountOr(opts.Account, toolName, tool, id, extension.LaunchSpawn)
+	account, accountNote, err := runtime.accountOr(opts.Account, toolName, tool, id, extension.LaunchSpawn)
 	if err != nil {
 		return Session{}, err
 	}
@@ -1022,6 +1028,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	// directory on its first turn -- so the caller is told the directory it
 	// asked for rather than the one the pane opened in.
 	info.Directory = sess.Cwd
+	info.AccountNote = accountNote
 	return info, nil
 }
 

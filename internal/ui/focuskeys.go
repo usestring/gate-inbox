@@ -202,8 +202,9 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mode = modeFocus
-	if m.triageWarm.id == sess.ID {
-		m.triageWarm = triageWarm{}
+	delete(m.triageWarm.launched, sess.ID)
+	if m.triageWarm.failedID == sess.ID {
+		m.triageWarm.failedID = ""
 	}
 	m.lastInteractionAt = time.Now()
 	// Recorded here rather than at the top: every guard above returns

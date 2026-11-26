@@ -203,9 +203,7 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeFocus
 	delete(m.triageWarm.launched, sess.ID)
-	if m.triageWarm.failedID == sess.ID {
-		m.triageWarm.failedID = ""
-	}
+	delete(m.triageWarm.failed, sess.ID)
 	m.lastInteractionAt = time.Now()
 	// Recorded here rather than at the top: every guard above returns
 	// without a pane on screen, and a refusal must not count as a session

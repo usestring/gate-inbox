@@ -44,6 +44,7 @@ func (m *Model) settleHibernated() tea.Cmd {
 		return nil
 	}
 	sensitivity := m.hibernateSensitivity()
+	m.triageWarm.sensitivity = sensitivity
 	memory := m.snap
 	sweep := m.hibernateSweepDue(sensitivity, time.Now())
 	m.hibernating = true

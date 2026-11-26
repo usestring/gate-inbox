@@ -19,21 +19,34 @@ func NormalizeHibernateSensitivity(value string) string {
 	}
 }
 
+func hibernateMemoryPolicy(sensitivity string) (bytesPerSession uint64, pressureAt float64) {
+	switch sensitivity {
+	case "low":
+		return 1 << 29, 90
+	case "high":
+		return 2 << 30, 70
+	default:
+		return 1 << 30, 80
+	}
+}
+
+// HibernateWakeSlots estimates how many speculative starts fit below the
+// memory threshold. The sweep's live-session estimate cannot tell how much
+// memory the agents already running are actually using.
+func HibernateWakeSlots(sensitivity string, memory sysstat.Snapshot, limit int) int {
+	if sensitivity == "off" || !memory.MemOK || memory.MemTotal == 0 {
+		return limit
+	}
+	perSession, pressureAt := hibernateMemoryPolicy(sensitivity)
+	available := float64(memory.MemTotal) * max(0, pressureAt-memory.MemPercent) / 100
+	return min(limit, int(available/float64(perSession)))
+}
+
 func hibernateBudget(sensitivity string, memory sysstat.Snapshot, active int) int {
-	sensitivity = NormalizeHibernateSensitivity(sensitivity)
 	if sensitivity == "off" || !memory.MemOK || memory.MemTotal == 0 {
 		return active
 	}
-	perSession := uint64(1 << 30)
-	pressureAt := 80.0
-	switch sensitivity {
-	case "low":
-		perSession /= 2
-		pressureAt = 90
-	case "high":
-		perSession *= 2
-		pressureAt = 70
-	}
+	perSession, pressureAt := hibernateMemoryPolicy(sensitivity)
 	// Reserve half the machine for the OS and other applications; session count estimates demand.
 	budget := max(1, int(memory.MemTotal/2/perSession))
 	if memory.MemPercent >= pressureAt {

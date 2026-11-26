@@ -2669,7 +2669,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agents = msg.agents
 		m.queuedMessages = msg.queuedMessages
 		m.hibernated = msg.hibernated
-		m.reconcileTriageWarm(msg.listedAt)
+		m.reconcileTriageWarm(msg.listedAt, msg.snapOK)
 		m.granted = msg.granted
 		m.compactWindows = msg.compactWindows
 		m.archivedChildren = msg.archivedChildren

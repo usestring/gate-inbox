@@ -58,6 +58,8 @@ type Options struct {
 	// the order their tools are registered. The slice is the whole set:
 	// nothing registers itself.
 	Extensions []extension.Extension
+	// ActiveWork adds shared claims to the experimental launch overlap check.
+	ActiveWork extension.ActiveWorkSource
 	// BuildInfo describes the executable.
 	BuildInfo BuildInfo
 	// ConfigDefaults is config.toml text laid under the operator's own file
@@ -150,7 +152,7 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	accounts.UseChooser(chooserOf(registry))
 	sessionhooks.Use(sessionHooksOf(registry))
 	sessionhooks.UseSessions(&spawnReader{})
-	table := subcommands(ctx, version, opts.Extensions)
+	table := subcommands(ctx, version, opts.Extensions, opts.ActiveWork)
 	extra, err := extensionCommands(opts.Extensions, table)
 	if err != nil {
 		return err
@@ -389,7 +391,7 @@ func mcpSteering(args []string) (string, mcpserver.Profile, error) {
 // subcommands is every verb other than the board itself. "mcp" is the one
 // extensions reach today: it is handed the build's set and registers the
 // tools of whichever ones the operator's config switches on.
-func subcommands(ctx context.Context, version string, extensions []extension.Extension) map[string]func(args []string) error {
+func subcommands(ctx context.Context, version string, extensions []extension.Extension, activeWork extension.ActiveWorkSource) map[string]func(args []string) error {
 	table := map[string]func(args []string) error{
 		"mcp": withConfigDir(func(args []string, sessionID, configDir string) error {
 			steering, profile, err := mcpSteering(args)
@@ -411,7 +413,7 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 		return runOpencodeServe(ctx, args)
 	}
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
-		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
+		return cli.RunHookContext(ctx, os.Stdin, os.Stdout, args, sessionID, configDir)
 	})
 	// host is the worker entry point for another board over SSH.
 	table["host"] = func(args []string) error {
@@ -434,7 +436,7 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 		if err != nil {
 			return err
 		}
-		return mcpserver.ServeShared(ctx, dir, version, extensions)
+		return mcpserver.ServeShared(ctx, dir, version, extensions, activeWork)
 	}
 	table["mcp-relay"] = func(args []string) error {
 		dir, err := config.Dir()

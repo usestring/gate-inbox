@@ -33,6 +33,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/piext"
+	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
@@ -216,6 +217,15 @@ func TypesPrompt(tool config.Tool, prompt string) bool {
 		}
 	}
 	return false
+}
+
+// WithLaunchOverlap queues Codex's opening prompt so the board has published
+// the pane for the shared-daemon hook before the prompt reaches it.
+func WithLaunchOverlap(tool config.Tool, enabled bool) config.Tool {
+	if enabled && tool.SessionStore == "codex" {
+		tool.PromptMode = "send"
+	}
+	return tool
 }
 
 // WithPrompt appends the first prompt to a tool's command, using the
@@ -825,6 +835,9 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	register := mcpreg.PreviewProfile
 	if write {
 		register = mcpreg.ApplyProfile
+		if sharedConfig == "" && (tool.SessionStore == "codex" || tool.StatusSource == hooks.StatusSourceClaude) {
+			configureLaunchOverlap(manager.ConfigDir(), id)
+		}
 		// The launch script writes the agent's exit status here and never
 		// creates the directory itself.
 		if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
@@ -884,6 +897,30 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	// somebody restarted by hand inside its pane. One spelling, so the check
 	// cannot go quietly false by this line changing.
 	return command + " " + hooks.SettingsArgv(tmux.ShellQuote(manager.LaunchSettingsPath(id))), env, nil
+}
+
+func configureLaunchOverlap(configDir, id string) {
+	if !extension.ValidSessionID(id) {
+		return
+	}
+	st, err := store.OpenReadOnly(filepath.Join(configDir, "state.db"))
+	if err != nil {
+		return
+	}
+	enabled := !st.LaunchOverlapSince().IsZero()
+	st.Close()
+	if !enabled {
+		return
+	}
+	// Write the existing per-session caller token before the OS confines the
+	// pane. Its prompt hook can ask the board without reading any board keys.
+	address, err := ensureShared(configDir)
+	if err == nil {
+		_, err = mcpshared.WriteClaudeConfig(configDir, address, "", id)
+	}
+	if err != nil {
+		logging.Warn("launch overlap server unavailable", logging.Err(err))
+	}
 }
 
 // terminalShell is what a terminal's pane runs inside the confinement: its

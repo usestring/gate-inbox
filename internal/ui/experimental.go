@@ -36,6 +36,8 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.jevCopyOn }},
 	{autoGroupSetting, "Auto group", "File a session left at the root into the group its task belongs to, a preset or a new one-off group.\nUses the selected classifier; sends its name, directory and first prompt to that service.",
 		func(s *settingsState) *bool { return &s.autoGroupOn }},
+	{store.LaunchOverlapSetting, "Launch overlap check", "Warn when the first prompt of a new Claude or Codex session looks like active work.\nSends the opening prompt and bounded work descriptions to the selected classifier.",
+		func(s *settingsState) *bool { return &s.launchOverlap }},
 	{reviewQueueSetting, "Review queue", "Fetch the pull requests you were asked to review on GitHub onto a Reviews tab (]).\nRuns on the ingest key only; [integrations.reviews] sets what counts as an ask.",
 		func(s *settingsState) *bool { return &s.reviewQueue }},
 	{store.CIFeedbackSetting, "PR CI feedback", "Return failed CI checks to the live agent that opened the pull request.\nAllows up to two repair prompts until CI passes; requires the GitHub integration.",
@@ -49,6 +51,9 @@ var experiments = []experiment{
 }
 
 func storedExperiment(st *store.Store, setting string) bool {
+	if setting == store.LaunchOverlapSetting {
+		return !st.LaunchOverlapSince().IsZero()
+	}
 	value, err := st.Setting(setting)
 	return err == nil && value == "on"
 }
@@ -65,6 +70,12 @@ func storedArrowsStay(st *store.Store) bool { return storedExperiment(st, arrows
 
 func (m *Model) persistExperiments() {
 	for _, feature := range experiments {
+		if feature.setting == store.LaunchOverlapSetting {
+			if err := m.store.SetLaunchOverlap(*feature.flag(&m.settings), time.Now()); err != nil {
+				m.errBar.text = err.Error()
+			}
+			continue
+		}
 		value := "off"
 		if *feature.flag(&m.settings) {
 			value = "on"

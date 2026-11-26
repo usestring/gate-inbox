@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 const (
@@ -34,6 +36,49 @@ func promptPayload(thread, prompt, cwd string) []byte {
 }
 
 func steeringText() string { return "board steering" }
+
+func TestDispatchCodexBindsOpeningPromptInManagedPane(t *testing.T) {
+	m := NewManager(t.TempDir())
+	pane := tmux.SessionName("c01d1234")
+	if err := m.SyncCodex([]CodexRow{{ID: "c01d1234", Socket: "/s", Pane: pane, Cwd: "/repo"}}); err != nil {
+		t.Fatal(err)
+	}
+	screen := screens{"/s" + pane: codexScreen("Repair the import")}
+	for _, cwd := range []string{"/elsewhere", "/repo"} {
+		raw := promptPayload(threadA, "Repair the import", cwd)
+		if out := m.DispatchCodex("UserPromptSubmit", raw, screen.capture, steeringText); out != "" {
+			t.Fatalf("managed row received adopted steering: %s", out)
+		}
+		id, adopted, ok := m.CodexThreadRow(threadA)
+		if ok != (cwd == "/repo") || (ok && (id != "c01d1234" || adopted)) {
+			t.Fatalf("cwd %s: bound %s, adopted=%v, ok=%v", cwd, id, adopted, ok)
+		}
+	}
+}
+
+// Concurrent launches in one directory open with the same directive, so
+// their first lines match in both panes; the task after it picks the pane.
+func TestDispatchCodexBindsLaunchesSharingADirective(t *testing.T) {
+	m := NewManager(t.TempDir())
+	first, second := tmux.SessionName("c01d1234"), tmux.SessionName("c01d5678")
+	if err := m.SyncCodex([]CodexRow{
+		{ID: "c01d1234", Socket: "/s", Pane: first, Cwd: "/repo"},
+		{ID: "c01d5678", Socket: "/s", Pane: second, Cwd: "/repo"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	const directive = "First, run this exact shell command once, replacing <name> with a short name. Then do the task:"
+	// Codex wraps the message under its "›" row and indents what follows.
+	wrapped := func(task string) string {
+		return codexScreen("First, run this exact shell command once,\n  replacing <name> with a short name. Then\n  do the task:\n\n  " + task)
+	}
+	panes := screens{"/s" + first: wrapped("Repair the import"), "/s" + second: wrapped("Bump the linter")}
+	raw := promptPayload(threadA, directive+"\n\nBump the linter", "/repo")
+	m.DispatchCodex("UserPromptSubmit", raw, panes.capture, steeringText)
+	if id, _, ok := m.CodexThreadRow(threadA); !ok || id != "c01d5678" {
+		t.Fatalf("thread bound to %q ok=%v, want c01d5678", id, ok)
+	}
+}
 
 func additionalContext(t *testing.T, out string) string {
 	t.Helper()

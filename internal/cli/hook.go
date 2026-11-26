@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +18,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpserver"
 	"github.com/usestring/gate-inbox/internal/piext"
 	"github.com/usestring/gate-inbox/internal/pigate"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -23,6 +26,10 @@ import (
 // not a command an agent runs, so it is left out of the help. It always
 // exits 0: a hook that fails must not stand in the child's way.
 func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir string) error {
+	return RunHookContext(context.Background(), in, out, args, sessionID, configDir)
+}
+
+func RunHookContext(ctx context.Context, in io.Reader, out io.Writer, args []string, sessionID, configDir string) error {
 	if len(args) == 2 && args[0] == "codex" {
 		// A codex hook runs in codex's shared daemon, whose environment --
 		// a session id included -- is whichever pane started it. Only the
@@ -31,7 +38,16 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 		if err != nil {
 			return nil
 		}
-		output := hooks.NewManager(configDir).DispatchCodex(args[1], payload, adopt.Capture, codexSteering)
+		manager := hooks.NewManager(configDir)
+		output := manager.DispatchCodex(args[1], payload, adopt.Capture, codexSteering)
+		if args[1] == "UserPromptSubmit" {
+			var event hooks.CodexPayload
+			if json.Unmarshal(payload, &event) == nil {
+				if id, adopted, ok := manager.CodexThreadRow(event.Thread); ok && !adopted {
+					output = hooks.MergeHookOutputs(output, sessioncmd.RequestLaunchOverlap(ctx, configDir, id, event, search.ToolCodex))
+				}
+			}
+		}
 		if output != "" {
 			fmt.Fprintln(out, output)
 		}
@@ -151,6 +167,10 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 			return nil
 		}
 		note, attested := sessioncmd.PromptSubmitHook(configDir, sessionID, payload, time.Now())
+		var event hooks.CodexPayload
+		if json.Unmarshal(payload, &event) == nil {
+			note = hooks.MergeHookOutputs(note, sessioncmd.RequestLaunchOverlap(ctx, configDir, sessionID, event, search.ToolClaude))
+		}
 		if attested {
 			if flag := attestFlag(); flag != "" {
 				_ = os.WriteFile(flag, nil, 0o600)

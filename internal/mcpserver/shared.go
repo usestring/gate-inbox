@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
@@ -29,7 +31,7 @@ const upgradeCheck = 30 * time.Second
 // It is stateless: every request carries its caller, so the server keeps
 // nothing per session, and on an upgrade the new binary can take new
 // requests while this process finishes the ones it holds.
-func ServeShared(ctx context.Context, configDir, version string, extensions []extension.Extension) error {
+func ServeShared(ctx context.Context, configDir, version string, extensions []extension.Extension, activeWork extension.ActiveWorkSource) error {
 	listener, lock, err := mcpshared.Listen(configDir)
 	if errors.Is(err, mcpshared.ErrRunning) {
 		return nil
@@ -38,7 +40,7 @@ func ServeShared(ctx context.Context, configDir, version string, extensions []ex
 		return err
 	}
 	defer lock.Close()
-	shared := &sharedServer{configDir: configDir, version: version, extensions: extensions}
+	shared := &sharedServer{configDir: configDir, version: version, extensions: extensions, activeWork: activeWork}
 	server := &http.Server{Handler: shared.handler(), ReadHeaderTimeout: 10 * time.Second}
 	exe, err := os.Executable()
 	if err != nil {
@@ -83,6 +85,7 @@ type sharedServer struct {
 	configDir  string
 	version    string
 	extensions []extension.Extension
+	activeWork extension.ActiveWorkSource
 
 	mu sync.Mutex
 	// auto is pi's auto-mode classifier, one for the board, so its circuit
@@ -124,7 +127,18 @@ func (s *sharedServer) handler() http.Handler {
 	// Pi's auto mode asks here, so the TypeSafe key is read in this process
 	// and never in pi's process tree.
 	mux.Handle(piauto.Path, s.authorized(piauto.Handler(s.configDir, CallerHeader, s.classifier())))
+	mux.Handle("POST "+sessioncmd.LaunchOverlapPath, s.authorized(http.HandlerFunc(s.launchOverlap)))
 	return mux
+}
+
+func (s *sharedServer) launchOverlap(w http.ResponseWriter, r *http.Request) {
+	var event hooks.CodexPayload
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&event); err != nil {
+		http.Error(w, "invalid opening prompt", http.StatusBadRequest)
+		return
+	}
+	id := strings.TrimSpace(r.Header.Get(CallerHeader))
+	_, _ = io.WriteString(w, sessioncmd.LaunchOverlapHook(r.Context(), s.configDir, id, event, s.activeWork))
 }
 
 // jevEndpointEnv points pi's auto mode at another classifier endpoint, for a

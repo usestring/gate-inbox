@@ -1025,6 +1025,7 @@ type skipPermissions struct{ self, children bool }
 // form fields, which only the new-session form has.
 func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string, form map[string]string, perms skipPermissions, named string) (string, error) {
 	tool := m.cfg.Tools[toolName]
+	tool = launch.WithLaunchOverlap(tool, storedExperiment(m.store, store.LaunchOverlapSetting))
 	id := newID()
 	warning := ""
 	account, err := accounts.Select(m.store, tool, named, accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchSpawn, Warn: func(why string) { warning = why }})

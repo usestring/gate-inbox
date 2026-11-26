@@ -3,12 +3,14 @@ package ui
 import (
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 // The global codex hooks (hooks/codexglobal.go) answer for a thread only
@@ -45,19 +47,27 @@ func (p *poller) syncCodexHooks(sessions []store.Session, panes map[string]int, 
 	}
 	var rows []hooks.CodexRow
 	var parts []string
+	overlapSince := sync.OnceValue(p.store.LaunchOverlapSince)
 	for _, sess := range sessions {
 		if sess.Archived || sess.Status == status.Dead || panes[sess.ID] <= 0 || !p.isCodex(sess) {
 			continue
 		}
 		adopted := sess.TmuxPaneID != ""
+		socket, pane, cwd := sess.TmuxSocket, sess.TmuxPaneID, sess.Cwd
 		if !adopted && sess.AgentSessionID == "" {
-			continue
+			if !sess.LaunchOverlapEligible(overlapSince()) {
+				continue
+			}
+			socket, pane = p.tmux.SocketName(), tmux.SessionName(sess.ID)
+			if live, err := p.tmux.PaneCurrentPath(sess.ID); err == nil && live != "" {
+				cwd = live
+			}
 		}
 		rows = append(rows, hooks.CodexRow{
 			ID: sess.ID, Thread: sess.AgentSessionID, Adopted: adopted,
-			Socket: sess.TmuxSocket, Pane: sess.TmuxPaneID, Cwd: sess.Cwd,
+			Socket: socket, Pane: pane, Cwd: cwd,
 		})
-		parts = append(parts, sess.ID+"@"+sess.AgentSessionID+"@"+sess.TmuxSocket+sess.TmuxPaneID+"@"+sess.Cwd)
+		parts = append(parts, sess.ID+"@"+sess.AgentSessionID+"@"+socket+"@"+pane+"@"+cwd)
 	}
 	slices.Sort(parts)
 	key := strings.Join(parts, ",")

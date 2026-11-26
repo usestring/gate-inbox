@@ -1,6 +1,9 @@
 package extension
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // AccountChooserProvider is an extension that decides which named account a
 // launch runs on when nobody named one. The core itself only ever launches
@@ -60,6 +63,70 @@ type AccountRequest struct {
 // in AccountRequest.Exclude. err says why, in one line.
 type AccountUnavailableReporter interface {
 	AccountUnavailable(ctx context.Context, req AccountRequest, account string, err error)
+}
+
+// AccountAdvisor is implemented by an AccountChooser that knows what state
+// each account is in: which ones its provider would refuse right now, until
+// when, and how much of each usage window is used. list_accounts shows it
+// beside each name, so an agent picking an account has something to pick
+// with, and a new session that names an account the advisor reports spent
+// does not launch there: the core asks the chooser for another account
+// instead, and refuses the launch with the account's reset when the chooser
+// has none.
+//
+// It is called while a caller waits, from the board, a CLI command and every
+// session's MCP server, so it must answer from what it already knows and be
+// safe for concurrent use. An error leaves the accounts shown without state
+// and the named account launched on as named.
+type AccountAdvisor interface {
+	AdviseAccounts(ctx context.Context, req AdviceRequest) (Advice, error)
+}
+
+// AdviceRequest asks for the state of some of one CLI's accounts.
+type AdviceRequest struct {
+	ToolName string
+	Tool     AccountTool
+	// Accounts are the names asked about, spelled as account_secret takes
+	// them.
+	Accounts []string
+}
+
+// Advice is an AccountAdvisor's answer.
+type Advice struct {
+	// Accounts is each asked-about account the advisor has a reading for,
+	// by name; one it knows nothing about is left out, and is shown and
+	// launched on as if there were no advisor. A reading past its window's
+	// reset is no reading: leave such an account out rather than report it
+	// spent.
+	Accounts map[string]AccountState
+	// Suggested is the account the advisor would launch a new session on
+	// now, "" when it would choose none. It is shown, never launched on by
+	// itself: a launch still asks ChooseAccount.
+	Suggested string
+}
+
+// AccountState is what an advisor knows about one account.
+type AccountState struct {
+	// Spent says the provider would refuse a session on it now.
+	Spent bool
+	// Until is when a spent account is expected to take sessions again;
+	// zero when unknown.
+	Until time.Time
+	// Reason says in a few words why it is spent ("at its weekly limit"),
+	// or anything else an agent choosing it should know.
+	Reason string
+	// Windows are its usage windows, in the order to show them.
+	Windows []UsageWindow
+}
+
+// UsageWindow is one rate-limit window's reading.
+type UsageWindow struct {
+	// Name is the window as the provider names it ("five_hour").
+	Name string
+	// Used is the share of the window used, in percent.
+	Used float64
+	// ResetsAt is when the window resets; zero when unknown.
+	ResetsAt time.Time
 }
 
 // AccountTool is the CLI an account is being chosen for.

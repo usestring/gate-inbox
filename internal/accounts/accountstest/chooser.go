@@ -37,3 +37,33 @@ func (c *Chooser) Requests() []extension.AccountRequest {
 	defer c.mu.Unlock()
 	return append([]extension.AccountRequest(nil), c.requests...)
 }
+
+// Advisor is a Chooser that also advises on accounts, answering every
+// AdviseAccounts with Advice (or Err) and recording what it was asked.
+type Advisor struct {
+	Chooser
+	Advice    extension.Advice
+	AdviceErr error
+
+	adviceMu sync.Mutex
+	asked    []extension.AdviceRequest
+}
+
+// Resolve is the advisor as accounts.UseChooser takes it.
+func (a *Advisor) Resolve() (extension.AccountChooser, error) {
+	return a, nil
+}
+
+func (a *Advisor) AdviseAccounts(_ context.Context, req extension.AdviceRequest) (extension.Advice, error) {
+	a.adviceMu.Lock()
+	defer a.adviceMu.Unlock()
+	a.asked = append(a.asked, req)
+	return a.Advice, a.AdviceErr
+}
+
+// Asked is every AdviseAccounts request, in order.
+func (a *Advisor) Asked() []extension.AdviceRequest {
+	a.adviceMu.Lock()
+	defer a.adviceMu.Unlock()
+	return append([]extension.AdviceRequest(nil), a.asked...)
+}

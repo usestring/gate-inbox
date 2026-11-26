@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/extension"
@@ -117,5 +118,92 @@ func TestSwitchAccountRefusesItsOwnSessionAndNoCaller(t *testing.T) {
 	}
 	if _, err := h.sessions.SwitchAccount("", h.caller.ID, "alice1"); err == nil {
 		t.Fatal("a switch from no session was not refused")
+	}
+}
+
+// A spawn named onto an account the build reports spent launches on the
+// chooser's pick instead, and says so in its result; with no other account
+// it is refused with the reset, and no session is left behind.
+func TestCreateNamedOntoASpentAccount(t *testing.T) {
+	reset := time.Now().Add(3 * time.Hour).UTC().Truncate(time.Minute)
+	advisor := &accountstest.Advisor{
+		Chooser: accountstest.Chooser{Account: "alice1"},
+		Advice:  extension.Advice{Accounts: map[string]extension.AccountState{"BOB2": {Spent: true, Until: reset, Reason: "at its weekly limit"}}},
+	}
+	t.Cleanup(accounts.UseChooser(advisor.Resolve))
+	h := newSessionHarness(t)
+	moved, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "redirected", Tool: "claude", Account: "bob2"})
+	if err != nil || moved.Account != "ALICE1" {
+		t.Fatalf("Create = %+v %v, want it on ALICE1", moved, err)
+	}
+	if row, err := h.store.Get(moved.ID); err != nil || row.Account != "ALICE1" {
+		t.Fatalf("row account = %q %v", row.Account, err)
+	}
+	if !strings.Contains(moved.AccountNote, "account BOB2 is spent until "+reset.Format("2006-01-02 15:04 UTC")) || !strings.Contains(moved.AccountNote, "launched on ALICE1 instead") {
+		t.Fatalf("account note = %q", moved.AccountNote)
+	}
+	if line := FormatSession(moved); !strings.Contains(line, "as ALICE1") || !strings.Contains(line, "(account BOB2 is spent") {
+		t.Fatalf("result line = %q", line)
+	}
+	reqs := advisor.Requests()
+	if len(reqs) != 1 || len(reqs[0].Exclude) != 1 || reqs[0].Exclude[0] != "BOB2" || reqs[0].Reason != extension.LaunchSpawn {
+		t.Fatalf("chooser asked %+v", reqs)
+	}
+
+	advisor.Account = "bob2"
+	before, err := h.store.ListSessions(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "refused", Tool: "claude", Account: "bob2"}); err == nil || !strings.Contains(err.Error(), "spent until") {
+		t.Fatalf("a spawn onto a spent account with no alternative was not refused: %v", err)
+	}
+	if after, err := h.store.ListSessions(true); err != nil || len(after) != len(before) {
+		t.Fatalf("a refused spawn left rows behind: %d then %d (%v)", len(before), len(after), err)
+	}
+}
+
+// list_accounts shows what the build's advisor knows of each account.
+func TestListAccountsShowsTheAdvisorsState(t *testing.T) {
+	reset := time.Date(2026, 11, 22, 14, 30, 0, 0, time.UTC)
+	advisor := &accountstest.Advisor{Advice: extension.Advice{
+		Accounts: map[string]extension.AccountState{"alice1": {Spent: true, Until: reset, Reason: "at its weekly limit", Windows: []extension.UsageWindow{
+			{Name: "five_hour", Used: 12.4, ResetsAt: reset.Add(-time.Hour)},
+			{Name: "seven_day", Used: 100, ResetsAt: reset},
+		}}},
+		Suggested: "ALICE1",
+	}}
+	t.Cleanup(accounts.UseChooser(advisor.Resolve))
+	h := newSessionHarness(t)
+	list, err := h.sessions.Accounts("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := list.Tools[0]
+	state, ok := tool.States["ALICE1"]
+	if !ok || !state.Spent || !state.Until.Equal(reset) || len(state.Windows) != 2 || tool.Suggested != "ALICE1" {
+		t.Fatalf("list = %+v", list)
+	}
+	got := formatAccountsAt(list, reset.Add(-2*time.Hour))
+	// The header line names the harness's accounts_command; the rest is the advisor's.
+	_, got, _ = strings.Cut(got, "\n")
+	want := `ALICE1  spent until 2026-11-22 14:30 UTC (in 2h0m0s): at its weekly limit; five_hour 12% resets 11-22 13:30 UTC; seven_day 100% resets 11-22 14:30 UTC  (suggested)
+1 of them spent: a new session named onto a spent account is launched on another account, or refused when there is none.
+`
+	if got != want {
+		t.Fatalf("list_accounts =\n%s\nwant\n%s", got, want)
+	}
+}
+
+// Without an advisor list_accounts is the names alone, as before.
+func TestListAccountsWithoutAnAdvisorIsNamesOnly(t *testing.T) {
+	t.Cleanup(accounts.UseChooser((&accountstest.Chooser{}).Resolve))
+	h := newSessionHarness(t)
+	list, err := h.sessions.Accounts("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, got, _ := strings.Cut(FormatAccounts(list), "\n"); got != "ALICE1\n" {
+		t.Fatalf("list_accounts = %q", got)
 	}
 }

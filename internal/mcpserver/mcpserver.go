@@ -98,7 +98,7 @@ type createSessionArgs struct {
 	PromptFile string  `json:"prompt_file,omitempty" jsonschema:"absolute path of a file holding the first task, used instead of prompt when the brief is long; the server reads it, so write the brief once and name it here"`
 	Tool       string  `json:"tool,omitempty" jsonschema:"agent CLI to run, such as claude, codex or opencode; defaults to the CLI this session runs, and is required when this session is a terminal; call list_sessions to see which are in use"`
 	Model      string  `json:"model,omitempty" jsonschema:"model that CLI should run on, in whatever names it uses (claude: sonnet, opus, haiku, plus the 1M-context opus[1m] and sonnet[1m]; opencode: provider/model); call list_models for the names a CLI accepts rather than guessing one, since an unknown name is refused by the CLI and the session dies on launch; omit for the CLI's own default"`
-	Account    string  `json:"account,omitempty" jsonschema:"optional named account from list_accounts; omit to follow the board's launch-account setting (the CLI's own login unless the build's extension chooses); a child does not inherit its parent's account; a named account requires a CLI that accepts a token"`
+	Account    string  `json:"account,omitempty" jsonschema:"optional named account from list_accounts; omit to follow the board's launch-account setting (the CLI's own login unless the build's extension chooses); a child does not inherit its parent's account; a named account requires a CLI that accepts a token; one the build knows is spent is replaced by the build's choice, named in the result's text, or refused with its reset when there is none"`
 	Group      *string `json:"group,omitempty" jsonschema:"existing group path for a detached session (nest false) to sit in; pass an empty string for the root group; a nested session is always in this agent's group and refuses any other; call list_groups for the existing ones"`
 	Directory  string  `json:"directory,omitempty" jsonschema:"existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set; a group that pins its directory (list_groups pinned) starts the session there and hands it this one to change into, unless directory_reason is given"`
 	// DirectoryReason opts one launch out of its group's pinned directory.
@@ -618,7 +618,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_accounts",
-		Description: "Call before passing an account to create_session, to find the named accounts a CLI can be launched on instead of guessing one; omit account to follow the board's launch-account setting. An explicit account stays pinned. " +
+		Description: "Call before passing an account to create_session, to find the named accounts a CLI can be launched on instead of guessing one; omit account to follow the board's launch-account setting. An explicit account stays pinned, unless the build knows it is spent. " +
+			"Where the build can tell, each name carries its state: spent until when, how much of each usage window is used, and which account the build suggests; prefer omitting account, else the suggested one, and never name a spent one. " +
 			"Each name is a long-lived token in a secret store; a session launched on one spends that account's usage window rather than the operator's own login. " +
 			"Names one CLI's accounts when tool is given, and every configured CLI that can take one when it is omitted; a CLI that cannot says so here rather than at spawn time.",
 		Annotations: mcptool.Annotations(true, false, false),

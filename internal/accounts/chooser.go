@@ -98,9 +98,11 @@ type Request struct {
 	ToolName  string
 	Reason    extension.LaunchReason
 	From      string
-	// Warn, when set, is told in one line why the launch falls back to the
-	// CLI's own login after the chooser's picks proved unavailable:
-	// "account CAROL3 is unavailable: its secret version is disabled".
+	// Warn, when set, is told in one line why the launch runs somewhere
+	// other than asked: on the CLI's own login after the chooser's picks
+	// proved unavailable ("account CAROL3 is unavailable: its secret version
+	// is disabled"), or on the chooser's pick because the account named is
+	// spent (see avoidSpent).
 	Warn func(string)
 }
 
@@ -127,7 +129,12 @@ func selectAccount(st *store.Store, tool config.Tool, named string, req Request,
 		return named, nil
 	}
 	if named = Normalize(named); named != "" {
-		return named, nil
+		if req.Reason != extension.LaunchSpawn {
+			// A relaunch or replacement keeps the account its conversation is on;
+			// moving it off a spent one is a migration's call, not a launch's.
+			return named, nil
+		}
+		return avoidSpent(tool, named, req, preview)
 	}
 	mode, err := Mode(st)
 	if err != nil || mode == Own {
@@ -140,7 +147,7 @@ func selectAccount(st *store.Store, tool config.Tool, named string, req Request,
 	if chooser == nil {
 		return "", ErrNoChooser
 	}
-	return ask(chooser, tool, req, preview)
+	return ask(chooser, tool, req, preview, nil)
 }
 
 // Route is the account a migration runs on. A migration never names one:
@@ -164,7 +171,7 @@ func route(tool config.Tool, req Request, preview bool) (string, error) {
 	if err != nil || chooser == nil {
 		return "", err
 	}
-	return ask(chooser, tool, req, preview)
+	return ask(chooser, tool, req, preview, nil)
 }
 
 // ask is the chooser's pick for a launch, checked before the launch commits
@@ -175,13 +182,9 @@ func route(tool config.Tool, req Request, preview bool) (string, error) {
 // a warning. A preview reads no secret and only skips accounts already found
 // unavailable. A read that fails any other way leaves the pick standing, and
 // the launch's own read reports it.
-func ask(chooser extension.AccountChooser, tool config.Tool, req Request, preview bool) (string, error) {
-	return askExcluding(chooser, tool, req, preview, nil, nil)
-}
-
-// askExcluding is ask starting from accounts already found unavailable,
-// last being why the newest of them was.
-func askExcluding(chooser extension.AccountChooser, tool config.Tool, req Request, preview bool, excluded []string, last error) (string, error) {
+func ask(chooser extension.AccountChooser, tool config.Tool, req Request, preview bool, exclude []string) (string, error) {
+	excluded := slices.Clone(exclude)
+	var last error
 	for range maxPicks {
 		chosen, err := askOnce(chooser, tool, req, preview, excluded)
 		if err != nil && len(excluded) > 0 {
@@ -250,7 +253,17 @@ func Relaunch(tool config.Tool, account string, req Request) (string, error) {
 		reporter.AccountUnavailable(ctx, request(tool, req, false, excluded), account, err)
 		cancel()
 	}
-	return askExcluding(chooser, tool, req, false, excluded, err)
+	// ask warns only for picks it found unavailable itself; a relaunch that
+	// lands on the own login because the row's account is gone says why too.
+	warned := false
+	if warn := req.Warn; warn != nil {
+		req.Warn = func(why string) { warned = true; warn(why) }
+	}
+	chosen, askErr := ask(chooser, tool, req, false, excluded)
+	if askErr == nil && chosen == "" && !warned && req.Warn != nil {
+		req.Warn(err.Error())
+	}
+	return chosen, askErr
 }
 
 func request(tool config.Tool, req Request, preview bool, excluded []string) extension.AccountRequest {

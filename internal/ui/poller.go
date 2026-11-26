@@ -1211,6 +1211,15 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err := flushRowState(); err != nil {
 		return errMsg{err}
 	}
+	inPass := make(map[string]bool, len(sessions))
+	for _, sess := range sessions {
+		if !sess.Archived {
+			inPass[sess.ID] = true
+		}
+	}
+	if err := p.withdrawDepartedChildDialogs(inPass, now); err != nil {
+		return errMsg{err}
+	}
 	// Only now, with the dead status stored: the store drops a queue only
 	// for a row that reads dead, so a pane a restart is relaunching keeps
 	// what was sent to it.

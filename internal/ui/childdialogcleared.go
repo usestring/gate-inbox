@@ -54,7 +54,12 @@ func (p *poller) childDialogCleared(sess store.Session, relay *childDialogRelay,
 	if relay == nil || len(relay.questions) == 0 {
 		return nil
 	}
-	parent, ok, err := p.relayTarget(sess)
+	// An account move or a replacement archives the row the relay came
+	// from, which is exactly when its relay has to go, so an archived child
+	// still has its relay withdrawn; relayTarget alone would refuse it.
+	withdrawing := sess
+	withdrawing.Archived = false
+	parent, ok, err := p.relayTarget(withdrawing)
 	if err != nil || !ok {
 		return err
 	}
@@ -62,7 +67,7 @@ func (p *poller) childDialogCleared(sess store.Session, relay *childDialogRelay,
 	if err != nil {
 		return ignoreDeletedSession(err)
 	}
-	dismissed := p.dismissParentAsk(parent, relay.questions)
+	dismissed := p.dismissParentAsk(parent, relay.questions, p.siblingQuestions(parent.ID, sess.ID))
 	if dropped > 0 && !dismissed {
 		// The parent never saw it and is not asking it: nothing to undo.
 		logging.Info("withdrew an unread child-dialog relay", "session", sess.ID, "parent", parent.ID)
@@ -90,6 +95,55 @@ func (p *poller) childDialogCleared(sess store.Session, relay *childDialogRelay,
 			"session", sess.ID, "parent", parent.ID, "dismissed", dismissed, logging.Err(err))
 	}
 	return nil
+}
+
+// withdrawDepartedChildDialogs withdraws the relays of children the pass no
+// longer visits. seen holds every session the pass looked at. A child moved
+// to another account, replaced, or archived drops out of the pass, so it
+// never again reaches watchChildDialog to have its dialog read as cleared.
+// Without this its relay stayed queued, or its parent stayed on its copy,
+// for as long as the board ran.
+func (p *poller) withdrawDepartedChildDialogs(seen map[string]bool, now time.Time) error {
+	for id, relay := range p.childDialogs {
+		if seen[id] {
+			continue
+		}
+		delete(p.childDialogs, id)
+		sess, err := p.store.Get(id)
+		if err != nil {
+			if err := ignoreDeletedSession(err); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := p.childDialogCleared(sess, relay, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// screenQuestions is what a parent relayed a screen dialog asks its user:
+// the question of the AskUserQuestion input the relay hands it, and the
+// dialog's own prompt for a parent that copied the screen by hand. A screen
+// relay needs these as much as a question does: without them nothing could
+// tell the parent's copy of it, and its clearing was never withdrawn.
+func screenQuestions(sess store.Session, pane string, saved ...string) []dialog.Question {
+	screen, ask, ok := childScreen(sess, pane, saved...)
+	if !ok {
+		return nil
+	}
+	var out []dialog.Question
+	if ask != nil {
+		for _, q := range ask.Questions {
+			out = append(out, dialog.Question{Header: q.Header, Question: q.Question})
+		}
+	}
+	prompt := strings.TrimSpace(logging.ScrubWrapped(screen.Prompt()))
+	if prompt != "" && !askingAnyOf([]dialog.Question{{Question: prompt}}, out) {
+		out = append(out, dialog.Question{Question: prompt})
+	}
+	return out
 }
 
 // childDialogClearedSubject labels the notice that a relayed dialog cleared.
@@ -126,7 +180,8 @@ var clearedNoticeLimits = func() store.InboxLimits {
 func clearedNotice(sess store.Session, questions []dialog.Question, answers map[string]string, dismissed bool) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "%s (session %s) is no longer on the dialog relayed to you earlier: it was answered "+
-		"at its pane, on the board, or by another relay. Do not put it to your user, and do not call "+
+		"at its pane, on the board, or by another relay, or the child left it by restarting, moving to "+
+		"another account or ending. Do not put it to your user, and do not call "+
 		"answer_session for it.", sess.Name, sess.ID)
 	if dismissed {
 		out.WriteString(" Your own question to your user asking the same thing was still open, so Gate " +
@@ -191,9 +246,25 @@ func childRegisteredAnswers(sess store.Session, relay *childDialogRelay) map[str
 	return nil
 }
 
+// siblingQuestions are the questions still relayed to parentID by children
+// other than childID. Two children can stop on the same screen, whose prompt
+// names neither, so the parent's copy of one reads the same as the other's.
+func (p *poller) siblingQuestions(parentID, childID string) []dialog.Question {
+	var out []dialog.Question
+	for id, relay := range p.childDialogs {
+		if id == childID || relay == nil || relay.parentID != parentID {
+			continue
+		}
+		out = append(out, relay.questions...)
+	}
+	return out
+}
+
 // dismissParentAsk presses Escape on parent's own question dialog when its
-// screen shows one of relayed, unanswered, and reports whether it did.
-func (p *poller) dismissParentAsk(parent store.Session, relayed []dialog.Question) bool {
+// screen shows one of relayed, unanswered, and reports whether it did. It
+// leaves a question that is also one of siblings alone: the parent may be
+// asking it for a child that is still waiting on it.
+func (p *poller) dismissParentAsk(parent store.Session, relayed, siblings []dialog.Question) bool {
 	k := p.keyer()
 	if k == nil || parent.Status != status.Waiting {
 		return false
@@ -206,6 +277,10 @@ func (p *poller) dismissParentAsk(parent store.Session, relayed []dialog.Questio
 	target.PendingAskFile = p.pendingAskFile(parent)
 	reading, ok := dialog.ReadQuestions(parent.Tool, pane, asks.PendingQuestions(target))
 	if !ok || !askingAnyOf(reading.Questions, relayed) {
+		return false
+	}
+	if askingAnyOf(reading.Questions, siblings) {
+		logging.Info("left a parent's question open: a sibling still waits on the same one", "parent", parent.ID)
 		return false
 	}
 	if err := k.SendKeys(parent.ID, "Escape"); err != nil {

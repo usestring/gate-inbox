@@ -669,8 +669,8 @@ func (m *Model) viewFooter() string {
 	}
 	if m.mode == modeCleared {
 		var pairs [][2]string
-		if m.focusedID != "" {
-			pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.LastPane), "last pane"})
+		if key := m.clearedBackCap(); m.focusedID != "" && key != "" {
+			pairs = append(pairs, [2]string{key, "last pane"})
 		}
 		return m.transientFooter(legendSection{quiet: true, pairs: pairs})
 	}

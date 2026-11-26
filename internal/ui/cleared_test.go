@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
@@ -87,6 +88,31 @@ func TestBackFromInboxZeroReturnsToTheLastFocusedPane(t *testing.T) {
 				t.Fatalf("second back focused %q, want earlier", got)
 			}
 		})
+	}
+}
+
+func TestPrintableBackBindingDoesNotInterruptInboxZeroDraft(t *testing.T) {
+	m := drainedBoard(t)
+	m.noteFocused("busy")
+	keys, problems := keymap.New(keymap.Overrides{
+		keymap.ContextList: {keymap.LastPane: {"l"}},
+	})
+	if len(problems) > 0 {
+		t.Fatalf("could not remap list Back: %v", problems)
+	}
+	m.keys = keys
+	m.typeInto(t, "he")
+
+	_, cmd := m.Update(key("l"))
+	m.applyCmd(t, cmd)
+	if got := m.form.prompt.input.Value(); m.mode != modeCleared || got != "hel" {
+		t.Fatalf("typing l left mode %v and draft %q, want Inbox Zero and hel", m.mode, got)
+	}
+
+	_, cmd = m.Update(key("alt+;"))
+	m.applyCmd(t, cmd)
+	if got := lastPaneName(t, m); got != "busy" {
+		t.Fatalf("Back chord focused %q, want busy", got)
 	}
 }
 

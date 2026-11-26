@@ -872,6 +872,10 @@ func (s *Sessions) stopPane(runtime *runtime, target store.Session, pane, reason
 // slot is the relaunch queue's turn, taken (see pace) before anything was
 // changed, so a session waiting for it went on running as it was.
 func (s *Sessions) restart(runtime *runtime, target store.Session, slot launchpace.Slot) (config.Tool, error) {
+	if err := relaunchable(target); err != nil {
+		slot.Cancel()
+		return config.Tool{}, err
+	}
 	if err := runtime.store.SetAgentLaunchedAt(target.ID, time.Now()); err != nil {
 		slot.Cancel()
 		return config.Tool{}, err
@@ -883,11 +887,31 @@ func (s *Sessions) restart(runtime *runtime, target store.Session, slot launchpa
 	return s.relaunch(runtime, target, "", slot)
 }
 
+// errDirectoryGone is why a session whose working directory has been
+// removed cannot be relaunched.
+var errDirectoryGone = errors.New("working directory no longer exists")
+
+// relaunchable refuses a restart that relaunch would refuse after the pane
+// was already ended. relaunch checks the working directory, but a restart
+// ends the pane first, so a session whose directory had been removed was
+// left dead instead of restarted. Checking before anything is ended leaves
+// it running as it was.
+func relaunchable(target store.Session) error {
+	if _, err := resolveTerminalDirectory(target.Cwd); err != nil {
+		return fmt.Errorf("%w: %s; the session was left running as it was", errDirectoryGone, target.Cwd)
+	}
+	return nil
+}
+
 // restartAdopted is restart for a session adopted from outside the board.
 // Its pane is gone once it ends, so it comes back as a board session on its
 // own conversation, launched with its settings file -- which is the resume a
 // sandbox or domain grant needed.
 func (s *Sessions) restartAdopted(runtime *runtime, target store.Session, slot launchpace.Slot) (config.Tool, error) {
+	if err := relaunchable(target); err != nil {
+		slot.Cancel()
+		return config.Tool{}, err
+	}
 	if err := runtime.store.SetAgentLaunchedAt(target.ID, time.Now()); err != nil {
 		slot.Cancel()
 		return config.Tool{}, err

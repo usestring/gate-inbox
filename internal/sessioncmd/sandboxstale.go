@@ -454,6 +454,15 @@ func (s *Sessions) RestartStaleSandboxes(now time.Time) (int, error) {
 		if target.Status == status.Working || target.Status == status.Background {
 			continue
 		}
+		// The restart ends the pane before the relaunch checks the
+		// directory, so one whose directory is gone would be left dead. No
+		// later pass can restart it either: its flag is dropped and it is
+		// reported once.
+		if err := relaunchable(target); err != nil {
+			_ = removeFlag(flag)
+			errs = append(errs, err)
+			continue
+		}
 		// A busy relaunch queue leaves the flag for the next pass: the
 		// session waits at its prompt, still stale, rather than piling
 		// another launch onto the machine.

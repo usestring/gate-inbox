@@ -13,7 +13,8 @@ import (
 func drainedBoard(t *testing.T) *Model {
 	t.Helper()
 	m := buildModel(t)
-	liveTriageFleet(t, m, map[string]string{"busy": status.Working})
+	adoptForeignPane(t, m, "busy", "busy", status.Working)
+	loadStoredRows(t, m)
 	m.applyCmd(t, m.toggleTriage())
 	if m.mode != modeCleared {
 		t.Fatalf("a drained queue left mode %v, want the inbox-cleared pane", m.mode)
@@ -25,7 +26,14 @@ func drainedBoard(t *testing.T) *Model {
 // the screen the way the new-session form does.
 func TestTheClearedPaneDrawsBesideTheList(t *testing.T) {
 	m := drainedBoard(t)
+	m.selectSessionRow(t, "busy")
 	frame := ansi.Strip(m.frame())
+	if strings.Contains(frame, selectionBorder.Left) {
+		t.Fatalf("the rail shows a selected row while the prompt has focus:\n%s", frame)
+	}
+	if strings.Contains(ansi.Strip(m.viewFooter()), "attach") {
+		t.Fatal("the footer offers actions on a session while the prompt has focus")
+	}
 	if !strings.Contains(frame, "inbox zero") || !strings.Contains(frame, `\o/`) {
 		t.Fatalf("the frame does not show the congratulations:\n%s", frame)
 	}
@@ -39,6 +47,46 @@ func TestTheClearedPaneDrawsBesideTheList(t *testing.T) {
 	}
 	if strings.Contains(frame, "children") || strings.Contains(frame, "perms") {
 		t.Fatalf("the pane draws the full form's fields:\n%s", frame)
+	}
+}
+
+func TestBackFromInboxZeroReturnsToTheLastFocusedPane(t *testing.T) {
+	for _, chord := range []string{"ctrl+l", "alt+;"} {
+		t.Run(chord, func(t *testing.T) {
+			m := buildModel(t)
+			adoptForeignPane(t, m, "earlier", "earlier", status.Working)
+			adoptForeignPane(t, m, "last", "last", status.Working)
+			loadStoredRows(t, m)
+			focusRow(t, m, "earlier")
+			m.leaveFocusForFixture(t)
+			focusRow(t, m, "last")
+			m.leaveFocusForFixture(t)
+			setStatus(t, m, "earlier", status.Working)
+			setStatus(t, m, "last", status.Working)
+			loadStoredRows(t, m)
+			m.selectSessionRow(t, "last")
+			last, _ := m.selected()
+			m.mute(last)
+			m.applyCmd(t, m.toggleTriage())
+			if m.mode != modeCleared {
+				t.Fatalf("draining left mode %v, want inbox zero", m.mode)
+			}
+
+			_, cmd := m.Update(key(chord))
+			m.applyCmd(t, cmd)
+			if got := lastPaneName(t, m); got != "last" {
+				t.Fatalf("back focused %q, want last", got)
+			}
+			if m.isMuted(last) {
+				t.Fatal("back left the reopened session muted")
+			}
+
+			_, cmd = m.Update(key(chord))
+			m.applyCmd(t, cmd)
+			if got := lastPaneName(t, m); got != "earlier" {
+				t.Fatalf("second back focused %q, want earlier", got)
+			}
+		})
 	}
 }
 

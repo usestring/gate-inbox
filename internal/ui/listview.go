@@ -277,8 +277,7 @@ func (m *Model) railLines(width, height int) []contentLine {
 	// answer "what is this" before the dock answers "how loaded is the
 	// machine".
 	var opening []contentLine
-	// The Reviews tab has no selected session for it to describe.
-	if tier == dockFull && !m.onReviewsTab() {
+	if tier == dockFull && !m.onReviewsTab() && m.mode != modeCleared {
 		block := m.sessionDetailLines(width)
 		for _, line := range m.promptLines(width) {
 			block = append(block, contentLine{text: line})
@@ -652,6 +651,7 @@ func (m *Model) filterBadgeLines() []string {
 // edge column matches.
 func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentLine {
 	boxed := m.cursorBoxed()
+	isSelected := func(i int) bool { return m.mode != modeCleared && offset+i == m.cursor }
 	render := func(entry treeRow, selected bool, index int, tone string) string {
 		if !boxed || height < m.entryHeight(entry)+2 {
 			return m.renderTreeRowContent(entry, selected, width, index, tone)
@@ -663,7 +663,7 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 	if rest := rowsBelowRoot(rows); len(rest) == 0 {
 		var lines []contentLine
 		for i, entry := range rows {
-			for _, line := range splitLines(render(entry, m.cursor == offset+i, offset+i, panelHex())) {
+			for _, line := range splitLines(render(entry, isSelected(i), offset+i, panelHex())) {
 				lines = append(lines, contentLine{text: line})
 			}
 		}
@@ -679,7 +679,7 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 	for i := range heights {
 		headers[i] = m.extensionHeaderLines(rows[i], width, offset+i)
 		heights[i] = m.entryHeight(rows[i]) + len(headers[i])
-		if boxed && offset+i == m.cursor && height >= heights[i]+2 && width >= 4 {
+		if boxed && isSelected(i) && height >= heights[i]+2 && width >= 4 {
 			heights[i] += 2
 		}
 	}
@@ -699,7 +699,7 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 
 	var lines []contentLine
 	for i := start; i < end; i++ {
-		selected := offset+i == m.cursor
+		selected := isSelected(i)
 		entry := rows[i]
 		// The cursor's entry is marked by its box rather than a fill; a row
 		// being renamed lifts onto the band, behind the field being typed, and
@@ -1608,6 +1608,9 @@ func (m *Model) buildComputerLines(width int) []string {
 }
 
 func (m *Model) selectedTokenUsage() (search.TokenUsage, bool) {
+	if m.mode == modeCleared {
+		return search.TokenUsage{}, false
+	}
 	sess, ok := m.selected()
 	if !ok || m.isShell(sess.Tool) {
 		return search.TokenUsage{}, false

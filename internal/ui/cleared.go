@@ -93,6 +93,14 @@ func (m *Model) dismissCleared() {
 var clearedPassThrough = []keymap.Action{keymap.Triage, keymap.ReviewsTab, keymap.TriageContent}
 
 func (m *Model) handleClearedKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.isAction(keymap.ContextList, keymap.LastPane, msg) ||
+		(msg.Mod&(tea.ModCtrl|tea.ModAlt) != 0 && m.isAction(keymap.ContextFocus, keymap.LastPane, msg)) {
+		model, cmd := m.focusBack()
+		if m.mode == modeFocus {
+			m.form.prompt.release()
+		}
+		return model, cmd
+	}
 	// A board can have nothing local to launch or triage and still have
 	// remote sessions to open. Leave an in-progress launch prompt alone.
 	if len(m.cfg.Hosts) > 0 && m.clearedYields() &&

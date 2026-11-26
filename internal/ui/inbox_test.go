@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/notify"
@@ -1509,7 +1510,7 @@ func TestEnvelopeQuotesAnAttestationInsideTheSeal(t *testing.T) {
 		AnsweredAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	got := p.seal(sess, msg, "envelope")
+	got := p.seal(sess, msg, p.withAttestation(msg, "envelope"))
 	text, _, _, ok := parentseal.Split(got)
 	if !ok || !strings.Contains(text, "[gate-inbox relay attestation NONCE9]") || !strings.Contains(text, `answered "Yes"`) {
 		t.Fatalf("attestation not quoted above the seal:\n%s", got)
@@ -1611,5 +1612,59 @@ func TestDraftBackOffCapsAtTheMaximum(t *testing.T) {
 	m.poller.mu.Unlock()
 	if left := time.Until(got.retryAt); left < draftRetryMax-time.Second || left > draftRetryMax {
 		t.Fatalf("after %d failures the wait is %v, want %v", got.failures, left, draftRetryMax)
+	}
+}
+
+// A message to a claude the board launched goes quietly: the pane gets one
+// pointer line, and the full text waits in the store for the
+// recipient's prompt hook. A message too long for a hook note, and one to an
+// adopted pane, which never got the board's hooks, are typed in whole.
+func TestEnvelopeDeliversQuietlyToALaunchedClaude(t *testing.T) {
+	p, sess := newTestPollerWithSession(t)
+	p.mcpStyles = map[string]string{"claude": "claude"}
+	p.quietMessages = true
+	sess.Tool = "claude"
+	queue := func(body string) store.InboxMessage {
+		t.Helper()
+		msg := store.InboxMessage{SessionID: sess.ID, SenderID: "sender01", SenderName: "lead", Body: body,
+			Fingerprint: fmt.Sprint(time.Now().UnixNano()), SentAt: time.Now()}
+		id, _, err := p.store.Enqueue(msg, store.DefaultInboxLimits)
+		if err != nil {
+			t.Fatal(err)
+		}
+		msg.ID = id
+		return msg
+	}
+
+	msg := queue("rebase on main and rerun the census")
+	got := p.envelope(sess, msg)
+	if got != parentseal.QuietPointer("sender01", "lead", msg.ID) {
+		t.Fatalf("the pane gets more than the one pointer line:\n%s", got)
+	}
+	if id, ok := parentseal.ParseQuietPointer(got); !ok || id != msg.ID {
+		t.Fatalf("the hook cannot read message %d off the pointer:\n%s", msg.ID, got)
+	}
+	if !strings.HasPrefix(got, band.Tag+" From agent ") {
+		t.Fatalf("the pointer does not open like an agent message, so transcript readers take it for the user:\n%s", got)
+	}
+	kept, ok, err := p.store.QuietText(msg.ID, sess.ID)
+	if err != nil || !ok || !strings.Contains(kept, "rerun the census") || !strings.Contains(kept, "CROSS-SESSION-MESSAGE") {
+		t.Fatalf("the full text was not kept for the hook (%v, %v):\n%s", ok, err, kept)
+	}
+
+	long := queue(strings.Repeat("x", quietTextLimit))
+	if got := p.envelope(sess, long); !strings.Contains(got, strings.Repeat("x", 100)) {
+		t.Fatalf("a message too long for a hook note was not typed whole")
+	}
+
+	adopted := sess
+	adopted.TmuxSocket, adopted.TmuxPaneID = "default", "%7"
+	if got := p.envelope(adopted, queue("adopted body")); !strings.Contains(got, "adopted body") {
+		t.Fatalf("an adopted pane, which has no Gate Inbox hooks, got a pointer:\n%s", got)
+	}
+
+	p.quietMessages = false
+	if got := p.envelope(sess, queue("switched off")); !strings.Contains(got, "switched off") {
+		t.Fatalf("quiet_messages = false still sent a pointer:\n%s", got)
 	}
 }

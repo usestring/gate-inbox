@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/classifier"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -265,6 +266,9 @@ func launchJevTurns(messages []search.Message) []launchJevMessage {
 func isLaunchUserTurn(message search.Message) bool {
 	return message.Role == "user" && strings.TrimSpace(message.Text) != "" &&
 		!strings.Contains(message.Text, crossSessionFence) &&
+		// A message delivered quietly leaves only its pointer line in the
+		// prompt (see quietBody), with no fence to find.
+		!strings.Contains(message.Text, band.Tag+" From agent ") &&
 		!strings.Contains(message.Text, "----GATE-INBOX-NOTICE-") &&
 		!strings.Contains(message.Text, "----EXTENSION-MESSAGE-")
 }

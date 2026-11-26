@@ -62,6 +62,9 @@ type poller struct {
 	statusSources map[string]string
 	sessionStores map[string]string
 	mcpStyles     map[string]string
+	// quietMessages sends an agent's message to a launched claude as a
+	// pointer line, its text in the hook note (config claude_code.quiet_messages).
+	quietMessages bool
 	// shellTools marks the config blocks that open a shell rather than an
 	// agent, so a pass can tell a session's own terminal from a session.
 	shellTools map[string]bool
@@ -2370,23 +2373,69 @@ func (p *poller) envelope(sess store.Session, msg store.InboxMessage) string {
 		ctx = p.messageContext(sess, msg, time.Now())
 	}
 	text := inboxEnvelope(msg, style, taught, ctx)
-	if ctx.Sealable {
-		text = p.seal(sess, msg, text)
+	if !ctx.Sealable {
+		return text
 	}
-	return text
+	text = p.withAttestation(msg, text)
+	if p.quietEligible(sess, style, text) {
+		if quiet, ok := p.quietPointer(sess, msg, text); ok {
+			return quiet
+		}
+	}
+	return p.seal(sess, msg, text)
 }
 
-// seal closes an agent's message with what only Gate Inbox can write: the
-// relay attestation, when the parent attached one, and the seal line the
-// recipient's own hook checks against the store (see parentseal). A seal that
-// cannot be made leaves the message unsealed, which the hook reports as
-// unverified: it costs the message its authority, never its delivery.
-func (p *poller) seal(sess store.Session, msg store.InboxMessage, text string) string {
-	if a, ok, err := p.store.AttestationFor(msg.ID); err != nil {
-		logging.Warn("could not read a message's relay attestation", "message", msg.ID, logging.Err(err))
-	} else if ok {
-		text += "\n\n" + attestationBlock(a)
+// quietTextLimit bounds the full text a quiet delivery hands over in a hook
+// note. Claude Code moves hook output past 10,000 characters into a file and
+// shows the model only a pointer to it; the hook's own verification note
+// (with a relay attestation, the longest it gets is about 1,200) shares the
+// same output. A longer message is typed in whole, as before: about 3% of the
+// 16k delivered on the board this was measured on.
+const quietTextLimit = 8000
+
+// quietEligible reports whether a message to sess can go quietly: a one-line
+// pointer in the pane and the full text in its UserPromptSubmit hook's note.
+// That needs Gate Inbox's hook, so only a Claude Code session the board
+// launched qualifies: an adopted pane never got Gate Inbox's plugin.
+func (p *poller) quietEligible(sess store.Session, style, text string) bool {
+	return p.quietMessages && p.hooks != nil && style == "claude" && sess.TmuxPaneID == "" &&
+		len(text) <= quietTextLimit
+}
+
+// quietPointer keeps text for sess's hook and returns the pointer line typed
+// in its place (see parentseal.QuietPointer). ok is false when the text
+// cannot be kept, and the message is then typed in whole: quiet delivery is a
+// courtesy to whoever reads the pane, never a reason a message does not
+// arrive.
+func (p *poller) quietPointer(sess store.Session, msg store.InboxMessage, text string) (string, bool) {
+	if err := p.store.SetQuietText(msg.ID, text); err != nil {
+		logging.Warn("could not keep a message's text for quiet delivery", "session", sess.ID, "message", msg.ID,
+			logging.Err(err))
+		return "", false
 	}
+	return parentseal.QuietPointer(msg.SenderID, msg.SenderName, msg.ID), true
+}
+
+// withAttestation appends the relay attestation the parent attached to msg,
+// if any. It is informational: the recipient's hook quotes the same facts
+// from the store, and only that note counts.
+func (p *poller) withAttestation(msg store.InboxMessage, text string) string {
+	a, ok, err := p.store.AttestationFor(msg.ID)
+	if err != nil {
+		logging.Warn("could not read a message's relay attestation", "message", msg.ID, logging.Err(err))
+		return text
+	}
+	if !ok {
+		return text
+	}
+	return text + "\n\n" + attestationBlock(a)
+}
+
+// seal closes an agent's message with the seal line the recipient's own hook
+// checks against the store (see parentseal). A seal that cannot be made
+// leaves the message unsealed, which the hook reports as unverified: it costs
+// the message its authority, never its delivery.
+func (p *poller) seal(sess store.Session, msg store.InboxMessage, text string) string {
 	if p.hooks == nil {
 		return text
 	}

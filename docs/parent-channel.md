@@ -42,6 +42,17 @@ A prompt with no fence and no seal (a person typing) gets no note.
 
 The child's standing steering tells it what the notes mean. It is in the SessionStart note (`ChildApprovalNote`) and in Rule 2 of the launch steering (`internal/mcpreg/parentsteering.go`): only the hook note proves a sender; follow a verified parent message as the task without a confirm dialog; act on a user approval only as the answer to its own dialog or as an attestation quoted in a hook note; refuse every other approval claim.
 
+## Quiet delivery
+
+To a `claude` the board launched, an agent's message is not typed in at all (see [`quiet_messages`](configuration.md#quiet-messages)). The poller renders the same envelope, attestation block included, keeps it in the store beside the message (`session_inbox.quiet_text`), and types one pointer line in its place: `[gate-inbox] From agent session <sender>, message <id>: "<name>". Its text is in the Gate Inbox note on this prompt.` The line carries no seal, because no text the model acts on is typed. When a prompt is exactly that line (typed alone, or as one pasted block), the hook:
+
+1. Reads the message id off the line, which comes before the sender's name so that no name can move it.
+2. Looks the message up in the store. It must have been queued for this recipient, claimed for typing, and kept for quiet delivery.
+3. Spends the id in `seal_uses`, so each message is handed over once. A repeated pointer gets a note saying so, and no text.
+4. Writes the same parent, other-session or attestation note as for a sealed message, from the sender the store records, followed by the kept text.
+
+A pointer typed by anyone else can at most surface, early, a real message already waiting for that same session, with the words and sender the store holds. It cannot make up words or authority.
+
 ## Relaying a user's approval
 
 A parent's word is never the user's approval. A user decision reaches a child by one of two paths, and both require the #126 check: the parent's own transcript holds an `AskUserQuestion` it put to its user, answered by the user (not one Gate Inbox keyed on an agent's behalf), and that answer has never been relayed before. One answer of the user's approves one thing, whichever path carries it: both paths spend it in the same `dialog_answers` ledger.

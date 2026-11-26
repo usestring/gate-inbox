@@ -564,7 +564,15 @@ type ClaudeCode struct {
 	// against an older Gate Inbox reads its session from its registration,
 	// which in the shared server names none.
 	SharedMCP *bool `toml:"shared_mcp"`
+	// QuietMessages delivers another session's message to a claude the board
+	// launched as one pointer line in its pane, with the full text handed to
+	// the model in its prompt hook's note instead of typed in. Absent means
+	// on; false types every message in whole, as before.
+	QuietMessages *bool `toml:"quiet_messages"`
 }
+
+// QuietMessagesOn reports whether messages to launched claudes go quietly.
+func (c ClaudeCode) QuietMessagesOn() bool { return c.QuietMessages == nil || *c.QuietMessages }
 
 // SetupOn reports whether the board keeps its Claude Code entries registered.
 func (c ClaudeCode) SetupOn() bool { return c.Setup == nil || *c.Setup }

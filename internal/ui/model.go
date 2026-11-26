@@ -1537,6 +1537,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	model.poller.tools = cfg.Tools
 	model.poller.interruptKeys = interruptKeys
 	model.poller.clearInputKeys = clearInputKeys
+	model.poller.quietMessages = cfg.ClaudeCode.QuietMessagesOn()
 	model.poller.compactTools = compactTools
 	model.poller.downgradeDelays = downgradeDelays
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration

@@ -638,6 +638,10 @@ CREATE TABLE IF NOT EXISTS settings (
 		// what is left. Rows finished before it, and every unfinished row,
 		// read ''. See FinishTask.
 		`ALTER TABLE tasks ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
+		// The full text of a message delivered quietly: the pane got a
+		// one-line pointer and the recipient's hook hands the model this.
+		// Empty for a message typed in whole. See quietmail.go.
+		`ALTER TABLE session_inbox ADD COLUMN quiet_text TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {

@@ -42,6 +42,13 @@ setup = false
 shared_mcp = true
 ```
 
+<a id="quiet-messages"></a>`quiet_messages` (default on) delivers another session's message to a `claude` the board launched without typing it into the pane. The pane gets one line naming the sender and the message id, and the session's own `UserPromptSubmit` hook gives the model the full text, fenced as usual, as hook context, which Claude Code shows the model but keeps out of the conversation you scroll. The hook reads the text and the sender from the store, only for the session the message was queued for, and accepts each message id once (see [Parent channel](parent-channel.md#quiet-delivery)). A message whose text runs past 8,000 characters is still typed in whole, because Claude Code moves longer hook output into a file. So is a message from you, from an extension or from Gate Inbox itself, and any message to an adopted pane, a Codex or OpenCode session, or another CLI. `quiet_messages = false` types every message in whole, as before.
+
+```toml
+[claude_code]
+quiet_messages = false
+```
+
 <a id="codex-setup"></a>`[codex]` covers your own Codex config. `setup` (default on) has the board keep two hook entries, `UserPromptSubmit` and `Stop`, in Codex's `config.toml` (under `CODEX_HOME`, or `~/.codex`), on a machine with `codex` installed. That is how a `codex` you started outside the board reports status and hears the board's steering once it is adopted (see [Adopted panes](usage.md#adopted-codex)). The board registers them when it starts and checks them every few minutes, and touches nothing else in the file: comments, your own hooks and Codex's trust records stay byte for byte. Codex asks once to trust new hooks ("Hooks need review"; pick "Trust all and continue"), and the entries' text stays the same across Gate Inbox upgrades, so it does not ask again. `setup = false` makes the board remove them, and so does `gate-inbox codex-hooks uninstall`, which also keeps them out until `gate-inbox codex-hooks install`.
 
 ```toml

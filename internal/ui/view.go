@@ -667,6 +667,13 @@ func (m *Model) viewFooter() string {
 		)
 		return m.transientFooter(legendSection{title: "Focused", pairs: pairs})
 	}
+	if m.mode == modeCleared {
+		var pairs [][2]string
+		if key := m.clearedBackCap(); m.focusedID != "" && key != "" {
+			pairs = append(pairs, [2]string{key, "last pane"})
+		}
+		return m.transientFooter(legendSection{quiet: true, pairs: pairs})
+	}
 	return m.listFooter()
 }
 

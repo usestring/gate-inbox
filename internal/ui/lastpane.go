@@ -1,6 +1,10 @@
 package ui
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"slices"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 // Two sessions in a conversation with each other -- a build in one, the
 // agent that broke it in the other -- are the pair an operator crosses most,
@@ -64,7 +68,13 @@ func (m *Model) syncPrevFocus() {
 // on a board where the next key goes into a pane is the one outcome worth
 // a refusal.
 func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
-	if len(m.focusHistory) == 0 {
+	history := m.focusHistory
+	fromCleared := m.mode == modeCleared
+	// Inbox Zero has no focused pane, so Back starts at the most recent visit.
+	if fromCleared && m.focusedID != "" {
+		history = append(slices.Clone(history), m.focusedID)
+	}
+	if len(history) == 0 {
 		m.errBar.text = "no session focused before this one yet"
 		return m, nil
 	}
@@ -92,9 +102,9 @@ func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
 	}
 	m.clearSearch()
 	destIndex, index := -1, -1
-	for i := len(m.focusHistory) - 1; i >= 0; i-- {
-		id := m.focusHistory[i]
-		if id == m.focusedID {
+	for i := len(history) - 1; i >= 0; i-- {
+		id := history[i]
+		if !fromCleared && id == m.focusedID {
 			continue
 		}
 		for r, row := range m.rows {
@@ -128,8 +138,8 @@ func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
 		m.errBar.text = "the sessions you were on before are not on the board"
 		return m, leave
 	}
-	destID := m.focusHistory[destIndex]
-	remaining := append([]string(nil), m.focusHistory[:destIndex]...)
+	destID := history[destIndex]
+	remaining := slices.Clone(history[:destIndex])
 	m.cursor = index
 	m.rebuildRows()
 	result, cmd := m.focusSelected()

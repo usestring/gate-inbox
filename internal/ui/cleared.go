@@ -92,7 +92,34 @@ func (m *Model) dismissCleared() {
 // first need a dismiss. The pane closes and the list handles the key.
 var clearedPassThrough = []keymap.Action{keymap.Triage, keymap.ReviewsTab, keymap.TriageContent}
 
+// Inbox Zero is a text field, so a printable Back binding must still type.
+func clearedBackChord(key string) bool {
+	chord := "+" + key
+	return strings.Contains(chord, "+ctrl+") || strings.Contains(chord, "+alt+")
+}
+
+func (m *Model) clearedBackCap() string {
+	for _, context := range [...]keymap.Context{keymap.ContextList, keymap.ContextFocus} {
+		for _, key := range m.km().Keys(context, keymap.LastPane) {
+			if clearedBackChord(key) {
+				return keymap.Compact(key)
+			}
+		}
+	}
+	return ""
+}
+
 func (m *Model) handleClearedKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := keyName(msg)
+	listAction, _ := m.km().Action(keymap.ContextList, key)
+	focusAction, _ := m.km().Action(keymap.ContextFocus, key)
+	if clearedBackChord(key) && (listAction == keymap.LastPane || focusAction == keymap.LastPane) {
+		model, cmd := m.focusBack()
+		if m.mode == modeFocus {
+			m.form.prompt.release()
+		}
+		return model, cmd
+	}
 	// A board can have nothing local to launch or triage and still have
 	// remote sessions to open. Leave an in-progress launch prompt alone.
 	if len(m.cfg.Hosts) > 0 && m.clearedYields() &&

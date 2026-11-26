@@ -30,8 +30,9 @@ func (m *Model) dismissFocused(sess store.Session) tea.Cmd {
 // mistake is on the queue again rather than merely on screen.
 func (m *Model) focusBack() (tea.Model, tea.Cmd) {
 	before := m.focusedID
+	fromCleared := m.mode == modeCleared
 	next, cmd := m.focusLastPane()
-	if m.focusedID != "" && m.focusedID != before {
+	if m.mode == modeFocus && (fromCleared || m.focusedID != before) {
 		m.unmute(m.focusedID)
 	}
 	return next, cmd

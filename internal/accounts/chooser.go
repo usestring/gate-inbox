@@ -176,8 +176,12 @@ func route(tool config.Tool, req Request, preview bool) (string, error) {
 // unavailable. A read that fails any other way leaves the pick standing, and
 // the launch's own read reports it.
 func ask(chooser extension.AccountChooser, tool config.Tool, req Request, preview bool) (string, error) {
-	var excluded []string
-	var last error
+	return askExcluding(chooser, tool, req, preview, nil, nil)
+}
+
+// askExcluding is ask starting from accounts already found unavailable,
+// last being why the newest of them was.
+func askExcluding(chooser extension.AccountChooser, tool config.Tool, req Request, preview bool, excluded []string, last error) (string, error) {
 	for range maxPicks {
 		chosen, err := askOnce(chooser, tool, req, preview, excluded)
 		if err != nil && len(excluded) > 0 {
@@ -215,6 +219,38 @@ func ask(chooser extension.AccountChooser, tool config.Tool, req Request, previe
 		req.Warn(last.Error())
 	}
 	return "", nil
+}
+
+// Relaunch is the account a session brought back on its own row runs on:
+// the account the row was on, while its secret reads. One whose secret
+// cannot be read (ErrUnavailable) would keep the session from ever coming
+// back, as a parked session stays parked through every unpark, so the
+// chooser is told and asked for another with that account excluded, the way
+// a launch's unavailable pick is (see ask), whatever the launch-account
+// mode. A build with no chooser keeps the error. A read that fails any
+// other way leaves the account, and the launch's own read reports it. The
+// read is handed to the launch, so a relaunch still reads its secret once.
+func Relaunch(tool config.Tool, account string, req Request) (string, error) {
+	account = Normalize(account)
+	if tool.AccountEnv == "" || account == "" {
+		return account, nil
+	}
+	err := Check(tool, account)
+	if !errors.Is(err, ErrUnavailable) {
+		return account, nil
+	}
+	chooser, chooserErr := Chooser()
+	if chooserErr != nil || chooser == nil {
+		return "", err
+	}
+	recordUnavailable(req, account, err)
+	excluded := []string{account}
+	if reporter, ok := chooser.(extension.AccountUnavailableReporter); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), chooseTimeout)
+		reporter.AccountUnavailable(ctx, request(tool, req, false, excluded), account, err)
+		cancel()
+	}
+	return askExcluding(chooser, tool, req, false, excluded, err)
 }
 
 func request(tool config.Tool, req Request, preview bool, excluded []string) extension.AccountRequest {

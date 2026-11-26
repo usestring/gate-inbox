@@ -951,6 +951,19 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	if target, err = promoteDeadAdopted(runtime, target); err != nil {
 		return config.Tool{}, err
 	}
+	// An account whose secret can no longer be read is replaced by the
+	// chooser's pick, so the session comes back rather than failing every
+	// relaunch with the same error.
+	account, err := accounts.Relaunch(tool, target.Account, accounts.Request{SessionID: target.ID, ToolName: target.Tool, Reason: extension.LaunchRelaunch})
+	if err != nil {
+		return config.Tool{}, err
+	}
+	if account != accounts.Normalize(target.Account) {
+		if err := runtime.store.SetAccount(target.ID, account); err != nil {
+			return config.Tool{}, err
+		}
+		target.Account = account
+	}
 	revive, err := launch.ReviveCommand(target.Tool, tool, target.AgentSessionID, target.Model)
 	if err != nil {
 		return config.Tool{}, err

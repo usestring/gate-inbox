@@ -1,0 +1,8 @@
+• Ran go test ./...
+  └ ok  	example.com/project/pkg	0.011s
+
+■ You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again at 3:00 PM.
+
+› Ask Codex to do anything
+
+  gpt-5.5 high · ~/project

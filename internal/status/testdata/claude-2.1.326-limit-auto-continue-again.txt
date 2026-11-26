@@ -1,0 +1,14 @@
+● Usage limit reached · continuing automatically at 11am · esc to cancel
+
+● Bash(go test ./...)
+  ⎿  ok  	example.com/project/pkg	0.011s
+  ⎿  You've hit your 5-hour limit · resets 11am (UTC)
+     /upgrade to increase your usage limit.
+
+● Usage limit reached again · continuing automatically at 11am · esc to cancel
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

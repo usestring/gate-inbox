@@ -24,7 +24,7 @@ func withoutPrefilters(engine *Engine) *Engine {
 			&copied.activityCutoff, &copied.inputLine, &copied.turnEnd,
 			&copied.chromeLine, &copied.blockedLine, &copied.trailingNote,
 			&copied.arrowDialog, &copied.stepRow, &copied.stepEntry,
-			&copied.busyLine, &copied.limitLine, &copied.scrolledLine,
+			&copied.busyLine, &copied.limitLine, &copied.limitMenu, &copied.errorLine, &copied.scrolledLine,
 		} {
 			*field = ungated(*field)
 		}

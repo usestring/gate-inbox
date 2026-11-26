@@ -1,0 +1,8 @@
+• Ran go test ./...
+  └ ok  	example.com/project/pkg	0.011s
+
+■ Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.
+
+› Ask Codex to do anything
+
+  gpt-5.5 high · ~/project

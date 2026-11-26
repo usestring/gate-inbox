@@ -52,3 +52,12 @@ func launchSteering(style string) string {
 	}
 	return steering + "\n" + childReportHeading + "\n\n" + ChildReportNote + "\n"
 }
+
+// LaunchCarriesParentRule reports whether style's launch hands the CLI Rule 2
+// in its standing instructions: codex's developer_instructions, OpenCode's
+// server block and pi's extension all carry launchSteering. Claude Code hears
+// it from its SessionStart hook instead, and an extension-driven CLI only has
+// the MCP server registered, so neither can be assumed to know it.
+func LaunchCarriesParentRule(style string) bool {
+	return style == "codex" || style == "opencode" || style == "pi"
+}

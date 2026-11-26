@@ -2322,11 +2322,22 @@ func inboxEnvelope(msg store.InboxMessage, mcpStyle string, taught bool, ctx mes
 			replyInstruction(msg.SenderID, mcpStyle)
 	}
 	if ctx.FromSpawner {
-		tail += "\n\n" + spawnerInstruction
+		// A launched session that already holds the whole rule, from its
+		// SessionStart note or its launch steering, is not told it again by
+		// a parent that writes thirty times a session.
+		if taught && ctx.ParentRuleShown {
+			tail += "\n\n" + spawnerLine
+		} else {
+			tail += "\n\n" + spawnerInstruction
+		}
 	}
 	return head + contextWords(msg, ctx) + "\n\n" +
 		fence + "\n" + parentseal.Neutralise(textfmt.StripControl(msg.Body)) + "\n" + fence + tail
 }
+
+// spawnerLine is spawnerInstruction for a session whose standing
+// instructions already carry the rule.
+const spawnerLine = "From the session that spawned you: your task, under your standing rules for its messages."
 
 // spawnerInstruction closes a message from the session that spawned and
 // tracks the recipient. Children re-confirmed plain instructions with a
@@ -2359,6 +2370,11 @@ func (p *poller) envelope(sess store.Session, msg store.InboxMessage) string {
 	_, fromExtension := store.ExtensionSender(msg.SenderID)
 	if !store.SpeaksAsOperator(msg.SenderID) && !fromExtension && !store.FromSystem(msg.SenderID) {
 		ctx = p.messageContext(sess, msg, time.Now())
+		// Codex, OpenCode and pi carry the parent rule in their launch
+		// steering. Claude Code hears it from a hook, and only if it had a
+		// spawner when it started or compacted; a row placed under a parent
+		// later did not. An extension-driven CLI is never given it.
+		ctx.ParentRuleShown = mcpreg.LaunchCarriesParentRule(style) || p.hooks.ParentRuleShown(sess.ID)
 	}
 	text := inboxEnvelope(msg, style, taught, ctx)
 	if ctx.Sealable {

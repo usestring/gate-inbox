@@ -781,17 +781,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	release := func() {}
-	metered := !operator && (!runtime.cfg.Tools[caller.Tool].Shell || store.SpawnerOf(caller) != "")
-	approvedExtra := false
-	if metered {
-		approvedExtra, err = runtime.store.FanoutLimitReached(caller.ID)
-		if err != nil {
-			return Session{}, err
-		}
-	}
-	if approvedExtra {
-		release, err = s.confirmExtraLaunch(runtime, caller, opts, time.Now())
-	} else if !operator {
+	if !operator {
 		release, err = s.confirmLaunch(runtime, caller, opts, time.Now())
 	}
 	if err != nil {
@@ -998,19 +988,12 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		launched = err == nil
 		return err
 	}
-	if metered {
-		err = runtime.store.LaunchAgentSession(sess, anchorID, approvedExtra, startPane)
-	} else {
-		err = runtime.store.LaunchSession(sess, startPane)
-	}
+	err = runtime.store.LaunchSessionBeside(sess, anchorID, startPane)
 	if err != nil {
 		if launched {
 			_ = runtime.driver.Kill(sess.ID)
 		}
 		withdraw()
-		if errors.Is(err, store.ErrFanoutLimit) {
-			err = extraLaunchApproval(opts)
-		}
 		return Session{}, err
 	}
 	release = func() {}

@@ -159,31 +159,6 @@ func (s *Sessions) confirmLaunch(runtime *runtime, caller store.Session, opts Cr
 	return none, &LaunchApprovalNeeded{Question: question, Reason: reason}
 }
 
-func extraLaunchApproval(opts CreateSessionOptions) *LaunchApprovalNeeded {
-	question := LaunchQuestion(opts.Name, opts.Prompt)
-	name := strings.TrimSpace(opts.Name)
-	if name == "" {
-		name = "an unnamed session"
-	} else {
-		name = fmt.Sprintf("%q", name)
-	}
-	question.Question = fmt.Sprintf("Launch %s beyond the default limit of %d sub-sessions?", name, store.DefaultFanoutLimit)
-	return &LaunchApprovalNeeded{Question: question, Reason: store.ErrFanoutLimit.Error()}
-}
-
-func (s *Sessions) confirmExtraLaunch(runtime *runtime, caller store.Session, opts CreateSessionOptions, now time.Time) (func(), error) {
-	needed := extraLaunchApproval(opts)
-	id, err := s.spendAnswer(runtime, caller, needed.Question.Question, LaunchOption, now)
-	if errors.Is(err, ErrNotApproved) {
-		needed.Reason += ". " + err.Error()
-		return nil, needed
-	}
-	if err != nil {
-		return nil, err
-	}
-	return s.releaseAnswer(runtime, id), nil
-}
-
 // launchRequestHash marks a ledger row spending a voiced message the user
 // asked for a launch in.
 const launchRequestHash = "launch-request"

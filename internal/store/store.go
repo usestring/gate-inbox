@@ -735,51 +735,51 @@ func (s *Store) SetSetting(key, value string) error {
 }
 
 func (s *Store) CreateSession(sess Session) error {
-	return s.createSession(sess, "", false, unmeteredSpawn, nil)
+	return s.createSession(sess, "", false, nil)
 }
 
 // LaunchSession reserves the row id before exposing its pane to adoption.
 // The callback must not use this Store, whose connection holds the transaction.
 func (s *Store) LaunchSession(sess Session, launch func() error) error {
-	return s.createSession(sess, "", false, unmeteredSpawn, launch)
+	return s.createSession(sess, "", false, launch)
 }
 
 func (s *Store) LaunchSessionBeside(sess Session, anchorID string, launch func() error) error {
-	return s.createSession(sess, anchorID, false, unmeteredSpawn, launch)
+	return s.createSession(sess, anchorID, false, launch)
 }
 
 func (s *Store) LaunchSessionLeaf(sess Session, launch func() error) error {
-	return s.createSession(sess, "", true, unmeteredSpawn, launch)
+	return s.createSession(sess, "", true, launch)
 }
 
 // CreateSessionBeside reads the anchor inside the write transaction, so a
 // placement that lands first decides where the new row goes rather than
 // leaving it behind.
 func (s *Store) CreateSessionBeside(sess Session, anchorID string) error {
-	return s.createSession(sess, anchorID, false, unmeteredSpawn, nil)
+	return s.createSession(sess, anchorID, false, nil)
 }
 
 // CreateSessionLeaf files a row that nothing will ever nest under -- a
 // terminal -- so it may hang off a session that is itself a child.
 func (s *Store) CreateSessionLeaf(sess Session) error {
-	return s.createSession(sess, "", true, unmeteredSpawn, nil)
+	return s.createSession(sess, "", true, nil)
 }
 
 // createSession is the one write all creation entry points share, so
 // it is where the span goes: a row created beside an anchor and a row created
 // at the end of a group cost the same transaction, and splitting them into
 // three span names would only make the total harder to ask for.
-func (s *Store) createSession(sess Session, anchorID string, leaf bool, budget spawnBudgetPolicy, launch func() error) error {
+func (s *Store) createSession(sess Session, anchorID string, leaf bool, launch func() error) error {
 	if !tracing.Enabled() {
-		return s.insertSession(sess, anchorID, leaf, budget, launch)
+		return s.insertSession(sess, anchorID, leaf, launch)
 	}
 	start := time.Now()
-	err := s.insertSession(sess, anchorID, leaf, budget, launch)
+	err := s.insertSession(sess, anchorID, leaf, launch)
 	recordOp("store.CreateSession", start, err, true)
 	return err
 }
 
-func (s *Store) insertSession(sess Session, anchorID string, leaf bool, budget spawnBudgetPolicy, launch func() error) error {
+func (s *Store) insertSession(sess Session, anchorID string, leaf bool, launch func() error) error {
 	if sess.CreatedAt.IsZero() {
 		sess.CreatedAt = time.Now()
 	}
@@ -841,15 +841,7 @@ func (s *Store) insertSession(sess Session, anchorID string, leaf bool, budget s
 	if err != nil {
 		return err
 	}
-	if budget != unmeteredSpawn {
-		if err := chargeSpawnBudget(tx, sess, budget); err != nil {
-			return err
-		}
-	}
 	if sess.MigrationID != "" {
-		if err := inheritSpawnBudget(tx, anchorID, sess.ID); err != nil {
-			return err
-		}
 		var link string
 		if err := tx.QueryRow(`SELECT `+migrationColumn+` FROM sessions WHERE id = ?`, anchorID).Scan(&link); err != nil {
 			return err
@@ -1929,7 +1921,7 @@ func purgeSessionRefs(tx *sql.Tx, id string) error {
 	if _, err := tx.Exec(`DELETE FROM session_ends WHERE session_id = ?`, id); err != nil {
 		return err
 	}
-	return unlinkSpawnBudget(tx, id)
+	return nil
 }
 
 // DeleteChild removes a session only while it still hangs under parentID.

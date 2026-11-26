@@ -154,14 +154,14 @@ func TestCreateSessionReturnsTheDelegatedLaunchApproval(t *testing.T) {
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	const refusal = "launching beyond six sub-sessions requires approval"
+	const refusal = "the user must confirm this voiced launch"
 	script := "#!/bin/sh\necho '" + refusal + "' >&2\nexit " + strconv.Itoa(sessioncmd.LaunchApprovalExitCode) + "\n"
 	if err := os.WriteFile(filepath.Join(bin, "gate-inbox"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(config.HomeEnv, home)
 
-	_, err := createSession(home, "parent01", sessioncmd.CreateSessionOptions{Name: "extra-worker"},
+	_, err := createSession(home, "parent01", sessioncmd.CreateSessionOptions{Name: "standalone"},
 		func(string, sessioncmd.CreateSessionOptions) (sessioncmd.Session, error) {
 			t.Fatal("a delegated refusal fell back to launching in this process")
 			return sessioncmd.Session{}, nil

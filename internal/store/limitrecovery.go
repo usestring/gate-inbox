@@ -10,13 +10,31 @@ import (
 
 const limitRecoveryPrefix = "limit-recovery:"
 
+// LimitRecovery is a session's limit episode: the usage limit, or Codex
+// capacity failure, its pane last showed, kept across manager restarts.
+// internal/limitepisode records and reads it.
 type LimitRecovery struct {
-	Banner          string
-	ResetAt         time.Time
-	LaunchAt        time.Time
+	Banner string
+	// ResetAt is when the banner says the limit lifts, zero when it names no
+	// time the board can read; for a capacity failure, the next retry.
+	ResetAt  time.Time
+	LaunchAt time.Time
+	// AttemptedAt is when the board typed its one continuation in.
 	AttemptedAt     time.Time
 	CapacityDelay   time.Duration `json:",omitempty"`
 	CapacityRetries int           `json:",omitempty"`
+	// Account is the account the banner was raised on, "" for the CLI's own
+	// login. A relaunch keeps it, so a session since moved to another
+	// account reads as off the limit.
+	Account string `json:",omitempty"`
+	// SeenAt is when the board first saw the banner.
+	SeenAt time.Time `json:",omitzero"`
+	// Replayed says the banner on screen is one an earlier launch already
+	// showed, which a relaunch drew again: no turn of this launch was cut.
+	Replayed bool `json:",omitempty"`
+	// Offered says the limit card was shown for the episode, whatever the
+	// operator chose on it.
+	Offered bool `json:",omitempty"`
 }
 
 func (s *Store) LimitRecoveries() (map[string]LimitRecovery, error) {

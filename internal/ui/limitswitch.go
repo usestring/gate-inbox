@@ -8,6 +8,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/keymap"
+	"github.com/usestring/gate-inbox/internal/limitepisode"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -20,80 +22,38 @@ type limitSwitchState struct {
 	account bool
 }
 
-// limitSeen is the limit banner a session's card was last offered for:
-// the launch it showed on, the account that launch ran on, and its text.
-type limitSeen struct {
-	launch  time.Time
-	account string
-	banner  string
-}
-
-// covers reports whether the card already offered for seen answers the
-// banner now showing. The same banner on the same launch is the same
-// episode. A relaunch replays the conversation, banner included, so once
-// the session has moved to another account since, the same text is the
-// old account's limit scrolled back into view, not a new one; a relaunch
-// on the same account that still shows it is the limit holding.
-func (seen limitSeen) covers(sess store.Session, banner string) bool {
-	if seen.banner != banner {
-		return false
-	}
-	return seen.launch.Equal(sess.LaunchTime()) || seen.account != sess.Account
-}
-
+// offerLimitSwitch opens the limit card for sess, the selected session,
+// when its limit episode calls for one (see limitepisode.Decide): once per
+// episode, at once when nothing else will move the session, and only after
+// limitepisode.MoveGrace when an extension is expected to move it in the
+// background. The card always offers a way off the limited account: another
+// subscription of the same CLI when it has accounts, then the other CLIs.
 func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 	if (m.mode != modeList && m.mode != modeFocus) || m.searching || m.quick.active ||
 		m.legendPeek.visible || m.focusScroll != 0 || (m.mode == modeFocus && m.focusTyping()) ||
 		(m.mode == modeList && m.onReviewsTab()) ||
-		sess.Archived || sess.Muted || m.engine == nil {
+		sess.Archived || sess.Muted || sess.Status != status.Errored {
 		return nil
 	}
-	seen, offered := m.limitSwitchSeen[sess.ID]
-	if sess.Status != status.Errored && !offered {
+	ep, ok := m.limitEpisodes[sess.ID]
+	if !ok {
 		return nil
 	}
-	pane := ansi.Strip(m.preview)
-	banner := m.engine.LimitBanner(sess.Tool, pane)
-	if banner == "" {
-		if sess.Status == status.Working || sess.Status == status.Idle || sess.Status == status.Finished {
-			delete(m.limitSwitchSeen, sess.ID)
-		}
+	decision := m.limitDecision(sess, ep)
+	if decision.CardAt.IsZero() || time.Now().Before(decision.CardAt) {
 		return nil
 	}
-	if sess.Status != status.Errored || m.engine.CapacityBanner(sess.Tool, pane) != "" {
-		return nil
-	}
-	if offered && seen.covers(sess, banner) {
-		// seen stays as recorded: the banner belongs to the account it
-		// was first offered on, whichever launch shows it now.
-		return nil
-	}
-	account := m.cfg.Tools[sess.Tool].AccountEnv != ""
-	// With the build's chooser routing accounts, the extension that routes
-	// them moves a limited session in the background, whichever session the
-	// board is showing, so the card leaves the subscription off rather than
-	// race it. Offering other CLIs still asks, since nothing moves a session
-	// to another CLI unasked.
-	if account && m.accountsRouted() {
-		if !m.cfg.Board.OffersCLIOnLimit() {
-			return nil
-		}
-		account = false
-	}
-	targets := m.limitTargets(sess.Tool, account)
+	targets := m.limitTargets(sess.Tool, decision.Subscription)
 	if len(targets) == 0 {
 		return nil
 	}
-	if m.limitSwitchSeen == nil {
-		m.limitSwitchSeen = make(map[string]limitSeen)
-	}
-	m.limitSwitchSeen[sess.ID] = limitSeen{launch: sess.LaunchTime(), account: sess.Account, banner: banner}
+	m.markLimitOffered(sess, ep)
 	var cmd tea.Cmd
 	if m.mode == modeFocus {
 		cmd = m.leaveFocus()
 	}
-	m.limitSwitch = limitSwitchState{source: sess, banner: banner, targets: targets, account: account}
-	if account {
+	m.limitSwitch = limitSwitchState{source: sess, banner: ep.Banner, targets: targets, account: decision.Subscription}
+	if decision.Subscription {
 		// Choosing another subscription opens the account card, which then
 		// lists accounts as of now rather than as of its last opening.
 		accounts.Prefetch(m.cfg.Tools[sess.Tool])
@@ -101,6 +61,33 @@ func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 	m.mode = modeLimitSwitch
 	m.frameReuse = false
 	return cmd
+}
+
+// limitDecision is limitepisode.Decide for one of the board's sessions.
+func (m *Model) limitDecision(sess store.Session, ep store.LimitRecovery) limitepisode.Decision {
+	return limitepisode.Decide(&ep, limitepisode.Facts{
+		Session:   sess,
+		Running:   sess.Status != status.Dead,
+		Successor: limitepisode.Successor(m.sessions, sess, ep),
+		Routed:    m.accountsRouted(),
+		Accounts:  m.cfg.Tools[sess.Tool].AccountEnv != "",
+	})
+}
+
+// markLimitOffered records that the card was shown for ep, so it is not
+// offered again for the same episode, across a restart of the board too.
+// A pass that changed the record meanwhile wins; the copy here still keeps
+// this board from offering it twice.
+func (m *Model) markLimitOffered(sess store.Session, ep store.LimitRecovery) {
+	offered := ep
+	offered.Offered = true
+	m.limitEpisodes[sess.ID] = offered
+	if m.store == nil {
+		return
+	}
+	if _, err := m.store.CompareLimitRecovery(sess, &ep, &offered); err != nil {
+		logging.Info("limit card: offer not recorded", "session", sess.ID, logging.Err(err))
+	}
 }
 
 // subscriptionTarget is the card's choice of another account of the same
@@ -124,8 +111,8 @@ func (m *Model) limitTargets(tool string, account bool) []string {
 }
 
 // accountsRouted reports whether launches take their account from the
-// build's chooser: an extension is routing accounts, so it owns moving a
-// limited session too.
+// build's chooser: an extension is routing accounts, so it is the one
+// expected to move a limited session in the background.
 func (m *Model) accountsRouted() bool {
 	if m.store == nil || !accounts.ChooserAvailable() {
 		return false

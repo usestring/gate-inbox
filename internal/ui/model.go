@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"hash/fnv"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -795,12 +796,14 @@ type Model struct {
 	launchFix      launchFix
 	// install is the setup-dialog install still running in a shell tab,
 	// nil when none is.
-	install          *pendingInstall
-	rename           renameTarget
-	fork             forkState
-	migrate          migrateState
-	limitSwitch      limitSwitchState
-	limitSwitchSeen  map[string]limitSeen
+	install     *pendingInstall
+	rename      renameTarget
+	fork        forkState
+	migrate     migrateState
+	limitSwitch limitSwitchState
+	// limitEpisodes is each session's limit episode as the poller last
+	// recorded it, which the limit card reads.
+	limitEpisodes    map[string]store.LimitRecovery
 	account          accountState
 	restartWith      restartWithState
 	quick            quickState
@@ -1238,6 +1241,9 @@ type refreshMsg struct {
 	// for smart triage's horizon term. A session missing from it has no
 	// estimate. See turnhorizon.go.
 	expectedTurns map[string]time.Duration
+	// limits is each session's limit episode as the pass left it; see
+	// internal/limitepisode.
+	limits map[string]store.LimitRecovery
 }
 
 // previewMsg is every pane frame the model receives. There used to be three
@@ -2692,6 +2698,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hogBadges = msg.hogBadges
 		m.queueDeadlines = msg.queueDeadlines
 		m.expectedTurns = msg.expectedTurns
+		if msg.limits != nil {
+			m.limitEpisodes = maps.Clone(msg.limits)
+		}
 		if msg.snapOK {
 			m.snap = msg.snap
 			m.updateNetRates(msg.snap)

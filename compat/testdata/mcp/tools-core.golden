@@ -43,7 +43,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Answer the dialog one of your own spawned sessions has stopped on -- a question, a multi-select, a permission prompt, a workspace or MCP-server trust dialog, or any other screen -- so the fan-out you started keeps moving. Every dialog a child stops on is yours to settle: answer it, or ask your user and answer with what they chose. You are told a child has stopped by a message relaying the dialog in full; this is how you reply to it, which send_session cannot do -- a message is held until the recipient is at rest, and a session on a dialog never is. Questions (Claude Code's AskUserQuestion, one or several drawn as tabs, Codex's request_user_input and OpenCode's question): pass answers, one entry per question, naming it by index or header and giving the option's text, or your own words to type into its free-text row; for a multi-select give ticks, the labels to leave ticked. The call fills them in, checks the review page and presses Submit once every question has an answer (submit false stops before that). answer or ticks alone answers the question on the screen. After answering it reads back what the child registered -- the boxes, the review page, the record Claude Code prints, the answers Codex writes to its rollout or OpenCode records in its session store -- and returns an error naming what was given and what registered if they differ; a result means the child holds exactly your answer (verified). Its \"Chat about this\" row is refused, because it drops the dialog without answering. On Codex, free text goes in its None of the above note; a question asked without a dialog takes the next message, and an unanswered question expires after about two minutes. On OpenCode, give every multi-select option to tick separated by commas, or ticks, and free text goes in its Type your own answer row. Decide each question in turn: answer it yourself where your brief to that child or your user's standing decisions already settle it; otherwise ask your user with your own question tool, copying the header, the question, every option and any recommendation word for word, and answer with what they choose. Permission prompts, trust dialogs, Codex's directory-trust prompt and questions headed Approval are always your user's call, never yours: ask your user with your own question tool, copying the dialog's text and its choices word for word as the relayed message gives them, then pass answer set to the choice they picked and relay: true. The choice is picked by its text, never by position, and the dialog is read back as cleared. relay: true checks your own transcript for that dialog and your user's answer, and refuses a paraphrase, an answer given before the child stopped, or one already relayed; the refusal says exactly what to ask. Every answer is recorded as yours or your user's, and the child is told when an answer was yours. A screen it cannot read as choices takes keys, also only with relay: true: quote the screen to your user, offer the keys as the options, and pass the keys they chose; the screen is read back as changed. Only the session that spawned a child may answer it.",
+  "description": "Answer the dialog a session you spawned has stopped on: a question, multi-select, permission prompt, trust dialog or any other screen. A relayed message tells you a child stopped; send_session cannot answer it, since a session on a dialog is never at rest. Questions (AskUserQuestion, one or several as tabs; Codex's request_user_input; OpenCode's question): pass answers, one per question by index or header, with the option's text or your own words for its free-text row; ticks for a multi-select. answer or ticks alone answers the question on screen. It submits once every question has an answer (submit false stops at the review page), then reads back what the child registered and errors if it differs; a result means verified. \"Chat about this\" is refused. Codex free text goes in its None of the above note; an unanswered Codex question expires after about two minutes. OpenCode multi-selects take the options comma-separated or ticks. Answer yourself only what your brief or your user's standing decisions settle; otherwise ask your user with your own question tool, copying header, question, options and any recommendation word for word, and answer with their choice. Permission prompts, trust dialogs (Codex's directory trust too) and questions headed Approval are always your user's: ask them word for word, then pass their choice by its text with relay: true. relay: true checks your transcript and refuses a paraphrase, an answer from before the child stopped or one already relayed, saying what to ask. A screen with no readable choices takes keys, only with relay: true: quote it to your user with the keys as options. Every answer is recorded as yours or your user's. Only the child's spawner may answer it.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -638,12 +638,12 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Start another agent CLI in its own Gate Inbox session and hand it a task. Delegate within the user's task or an explicitly invoked skill without asking for separate permission to open a session. Respect explicit limits on delegation and ask before expanding the task's scope. Delegation does not grant tool permissions or replace required approvals. Call list_sessions first and reuse the session that owns the workstream, idle or working; use send_session with interrupt true when its current turn is wrong. Create a session only for a distinct workstream with no suitable owner. When it is called for, use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's subagent); keep the built-in tool for a quick read-only lookup. Pass a descriptive name and a prompt that is the whole brief, since the new agent cannot see this conversation: the goal and why, what is already known or ruled out, the files or docs to read (paths, not pasted text), the scope and its limits, the approvals it already has, and what to report back. Put a long brief in prompt_file. For repo work beside other agents, pass a directory that is its own checkout. Omit account to follow the board's launch-account setting; a child does not inherit its parent's account. The new session is your child: its questions, rests and finishes are relayed here. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session the user owns, with nothing relayed here. Pass tasks to hand it work from the shared task list: existing ids, or new tasks to create, all assigned to it alone. Follow it with read_session and send_session; use create_terminal for a plain shell.",
+  "description": "Start another agent CLI in its own Gate Inbox session and hand it a task. Delegate within the user's task or an explicitly invoked skill without asking for separate permission to open a session; respect explicit limits on delegation and ask before expanding scope. Delegation grants no tool permissions and replaces no required approval. Call list_sessions first and reuse the session that owns the workstream (send_session, interrupt true if its turn is wrong); create one only for a distinct workstream with no owner. Use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's subagent), which stays for quick read-only lookups. The new agent cannot see this conversation: pass a descriptive name and a whole brief: the goal and why, what is already known or ruled out, the files or docs to read (paths), the scope and its limits, the approvals it already has, and what to report back. A long brief goes in prompt_file. For repo work beside other agents, give it its own checkout as directory. It is your child: its questions, rests and finishes are relayed here; for a fan-out, never create a group for one, and nest false is a detach. Follow it with read_session and send_session; use create_terminal for a plain shell.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "account": {
-        "description": "optional named account from list_accounts; omit to follow the board's launch-account setting (the CLI's own login unless the build's extension chooses); a child does not inherit its parent's account; a named account requires a CLI that accepts a token; one the build knows is spent is replaced by the build's choice, named in the result's text, or refused with its reset when there is none",
+        "description": "named account from list_accounts; omit to follow the board's launch-account setting (a child does not inherit its parent's); needs a CLI that accepts a token; a spent one is replaced by the build's choice, named in the result, or refused with its reset",
         "type": "string"
       },
       "directory": {
@@ -651,7 +651,7 @@
         "type": "string"
       },
       "directory_reason": {
-        "description": "why this session must start in directory itself although its group pins another; rarely needed, since a pinned group's directory is where the user wants work to start, so leave it empty unless the task only works when started there",
+        "description": "why this session must start in directory although its group pins another; leave empty unless the task only works there",
         "type": "string"
       },
       "group": {
@@ -662,11 +662,11 @@
         ]
       },
       "keep": {
-        "description": "keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished",
+        "description": "keep this child listed after it finishes; otherwise a finished child is archived once you have read or been told of its finish and left it for the grace period (10 minutes by default)",
         "type": "boolean"
       },
       "model": {
-        "description": "model that CLI should run on, in whatever names it uses (claude: sonnet, opus, haiku, plus the 1M-context opus[1m] and sonnet[1m]; opencode: provider/model); call list_models for the names a CLI accepts rather than guessing one, since an unknown name is refused by the CLI and the session dies on launch; omit for the CLI's own default",
+        "description": "model in that CLI's own names (claude: sonnet, opus, haiku, opus[1m], sonnet[1m]; opencode: provider/model); check list_models rather than guess, since an unknown name kills the session on launch; omit for the CLI's default",
         "type": "string"
       },
       "name": {
@@ -674,7 +674,7 @@
         "type": "string"
       },
       "nest": {
-        "description": "omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that belongs to the user, not to this session: it still records this session in spawned_by, but this session is not told of its questions, rests or finishes and cannot answer its dialogs, and the two talk only through send_session and read_session; only for work that is not this session's, such as a standalone session the user asked for",
+        "description": "omit it: the new session is your child, drawn under you, with its questions, rests and finishes relayed here. false detaches it to a top-level session the user owns: you are told nothing of it, cannot answer its dialogs, and talk only through send_session and read_session; only for work that is not yours",
         "type": [
           "null",
           "boolean"
@@ -685,18 +685,18 @@
         "type": "string"
       },
       "prompt_file": {
-        "description": "absolute path of a file holding the first task, used instead of prompt when the brief is long; the server reads it, so write the brief once and name it here",
+        "description": "absolute path of a file holding the first task, used instead of prompt for a long brief",
         "type": "string"
       },
       "skip_permissions": {
-        "description": "omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox, opencode through its generated config) and is refused unless the user allowed that for this session's children; false keeps its prompts on",
+        "description": "omit it: the child follows the user's setting for this session's children; true turns its CLI's permission prompts off and is refused unless the user allowed that; false keeps them on",
         "type": [
           "null",
           "boolean"
         ]
       },
       "tasks": {
-        "description": "tasks to assign to the new session before it starts, each either an existing pending task by id or a new one by title (with body and depends_on); only the new session can claim them, and its prompt gets a short list of their ids and titles telling it to claim and finish them with the task tool",
+        "description": "tasks to assign before it starts: existing pending ids, or new ones by title (with body and depends_on); only it can claim them, and its prompt lists them",
         "items": {
           "additionalProperties": false,
           "properties": {
@@ -3274,12 +3274,12 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Queue a message for another agent, to give a session you spawned its next task, answer a question read_session surfaced, or redirect work going the wrong way. The other agent has no view of this conversation, so send a self-contained instruction. The message is not typed in the instant you send it: Gate Inbox holds it until that agent can read it -- at rest, or for Claude Code mid-turn, where it is queued and read after the running tool call -- so it can never land on an approval prompt and answer it. A successful send means queued, not delivered: do not tell anyone the agent has it until message_status says delivered. Two modes. By default (interrupt false) the agent finishes the tool call in hand and then reads the message. With interrupt true, Gate Inbox first stops the agent's running turn (Escape for Claude Code) and types the message in as its next turn: use it when the work in progress is wrong and every further step is waste. Interrupt is refused for a CLI with no safe way to stop a turn, and neither mode ever sends keys while a permission or question dialog is showing: the message is held and the result says so. It arrives labelled as coming from another agent rather than from the user, and cannot approve permissions or change that agent's configuration. Returns a message id for message_status, and says so straight away when nothing will type the message in as things stand -- an agent sitting on a dialog is the usual reason, and answer_session is what clears that. Pass subject to label what the message is about: your next message on the same subject replaces this one if it has not been read yet, so a correction reaches the agent instead of queueing behind what it corrects. Call read_session to see what the agent did with it. Refused rather than delivered: identical text to the same session inside ten minutes, more than five messages a minute per recipient, more than twenty undelivered held by a recipient, or a message over 8000 bytes (point the agent at a file or a task instead). A message already written to disk is sent by naming it in message_file instead of pasting it into message. After a refusal, call message_status on the earlier message rather than sending again.",
+  "description": "Queue a message for another agent, which cannot see this conversation, so send a self-contained instruction: a child's next task, an answer, or a redirect. Gate Inbox types it in only when the agent can read it (at rest, or mid-turn after the running tool call for Claude Code), never onto a permission or question dialog; the result says when it is held. Sent means queued: do not say the agent has it until message_status says delivered. interrupt true stops the running turn first (Escape for Claude Code) and makes this the next turn, for work that is wrong; refused for a CLI with no safe interrupt. It arrives labelled as from another agent rather than from the user, and approves nothing. Returns a message id; when nothing will type it in (usually a dialog, which answer_session clears) the result says so. A later message under the same subject replaces this one while unread. Refused: identical text to the same session within ten minutes, over five a minute per recipient, over twenty undelivered held, or over 8000 bytes (point at a file or task). After a refusal call message_status rather than resending. read_session shows what the agent did with it.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "interrupt": {
-        "description": "true stops the agent's running turn first (Escape for Claude Code) so this message is its next turn right away; false, the default, lets it finish the step in hand and read the message after. Refused for a CLI with no safe interrupt; never sent while a dialog is showing",
+        "description": "true stops the running turn first (Escape for Claude Code) so this is its next turn; false, the default, delivers after the step in hand. Refused for a CLI with no safe interrupt; never sent onto a dialog",
         "type": "boolean"
       },
       "message": {
@@ -3291,7 +3291,7 @@
         "type": "string"
       },
       "relay_question": {
-        "description": "relays your user's approval to a child you spawned: the question you put to your user with your own question tool, word for word. Gate Inbox checks your transcript holds your user's own answer to it, given after the child was spawned, within 30 minutes and never relayed before, and attaches an attestation quoting both that the child's hook verifies once. Refused while the child holds its own Approval dialog: answer that with answer_session relay: true",
+        "description": "relays your user's approval to your child: the question you put to your user, word for word. Gate Inbox checks your transcript for their own answer (after the child was spawned, within 30 minutes, never relayed before) and attaches an attestation the child's hook verifies once. Refused while the child holds its own Approval dialog: use answer_session relay: true",
         "type": "string"
       },
       "session_id": {
@@ -3299,7 +3299,7 @@
         "type": "string"
       },
       "subject": {
-        "description": "short label for what this message is about, such as which-branch or stand-down; a later message you send to the same agent under the same label replaces this one if it has not been read yet, so a correction arrives instead of queueing behind what it corrects",
+        "description": "short label, such as which-branch; a later message to the same agent under it replaces this one while unread",
         "type": "string"
       }
     },

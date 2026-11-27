@@ -37,15 +37,16 @@ func TestEnsureWritesTheWholePlugin(t *testing.T) {
 		".claude-plugin/plugin.json",
 		"hooks/hooks.json",
 		"hooks/merge-gate.ts",
+		"hooks/collapse-messages.ts",
 		"skills/delegate-with-gate-inbox/SKILL.md",
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Errorf("%s: %v", rel, err)
 		}
 	}
-	for _, rel := range []string{"skills/.gitkeep", "commands/.gitkeep", "claude-plugin"} {
+	for _, rel := range []string{"skills/.gitkeep", "commands/.gitkeep", "claude-plugin", "hooks/collapse-messages.test.ts"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
-			t.Errorf("%s was written; it only holds the source tree open", rel)
+			t.Errorf("%s was written; it only holds the source tree open or tests a module", rel)
 		}
 	}
 
@@ -55,6 +56,17 @@ func TestEnsureWritesTheWholePlugin(t *testing.T) {
 	}
 	if manifest["name"] != Name || manifest["version"] != Version(filepath.Base(dir)) {
 		t.Fatalf("manifest = %v, want name %s and the directory's stamp as build metadata", manifest, Name)
+	}
+
+	entry := string(readFile(t, filepath.Join(dir, "hooks/register.ts")))
+	for _, want := range []string{
+		"import { register as unit0 } from './collapse-messages'",
+		"import { register as unit1 } from './merge-gate'",
+		"unit0(on, options)\n  unit1(on, options)",
+	} {
+		if !strings.Contains(entry, want) {
+			t.Errorf("register.ts lacks %q:\n%s", want, entry)
+		}
 	}
 
 	merge := string(readFile(t, filepath.Join(dir, "hooks/merge-gate.ts")))
@@ -79,7 +91,7 @@ func TestHooksFileCarriesTheLaunchHooksAndTheMods(t *testing.T) {
 	if err := json.Unmarshal(readFile(t, filepath.Join(dir, "hooks/hooks.json")), &file); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(file.Modules, []string{"./merge-gate.ts"}) {
+	if !reflect.DeepEqual(file.Modules, []string{"./register.ts"}) {
 		t.Fatalf("modules = %v", file.Modules)
 	}
 	want := hooks.LaunchHooks()

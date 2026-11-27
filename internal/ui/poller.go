@@ -852,7 +852,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		// Only an episode the board will continue needs its pane watched
 		// closely; a session left at its limit is polled like any other.
 		episode, limited := limitRecoveries[sess.ID]
-		recovering := limited && episode.AttemptedAt.IsZero() && (episode.CapacityDelay > 0 ||
+		recovering := limited && (episode.CapacityDelay > 0 || episode.AttemptedAt.IsZero() &&
 			limitepisode.Decide(&episode, limitepisode.Facts{Session: sess, Running: true}).Continue)
 		if previous.pid != pid || p.paneDue(sess, previous, selectedID, now, hook, queued || recovering, force) {
 			duePIDs = append(duePIDs, pid)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/band"
+	"github.com/usestring/gate-inbox/internal/limitepisode"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -28,11 +29,11 @@ const limitResumePrompt = band.Tag + " The reported usage-limit reset time has p
 // capture is the pass's own read of the pane, which clean is the stripped
 // text of: the two typing gates below take the caret and the activity stamp
 // off it rather than forking a tmux apiece for them. See composerCarriesDraft.
+// maybeRecoverLimit is the pass's one look at a session's limit: it records
+// the episode the pane shows (see limitepisode.Observe), which the limit
+// card and the extensions read, and types the board's one continuation in
+// when limitepisode.Decide allows it. states is updated in place.
 func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.LimitRecovery, capture tmux.Capture, clean, derived string, agentAlive, inputAvailable bool, now time.Time) (bool, error) {
-	// Claude owns its reset timer; a second scheduler can duplicate its continuation.
-	if sess.Tool != "codex" {
-		return false, nil
-	}
 	previous, exists := states[sess.ID]
 	if !exists && derived != status.Errored {
 		return false, nil
@@ -46,23 +47,24 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 	}
 	banner := p.engine.LimitBanner(sess.Tool, clean)
 	if banner == "" {
-		if exists && derived != status.Errored && (previous.CapacityDelay == 0 || derived == status.Finished || derived == status.Idle) {
-			_, err := p.store.CompareLimitRecovery(sess, old, nil)
+		// A relaunch's pane is blank, or still drawing, before it replays the
+		// banner: the episode is over only once this launch has moved on.
+		if exists && limitepisode.Over(previous, sess) && derived != status.Errored &&
+			(previous.CapacityDelay == 0 || derived == status.Finished || derived == status.Idle) {
+			saved, err := p.store.CompareLimitRecovery(sess, old, nil)
+			if saved {
+				delete(states, sess.ID)
+			}
 			return false, err
 		}
 		return false, nil
 	}
-	capacity := p.engine.CapacityBanner(sess.Tool, clean) != ""
 	var next *store.LimitRecovery
-	if capacity {
+	if p.engine.CapacityBanner(sess.Tool, clean) != "" {
 		region, _ := p.engine.ActivityRegion(sess.Tool, clean)
 		next = nextCapacityRecovery(sess, previous, exists, banner, region, now)
-	} else if !exists || previous.Banner != banner || !previous.LaunchAt.Equal(sess.LaunchTime()) {
-		resetAt, ok := status.LimitReset(banner, now)
-		if !ok {
-			return false, nil
-		}
-		next = &store.LimitRecovery{Banner: banner, ResetAt: resetAt, LaunchAt: sess.LaunchTime()}
+	} else {
+		next = limitepisode.Observe(old, sess, banner, now)
 	}
 	if next != nil {
 		saved, err := p.store.CompareLimitRecovery(sess, old, next)
@@ -71,7 +73,12 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 		}
 		previous = *next
 		old = &previous
-		logging.Info("model availability recovery scheduled", "session", sess.ID, "retry_at", recoveryDeadline(previous), "capacity_delay", previous.CapacityDelay)
+		states[sess.ID] = previous
+		logging.Info("limit episode recorded", "session", sess.ID, "tool", sess.Tool, "replayed", previous.Replayed,
+			"retry_at", recoveryDeadline(previous), "capacity_delay", previous.CapacityDelay)
+	}
+	if previous.CapacityDelay == 0 && !limitepisode.Decide(&previous, limitepisode.Facts{Session: sess, Running: agentAlive}).Continue {
+		return false, nil
 	}
 	if derived != status.Errored || !inputAvailable || p.offline() || !previous.AttemptedAt.IsZero() || now.Before(recoveryDeadline(previous)) {
 		return false, nil
@@ -90,7 +97,7 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 	claimedState := previous
 	claimedState.AttemptedAt = now
 	prompt := limitResumePrompt
-	if capacity {
+	if previous.CapacityDelay > 0 {
 		claimedState.CapacityRetries++
 		prompt = band.Tag + " " + capacityRetryMarker(claimedState) + " Continue the interrupted task from where you stopped. Preserve existing approval requirements."
 	}
@@ -99,6 +106,7 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 		p.releaseSend(key)
 		return false, err
 	}
+	states[sess.ID] = claimedState
 	// AttemptedAt is written before the paste goes out, so no second pass
 	// can reach this however long the pane takes to draw it; the send only
 	// has to say whether it landed.
@@ -146,7 +154,9 @@ func heldLimitContinuations(sessions []store.Session, recoveries map[string]stor
 	held := make(map[string]bool)
 	for _, sess := range sessions {
 		recovery, ok := recoveries[sess.ID]
-		if ok && sess.Tool == "codex" && sess.Status == status.Errored && !sess.Archived &&
+		continues := ok && (recovery.CapacityDelay > 0 && sess.Tool == "codex" ||
+			limitepisode.Decide(&recovery, limitepisode.Facts{Session: sess, Running: true}).Continue)
+		if continues && sess.Status == status.Errored && !sess.Archived &&
 			recovery.LaunchAt.Equal(sess.LaunchTime()) && recovery.AttemptedAt.IsZero() &&
 			!now.Before(recoveryDeadline(recovery)) {
 			held[sess.ID] = true

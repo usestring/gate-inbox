@@ -13,8 +13,10 @@ import (
 	"github.com/usestring/gate-inbox/internal/accounts/accountstest"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/keymap"
+	"github.com/usestring/gate-inbox/internal/limitepisode"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 const weeklyLimitPane = "You've hit your weekly limit · resets Friday at 9pm\n❯ "
@@ -34,6 +36,7 @@ func limitedModel(t *testing.T) *Model {
 	if err != nil {
 		t.Fatal(err)
 	}
+	m.poller.engine = m.engine
 	for i := range m.sessions {
 		m.sessions[i].Status = status.Errored
 	}
@@ -41,10 +44,47 @@ func limitedModel(t *testing.T) *Model {
 	return m
 }
 
+// showLimit is one poll of the selected session's pane followed by the
+// frame landing: the pass records the limit episode the pane shows, which
+// the card then reads.
+func showLimit(t *testing.T, m *Model, pane string) {
+	t.Helper()
+	observeLimit(t, m, pane)
+	sess, _ := m.selected()
+	m.Update(previewMsg{sessID: sess.ID, preview: pane})
+}
+
+// observeLimit is the poll alone, with no frame reaching the card: the
+// session is not the one on screen, or another card is up.
+func observeLimit(t *testing.T, m *Model, pane string) {
+	t.Helper()
+	sess, _ := m.selected()
+	stored, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Status = sess.Status
+	states, err := m.store.LimitRecoveries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.poller.maybeRecoverLimit(stored, states, tmux.Capture{Text: pane}, ansi.Strip(pane), sess.Status, true, true, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	m.limitEpisodes = states
+}
+
+// setStatus is a pass reading every row at st.
+func setRowsStatus(m *Model, st string) {
+	for i := range m.sessions {
+		m.sessions[i].Status = st
+	}
+	m.rebuildRows()
+}
+
 func TestLimitSwitchOffersReviewWithoutLaunching(t *testing.T) {
 	m := limitedModel(t)
-	sess, _ := m.selected()
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	showLimit(t, m, weeklyLimitPane)
 	if m.mode != modeLimitSwitch || m.limitSwitch.targets[m.limitSwitch.index] != subscriptionTarget {
 		t.Fatalf("the card did not default to another subscription: mode=%v offer=%+v", m.mode, m.limitSwitch)
 	}
@@ -67,7 +107,7 @@ func TestLimitSwitchOffersOnlySubscriptionWhenCLIsTurnedOff(t *testing.T) {
 	off := false
 	m.cfg.Board.OfferCLIOnLimit = &off
 	sess, _ := m.selected()
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	showLimit(t, m, weeklyLimitPane)
 	if m.mode != modeLimitSwitch {
 		t.Fatalf("no card: mode=%v", m.mode)
 	}
@@ -87,8 +127,7 @@ func TestLimitSwitchOffersOnlySubscriptionWhenCLIsTurnedOff(t *testing.T) {
 // CLIs after it.
 func TestLimitSwitchDefaultsToSubscriptionThenOtherCLIs(t *testing.T) {
 	m := limitedModel(t)
-	sess, _ := m.selected()
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	showLimit(t, m, weeklyLimitPane)
 	if m.mode != modeLimitSwitch || len(m.limitSwitch.targets) < 2 ||
 		m.limitSwitch.targets[0] != subscriptionTarget || !slices.Contains(m.limitSwitch.targets, "codex") {
 		t.Fatalf("card offers %q, want the subscription first and then codex", m.limitSwitch.targets)
@@ -103,7 +142,6 @@ func TestLimitSwitchDefaultsToSubscriptionThenOtherCLIs(t *testing.T) {
 // table above it flattened into one paragraph.
 func TestLimitSwitchBannerUnderTheLimitMenuIsTheLimitLine(t *testing.T) {
 	m := limitedModel(t)
-	sess, _ := m.selected()
 	pane := "  - Raise the size limits before the first run.\n" +
 		"  │ Step         │ The tool       │\n" +
 		"\n" +
@@ -114,7 +152,7 @@ func TestLimitSwitchBannerUnderTheLimitMenuIsTheLimitLine(t *testing.T) {
 		"\n" +
 		"   ❯ 1. Stop and wait for limit to reset\n" +
 		"     2. Switch to usage credits\n"
-	m.Update(previewMsg{sessID: sess.ID, preview: pane})
+	showLimit(t, m, pane)
 	if m.mode != modeLimitSwitch {
 		t.Fatalf("no card: mode=%v", m.mode)
 	}
@@ -141,7 +179,7 @@ func TestLimitSwitchOpensOnTheLimitMenuWithoutABanner(t *testing.T) {
 	if m.engine, err = status.NewEngine(m.cfg); err != nil {
 		t.Fatal(err)
 	}
-	sess, _ := m.selected()
+	m.poller.engine = m.engine
 	pane := "  ⎿  You've hit your weekly limit · resets 12pm (UTC)\n" +
 		"\n" +
 		"❯ re-run the unit\n" +
@@ -159,7 +197,7 @@ func TestLimitSwitchOpensOnTheLimitMenuWithoutABanner(t *testing.T) {
 	if got, _ := m.engine.Match("claude", pane); got != status.Errored {
 		t.Fatalf("Match() = %q, want %q", got, status.Errored)
 	}
-	m.Update(previewMsg{sessID: sess.ID, preview: pane})
+	showLimit(t, m, pane)
 	if m.mode != modeLimitSwitch {
 		t.Fatalf("no card: mode=%v", m.mode)
 	}
@@ -178,62 +216,96 @@ func TestLimitSwitchStaysClosedWithNothingToOffer(t *testing.T) {
 	tool := m.cfg.Tools["claude"]
 	tool.AccountEnv = ""
 	m.cfg.Tools["claude"] = tool
-	sess, _ := m.selected()
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	showLimit(t, m, weeklyLimitPane)
 	if m.mode != modeList {
 		t.Fatalf("card opened with nothing to offer: %+v", m.limitSwitch)
 	}
 }
 
-// With the build's chooser routing accounts, the extension moves a limited
-// session in the background, so the board does not open a card that would
-// race it: with other CLIs off no card opens, and with them on the card
-// offers only the CLIs.
-func TestLimitSwitchLeavesRoutedAccountsToTheExtension(t *testing.T) {
+// routeAccounts has the build's chooser routing accounts, so an extension
+// is expected to move a limited session in the background.
+func routeAccounts(t *testing.T, m *Model) {
+	t.Helper()
 	chooser := &accountstest.Chooser{}
 	t.Cleanup(accounts.UseChooser(chooser.Resolve))
-	m := limitedModel(t)
-	off := false
-	m.cfg.Board.OfferCLIOnLimit = &off
 	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Extension); err != nil {
 		t.Fatal(err)
 	}
-	sess, _ := m.selected()
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
-	if m.mode != modeList {
-		t.Fatalf("card opened while the extension routes accounts: %+v", m.limitSwitch)
-	}
+}
 
-	m.cfg.Board.OfferCLIOnLimit = nil
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
-	if m.mode != modeLimitSwitch || !slices.Contains(m.limitSwitch.targets, "codex") {
-		t.Fatalf("default card did not offer other CLIs: mode=%v offer=%+v", m.mode, m.limitSwitch)
+// ageLimit moves the selected session's episode back by d, as if the board
+// had first seen the banner that long ago.
+func ageLimit(t *testing.T, m *Model, d time.Duration) {
+	t.Helper()
+	sess, _ := m.selected()
+	stored, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if slices.Contains(m.limitSwitch.targets, subscriptionTarget) || m.limitSwitch.account {
-		t.Fatalf("card offers the subscription move the extension is making: %+v", m.limitSwitch)
+	ep := m.limitEpisodes[sess.ID]
+	aged := ep
+	aged.SeenAt = ep.SeenAt.Add(-d)
+	if ok, err := m.store.CompareLimitRecovery(stored, &ep, &aged); err != nil || !ok {
+		t.Fatalf("age episode: %v %v", ok, err)
+	}
+	m.limitEpisodes[sess.ID] = aged
+}
+
+// With the build's chooser routing accounts, an extension is expected to
+// move a session whose turn the limit cut off, so the card holds back for
+// limitepisode.MoveGrace rather than race it. A session still limited after
+// that was not moved, and the card offers another subscription, which is
+// the way off the account, ahead of the other CLIs.
+func TestLimitSwitchHoldsBackForTheExtensionThenOffersTheSubscription(t *testing.T) {
+	m := limitedModel(t)
+	routeAccounts(t, m)
+	sess, _ := m.selected()
+	showLimit(t, m, weeklyLimitPane)
+	if m.mode != modeList {
+		t.Fatalf("card opened while the extension is moving the session: %+v", m.limitSwitch)
+	}
+	ageLimit(t, m, limitepisode.MoveGrace)
+	m.Update(previewMsg{sessID: sess.ID, skipped: true})
+	if m.mode != modeLimitSwitch {
+		t.Fatalf("no card once the move was overdue: mode=%v", m.mode)
+	}
+	if m.limitSwitch.targets[0] != subscriptionTarget || !m.limitSwitch.account || !slices.Contains(m.limitSwitch.targets, "codex") {
+		t.Fatalf("card offers %q, want another subscription first, then codex", m.limitSwitch.targets)
+	}
+}
+
+// A pane the board adopted rather than started is offered another
+// subscription too, which takes the pane over onto the board as it moves.
+func TestLimitSwitchOffersTheSubscriptionForAnAdoptedPane(t *testing.T) {
+	m := limitedModel(t)
+	routeAccounts(t, m)
+	for i := range m.sessions {
+		m.sessions[i].TmuxPaneID = "%7"
+	}
+	m.rebuildRows()
+	showLimit(t, m, weeklyLimitPane)
+	ageLimit(t, m, limitepisode.MoveGrace)
+	sess, _ := m.selected()
+	m.Update(previewMsg{sessID: sess.ID, skipped: true})
+	if m.mode != modeLimitSwitch || !slices.Contains(m.limitSwitch.targets, subscriptionTarget) {
+		t.Fatalf("adopted pane was not offered another subscription: mode=%v offer=%+v", m.mode, m.limitSwitch)
 	}
 }
 
 func TestLimitSwitchDismissalAndRecovery(t *testing.T) {
 	m := limitedModel(t)
 	sess, _ := m.selected()
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	showLimit(t, m, weeklyLimitPane)
 	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m.frameUnchanged()
 	m.Update(previewMsg{sessID: sess.ID, skipped: true})
 	if m.mode != modeList {
 		t.Fatal("dismissed limit offered again")
 	}
-	for i := range m.sessions {
-		m.sessions[i].Status = status.Working
-	}
-	m.rebuildRows()
-	m.Update(previewMsg{sessID: sess.ID, preview: "● Working\n❯ "})
-	for i := range m.sessions {
-		m.sessions[i].Status = status.Errored
-	}
-	m.rebuildRows()
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	setRowsStatus(m, status.Working)
+	showLimit(t, m, "● Working\n❯ ")
+	setRowsStatus(m, status.Errored)
+	showLimit(t, m, weeklyLimitPane)
 	if m.mode != modeLimitSwitch || m.frameReuse {
 		t.Fatal("new limit episode did not paint its offer")
 	}
@@ -245,7 +317,7 @@ func TestLimitSwitchPreservesOtherScreens(t *testing.T) {
 			m := limitedModel(t)
 			sess, _ := m.selected()
 			m.mode = screen
-			m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+			showLimit(t, m, weeklyLimitPane)
 			if m.mode != screen {
 				t.Fatalf("limit replaced screen %v", screen)
 			}
@@ -261,7 +333,7 @@ func TestLimitSwitchPreservesOtherScreens(t *testing.T) {
 func TestLimitSwitchSubscriptionAndMigrationShortcuts(t *testing.T) {
 	m := limitedModel(t)
 	sess, _ := m.selected()
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	showLimit(t, m, weeklyLimitPane)
 	m.keys, _ = m.km().Rebind(keymap.ContextLimitSwitch, keymap.SwitchAccount, []string{"s"})
 	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	if m.mode != modeLimitSwitch {
@@ -291,6 +363,7 @@ func TestLimitSwitchDefersWhileTypingInFocus(t *testing.T) {
 	sess, _ := m.selected()
 	m.mode = modeFocus
 	m.noteFocusActivity()
+	observeLimit(t, m, weeklyLimitPane)
 	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane, chase: true, echoed: true})
 	if m.mode != modeFocus {
 		t.Fatal("limit offer interrupted typing once the key echoed")
@@ -306,7 +379,7 @@ func TestLimitSwitchDefersBehindReviewsTab(t *testing.T) {
 	m := limitedModel(t)
 	sess, _ := m.selected()
 	m.reviewQueue, m.reviewsTab = true, true
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	showLimit(t, m, weeklyLimitPane)
 	if m.mode != modeList || !m.onReviewsTab() {
 		t.Fatal("limit offer replaced the Reviews tab")
 	}
@@ -319,7 +392,16 @@ func TestLimitSwitchDefersBehindReviewsTab(t *testing.T) {
 
 // relaunchLimited stands in for a restart of every row onto account: a new
 // launch whose pane still replays the conversation's old limit banner.
-func relaunchLimited(m *Model, account string, at time.Time) {
+func relaunchLimited(t *testing.T, m *Model, account string, at time.Time) {
+	t.Helper()
+	for _, sess := range m.sessions {
+		if err := m.store.SetAgentLaunchedAt(sess.ID, at); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.store.SetAccount(sess.ID, account); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for i := range m.sessions {
 		m.sessions[i].AgentLaunchedAt = at
 		m.sessions[i].Account = account
@@ -332,22 +414,21 @@ func relaunchLimited(m *Model, account string, at time.Time) {
 // that banner is not a new limit and must not reopen the card.
 func TestLimitSwitchIgnoresTheOldAccountsBannerAfterAMove(t *testing.T) {
 	m := limitedModel(t)
-	relaunchLimited(m, "LOGAN1", time.Now().Add(-time.Hour))
-	sess, _ := m.selected()
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	relaunchLimited(t, m, "LOGAN1", time.Now().Add(-time.Hour))
+	showLimit(t, m, weeklyLimitPane)
 	if m.mode != modeLimitSwitch {
 		t.Fatal("the first limit was not offered")
 	}
 	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyEscape})
 
-	relaunchLimited(m, "ASHBIN1", time.Now())
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	relaunchLimited(t, m, "ASHBIN1", time.Now())
+	showLimit(t, m, weeklyLimitPane)
 	if m.mode != modeList {
 		t.Fatalf("the replayed banner reopened the card after the move: mode %v", m.mode)
 	}
 
 	// A different banner on the new account is a new limit.
-	m.Update(previewMsg{sessID: sess.ID, preview: "You've hit your session limit · resets 6pm\n❯ "})
+	showLimit(t, m, "You've hit your session limit · resets 6pm\n❯ ")
 	if m.mode != modeLimitSwitch {
 		t.Fatal("a new limit on the new account was not offered")
 	}
@@ -357,14 +438,82 @@ func TestLimitSwitchIgnoresTheOldAccountsBannerAfterAMove(t *testing.T) {
 // holding, and is offered again as before.
 func TestLimitSwitchReoffersARelaunchOnTheSameAccount(t *testing.T) {
 	m := limitedModel(t)
-	relaunchLimited(m, "LOGAN1", time.Now().Add(-time.Hour))
-	sess, _ := m.selected()
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	relaunchLimited(t, m, "LOGAN1", time.Now().Add(-time.Hour))
+	showLimit(t, m, weeklyLimitPane)
 	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyEscape})
 
-	relaunchLimited(m, "LOGAN1", time.Now())
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	relaunchLimited(t, m, "LOGAN1", time.Now())
+	showLimit(t, m, weeklyLimitPane)
 	if m.mode != modeLimitSwitch {
 		t.Fatalf("the limit on a same-account relaunch was not offered: mode %v", m.mode)
+	}
+}
+
+// A relaunch's pane is blank while the agent starts, and the row reads
+// working until the conversation is drawn again. That frame is no sign the
+// episode is over: the replayed banner after it is still the old account's.
+func TestLimitSwitchStaysClosedThroughTheRelaunchsBlankPane(t *testing.T) {
+	m := limitedModel(t)
+	relaunchLimited(t, m, "WORK1", time.Now().Add(-time.Hour))
+	showLimit(t, m, weeklyLimitPane)
+	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	relaunchLimited(t, m, "WORK2", time.Now())
+	setRowsStatus(m, status.Working)
+	showLimit(t, m, "")
+	setRowsStatus(m, status.Errored)
+	showLimit(t, m, weeklyLimitPane)
+	if m.mode != modeList {
+		t.Fatalf("the replayed banner reopened the card after a move: mode %v", m.mode)
+	}
+}
+
+// A session moved to another account by hand before the card was ever
+// offered (the account card, switch_account, an extension) shows the old
+// account's banner again once it relaunches, and that is no new limit.
+func TestLimitSwitchStaysClosedAfterAMoveItNeverOffered(t *testing.T) {
+	m := limitedModel(t)
+	relaunchLimited(t, m, "WORK1", time.Now().Add(-time.Hour))
+	m.mode = modeForm
+	observeLimit(t, m, weeklyLimitPane)
+	m.mode = modeList
+
+	relaunchLimited(t, m, "WORK2", time.Now())
+	showLimit(t, m, weeklyLimitPane)
+	if m.mode != modeList {
+		t.Fatalf("the replayed banner opened the card after a hand move: mode %v", m.mode)
+	}
+}
+
+// Once the conversation has been migrated to another session the source is
+// no longer the operator's to rescue, though its pane still shows the limit.
+func TestLimitSwitchStaysClosedOnceTheConversationMigratedAway(t *testing.T) {
+	m := limitedModel(t)
+	source, _ := m.selected()
+	m.mode = modeForm
+	observeLimit(t, m, weeklyLimitPane)
+	m.mode = modeList
+
+	moved := store.Session{ID: "migrated", Name: "source-codex", Tool: "codex", Cwd: source.Cwd, Status: status.Working,
+		MigrationID: source.ID, CreatedAt: time.Now().Add(time.Second)}
+	if err := m.store.CreateSession(moved); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	if m.sessions, err = m.store.ListSessions(true); err != nil {
+		t.Fatal(err)
+	}
+	for i := range m.sessions {
+		if m.sessions[i].ID == source.ID {
+			m.sessions[i].Status = status.Errored
+		}
+	}
+	m.rebuildRows()
+	if !m.focusSession(source.ID) {
+		t.Fatal("source not listed")
+	}
+	showLimit(t, m, weeklyLimitPane)
+	if m.mode != modeList {
+		t.Fatalf("the card offered a move for a conversation already migrated: mode %v", m.mode)
 	}
 }

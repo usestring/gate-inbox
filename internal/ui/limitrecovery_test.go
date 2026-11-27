@@ -220,12 +220,16 @@ func TestLimitRecoveryLeavesClaudeToNativeResume(t *testing.T) {
 			t.Fatalf("continued %s", tool)
 		}
 	}
+	// The episode is recorded, for the limit card and the extensions, but
+	// nothing is scheduled to continue it.
 	states, err := m.store.LimitRecoveries()
-	if err != nil || len(states) != 0 {
-		t.Fatalf("scheduled non-Codex recovery: %v %v", states, err)
+	if err != nil || len(states) != 1 || !states[sess.ID].AttemptedAt.IsZero() {
+		t.Fatalf("Claude episode: %v %v", states, err)
 	}
-	previous := store.LimitRecovery{Banner: m.poller.engine.LimitBanner(sess.Tool, pane), ResetAt: now.Add(-time.Hour), LaunchAt: sess.LaunchTime()}
-	if saved, err := m.store.CompareLimitRecovery(sess, nil, &previous); err != nil || !saved {
+	previous := states[sess.ID]
+	stale := previous
+	stale.ResetAt = now.Add(-time.Hour)
+	if saved, err := m.store.CompareLimitRecovery(sess, &previous, &stale); err != nil || !saved {
 		t.Fatalf("seed stale state: %v %v", saved, err)
 	}
 	if recoverLimit(t, m.poller, sess, pane, status.Errored, true, true, now) {

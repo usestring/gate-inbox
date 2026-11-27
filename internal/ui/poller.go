@@ -28,6 +28,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/limitepisode"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/netwatch"
@@ -848,7 +849,11 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		previous := p.paneSamples[sess.ID]
 		hook := p.hookStamp(sess)
 		_, queued := heads[sess.ID]
-		_, recovering := limitRecoveries[sess.ID]
+		// Only an episode the board will continue needs its pane watched
+		// closely; a session left at its limit is polled like any other.
+		episode, limited := limitRecoveries[sess.ID]
+		recovering := limited && episode.AttemptedAt.IsZero() && (episode.CapacityDelay > 0 ||
+			limitepisode.Decide(&episode, limitepisode.Facts{Session: sess, Running: true}).Continue)
 		if previous.pid != pid || p.paneDue(sess, previous, selectedID, now, hook, queued || recovering, force) {
 			duePIDs = append(duePIDs, pid)
 			due = append(due, sess.ID)
@@ -1350,6 +1355,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	}
 	p.paneModes = paneModes
 	msg.expectedTurns = expectedTurnRows(paneModes)
+	msg.limits = limitRecoveries
 	if sampleStats {
 		msg.snap = sysstat.Sample("/")
 		msg.snapOK = true

@@ -38,7 +38,7 @@ func storedWorkingActivity(st *store.Store) string {
 	case "scroll":
 		return textScrollOn
 	default:
-		return textScrollHover
+		return textScrollOff
 	}
 }
 

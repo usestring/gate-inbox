@@ -1,6 +1,20 @@
 Sleep 10s
 Ctrl+\
 Sleep 2s
+Ctrl+k
+Sleep 1s
+Type "settings"
+Sleep 1s
+Enter
+Sleep 1s
+Type "/"
+Type "scrolling text"
+Enter
+Sleep 1s
+Screenshot {{SHOTS}}/00-off-default.png
+Left
+Enter
+Sleep 2s
 Screenshot {{SHOTS}}/01-hover-static.png
 Sleep 1s
 # Move the pointer over the working row for these two frames.
@@ -24,7 +38,7 @@ Type "/"
 Type "scrolling text"
 Enter
 Sleep 1s
-Screenshot {{SHOTS}}/05-hover-default.png
+Screenshot {{SHOTS}}/05-hover-setting.png
 Sleep 1s
 Right
 Sleep 1s

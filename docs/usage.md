@@ -781,7 +781,7 @@ Once the marks are familiar, the state word beside each row repeats what the tin
 
 ## Scrolling text
 
-The text beside a session's name scrolls horizontally like a billboard when you hover over that row. Settings (`ctrl+s`) has a `scrolling text` row with three saved modes: `off`, `on`, and `on hover` (the default). `on` scrolls without hovering; `off` keeps the usual static summaries. Text that fits stays still, and names, status and row heights stay fixed.
+The text beside a session's name stays static by default. In Settings (`ctrl+s`), set `scrolling text` to `on hover` to scroll the text horizontally when you point at a row, or `on` to scroll without hovering. Text that fits stays still, and names, status and row heights stay fixed.
 
 Working sessions show up to four recent nonblank output lines in that same text slot. New output restarts the marquee; leaving a hovered row restores the start of its text. The board reuses its existing pane captures above the agent's input box. Tools without a recognized input box keep their conversation summaries. The list labels Claude, Codex and OpenCode as `cld`, `cdx` and `oc`; their launch commands and stored identities keep their full names.
 

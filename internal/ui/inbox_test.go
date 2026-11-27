@@ -1403,7 +1403,7 @@ func TestInboxEnvelopeDeliversAnOperatorVoicedMessageUnfenced(t *testing.T) {
 	}
 	fenced := voiced
 	fenced.SenderID = store.ExtensionSenderID("ext1")
-	if got := inboxEnvelope(fenced, "claude", true, messageContext{}); !strings.Contains(got, "----EXTENSION-MESSAGE-ext1-") {
+	if got := inboxEnvelope(fenced, "claude", true, messageContext{}); !strings.Contains(got, "----EXTENSION-MESSAGE-") {
 		t.Fatalf("plain extension envelope = %q, want it still fenced", got)
 	}
 	if _, ok := store.ExtensionSender(voiced.SenderID); ok {
@@ -1442,7 +1442,7 @@ func TestInboxEnvelopeFencesAnExtensionWithNoReplyAddress(t *testing.T) {
 	if !strings.Contains(got, `"ext1" extension`) || !strings.Contains(got, "not from the user") {
 		t.Fatalf("envelope = %q, want it named as the extension's and not the user's", got)
 	}
-	fence := strings.Count(got, "----EXTENSION-MESSAGE-ext1-")
+	fence := strings.Count(got, "----EXTENSION-MESSAGE-")
 	if fence != 3 || !strings.Contains(got, "\n"+msg.Body+"\n") {
 		t.Fatalf("envelope = %q, want the body between two fences named in the header", got)
 	}

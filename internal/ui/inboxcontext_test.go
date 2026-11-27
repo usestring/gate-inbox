@@ -43,8 +43,7 @@ func TestATaughtSessionIsNotToldTheRuleAgain(t *testing.T) {
 		}
 	}
 	for _, kept := range []string{
-		"----CROSS-SESSION-MESSAGE-sampleapp-mobile-",
-		"-7c1d90ab-",
+		"----CROSS-SESSION-MESSAGE-7c1d90ab-",
 		`From agent "sampleapp-mobile-coordinator" (session 7c1d90ab)`,
 		"sent 2026-09-17 19:26",
 		msg.Body,
@@ -87,11 +86,13 @@ func TestTheEnvelopeOverheadIsWhatWeClaim(t *testing.T) {
 	t.Logf("envelope overhead: %d bytes before, %d bytes after, %d saved per message",
 		untaught, taught, untaught-taught)
 
-	if untaught != 609 {
-		t.Errorf("the untaught envelope is %d bytes of overhead, not the 609 measured", untaught)
+	// 609 and 245 before the fence stopped repeating the sender's name, which
+	// the header already carries.
+	if untaught != 534 {
+		t.Errorf("the untaught envelope is %d bytes of overhead, not the 534 measured", untaught)
 	}
-	if taught != 245 {
-		t.Errorf("the taught envelope is %d bytes of overhead, not the 245 measured", taught)
+	if taught != 195 {
+		t.Errorf("the taught envelope is %d bytes of overhead, not the 195 measured", taught)
 	}
 }
 

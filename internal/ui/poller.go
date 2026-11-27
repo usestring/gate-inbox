@@ -1887,9 +1887,8 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	if draft != "" && p.draftBackingOff(sess.ID) {
 		return false, nil
 	}
-	// Last of the holds, so a gate is asked only for a message that would
-	// go in now: the build's turn gates may hold it (while they move the
-	// session elsewhere, say), and it stays queued for a later pass.
+	// Last hold: the turn gates are asked only for a message that would go
+	// in now. A held message stays queued.
 	if p.turnGate(sess, msg.ID).Hold {
 		return false, nil
 	}

@@ -8,23 +8,14 @@ import (
 	"time"
 )
 
-// TurnGate is implemented by an extension that must be asked before an agent
-// session starts a turn: one that keeps a session off a resource it may no
-// longer use, or moves it elsewhere first, such as onto another account.
+// TurnGate is implemented by an extension that is asked before a session
+// starts a turn: when the board is about to type a queued message
+// (TurnFromBoard) and in the CLI's prompt-submit hook (TurnFromPrompt). The
+// zero TurnVerdict lets the turn through.
 //
-// The host asks at the two places a turn starts: when the board is about to
-// type a queued message into the pane (TurnFromBoard), and in the CLI's
-// prompt-submit hook, for a prompt the operator or the CLI itself submitted
-// (TurnFromPrompt). A gate that lets the turn through returns the zero
-// TurnVerdict.
-//
-// A gate fails open. One that errors, panics or does not answer within the
-// host's bound is skipped and the turn goes ahead, as if the build had no
-// gate: a gate exists to delay or redirect a turn, and a broken one must not
-// stop a session from working. The board asks from its poll loop, so a gate
-// must answer quickly there; work that takes longer, such as relaunching the
-// session elsewhere, belongs in the background, with Hold returned until it
-// is done.
+// Gates fail open: one that errors, panics or misses the host's bound is
+// skipped and the turn goes ahead. The board asks from its poll loop, so
+// slow work belongs in the background, with Hold returned until it is done.
 type TurnGate interface {
 	GateTurn(ctx context.Context, turn Turn) (TurnVerdict, error)
 }
@@ -41,8 +32,7 @@ const (
 	TurnFromPrompt TurnSource = "prompt"
 )
 
-// Turn is one turn about to start. It carries no prompt text: a gate decides
-// on the session, not on what it is told.
+// Turn is one turn about to start. It carries no prompt text.
 type Turn struct {
 	Session SessionInfo
 	Source  TurnSource
@@ -53,14 +43,11 @@ type Turn struct {
 
 // TurnVerdict is what a gate decided. The zero value lets the turn start.
 type TurnVerdict struct {
-	// Hold keeps the turn from starting now. From the board, the message
-	// stays queued and is offered to the gates again on a later pass. From
-	// a prompt-submit hook, the prompt is blocked and Reason is shown.
+	// Hold keeps the turn from starting. A board message stays queued; a
+	// prompt is blocked and Reason is shown.
 	Hold bool
-	// Requeue, with Hold on a prompt, queues the blocked prompt for the
-	// session, so the board types it in once the gates let a turn through
-	// (after the gate has moved the session elsewhere, say). It means
-	// nothing for a turn from the board, whose message is still queued.
+	// Requeue, with Hold on a prompt, queues the prompt so the board types
+	// it in once the gates let a turn through. Ignored for board turns.
 	Requeue bool
 	// Reason is one line on why the turn is held, shown to the operator.
 	Reason string
@@ -69,11 +56,10 @@ type TurnVerdict struct {
 // maxTurnReasonBytes bounds a held turn's reason: a line, not a report.
 const maxTurnReasonBytes = 300
 
-// GateTurn asks every gate, in registration order, whether turn may start.
-// The first that holds it decides; the gates after it are not asked. Each
-// gate gets until bound to answer; one that errors, panics or runs past it
-// is skipped (it fails open), and its failure comes back joined for the host
-// to log. A nil SessionHooks lets every turn start.
+// GateTurn asks every gate, in registration order, whether turn may start;
+// the first that holds it decides. A gate that errors, panics or runs past
+// bound is skipped and its error returned joined. A nil SessionHooks lets
+// every turn start.
 func (h *SessionHooks) GateTurn(ctx context.Context, turn Turn, bound time.Duration) (TurnVerdict, error) {
 	if h == nil {
 		return TurnVerdict{}, nil

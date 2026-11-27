@@ -273,18 +273,15 @@ func OperatorSent(target store.Session, id int64, text, subject string, interrup
 	return results
 }
 
-// How long each turn gate gets to answer. The board asks from its poll
-// loop, which must not stall for long; a prompt-submit hook already holds
-// the CLI until it answers, so a gate there may take longer, for example to
-// wait out a move it started.
+// How long each turn gate gets to answer on the board and in the
+// prompt-submit hook.
 const (
 	BoardTurnGateTimeout  = 2 * time.Second
 	PromptTurnGateTimeout = 20 * time.Second
 )
 
 // GateTurn asks the turn gates whether target may start a turn from source.
-// A gate that fails is logged and skipped, so a broken one never stops a
-// session from working.
+// A failing gate is logged and skipped.
 func GateTurn(target store.Session, source extension.TurnSource, messageID int64) extension.TurnVerdict {
 	hooks, err := Current()
 	if err != nil || hooks == nil {

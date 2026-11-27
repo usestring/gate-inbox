@@ -18,13 +18,10 @@ import (
 // go in once the turn may start.
 const requeuedNote = " Your prompt is queued and goes in once the session can take it."
 
-// TurnGateHook is the prompt-submit hook's turn gate: it asks the build's
-// turn gates whether the session may start this turn, and blocks the prompt
-// when one holds it. A gate that asks for the prompt to be requeued has it
-// queued as the operator's words, so the board types it in once the gates
-// let a turn through; only a prompt the operator typed is requeued, never a
-// message another session sent, which must not come back in the operator's
-// voice. Nothing held, or no session, prints nothing.
+// TurnGateHook asks the turn gates from the prompt-submit hook and blocks a
+// held prompt. On Requeue, a prompt the operator typed is queued as the
+// operator's words; a message from another session is not. Prints nothing
+// when the turn may start.
 func TurnGateHook(configDir, sessionID string, payload []byte, now time.Time) string {
 	if sessionID == "" {
 		return ""

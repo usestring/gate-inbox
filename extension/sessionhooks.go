@@ -31,6 +31,7 @@ type SessionHooks struct {
 	senders    []owned[OperatorSendHandler]
 	forms      []owned[SessionFormExtender]
 	formSpawns []owned[FormSpawnObserver]
+	gates      []owned[TurnGate]
 }
 
 type owned[T any] struct {
@@ -49,8 +50,8 @@ type policy struct {
 
 // SessionHooks collects the enabled extensions that implement SpawnShaper,
 // SpawnPolicy, LaunchContributor, MigrationObserver, RoleProvider,
-// KillObserver, OperatorSendHandler, SessionFormExtender or
-// FormSpawnObserver. On a registry nothing has
+// KillObserver, OperatorSendHandler, SessionFormExtender, FormSpawnObserver
+// or TurnGate. On a registry nothing has
 // configured yet only those are configured, from sections and under
 // configDir, as AccountChooser does: a CLI command launching one session has
 // no use for the rest, and must not fail on a section it never reads.
@@ -72,7 +73,8 @@ func (r *Registry) SessionHooks(configDir string, sections map[string]map[string
 		_, sender := ext.(OperatorSendHandler)
 		_, form := ext.(SessionFormExtender)
 		_, formSpawn := ext.(FormSpawnObserver)
-		if policy || contributor || observer || roles || shaper || killer || sender || form || formSpawn {
+		_, gate := ext.(TurnGate)
+		if policy || contributor || observer || roles || shaper || killer || sender || form || formSpawn || gate {
 			found = append(found, i)
 		}
 	}
@@ -122,6 +124,9 @@ func (r *Registry) SessionHooks(configDir string, sections map[string]map[string
 		}
 		if v, ok := ext.(FormSpawnObserver); ok {
 			hooks.formSpawns = append(hooks.formSpawns, owned[FormSpawnObserver]{id, v})
+		}
+		if v, ok := ext.(TurnGate); ok {
+			hooks.gates = append(hooks.gates, owned[TurnGate]{id, v})
 		}
 	}
 	return hooks, nil

@@ -170,6 +170,11 @@ const (
 	// the layout setting's "board" under a key, the columns answer to
 	// ToggleChrome's rows.
 	ToggleRail Action = "toggle_rail"
+	// FoldRailDetails and FoldRailSystem collapse the two panels docked
+	// under the rail's list -- the selected session's details and the
+	// system meters -- to their header rows, giving the list the rows.
+	FoldRailDetails Action = "fold_rail_details"
+	FoldRailSystem  Action = "fold_rail_system"
 )
 
 var Catalog = []Binding{
@@ -276,6 +281,8 @@ var Catalog = []Binding{
 	{ContextList, RefreshCLIs, []string{}, "refresh installed CLIs: look on PATH again for each agent CLI", false},
 	{ContextList, ToggleChrome, []string{}, "hide / show the key hints along the foot", false},
 	{ContextList, ToggleRail, []string{}, "hide / show the list beside the pane", false},
+	{ContextList, FoldRailDetails, []string{"ctrl+alt+s"}, "collapse / expand the details panel under the list", false},
+	{ContextList, FoldRailSystem, []string{"ctrl+alt+c"}, "collapse / expand the system panel under the list", false},
 	{ContextList, LegendPeek, []string{"ctrl+/"}, "peek at every available key", false},
 	{ContextList, QuickActions, []string{"ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
 	{ContextList, RemoteSessions, []string{}, "browse remote sessions by host", false},
@@ -302,6 +309,8 @@ var Catalog = []Binding{
 	// character the agent was owed.
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},
 	{ContextFocus, ToggleRail, []string{`alt+\`}, "hide / show the list beside the pane", false},
+	{ContextFocus, FoldRailDetails, []string{"ctrl+alt+s"}, "collapse / expand the details panel under the list", false},
+	{ContextFocus, FoldRailSystem, []string{"ctrl+alt+c"}, "collapse / expand the system panel under the list", false},
 	{ContextFocus, Archive, []string{"ctrl+x"}, "kill it, asking first", false},
 	// The list's ctrl+p, so the tier moves from wherever the operator is. It
 	// takes the agent's ctrl+p, which every agent CLI also answers on the up

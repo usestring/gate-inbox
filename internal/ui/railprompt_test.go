@@ -136,7 +136,10 @@ func TestTheOpeningBlockYieldsToGroupsAndShortRails(t *testing.T) {
 	if len(blocks) != 3 {
 		t.Fatalf("a group row grew no opening block of its own: %d blocks", len(blocks))
 	}
-	if strings.TrimSpace(blocks[1][0]) != "group" {
+	if !strings.Contains(blocks[1][0], "▾ details") {
+		t.Fatalf("the opening block should head itself with its fold row: %q", blocks[1])
+	}
+	if strings.TrimSpace(blocks[1][1]) != "group" {
 		t.Fatalf("a group row's opening should lead with its own facts: %q", blocks[1])
 	}
 	if strings.Contains(strings.Join(blocks[1], "\n"), "prompt") {

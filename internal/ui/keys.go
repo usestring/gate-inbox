@@ -438,6 +438,10 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, m.toggleChrome()
 	case keymap.ToggleRail:
 		return m, m.toggleRail()
+	case keymap.FoldRailDetails:
+		m.toggleRailFold(railFoldDetails)
+	case keymap.FoldRailSystem:
+		m.toggleRailFold(railFoldSystem)
 	case keymap.LegendPeek:
 		return m, m.beginLegendPeek(msg)
 	case keymap.RemoteSessions:
@@ -505,6 +509,7 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.ArchivedView: true, keymap.StatusFilter: true, keymap.ToolFilter: true,
 	keymap.EmptyGroups: true, keymap.RecentSort: true, keymap.Triage: true, keymap.ToggleChrome: true,
 	keymap.ToggleRail: true, keymap.RefreshCLIs: true,
+	keymap.FoldRailDetails: true, keymap.FoldRailSystem: true,
 	// LastPane reads the history it walks back through, not the row under
 	// the cursor, so an artifact row is no reason to swallow it.
 	keymap.LastPane: true,

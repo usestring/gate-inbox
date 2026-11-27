@@ -187,11 +187,6 @@ func (m *Model) dialogHold(sess store.Session) (hold, pane string) {
 
 func (m *Model) resumeHeldSnippets() tea.Cmd {
 	var checks []tea.Cmd
-	heads, err := m.store.HeadMessages()
-	if err != nil {
-		m.errBar.text = err.Error()
-		return nil
-	}
 	if !m.heldSnippetsRestored {
 		held, err := m.store.HeldSnippets()
 		if err != nil {
@@ -207,6 +202,18 @@ func (m *Model) resumeHeldSnippets() tea.Cmd {
 			}
 		}
 		m.heldSnippetsRestored = true
+	}
+	// This runs on every refresh, on the event loop, and the store has one
+	// connection a slow poll pass can hold for tens of seconds. With nothing
+	// held -- nearly always -- there is nothing the queue heads would decide,
+	// so they are not asked for.
+	if len(m.heldSnippets) == 0 {
+		return nil
+	}
+	heads, err := m.store.HeadMessages()
+	if err != nil {
+		m.errBar.text = err.Error()
+		return nil
 	}
 	for id, pending := range m.heldSnippets {
 		msg, err := m.store.Message(id, snippetSenderID)

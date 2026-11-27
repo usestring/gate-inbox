@@ -140,3 +140,21 @@ func TestSuccessorIsALinkedSessionCreatedAfterTheLimit(t *testing.T) {
 		t.Fatal("an archived successor still settles the episode")
 	}
 }
+
+// A relaunch's blank first frames do not end the episode, so the banner it
+// replays is still known for the old one. A relaunch that has run past the
+// replay window without showing the banner has moved on, and the next
+// banner, even in the same words, is a new cut turn.
+func TestAnEpisodeOutlivesOnlyTheRelaunchsFirstFrames(t *testing.T) {
+	ep := Observe(nil, session("WORK1", t0), banner, t0)
+	relaunched := session("WORK1", t0.Add(time.Hour))
+	if Over(*ep, relaunched, relaunched.LaunchTime().Add(time.Second)) {
+		t.Fatal("a relaunch's blank first frame ended the episode")
+	}
+	if !Over(*ep, relaunched, relaunched.LaunchTime().Add(ReplayWindow)) {
+		t.Fatal("a relaunch that worked on past the replay window kept the old episode")
+	}
+	if !Over(*ep, session("WORK1", t0), t0.Add(time.Second)) {
+		t.Fatal("the banner gone on its own launch did not end the episode")
+	}
+}

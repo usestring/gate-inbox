@@ -56,12 +56,18 @@ func Observe(prev *store.LimitRecovery, sess store.Session, banner string, now t
 	return next
 }
 
-// Over says the episode on record has ended on the session's current
-// launch: its banner is gone and the session went on to other work. An
-// episode from an earlier launch is kept while the relaunch's pane is still
-// drawing, so its replayed banner is recognised when it shows.
-func Over(ep store.LimitRecovery, sess store.Session) bool {
-	return ep.LaunchAt.Equal(sess.LaunchTime())
+// ReplayWindow is how long after a relaunch its pane may still be drawing
+// the conversation it resumed, banner included.
+const ReplayWindow = 2 * time.Minute
+
+// Over says the episode on record has ended, given a pane that no longer
+// shows its banner and a session that went on to other work. An episode
+// from an earlier launch is kept while the relaunch's pane may still be
+// drawing, so its replayed banner is recognised when it shows; a relaunch
+// past that which never showed it is a session working on, and the next
+// banner it shows is a new limit.
+func Over(ep store.LimitRecovery, sess store.Session, now time.Time) bool {
+	return ep.LaunchAt.Equal(sess.LaunchTime()) || now.Sub(sess.LaunchTime()) >= ReplayWindow
 }
 
 // Facts is what Decide needs to know about a session besides its episode.

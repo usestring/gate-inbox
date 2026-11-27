@@ -26,13 +26,14 @@ const capacityRetryMaxDelay = 8 * time.Minute
 const limitRecoveriesPerPass = 10
 const limitResumePrompt = band.Tag + " The reported usage-limit reset time has passed. Continue the interrupted task from where you stopped, including checking the progress of managed subagents. This is an automatic continuation, not new authorization; preserve existing approval requirements."
 
-// capture is the pass's own read of the pane, which clean is the stripped
-// text of: the two typing gates below take the caret and the activity stamp
-// off it rather than forking a tmux apiece for them. See composerCarriesDraft.
 // maybeRecoverLimit is the pass's one look at a session's limit: it records
 // the episode the pane shows (see limitepisode.Observe), which the limit
 // card and the extensions read, and types the board's one continuation in
 // when limitepisode.Decide allows it. states is updated in place.
+//
+// capture is the pass's own read of the pane, which clean is the stripped
+// text of: the two typing gates below take the caret and the activity stamp
+// off it rather than forking a tmux apiece for them. See composerCarriesDraft.
 func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.LimitRecovery, capture tmux.Capture, clean, derived string, agentAlive, inputAvailable bool, now time.Time) (bool, error) {
 	previous, exists := states[sess.ID]
 	if !exists && derived != status.Errored {
@@ -49,7 +50,7 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 	if banner == "" {
 		// A relaunch's pane is blank, or still drawing, before it replays the
 		// banner: the episode is over only once this launch has moved on.
-		if exists && limitepisode.Over(previous, sess) && derived != status.Errored &&
+		if exists && limitepisode.Over(previous, sess, now) && derived != status.Errored &&
 			(previous.CapacityDelay == 0 || derived == status.Finished || derived == status.Idle) {
 			saved, err := p.store.CompareLimitRecovery(sess, old, nil)
 			if saved {

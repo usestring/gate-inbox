@@ -272,3 +272,28 @@ func OperatorSent(target store.Session, id int64, text, subject string, interrup
 	}
 	return results
 }
+
+// How long each turn gate gets to answer on the board and in the
+// prompt-submit hook.
+const (
+	BoardTurnGateTimeout  = 2 * time.Second
+	PromptTurnGateTimeout = 20 * time.Second
+)
+
+// GateTurn asks the turn gates whether target may start a turn from source.
+// A failing gate is logged and skipped.
+func GateTurn(target store.Session, source extension.TurnSource, messageID int64) extension.TurnVerdict {
+	hooks, err := Current()
+	if err != nil || hooks == nil {
+		return extension.TurnVerdict{}
+	}
+	bound := BoardTurnGateTimeout
+	if source == extension.TurnFromPrompt {
+		bound = PromptTurnGateTimeout
+	}
+	verdict, err := hooks.GateTurn(context.Background(), extension.Turn{Session: Info(target, true), Source: source, MessageID: messageID}, bound)
+	if err != nil {
+		logging.Warn("a turn gate failed; the turn went ahead", "session", target.ID, "source", string(source), "err", err)
+	}
+	return verdict
+}

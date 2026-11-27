@@ -48,6 +48,9 @@ import (
 // inside a tmux attach. The UI receives the results as refreshMsg values
 // and merely renders them.
 type poller struct {
+	// gateTurn asks the turn gates before a queued message is typed in;
+	// nil is sessionhooks.GateTurn (turngate.go).
+	gateTurn          func(store.Session, extension.TurnSource, int64) extension.TurnVerdict
 	snippetRecipients sync.Map
 	// net reads whether the machine is online. Nil, as in every test that
 	// does not set one, reads online.
@@ -1882,6 +1885,11 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 		return false, nil
 	}
 	if draft != "" && p.draftBackingOff(sess.ID) {
+		return false, nil
+	}
+	// Last hold: the turn gates are asked only for a message that would go
+	// in now. A held message stays queued.
+	if p.turnGate(sess, msg.ID).Hold {
 		return false, nil
 	}
 	// Reserved before the claim: a pass that has no slot left has written

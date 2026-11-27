@@ -44,7 +44,8 @@ func RunHookContext(ctx context.Context, in io.Reader, out io.Writer, args []str
 			var event hooks.CodexPayload
 			if json.Unmarshal(payload, &event) == nil {
 				if id, adopted, ok := manager.CodexThreadRow(event.Thread); ok && !adopted {
-					output = hooks.MergeHookOutputs(output, sessioncmd.RequestLaunchOverlap(ctx, configDir, id, event, search.ToolCodex))
+					output = hooks.MergeHookOutputs(output, sessioncmd.RequestLaunchOverlap(ctx, configDir, id, event, search.ToolCodex),
+						sessioncmd.TurnGateHook(configDir, id, payload, time.Now()))
 				}
 			}
 		}
@@ -171,6 +172,7 @@ func RunHookContext(ctx context.Context, in io.Reader, out io.Writer, args []str
 		if json.Unmarshal(payload, &event) == nil {
 			note = hooks.MergeHookOutputs(note, sessioncmd.RequestLaunchOverlap(ctx, configDir, sessionID, event, search.ToolClaude))
 		}
+		note = hooks.MergeHookOutputs(note, sessioncmd.TurnGateHook(configDir, sessionID, payload, time.Now()))
 		if attested {
 			if flag := attestFlag(); flag != "" {
 				_ = os.WriteFile(flag, nil, 0o600)

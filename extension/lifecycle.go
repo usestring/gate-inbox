@@ -169,8 +169,10 @@ type BoardHost interface {
 	// resume: the row is re-pointed, a running session is relaunched on the
 	// conversation it holds, and a dead one takes the account at its next
 	// revive. A context too large to resume on another account is refused
-	// rather than migrated, as is a pane the manager did not start and a
-	// CLI that cannot be launched on a named account.
+	// rather than migrated, as is a CLI that cannot be launched on a named
+	// account. A pane the manager did not start is refused too, unless ctx
+	// is marked by LimitMove: a pane its limit has cut off is taken over, its
+	// pane ended and its conversation relaunched as a board session.
 	SwitchAccount(ctx context.Context, id, account string) (SessionInfo, error)
 	// MigrateAccount moves an agent session's conversation to a new session
 	// on a named account, "" for the CLI's own login, as switch_account does

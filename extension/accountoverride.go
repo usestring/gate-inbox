@@ -2,18 +2,14 @@ package extension
 
 import "context"
 
-// LaunchAccountOverrider is implemented by an AccountChooser that must have
-// the last word on the account every launch runs on, including the launches
-// it is not asked to choose for: a spawn or fork that names its account (a
-// fork copies its source's), a revive or restart that keeps the one its
-// conversation is on, and a migration. The host asks it once the account is
-// settled -- named by the launch, picked by the chooser, or the CLI's own
-// login -- and before the account's token is read, so an override takes the
-// launch's place in full: the row records the account it returns and the
-// token read is that account's.
+// LaunchAccountOverrider is implemented by an AccountChooser that has the
+// last word on every launch's account, including launches that name one
+// (spawns, forks, revives, restarts, migrations). The host asks once the
+// account is settled and before its token is read; the returned account is
+// recorded and its token read.
 //
 // It is never asked for a preview. An override that errors or panics is
-// logged and ignored, and the settled account stands.
+// logged and the settled account stands.
 type LaunchAccountOverrider interface {
 	OverrideLaunchAccount(ctx context.Context, req LaunchAccountRequest) (LaunchAccount, error)
 }
@@ -41,7 +37,6 @@ type LaunchAccount struct {
 	// CLI's own login.
 	Override bool
 	Account  string
-	// Warning, when set, is one line on why the launch runs where it does,
-	// passed to the launch's warning like a chooser's fallback.
+	// Warning is one line passed to the launch's warning.
 	Warning string
 }

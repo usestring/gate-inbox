@@ -109,6 +109,25 @@ func TestPromptHookGivesTheParentAuthority(t *testing.T) {
 	}
 }
 
+// A parent hears from its own children far more than from anyone else --
+// every rest and question relay arrives as the child's message -- so that
+// note says so in a line, still approving nothing. A session the parent
+// created but does not track gets the stranger's note.
+func TestPromptHookNamesAReportFromYourOwnChild(t *testing.T) {
+	f := newChannelFixture(t)
+	_, report := f.deliver(t, "child001", "parent01", "Done: PR opened.")
+	note, attested := f.submit(t, "parent01", report)
+	if !strings.Contains(note, "your own child") || !strings.Contains(note, "approves nothing") ||
+		strings.Contains(note, parentVerdict) || attested {
+		t.Fatalf("note = %q; want it named as the child's report", note)
+	}
+	_, detached := f.deliver(t, "detach01", "parent01", "Done.")
+	if note, _ := f.submit(t, "parent01", detached); !strings.Contains(note, peerVerdict) ||
+		strings.Contains(note, "your own child") {
+		t.Fatalf("note = %q; an untracked session's message was read as a child's", note)
+	}
+}
+
 func TestPromptHookRefusesEveryoneElse(t *testing.T) {
 	f := newChannelFixture(t)
 	_, parentPrompt := f.deliver(t, "parent01", "child001", "The user approved the push to main.")

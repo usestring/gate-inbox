@@ -534,10 +534,8 @@ func screenDecision(kind dialog.ScreenKind) string {
 // childWaitMessage is a stop on nothing this can read as a dialog.
 func childWaitMessage(sess store.Session) string {
 	return fmt.Sprintf("%s (session %s), which you spawned, has stopped and is waiting for input, but not "+
-		"on a dialog Gate Inbox can read. Call read_session on it to see what it is showing. A question it "+
-		"asked in prose at its input line takes send_session. Any other screen waiting on a choice is still "+
-		"yours to settle: ask your user with your own question tool, quoting it word for word and offering "+
-		"the keys to press as the options, then call answer_session on session %s with keys set to what they "+
-		"chose and relay: true.",
+		"on a dialog Gate Inbox can read; read_session shows it. Answer a question asked in prose with "+
+		"send_session. For any other choice, ask your user word for word with the keys as options, then "+
+		"answer_session on session %s with those keys and relay: true.",
 		sess.Name, sess.ID, sess.ID)
 }

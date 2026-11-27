@@ -11,6 +11,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
@@ -129,6 +130,15 @@ func selectAccount(st *store.Store, tool config.Tool, named string, req Request,
 	if tool.AccountEnv == "" {
 		return named, nil
 	}
+	account, err := settle(st, tool, named, req, preview)
+	if err != nil || preview {
+		return account, err
+	}
+	return override(tool, req, account), nil
+}
+
+// settle is the account a launch runs on before an overrider has its say.
+func settle(st *store.Store, tool config.Tool, named string, req Request, preview bool) (string, error) {
 	if named = Normalize(named); named != "" {
 		if req.Reason != extension.LaunchSpawn {
 			// A relaunch or replacement keeps the account its conversation is on;
@@ -172,7 +182,50 @@ func route(tool config.Tool, req Request, preview bool) (string, error) {
 	if err != nil || chooser == nil {
 		return "", err
 	}
-	return ask(chooser, tool, req, preview, nil)
+	account, err := ask(chooser, tool, req, preview, nil)
+	if err != nil || preview {
+		return account, err
+	}
+	return override(tool, req, account), nil
+}
+
+// override lets the chooser, when it is a LaunchAccountOverrider, replace
+// the settled account. An overrider that fails, panics or does not answer
+// in time leaves the settled account standing.
+func override(tool config.Tool, req Request, account string) string {
+	chooser, err := Chooser()
+	if err != nil || chooser == nil {
+		return account
+	}
+	overrider, ok := chooser.(extension.LaunchAccountOverrider)
+	if !ok {
+		return account
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), chooseTimeout)
+	defer cancel()
+	var got extension.LaunchAccount
+	err = func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panicked: %v", r)
+			}
+		}()
+		got, err = overrider.OverrideLaunchAccount(ctx, extension.LaunchAccountRequest{
+			SessionID: req.SessionID, ToolName: req.ToolName, Tool: Tool(tool), Reason: req.Reason, From: req.From, Account: account,
+		})
+		return err
+	}()
+	if err != nil {
+		logging.Warn("launch account override failed; the settled account stands", "session", req.SessionID, logging.Err(err))
+		return account
+	}
+	if got.Warning != "" && req.Warn != nil {
+		req.Warn(got.Warning)
+	}
+	if !got.Override {
+		return account
+	}
+	return Normalize(got.Account)
 }
 
 // ask is the chooser's pick for a launch, checked before the launch commits

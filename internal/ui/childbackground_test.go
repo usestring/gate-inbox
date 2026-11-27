@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,36 @@ func TestTheChildSweepHoldsAFinishedChildWithBackgroundWorkRunning(t *testing.T)
 	}
 	if !row.Archived || m.tmux.Exists(kid.ID) {
 		t.Fatalf("the sweep kept a finished child after its background work ended: %+v", row)
+	}
+}
+
+// A hold is news when it starts, not on every pass it lasts. A finished child
+// with a shell left running was held, and said so at info, on every sweep:
+// 2,147 identical lines for one child in an afternoon. The hold is logged at
+// info once, at debug while it stands, and at info again only once it has
+// lifted and come back.
+func TestAChildHeldForItsBackgroundWorkIsLoggedOnceNotEveryPass(t *testing.T) {
+	m, parent, kid := finishedFanOut(t)
+	if err := m.store.SetAgentSessionID(kid.ID, "conv-judges"); err != nil {
+		t.Fatalf("SetAgentSessionID: %v", err)
+	}
+	m.cfg.Children.KeepFinished = false
+	loadStoredRows(t, m)
+	kid, _ = m.sessionByID(kid.ID)
+	transcript := claudeTranscript(t, kid)
+	appendTranscript(t, transcript, judgeStarted)
+	relayRest(t, m, parent, kid, true)
+	path := logToTemp(t)
+
+	for range 3 {
+		runChildSweep(t, m)
+	}
+	const line = "child sweep held a finished child whose background work is still running"
+	if got := strings.Count(readLog(t, path), line); got != 1 {
+		t.Fatalf("three sweeps over one hold logged it %d times at info, want once", got)
+	}
+	if row, err := m.store.Get(kid.ID); err != nil || row.Archived {
+		t.Fatalf("the hold itself stopped holding: %+v, %v", row, err)
 	}
 }
 

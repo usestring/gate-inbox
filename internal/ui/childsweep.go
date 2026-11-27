@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"fmt"
 	"maps"
 	"slices"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -78,7 +80,13 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 	if m.poller != nil {
 		tracker = m.poller.background
 	}
+	if m.childHolds == nil {
+		m.childHolds = &childHoldLog{}
+	}
+	holds := m.childHolds
 	return func() tea.Msg {
+		held := map[string]string{}
+		defer holds.keep(held)
 		var retiring []store.RetirableChild
 		if retire {
 			found, err := st.RetirableChildren(time.Now().Add(-grace))
@@ -108,7 +116,13 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 					}
 				}
 				if pending, live := childBackgroundWork(tracker, rows[index], driver.PanePID); len(pending) > 0 || live > 0 {
-					logging.Info("child sweep held a finished child whose background work is still running",
+					why := fmt.Sprint(pending, live)
+					held[child.ID] = why
+					logHeld := logging.Debug
+					if holds.changed(child.ID, why) {
+						logHeld = logging.Info
+					}
+					logHeld("child sweep held a finished child whose background work is still running",
 						"session", child.ID, "tasks", pending, "shells", live)
 					continue
 				}
@@ -169,6 +183,36 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 		}
 		return childSweptMsg{filed: filed, missing: missing, retire: retiring}
 	}
+}
+
+// childHoldLog remembers why each finished child was last held for its
+// background work, so the hold is logged at info when it starts or changes
+// rather than on every pass it lasts: a child with a shell left running
+// wrote the same line every few seconds, 2,147 times for one child in an
+// afternoon.
+//
+// Only sweep commands touch it, one at a time (childSweeping), but each runs
+// on a goroutine of its own, so it carries its own lock rather than lean on
+// that ordering.
+type childHoldLog struct {
+	mu   sync.Mutex
+	last map[string]string
+}
+
+// changed reports whether id is held for a reason other than the one the
+// last sweep logged.
+func (l *childHoldLog) changed(id, why string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.last[id] != why
+}
+
+// keep replaces the remembered holds with this sweep's: a child no longer
+// held is forgotten, so a hold that starts again is logged again.
+func (l *childHoldLog) keep(held map[string]string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.last = held
 }
 
 // childSweptMsg is what one sweep found, carried back to the event loop

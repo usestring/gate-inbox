@@ -39,25 +39,21 @@ import (
 // rather than a phrase: a dead child has no turn that ended and no prompt to
 // send to, so the tail that suits the other two is false for it twice over.
 var restRelay = map[string]string{
-	status.Finished: "has finished its turn. Read what it did with read_session on %[2]s before you rely " +
-		"on it: this says the turn ended, not that the work is right. If you still need something from " +
-		"it, send_session puts your next instruction in its prompt.",
+	status.Finished: "has finished its turn. read_session on %[2]s shows what it did; an ended turn is not " +
+		"proof the work is right. send_session gives it your next instruction.",
 	// A child resting in background has ended its turn, and what it said in
 	// that turn is usually the result its parent is waiting for; the shell or
 	// query left behind it only means another turn will follow. Unrelayed, a
 	// parent is told nothing until that work ends: on 2026-11-09 a child
 	// posted its deploy report, went to background on a 30-minute telemetry
 	// query, and its parent sat idle until the user prompted it by hand.
-	status.Background: "has ended its turn with background work still running. Read what it said with " +
-		"read_session on %[2]s: the turn that ended usually carries its result, and it will take another " +
-		"turn when that work ends, which is relayed as its own rest. If you need something from it now, " +
-		"send_session puts your next instruction in its prompt.",
-	status.Errored: "has stopped with an error. Read what it says with read_session on %[2]s: the board " +
-		"read a screen, so what actually failed is on that screen and not here. If it can go on from " +
-		"there, send_session puts your next instruction in its prompt.",
-	status.Dead: "is gone: its pane has exited and it will not come back on its own. Its last screen is " +
-		"still on the row -- read_session on %[2]s shows it -- but it will take no message, so " +
-		"send_session cannot reach it. revive_session brings the row back with the conversation it held.",
+	status.Background: "has ended its turn with background work still running. read_session on %[2]s shows " +
+		"what it said, usually its result; it takes another turn, relayed on its own, when that work ends. " +
+		"send_session gives it your next instruction.",
+	status.Errored: "has stopped with an error. read_session on %[2]s shows the screen with what failed; " +
+		"send_session gives it your next instruction if it can go on.",
+	status.Dead: "is gone: its pane has exited, so send_session cannot reach it. read_session on %[2]s shows " +
+		"its last screen; revive_session brings it back with its conversation.",
 }
 
 // relayChildRest tells sess's parent that sess has come to rest.

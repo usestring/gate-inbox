@@ -206,3 +206,35 @@ func IsLimitMove(ctx context.Context) bool {
 	on, _ := ctx.Value(limitMoveKey{}).(bool)
 	return on
 }
+
+// LimitEpisode is the board's decision about one session held at its
+// account's usage limit. The board records each limit banner it sees, and
+// the limit card, its own continuation after a reset, and an extension
+// moving sessions between accounts all act on the same decision.
+type LimitEpisode struct {
+	// Banner is the limit as the pane shows it.
+	Banner string
+	// Account is the account that hit the limit, "" for the CLI's own login.
+	Account string
+	// Since is when the board first saw the banner.
+	Since time.Time
+	// Cut says the limit refused a live turn, so somebody is waiting on the
+	// work. A session merely showing a banner its relaunch replayed is not
+	// cut: moving or continuing it would spend a turn nobody asked for, and
+	// the next message it is sent finds out whether its account has room.
+	Cut bool
+	// Move says the session is worth moving to another account now, and
+	// continuing there once: it was cut, it is running and not muted, and
+	// its CLI runs on named accounts. A move relaunches it, and the
+	// relaunch's replayed banner is no new cut, so each episode asks for one
+	// move.
+	Move bool
+}
+
+// LimitReader is implemented by a BoardHost that records limit episodes.
+type LimitReader interface {
+	// LimitEpisodes is every session the board finds held at a limit that
+	// is still its own, by id: not archived, not migrated to another
+	// session, and still on the account that hit it.
+	LimitEpisodes(ctx context.Context) (map[string]LimitEpisode, error)
+}

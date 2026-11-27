@@ -207,3 +207,93 @@ func TestListAccountsWithoutAnAdvisorIsNamesOnly(t *testing.T) {
 		t.Fatalf("list_accounts = %q", got)
 	}
 }
+
+// A pane the manager did not start is refused a routine move, which would end
+// the operator's pane unasked. A move its limit already cut off takes the pane
+// over instead, as the board's account card does: the pane is ended and the
+// conversation comes back as a board session on the new account.
+func TestBoardSwitchAccountTakesOverAnAdoptedPaneOnlyForALimitMove(t *testing.T) {
+	h := newSessionHarness(t)
+	socket := h.driver.SocketName()
+	paneID, _ := newForeignPane(t, socket)
+	adopted := store.Session{ID: uuid.NewString()[:8], Name: "own-pane", Tool: "claude", Cwd: h.caller.Cwd, Group: h.caller.Group,
+		Status: status.Errored, AgentSessionID: "conv-x", TmuxSocket: socket, TmuxPaneID: paneID}
+	if err := h.store.CreateSession(adopted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.sessions.BoardSwitchAccount(adopted.ID, "alice1", false); err == nil || !strings.Contains(err.Error(), "did not start") {
+		t.Fatalf("a routine move of an adopted pane was not refused: %v", err)
+	}
+	if !foreignPaneExists(t, socket, paneID) {
+		t.Fatal("the refused move ended the operator's pane")
+	}
+
+	switched, err := h.sessions.BoardSwitchAccount(adopted.ID, "alice1", true)
+	if err != nil || switched.Account != "ALICE1" {
+		t.Fatalf("limit move of an adopted pane = %+v %v", switched, err)
+	}
+	if foreignPaneExists(t, socket, paneID) {
+		t.Fatal("the adopted pane is still running after the take-over")
+	}
+	row, err := h.store.Get(adopted.ID)
+	if err != nil || row.TmuxPaneID != "" || row.Account != "ALICE1" || row.AgentSessionID != "conv-x" {
+		t.Fatalf("row after the take-over = %+v %v, want a board session on ALICE1 holding conv-x", row, err)
+	}
+}
+
+// BoardLimitEpisodes hands an extension the board's decision: a session its
+// limit cut off is to be moved, one showing a replayed banner is limited but
+// not moved, and one since moved off the account is no longer limited.
+func TestBoardLimitEpisodesSaysWhichSessionsToMove(t *testing.T) {
+	chooser := &accountstest.Chooser{Account: "alice1"}
+	t.Cleanup(accounts.UseChooser(chooser.Resolve))
+	h := newSessionHarness(t)
+	if err := h.store.SetSetting(store.AccountRoutingSetting, accounts.Extension); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := h.sessions.BoardLimitEpisodes(); err != nil || len(got) != 0 {
+		t.Fatalf("no episodes: %v %v", got, err)
+	}
+	cut, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "cut", Tool: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idle, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "idle", Tool: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "moved", Tool: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	record := func(id string, ep store.LimitRecovery) {
+		t.Helper()
+		row, err := h.store.Get(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ep.LaunchAt = row.LaunchTime()
+		if ok, err := h.store.CompareLimitRecovery(row, nil, &ep); err != nil || !ok {
+			t.Fatalf("record %s: %v %v", id, ok, err)
+		}
+	}
+	const banner = "You've hit your weekly limit · resets Friday at 9pm"
+	record(cut.ID, store.LimitRecovery{Banner: banner, Account: "ALICE1", SeenAt: now})
+	record(idle.ID, store.LimitRecovery{Banner: banner, Account: "ALICE1", SeenAt: now, Replayed: true})
+	record(moved.ID, store.LimitRecovery{Banner: banner, Account: "BOB2", SeenAt: now})
+
+	got, err := h.sessions.BoardLimitEpisodes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ep, ok := got[cut.ID]; !ok || !ep.Cut || !ep.Move || ep.Account != "ALICE1" || !ep.Since.Equal(now) {
+		t.Fatalf("cut session: %+v %v, want it moved", ep, ok)
+	}
+	if ep, ok := got[idle.ID]; !ok || ep.Cut || ep.Move {
+		t.Fatalf("replayed banner: %+v %v, want limited and left alone", ep, ok)
+	}
+	if ep, ok := got[moved.ID]; ok {
+		t.Fatalf("a session on another account than its banner's is still listed: %+v", ep)
+	}
+}

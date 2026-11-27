@@ -13,6 +13,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/launchpace"
+	"github.com/usestring/gate-inbox/internal/limitepisode"
 	"github.com/usestring/gate-inbox/internal/migrate"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -265,17 +266,37 @@ func (s *Sessions) SwitchAccount(sessionID, targetID, account string) (Session, 
 // session takes its relaunch queue turn before the row is re-pointed, so a
 // refusal leaves it on the account it runs on; how says how it takes that
 // turn.
+//
+// A pane the manager did not start is refused, except for a move its limit
+// has already cut off (how.ahead): that one is taken over the way the
+// board's account card takes it over, its pane ended and its conversation
+// relaunched as a board session on account, since the operator's pane can
+// run nothing more where it is.
 func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account string, how pacing, large func(string) (Session, error)) (Session, error) {
 	tool, known := runtime.cfg.Tools[target.Tool]
 	if !known {
 		return Session{}, fmt.Errorf("tool %s is no longer configured", target.Tool)
 	}
-	account, err := launch.AccountForSwitch(tool, target.TmuxPaneID != "", account)
+	adopted := target.TmuxPaneID != ""
+	account, err := launch.AccountForSwitch(tool, adopted && !how.ahead, account)
 	if err != nil {
 		return Session{}, err
 	}
-	if account == target.Account {
+	// An adopted row never recorded the account its pane was started on, so
+	// only a managed row can already be on the one asked for.
+	if account == target.Account && !adopted {
 		return runtime.currentInfo(target, false), nil
+	}
+	if adopted {
+		if err := runtime.reach(target); err != nil {
+			return Session{}, err
+		}
+		// Relaunching on the CLI's continue command would resume the
+		// directory's latest conversation, the wrong one whenever panes share
+		// a checkout, after the operator's pane was already gone.
+		if target.AgentSessionID == "" && tool.ResumeByIDCommand != "" {
+			return Session{}, fmt.Errorf("%s runs in a pane the manager did not start and its conversation id is not known yet, so it stays in its pane", target.Name)
+		}
 	}
 	tier, err := runtime.store.SizingTier(target)
 	if err != nil {
@@ -313,10 +334,15 @@ func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account
 	if !running {
 		return runtime.sessionInfo(target, false, false), nil
 	}
-	relaunched, err := s.restart(runtime, target, slot)
+	restart := s.restart
+	if adopted {
+		restart = s.restartAdopted
+	}
+	relaunched, err := restart(runtime, target, slot)
 	if err != nil {
 		return Session{}, err
 	}
+	target.TmuxSocket, target.TmuxPaneID = "", ""
 	target.Status = relaunched.DefaultStatus
 	return runtime.sessionInfo(target, true, false), nil
 }
@@ -348,7 +374,9 @@ func (s *Sessions) BoardAccount(targetID string) (string, extension.AccountTool,
 // It does not wait for the relaunch queue: while another session is
 // relaunching it is refused with launchpace.ErrBusy, and the extension asks
 // again on a later pass. ahead marks a session its limit already cut off,
-// which goes ahead of routine moves (see launchpace.Pacer.TryAhead).
+// which goes ahead of routine moves (see launchpace.Pacer.TryAhead) and may
+// be a pane the manager did not start, which it takes over (see
+// switchAccount).
 func (s *Sessions) BoardSwitchAccount(targetID, account string, ahead bool) (Session, error) {
 	runtime, err := s.open()
 	if err != nil {
@@ -362,4 +390,55 @@ func (s *Sessions) BoardSwitchAccount(targetID, account string, ahead bool) (Ses
 	return s.switchAccount(runtime, target, account, pacing{ahead: ahead}, func(string) (Session, error) {
 		return Session{}, fmt.Errorf("%s's context is too large to resume on another account; switch_account moves it to a new conversation instead", target.Name)
 	})
+}
+
+// BoardLimitEpisodes is every session held at a limit that is still its
+// own, with the board's decision about it (see limitepisode.Decide), for a
+// board extension.
+func (s *Sessions) BoardLimitEpisodes() (map[string]extension.LimitEpisode, error) {
+	runtime, done, err := s.openBoard()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	episodes, err := runtime.store.LimitRecoveries()
+	if err != nil || len(episodes) == 0 {
+		return nil, err
+	}
+	sessions, err := runtime.store.ListSessions(false)
+	if err != nil {
+		return nil, err
+	}
+	routed := false
+	if accounts.ChooserAvailable() {
+		mode, err := accounts.Mode(runtime.store)
+		routed = err == nil && mode == accounts.Extension
+	}
+	out := map[string]extension.LimitEpisode{}
+	for _, sess := range sessions {
+		ep, ok := episodes[sess.ID]
+		if !ok {
+			continue
+		}
+		running := false
+		if runtime.reach(sess) == nil {
+			running = runtime.driver.Exists(sess.ID)
+		}
+		d := limitepisode.Decide(&ep, limitepisode.Facts{
+			Session:   sess,
+			Running:   running,
+			Successor: limitepisode.Successor(sessions, sess, ep),
+			Routed:    routed,
+			Accounts:  runtime.cfg.Tools[sess.Tool].AccountEnv != "",
+		})
+		if !d.Limited {
+			continue
+		}
+		since := ep.SeenAt
+		if since.IsZero() {
+			since = ep.LaunchAt
+		}
+		out[sess.ID] = extension.LimitEpisode{Banner: ep.Banner, Account: ep.Account, Since: since, Cut: d.Cut, Move: d.Move}
+	}
+	return out, nil
 }

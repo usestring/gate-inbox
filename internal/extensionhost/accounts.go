@@ -41,6 +41,19 @@ func (b *Board) MigrateAccount(ctx context.Context, id, account string) (extensi
 	return info(moved), err
 }
 
+// LimitEpisodes is every session held at a limit that is still its own,
+// with the board's decision about it.
+func (b *Board) LimitEpisodes(ctx context.Context) (map[string]extension.LimitEpisode, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return b.cmds.BoardLimitEpisodes()
+}
+
+func (v *boardView) LimitEpisodes(ctx context.Context) (map[string]extension.LimitEpisode, error) {
+	return v.events.board.LimitEpisodes(ctx)
+}
+
 func (v *boardView) MigrateAccount(ctx context.Context, id, account string) (extension.SessionInfo, error) {
 	return v.events.board.MigrateAccount(ctx, id, account)
 }
@@ -96,3 +109,5 @@ func (b *Events) dropDeadlines(owner string) {
 	defer b.mu.Unlock()
 	delete(b.deadlines, owner)
 }
+
+var _ extension.LimitReader = (*boardView)(nil)

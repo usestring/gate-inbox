@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.4.0](https://github.com/usestring/gate-inbox/compare/v1.3.0...v1.4.0) (2026-11-27)
+
+
+### Features
+
+* **accounts:** let the account chooser override every launch's account ([#787](https://github.com/usestring/gate-inbox/issues/787)) ([84cee18](https://github.com/usestring/gate-inbox/commit/84cee18f5f90d3f20940b9ee42b9523f6b9484c9))
+* **accounts:** let the build advise on account state for list_accounts and spawns ([#780](https://github.com/usestring/gate-inbox/issues/780)) ([bdb6392](https://github.com/usestring/gate-inbox/commit/bdb6392eada1f5bd0eebebff70fdfc868a79ba1f))
+* add an "ask again" default snippet ([#747](https://github.com/usestring/gate-inbox/issues/747)) ([9f5f5df](https://github.com/usestring/gate-inbox/commit/9f5f5df6a168fa5067d40a1dc579dc6b8976fe1c))
+* **extension:** let extensions gate a turn before it starts ([#786](https://github.com/usestring/gate-inbox/issues/786)) ([a153867](https://github.com/usestring/gate-inbox/commit/a153867a53fe22863d04de7b214a315c9711e7a8))
+* make the relaunch memory guard an experiment, off by default ([#743](https://github.com/usestring/gate-inbox/issues/743)) ([8b86106](https://github.com/usestring/gate-inbox/commit/8b86106f6013044e3c09a5a378bdda8f3af493d9))
+* **tracing:** send paths in allowlisted repositories readable ([#755](https://github.com/usestring/gate-inbox/issues/755)) ([45e5902](https://github.com/usestring/gate-inbox/commit/45e590208b09f4103fd93328fbb777f49eb2dfd7))
+
+
+### Bug Fixes
+
+* **accounts:** launch elsewhere when a chosen account's secret is unreadable ([#744](https://github.com/usestring/gate-inbox/issues/744)) ([f68d5a7](https://github.com/usestring/gate-inbox/commit/f68d5a7b095527cbd61a593fd05eb519137eff47))
+* **accounts:** relaunch elsewhere when a session's account secret is unreadable ([#783](https://github.com/usestring/gate-inbox/issues/783)) ([055b7bf](https://github.com/usestring/gate-inbox/commit/055b7bf7f10f39f6796f7d74e78471001199361a))
+* **send:** keep held messages and smart renames out of open dialogs ([#767](https://github.com/usestring/gate-inbox/issues/767)) ([d8aefa6](https://github.com/usestring/gate-inbox/commit/d8aefa6a3e7c7cc4609a52e5e9fbcca13f4e9d10))
+* **sessioncmd:** refuse an account switch or stale-sandbox restart whose working directory is gone ([#782](https://github.com/usestring/gate-inbox/issues/782)) ([6c36196](https://github.com/usestring/gate-inbox/commit/6c36196e9f89706d2bdcb80f0d745f06314f2fae))
+* **status:** read Claude's usage-limit menu as a limit, not a dialog ([#778](https://github.com/usestring/gate-inbox/issues/778)) ([fb2557c](https://github.com/usestring/gate-inbox/commit/fb2557c756ed6ede3ed99e4515d441c2d3ce4987))
+* **ui:** keep ctrl+y in the hotkey menu when there is nothing to insert ([#754](https://github.com/usestring/gate-inbox/issues/754)) ([0fc3a3c](https://github.com/usestring/gate-inbox/commit/0fc3a3c57c1e0ca6092fd677bb595a98a8b43c73))
+* **ui:** let enter and chords pass through the open hotkey menu ([#748](https://github.com/usestring/gate-inbox/issues/748)) ([fc7203e](https://github.com/usestring/gate-inbox/commit/fc7203e673225dee416b4329517a0b9f75c183f9))
+* **ui:** rank background turns under finished turns in smart triage ([#741](https://github.com/usestring/gate-inbox/issues/741)) ([966ffed](https://github.com/usestring/gate-inbox/commit/966ffedda23d761d1eb59897f0d35dfcc85b6a5c))
+* **ui:** Warm hibernated sessions earlier in triage ([#774](https://github.com/usestring/gate-inbox/issues/774)) ([279b5f4](https://github.com/usestring/gate-inbox/commit/279b5f447ba2ccdc5e92813d6ef46c12c7b1b67a))
+
+
+### Performance Improvements
+
+* **envelope:** stop repeating the sender's name in every message's fences ([#788](https://github.com/usestring/gate-inbox/issues/788)) ([d09b7a8](https://github.com/usestring/gate-inbox/commit/d09b7a82d23b66154bd5cb6e606a78e59257f205))
+* **mcp:** tighten the send, create and answer session tool descriptions ([#790](https://github.com/usestring/gate-inbox/issues/790)) ([e7761ac](https://github.com/usestring/gate-inbox/commit/e7761acd24bd5a4d4586106f243d700696b7ef29))
+* **notes:** shorten the notes and relays a parent and its children re-read ([#789](https://github.com/usestring/gate-inbox/issues/789)) ([59caa7c](https://github.com/usestring/gate-inbox/commit/59caa7c6b582bcba7b379d9d5d897e9a571bede3))
+
 ## [1.3.0](https://github.com/usestring/gate-inbox/compare/v1.2.0...v1.3.0) (2026-11-20)
 
 

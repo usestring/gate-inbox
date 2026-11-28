@@ -10,7 +10,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-const triageWarmLookahead = 3
+const triageWarmLookahead = 4
 
 type triageWarmMsg struct{}
 

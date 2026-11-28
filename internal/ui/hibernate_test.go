@@ -165,7 +165,8 @@ func TestTriageWarmsASleeperBeforeItIsNext(t *testing.T) {
 	t.Cleanup(keyconfine.UseForTests(keyconfine.Unconfined, nil))
 	m := buildModel(t)
 	sleeping := hibernatedRow(t, m, "sleeper")
-	for _, name := range []string{"current", "ready-one", "ready-two", "ready-three"} {
+	hibernatedRow(t, m, "next-sleeper")
+	for _, name := range []string{"current", "ready-one", "ready-two", "ready-three", "ready-four"} {
 		createSession(t, m, name, t.TempDir(), "")
 	}
 	for i := range 15 {
@@ -173,20 +174,20 @@ func TestTriageWarmsASleeperBeforeItIsNext(t *testing.T) {
 			ID: fmt.Sprintf("busy-%d", i), Tool: "claude", Status: status.Working,
 		})
 	}
-	m.snap = sysstat.Snapshot{MemOK: true, MemTotal: 24 << 30, MemPercent: 65}
+	m.snap = sysstat.Snapshot{MemOK: true, MemTotal: 24 << 30, MemPercent: 60}
 	m.hibernateSweepDue("balanced", time.Now())
 	if !m.hibernatePressure {
 		t.Fatal("fixture must exceed the balanced live session estimate")
 	}
 	m.triage = true
+	m.smartTriage = false
 	m.rebuildRows()
 	m.enterFocusOn(t, "current")
 	if cmd := m.triageWarmCmd(); cmd != nil {
-		t.Fatal("warming reached past three ready handoffs")
+		t.Fatal("warming reached the fifth handoff")
 	}
 
-	// One ready handoff leaves the queue, bringing the sleeper into range.
-	readyID := sessionID(t, m, "ready-three")
+	readyID := sessionID(t, m, "ready-four")
 	ready, _ := m.sessionByID(readyID)
 	m.mute(ready)
 	m.rebuildRows()
@@ -195,10 +196,10 @@ func TestTriageWarmsASleeperBeforeItIsNext(t *testing.T) {
 		t.Fatal("warming started without enough measured memory for one agent")
 	}
 
-	m.snap.MemPercent = 65
+	m.snap.MemPercent = 75
 	cmd := m.triageWarmCmd()
 	if cmd == nil {
-		t.Fatal("warming did not start with two ready handoffs and spare memory")
+		t.Fatal("warming did not reach the fourth handoff with spare memory")
 	}
 	m.applyCmd(t, cmd)
 	if got := focusedName(t, m); got != "current" {
@@ -209,6 +210,18 @@ func TestTriageWarmsASleeperBeforeItIsNext(t *testing.T) {
 	}
 	if still, err := m.store.IsHibernated(sleeping.ID); err != nil || still {
 		t.Fatalf("the sleeper is still marked hibernated: %v, %v", still, err)
+	}
+
+	readyID = sessionID(t, m, "ready-three")
+	ready, _ = m.sessionByID(readyID)
+	m.mute(ready)
+	m.rebuildRows()
+	if cmd := m.triageWarmCmd(); cmd != nil {
+		t.Fatal("warming exceeded the single start that fits in measured memory")
+	}
+	m.snap.MemPercent = 60
+	if cmd := m.triageWarmCmd(); cmd == nil {
+		t.Fatal("warming did not resume when measured memory could cover another start")
 	}
 }
 
